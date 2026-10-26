@@ -1,0 +1,16 @@
+[package]
+name = "scholion-vcs"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+scholion-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+futures = "0.3"
+pollster = "0.4"
+jj-lib = "=0.46.0"
+
+[dev-dependencies]
+tempfile = "3"

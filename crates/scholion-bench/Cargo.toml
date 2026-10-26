@@ -1,0 +1,27 @@
+[package]
+name = "scholion-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+globset = "0.4"
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+tiktoken-rs = "0.9"
+toml = "0.8"
+ureq = { version = "2", features = ["json"] }
+uuid.workspace = true
+
+[dev-dependencies]
+scholion-daemon = { path = "../scholion-daemon" }
+scholion-index = { path = "../scholion-index" }
+scholion-store = { path = "../scholion-store" }
+scholion-testutil = { path = "../scholion-testutil" }
+scholion-vcs = { path = "../scholion-vcs" }
+axum = "0.8"
+tempfile = "3"
+tokio.workspace = true

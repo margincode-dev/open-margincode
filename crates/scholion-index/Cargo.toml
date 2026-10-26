@@ -1,0 +1,24 @@
+[package]
+name = "scholion-index"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+scholion-core.workspace = true
+scholion-store = { path = "../scholion-store" }
+serde.workspace = true
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-rust = "0.24"
+async-trait.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "uuid"] }
+uuid.workspace = true
+
+[dev-dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+scholion-testutil = { path = "../scholion-testutil" }
+tokio.workspace = true

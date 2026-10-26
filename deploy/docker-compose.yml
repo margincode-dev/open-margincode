@@ -1,0 +1,124 @@
+# Scholion stack: daemon + Postgres + Qdrant, all in containers.
+# Requires UID and GID in the environment: `export UID GID=$(id -g)` (bash does not export UID).
+name: scholion
+
+services:
+  postgres:
+    image: postgres:16
+    # DEV-ONLY credentials. Published on localhost only, so host-side tests can use this container:
+    #   AV_TEST_DATABASE_URL=postgres://av:av-dev-only@127.0.0.1:${AV_PG_PORT:-5432}/postgres cargo test --workspace
+    ports:
+      - "127.0.0.1:${AV_PG_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: av
+      POSTGRES_PASSWORD: av-dev-only
+      POSTGRES_DB: av
+    volumes:
+      - av-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U av -d av"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  qdrant:
+    # Pinned on purpose; bump deliberately. (Unverified here: Docker was not available when this was written.)
+    image: qdrant/qdrant:v1.13.6
+    ports:
+      - "127.0.0.1:${AV_QDRANT_PORT:-6333}:6333" # REST
+      - "127.0.0.1:${AV_QDRANT_GRPC_PORT:-6334}:6334" # gRPC
+    volumes:
+      - av-qdrant:/qdrant/storage
+    healthcheck:
+      # the image ships bash but not curl/wget
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333'"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Embedding server for the semantic layer. CPU image; the model downloads on first start.
+  # Pinned on purpose. (Unverified here: this tag was not pulled when this file was written.)
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7.2
+    command: ["--model-id", "BAAI/bge-small-en-v1.5", "--port", "80"]
+    environment:
+      HUGGINGFACE_HUB_CACHE: /data
+    ports:
+      - "127.0.0.1:${AV_TEI_PORT:-8080}:80"
+    volumes:
+      - av-tei:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  # A fresh named volume is root-owned; hand it to the host user so the daemon can write to it.
+  store-init:
+    image: busybox:1.36
+    user: "0:0"
+    command: ["chown", "-R", "${UID:?export UID GID first}:${GID:?export UID GID first}", "/store"]
+    volumes:
+      - av-store:/store
+
+  daemon:
+    # Tagged so a prebuilt image is reused: `docker compose up` without --build skips the Rust build.
+    image: scholion-daemon:dev
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    user: "${UID:?export UID GID first}:${GID:?export UID GID first}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      store-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${AV_DAEMON_PORT:-7420}:7420"
+    environment:
+      AV_DATABASE_URL: postgres://av:av-dev-only@postgres:5432/av
+      AV_STORE_ROOT: /store/jj
+      AV_WS_ROOT: /ws
+      # The same directory as the host sees it; this is the path clients are told to work in.
+      AV_WS_HOST_ROOT: ${AV_WS_ROOT:-${HOME}/ws}
+      AV_LISTEN: 0.0.0.0:7420
+      # Semantic layer: Qdrant (gRPC) + an embedding API. The container has no `ollama` CLI, so it
+      # uses AV_EMBED_URL (TEI by default). The daemon does not wait for either: a down embedder
+      # only degrades packs to Postgres full-text and never blocks `av checkpoint`.
+      AV_QDRANT_URL: http://qdrant:6334
+      AV_EMBED_URL: ${AV_EMBED_URL:-http://tei:80}
+      # Host embedding API key. Empty for a local embedder with no auth. Never commit a real key.
+      AV_EMBED_API_KEY: ${AV_EMBED_API_KEY:-}
+      # Postgres pool size; every concurrent agent request holds a connection while it runs.
+      AV_PG_MAX_CONNECTIONS: ${AV_PG_MAX_CONNECTIONS:-16}
+      AV_LEASE_SECS: ${AV_LEASE_SECS:-1800}
+      # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
+      AV_TOKEN: ${AV_TOKEN:-}
+      # Git backup of main after every merge: whitespace-separated repo=url pairs. SSH remotes need
+      # a key: mount it read-only (see the volume below) and set GIT_SSH_COMMAND to use it.
+      AV_BACKUP_REMOTES: ${AV_BACKUP_REMOTES:-}
+      GIT_SSH_COMMAND: ${AV_BACKUP_SSH_COMMAND:-ssh}
+      # No passwd entry for the host UID inside the container; give git a writable HOME.
+      # (safe.directory for the import mount is set in the image's system git config.)
+      HOME: /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7420/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - av-store:/store
+      # Mount sources default to the host paths. Docker Desktop without WSL integration for the
+      # distro cannot mount WSL paths: point AV_WS_ROOT/AV_IMPORT_ROOT at /mnt/c/... and set
+      # AV_WS_MOUNT/AV_IMPORT_MOUNT to the same folders as C:\... paths.
+      - ${AV_WS_MOUNT:-${AV_WS_ROOT:-${HOME}/ws}}:/ws
+      - ${AV_IMPORT_MOUNT:-${AV_IMPORT_ROOT:-${HOME}/projects}}:/import:ro
+      # For SSH backup remotes, e.g. AV_BACKUP_SSH_COMMAND="ssh -i /keys/id_ed25519 -o StrictHostKeyChecking=accept-new":
+      # - ${HOME}/.ssh/av_backup:/keys:ro
+
+volumes:
+  av-store:
+  av-pg:
+  av-qdrant:
+  av-tei:

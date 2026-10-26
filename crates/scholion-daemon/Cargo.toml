@@ -1,0 +1,43 @@
+[package]
+name = "scholion-daemon"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "scholion_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scholion-daemon"
+path = "src/main.rs"
+
+[dependencies]
+scholion-core.workspace = true
+scholion-index = { path = "../scholion-index" }
+scholion-pack = { path = "../scholion-pack" }
+scholion-semantic = { path = "../scholion-semantic" }
+scholion-store = { path = "../scholion-store" }
+scholion-vcs = { path = "../scholion-vcs" }
+axum = "0.8"
+chrono.workspace = true
+futures = "0.3"
+globset = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+similar = "2"
+sha2 = "0.10"
+subtle = "2.6"
+tower = { version = "0.5", features = ["util"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+tokio.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+scholion-testutil = { path = "../scholion-testutil" }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

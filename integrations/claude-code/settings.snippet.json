@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "__AV_HOOKS__/session-start.sh" }] }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "__AV_HOOKS__/post-edit.sh" }]
+      }
+    ]
+  }
+}

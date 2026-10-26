@@ -1,0 +1,23 @@
+[package]
+name = "scholion-store"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+scholion-core.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+globset = "0.4"
+serde_json.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "uuid", "migrate", "macros", "json"] }
+uuid.workspace = true
+
+[dev-dependencies]
+sha2 = "0.10"
+futures = "0.3"
+serde_json.workspace = true
+scholion-testutil = { path = "../scholion-testutil" }
+tokio.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+uuid.workspace = true

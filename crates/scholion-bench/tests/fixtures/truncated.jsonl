@@ -1,0 +1,5 @@
+{"type": "system", "subtype": "init", "cwd": "/w", "model": "claude-sonnet-5-5"}
+{"type": "assistant", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "toolu_x", "name": "Read", "input": {"file_path": "/w/calc.py"}}], "usage": {"input_tokens": 10, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 500, "output_tokens": 5}}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_x", "content": "ok"}]}}
+{"type": "assistant", "message": {"id": "m2", "content": [{"type": "tool_use", "id": "toolu_x", "name": "Edit", "input": {"file_path": "/w/calc.py", "old_string": "a - b", "new_string": "a + b"}}], "usage": {"input_tokens": 3, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 600, "output_tokens": 6}}}
+{"type":"assistant","message":{"id":"m3","con

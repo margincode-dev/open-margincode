@@ -75,6 +75,13 @@ struct SessionArgs {
     /// Wait this long for a new repo's embeddings before its session.
     #[arg(long, default_value_t = 1800)]
     index_wait_secs: u64,
+    /// Run the av arms on the hooks alone, without the av MCP server (the shipped Claude Code
+    /// integration).
+    #[arg(long)]
+    no_av_mcp: bool,
+    /// `--code` for the session-start hook: `full` or `signatures` (default: the hook's own).
+    #[arg(long, value_parser = ["full", "signatures"])]
+    hook_code: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -233,6 +240,8 @@ fn config(s: &SessionArgs) -> RunConfig {
         hook_budget: s.hook_budget,
         allow_no_semantic: s.allow_no_semantic,
         index_wait_secs: s.index_wait_secs,
+        av_mcp: !s.no_av_mcp,
+        hook_code: s.hook_code.clone(),
     }
 }
 
@@ -260,6 +269,7 @@ fn meta(cfg: &RunConfig, specs: &[TaskSpec], seed: u64) -> Meta {
         ),
         models,
         seed,
+        av_mcp: Some(cfg.av_mcp),
     }
 }
 

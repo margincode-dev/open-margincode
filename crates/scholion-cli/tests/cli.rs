@@ -903,6 +903,24 @@ fn hook_session_start_prints_a_small_pack() {
 }
 
 #[test]
+fn hook_session_start_leaves_bodies_out_unless_asked_for_full_code() {
+    let (d, ws, _scratch) = started();
+    // a session that has been sent nothing yet, as for a new agent
+    let mut tf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    tf["session"] = "fresh-session".into();
+    std::fs::write(ws.join(".av-task"), tf.to_string()).unwrap();
+    // Claude Code reads a file before editing it, so a body in the pack would be sent twice
+    let pack = ok(av(&d, &ws, &["hook", "session-start"]));
+    assert!(pack.contains("def hello(self, name):"), "{pack}");
+    assert!(!pack.contains("return name"), "{pack}");
+    tf["session"] = "another-fresh-session".into();
+    std::fs::write(ws.join(".av-task"), tf.to_string()).unwrap();
+    let full = ok(av(&d, &ws, &["hook", "session-start", "--code", "full"]));
+    assert!(full.contains("return name"), "{full}");
+}
+
+#[test]
 fn hook_post_edit_exits_zero_when_daemon_down() {
     let (_d, ws, _scratch) = started();
     let o = av_with("http://127.0.0.1:1", &ws, &["hook", "post-edit"]);

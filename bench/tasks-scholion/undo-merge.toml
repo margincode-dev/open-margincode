@@ -1,0 +1,15 @@
+name = "undo-merge"
+repo_path = "~/bench-repos/scholion-t"
+base_rev = "bug-undo"
+fix_rev = "main"
+goal = """Undoing a merge fails: av undo right after merging answers 422 "a task that is merged cannot take Undo". Undo is meant to work while the merge is still the newest change on main and put the task back in review. Fix it so an undone merge goes back to in_review; a merged task must keep refusing every other event except a revert. Run only the tests of the crate you change (`cargo test -p <crate> --lib`): the whole workspace takes many minutes to build and its other tests need services this machine does not have."""
+relevant_files = ["crates/scholion-core/src/lifecycle.rs"]
+verify_cmd = "CARGO_TARGET_DIR=$HOME/bench-work/cargo-target cargo test -q -p scholion-core"
+verify_timeout_secs = 900
+max_turns = 40
+model = "claude-haiku-5-5"
+session_timeout_secs = 1200
+
+[[local_tests]]
+path = "crates/scholion-core/tests/hidden_lifecycle.rs"
+source = "files/hidden_lifecycle.rs"

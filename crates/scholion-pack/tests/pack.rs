@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use common::*;
 use scholion_core::*;
 use scholion_index::CodeIndex;
-use scholion_pack::{Packer, estimate_tokens};
+use scholion_pack::{CodeDetail, PackRequest, Packer, estimate_tokens};
 
 /// Scripted `Semantic`. `calls` counts `search` invocations.
 struct FakeSemantic {
@@ -487,6 +487,40 @@ async fn the_goal_is_not_stated_twice() {
         "{}",
         pack.markdown
     );
+}
+
+#[tokio::test]
+async fn a_long_goal_whose_intent_summary_was_clipped_is_not_stated_twice() {
+    let fx = fixture().await;
+    let goal = format!(
+        "Quiet the zebra herd {}",
+        "and keep every stripe intact ".repeat(10)
+    );
+    let t = cold_task(&fx, "Zebra", goal.trim()).await;
+    // what start_task records: the first line clipped to 200 characters, the goal as the body
+    let summary: String = goal.trim().chars().take(200).collect();
+    fx.store
+        .add_record(record(
+            t.id,
+            RecordKind::Intent,
+            &summary,
+            goal.trim(),
+            vec![],
+        ))
+        .await
+        .unwrap();
+    for budget in [800, 4000] {
+        let pack = fx
+            .packer
+            .build(req(&t, budget, &format!("long{budget}")))
+            .await
+            .unwrap();
+        assert!(
+            pack.markdown.matches("Quiet the zebra herd").count() <= 1,
+            "budget {budget}: the auto-recorded intent repeats the goal:\n{}",
+            pack.markdown
+        );
+    }
 }
 
 #[tokio::test]
@@ -1342,5 +1376,118 @@ async fn an_identifier_the_goal_names_seeds_the_pack_with_its_neighbours() {
     assert!(
         md.contains("Greeter.hello"),
         "its caller comes in through the reference graph:\n{md}"
+    );
+}
+
+#[tokio::test]
+async fn a_cold_start_without_seeds_pulls_in_what_the_best_hits_reference() {
+    let fx = fixture().await;
+    let t = cold_task(&fx, "Louder", "The greeter should say hello louder").await;
+    let pack = fx.packer.build(req(&t, 2000, "cold-hops")).await.unwrap();
+    let md = &pack.markdown;
+    let code = &md[md.find("## Code").expect("a Code section")..];
+    assert!(code.contains("Greeter.hello"), "the text hit:\n{md}");
+    assert!(
+        code.contains("format_name (app/util.py:1-2)\n  def format_name(n):"),
+        "what the best hit calls comes in through the reference graph:\n{md}"
+    );
+    assert!(
+        !code.contains("return n.title()"),
+        "a neighbour of a guess is context: its signature, not its body:\n{md}"
+    );
+}
+
+#[tokio::test]
+async fn a_signatures_pack_locates_code_without_its_bodies() {
+    let fx = fixture().await;
+    let t = cold_task(&fx, "Zebra", "The zebra function should return two").await;
+    let pack = fx
+        .packer
+        .build(PackRequest {
+            code: CodeDetail::Signatures,
+            ..req(&t, 2000, "sigs")
+        })
+        .await
+        .unwrap();
+    let md = &pack.markdown;
+    assert!(
+        md.contains("zebra (app/unrelated.py:1-2)\n  def zebra():"),
+        "path, lines and signature:\n{md}"
+    );
+    assert!(!md.contains("return 1"), "no body:\n{md}");
+}
+
+#[tokio::test]
+async fn a_body_left_out_of_a_signatures_pack_is_still_sent_by_a_later_full_pack() {
+    let fx = fixture().await;
+    let t = cold_task(&fx, "Zebra", "The zebra function should return two").await;
+    let sigs = fx
+        .packer
+        .build(PackRequest {
+            code: CodeDetail::Signatures,
+            ..req(&t, 2000, "same-session")
+        })
+        .await
+        .unwrap();
+    assert!(!sigs.markdown.contains("return 1"), "{}", sigs.markdown);
+    let full = fx
+        .packer
+        .build(req(&t, 2000, "same-session"))
+        .await
+        .unwrap();
+    assert!(
+        full.markdown.contains("def zebra():\n    return 1"),
+        "the session was sent the signature only, so the body is not 'sent earlier':\n{}",
+        full.markdown
+    );
+}
+
+#[tokio::test]
+async fn a_type_that_tops_the_text_hits_does_not_pull_in_everything_that_uses_it() {
+    let fx = fixture().await;
+    let files: &[(&str, &str)] = &[
+        (
+            "app/settings.py",
+            "class Settings:\n    \"\"\"Depth, roots, symlinks and paths for a walk.\"\"\"\n    depth = 1\n    roots = []\n    symlinks = True\n",
+        ),
+        ("app/cli.py", "def parse_args():\n    return Settings()\n"),
+        (
+            "app/walk.py",
+            "def depth_of(path, roots):\n    return len(path) - len(roots)\n",
+        ),
+    ];
+    fx.vcs.set("zoo", files);
+    let t = fx
+        .store
+        .create_task(NewTask {
+            goal: "The depth of a symlink under the walk roots is wrong".into(),
+            ..new_task("Depth")
+        })
+        .await
+        .unwrap();
+    let zoo = ChangeId("zoo".into());
+    fx.store
+        .set_workspace(t.id, std::path::Path::new("/ws/demo/depth"), &zoo)
+        .await
+        .unwrap();
+    fx.store.set_head(t.id, &zoo, &[]).await.unwrap();
+    fx.index
+        .index_paths(
+            "demo",
+            &t.slug,
+            files
+                .iter()
+                .map(|(p, c)| (p.to_string(), c.as_bytes().to_vec()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    let t = fx.store.get_task(t.id).await.unwrap();
+    let pack = fx.packer.build(req(&t, 2000, "depth")).await.unwrap();
+    let md = &pack.markdown;
+    assert!(md.contains("def depth_of(path, roots):"), "{md}");
+    assert!(
+        !md.contains("parse_args"),
+        "a type's neighbours are everything that uses it: no guess to expand from:\n{md}"
     );
 }

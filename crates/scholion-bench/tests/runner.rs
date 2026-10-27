@@ -94,6 +94,8 @@ fn fixture(mode: &str) -> Fixture {
         hook_budget: 800,
         allow_no_semantic: true,
         index_wait_secs: 60,
+        av_mcp: true,
+        hook_code: None,
     };
     Fixture {
         _repo: repo,
@@ -290,6 +292,39 @@ fn av_no_packs_arm_starts_a_task_only_task() {
     assert!(
         pack.contains("## Task") && !pack.contains("## Map"),
         "{pack}"
+    );
+}
+
+#[test]
+fn av_arm_without_mcp_runs_on_hooks_alone() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.av_mcp = false;
+    let o = run_session(&f.spec, Arm::Av, 1, "t11", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    assert_eq!(o.verify_exit, Some(0), "{o:?}");
+    let mcp: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(o.run_dir.join("mcp.json")).unwrap())
+            .unwrap();
+    assert_eq!(mcp, serde_json::json!({"mcpServers": {}}));
+    let fired = std::fs::read_to_string(o.run_dir.join("hook-count")).unwrap();
+    assert_eq!(fired.lines().count(), 2, "{fired}");
+}
+
+#[test]
+fn hook_code_is_passed_to_the_session_start_hook() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.hook_code = Some("signatures".into());
+    let o = run_session(&f.spec, Arm::Av, 1, "t12", &f.cfg).unwrap();
+    let settings = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
+    assert!(
+        settings.contains("session-start --budget 800 --code 'signatures'"),
+        "{settings}"
     );
 }
 

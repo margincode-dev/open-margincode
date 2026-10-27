@@ -1,0 +1,15 @@
+diff --git a/tallyho/report/csv_export.py b/tallyho/report/csv_export.py
+index 94b9df4..e0bfce1 100644
+--- a/tallyho/report/csv_export.py
++++ b/tallyho/report/csv_export.py
+@@ -10,8 +10,8 @@ ORDER_COLUMNS = ["id", "customer", "status", "items", "subtotal", "total", "curr
+ 
+ def _cell(value: object) -> str:
+     text = "" if value is None else str(value)
+-    if "," in text:
+-        return f'"{text}"'
++    if any(c in text for c in ',"\r\n') or text != text.strip():
++        return '"' + text.replace('"', '""') + '"'
+     return text
+ 
+ 

@@ -1,0 +1,28 @@
+diff --git a/crates/scholion-core/src/lifecycle.rs b/crates/scholion-core/src/lifecycle.rs
+index 4f710b8..4ef1498 100644
+--- a/crates/scholion-core/src/lifecycle.rs
++++ b/crates/scholion-core/src/lifecycle.rs
+@@ -55,7 +55,6 @@ pub fn next(status: TaskStatus, event: Event) -> Result<TaskStatus> {
+         (S::InReview, E::MergeOk) => Ok(S::Merged),
+         (S::InReview, E::MergeConflict) => Ok(S::Conflicted),
+         (S::Conflicted, E::Resolve) => Ok(S::Open),
+-        (S::Merged, E::Undo) => Ok(S::InReview),
+         (S::Open | S::HandedOff | S::InReview | S::Conflicted, E::Abandon) => Ok(S::Abandoned),
+         (from, ev) => Err(AvError::IllegalState(format!(
+             "a task that is {} cannot take {ev:?}",
+@@ -95,7 +94,6 @@ mod tests {
+             (InReview, Event::MergeOk, Merged),
+             (InReview, Event::MergeConflict, Conflicted),
+             (Conflicted, Event::Resolve, Open),
+-            (Merged, Event::Undo, InReview),
+             (Open, Event::Abandon, Abandoned),
+             (HandedOff, Event::Abandon, Abandoned),
+             (InReview, Event::Abandon, Abandoned),
+@@ -117,7 +115,6 @@ mod tests {
+     fn abandoned_is_terminal_and_merged_allows_only_undo() {
+         for ev in ALL_EVENTS {
+             assert!(next(Abandoned, ev).is_err(), "{ev:?}");
+-            assert_eq!(next(Merged, ev).is_ok(), ev == Event::Undo, "{ev:?}");
+         }
+     }
+ 

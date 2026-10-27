@@ -1,0 +1,8 @@
+[project]
+name = "tallyho"
+version = "0.4.0"
+description = "Orders, pricing and ledgers for small shops."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

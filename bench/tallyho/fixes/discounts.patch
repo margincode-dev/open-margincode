@@ -1,0 +1,37 @@
+diff --git a/tallyho/pricing/discounts.py b/tallyho/pricing/discounts.py
+index 9e3a681..1c659a5 100644
+--- a/tallyho/pricing/discounts.py
++++ b/tallyho/pricing/discounts.py
+@@ -47,21 +47,17 @@ def apply_discounts(subtotal: Money, discounts: list[Discount]) -> tuple[Money,
+     """Apply ``discounts`` to ``subtotal``.
+ 
+     Returns the discounted subtotal and one ``(code, amount_off)`` entry per discount,
+-    in the order given. Percentages are added up and taken off the subtotal together;
+-    fixed discounts are then taken off what remains. The result never goes below zero.
++    in the order given. Percentages compound: each is taken off what the previous
++    percentages left. Fixed discounts are then taken off what remains, never below zero.
+     """
+-    applied: list[tuple[str, Money]] = []
+-    percent_total = Decimal(0)
+-    for d in discounts:
++    off: dict[int, Money] = {}
++    remaining = subtotal
++    for i, d in enumerate(discounts):
+         if isinstance(d, PercentDiscount):
+-            percent_total += Decimal(d.percent)
+-            applied.append((d.code, subtotal.times(Decimal(d.percent) / 100)))
+-    remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)
+-    for d in discounts:
++            off[i] = d.amount_off(remaining)
++            remaining = remaining - off[i]
++    for i, d in enumerate(discounts):
+         if isinstance(d, FixedDiscount):
+-            off = d.amount_off(remaining)
+-            remaining = remaining - off
+-            applied.append((d.code, off))
+-    if remaining.minor < 0:
+-        remaining = Money.zero(subtotal.currency)
+-    return remaining, applied
++            off[i] = d.amount_off(remaining)
++            remaining = remaining - off[i]
++    return remaining, [(d.code, off[i]) for i, d in enumerate(discounts) if i in off]

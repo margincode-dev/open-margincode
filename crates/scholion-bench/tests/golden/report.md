@@ -1,6 +1,6 @@
 # scholion-bench report
 
-Date 2026-10-22 20:00 UTC · claude 2.1.308 (Claude Code) · av abc1234 · model claude-sonnet-5-5 · seed 1 · 10 sessions launched, $7.750 spent
+Date 2026-10-22 20:00 UTC · claude 2.1.308 (Claude Code) · av abc1234 · model claude-sonnet-5-5 · seed 1 · av arms: hooks + MCP · 10 sessions launched, $7.750 spent
 
 Valid sessions per arm: baseline 3, av_no_packs 3, av 3.
 **No significance claim**: fewer than 30 valid sessions in at least one arm; the intervals below are bootstrap 95% CIs of the median and are wide at this n.

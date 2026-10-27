@@ -1,0 +1,15 @@
+name = "summary-chars"
+repo_path = "~/bench-repos/scholion-t"
+base_rev = "bug-summary"
+fix_rev = "main"
+goal = """Recording a decision whose summary has accented or non-Latin characters (for example 150 characters of Japanese) is refused as too long, although the limit is 200 characters. Fix the summary length check so it counts characters, not bytes; ASCII summaries keep the same limit. Run only the tests of the crate you change (`cargo test -p <crate> --lib`): the whole workspace takes many minutes to build and its other tests need services this machine does not have."""
+relevant_files = ["crates/scholion-core/src/types.rs"]
+verify_cmd = "CARGO_TARGET_DIR=$HOME/bench-work/cargo-target cargo test -q -p scholion-core"
+verify_timeout_secs = 900
+max_turns = 40
+model = "claude-haiku-5-5"
+session_timeout_secs = 1200
+
+[[local_tests]]
+path = "crates/scholion-core/tests/hidden_summary.rs"
+source = "files/hidden_summary.rs"

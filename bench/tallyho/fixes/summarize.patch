@@ -1,0 +1,44 @@
+diff --git a/tallyho/text.py b/tallyho/text.py
+index 8201a4a..7b1091f 100644
+--- a/tallyho/text.py
++++ b/tallyho/text.py
+@@ -33,27 +33,25 @@ def pad(text: str, width: int, align: str = "left") -> str:
+ def summarize(text: str, max_length: int = 60) -> str:
+     """The first sentence of ``text``, for one-line listings.
+ 
+-    Only the first paragraph counts and whitespace is collapsed. The text is cut after
+-    the first period; if that is still longer than ``max_length`` it is cut on a word
+-    boundary and ``"..."`` is appended.
++    Only the first paragraph counts and whitespace is collapsed. A period ends the
++    sentence when it closes the text or when the next word does not start in lowercase,
++    so abbreviations such as "vs." do not. A sentence longer than ``max_length`` is
++    shortened on word boundaries with a ``"..."`` suffix.
+     """
+-    para = text.split("\n\n", 1)[0]
+-    words = para.split()
+-    if not words:
+-        return ""
+-    length = 0
++    words = text.partition("\n\n")[0].split()
++    last = len(words) - 1
+     for i, word in enumerate(words):
+-        length += len(word) + (1 if i else 0)
+-        if word.endswith("."):
++        if word.endswith(".") and (i == last or not words[i + 1][0].islower()):
+             words = words[: i + 1]
+             break
+     result = " ".join(words)
+     if len(result) <= max_length:
+         return result
+-    cut = result[: max_length - 3]
+-    if " " in cut:
+-        cut = cut[: cut.rindex(" ")]
+-    return cut + "..."
++    if max_length < len("..."):
++        return "..."
++    import textwrap
++
++    return textwrap.shorten(result, max_length, placeholder="...", break_on_hyphens=False)
+ 
+ 
+ def plural(n: int, word: str, suffix: str = "s") -> str:

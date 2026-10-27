@@ -83,6 +83,11 @@ pub struct RunConfig {
     pub allow_no_semantic: bool,
     /// How long to wait for a new repo's embeddings to drain before its session starts.
     pub index_wait_secs: u64,
+    /// Give the av arms the av MCP server as well as the hooks. Off measures the shipped
+    /// Claude Code integration (`integrations/claude-code`), which is hooks only.
+    pub av_mcp: bool,
+    /// `--code` for the session-start hook (`full` or `signatures`); `None` = the hook's default.
+    pub hook_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -466,8 +471,13 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
     }
     let count = sh_quote(&dir.join("hook-count").to_string_lossy());
     let av = sh_quote(&cfg.av_bin);
+    let code = cfg
+        .hook_code
+        .as_deref()
+        .map(|c| format!(" --code {}", sh_quote(c)))
+        .unwrap_or_default();
     let start = format!(
-        "echo session-start >> {count}; {av} hook session-start --budget {}",
+        "echo session-start >> {count}; {av} hook session-start --budget {}{code}",
         cfg.hook_budget
     );
     let edit = format!("echo post-edit >> {count}; {av} hook post-edit");
@@ -479,7 +489,7 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
 }
 
 fn mcp_config(arm: Arm, cfg: &RunConfig, task: Option<&AvTask>) -> Value {
-    let (Some(url), Some(task)) = (&cfg.av_url, task) else {
+    let (Some(url), Some(task), true) = (&cfg.av_url, task, cfg.av_mcp) else {
         return json!({"mcpServers": {}});
     };
     debug_assert!(arm.uses_av());
@@ -577,7 +587,7 @@ pub fn run_session(
     }
 
     let mut tools = cfg.allowed_tools.clone();
-    if arm.uses_av() {
+    if arm.uses_av() && cfg.av_mcp {
         tools.push("mcp__av".into());
     }
     let mut cmd = Command::new(&cfg.claude_bin);

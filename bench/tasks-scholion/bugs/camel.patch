@@ -1,0 +1,29 @@
+diff --git a/crates/scholion-pack/src/lexical.rs b/crates/scholion-pack/src/lexical.rs
+index 9ea62e6..6ba7adc 100644
+--- a/crates/scholion-pack/src/lexical.rs
++++ b/crates/scholion-pack/src/lexical.rs
+@@ -45,7 +45,7 @@ pub fn words(text: &str) -> Vec<String> {
+         }
+         out.push(whole.clone());
+         if parts.len() > 1 {
+-            out.extend(parts.into_iter().filter(|p| p.len() >= 2 && *p != whole));
++            out.extend(parts.into_iter().filter(|p| p.len() > 4 && *p != whole));
+         }
+     }
+     out
+@@ -144,14 +144,7 @@ mod tests {
+     #[test]
+     fn words_split_identifiers() {
+         let w = words("parseHTTPRequest snake_case");
+-        for want in [
+-            "parsehttprequest",
+-            "parse",
+-            "http",
+-            "request",
+-            "snake",
+-            "case",
+-        ] {
++        for want in ["parsehttprequest", "parse", "request", "snake", "case"] {
+             assert!(w.contains(&want.to_owned()), "{want} missing from {w:?}");
+         }
+     }

@@ -6,13 +6,18 @@ use std::process::{Command, ExitCode, Stdio};
 use clap::{Args, Parser, Subcommand};
 use scholion_bench::calibrate::{Probe, cl100k_tokens, estimate_error, recommended_factor};
 use scholion_bench::events::parse_stream;
+use scholion_bench::mine::{MineArgs, mine};
 use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
-use scholion_bench::runner::{Arm, RunConfig};
+use scholion_bench::retrieval::{self, RetrievalArgs};
+use scholion_bench::runner::{Arm, Daemon, RunConfig};
 use scholion_bench::spec::{TaskSpec, check_spec, load_spec_with_root, spec_files};
 
 #[derive(Parser)]
-#[command(name = "scholion-bench", about = "Scholion benchmark harness (Plan 4)")]
+#[command(
+    name = "scholion-bench",
+    about = "Scholion benchmark harness (Plans 4 and 6)"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -113,6 +118,62 @@ enum Cmd {
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
+    /// Offline pack retrieval (Plan 6, E1): score first packs and three baselines against each
+    /// task's fix. No agent and no money; the pack method needs a daemon.
+    Retrieval {
+        /// `.toml` specs, `.jsonl` retrieval sets, or directories of specs.
+        #[arg(required = true)]
+        tasks: Vec<PathBuf>,
+        /// Where the source repos live, side by side (looked up by directory name).
+        #[arg(long, env = "AV_BENCH_REPOS")]
+        repos: Option<PathBuf>,
+        #[arg(long, value_delimiter = ',', default_value = "2000,4000,8000")]
+        budgets: Vec<u32>,
+        /// Results directory (rows.jsonl, gold.jsonl, texts/, report.md).
+        #[arg(long)]
+        out: PathBuf,
+        /// The daemon that builds the packs (a bench daemon, never your real one).
+        #[arg(long, env = "AV_BENCH_URL")]
+        url: Option<String>,
+        #[arg(long, env = "AV_TOKEN", hide_env_values = true)]
+        token: Option<String>,
+        /// Host directory the daemon imports from.
+        #[arg(long, default_value = "~/bench-work/src")]
+        import_dir: PathBuf,
+        /// The same directory as the daemon sees it.
+        #[arg(long, default_value = "/import")]
+        import_mount: String,
+        /// Measure full-text-only packs when the daemon has no semantic layer.
+        #[arg(long)]
+        allow_no_semantic: bool,
+        #[arg(long, default_value_t = 1800)]
+        index_wait_secs: u64,
+        /// Baselines only (no daemon).
+        #[arg(long)]
+        no_pack: bool,
+    },
+    /// Mine retrieval tasks from a repo's history (small commits to non-test source files).
+    Mine {
+        /// The local clone to mine.
+        repo: PathBuf,
+        /// What to write as each task's repo_path [default: REPO as given].
+        #[arg(long)]
+        repo_path: Option<String>,
+        /// Task name prefix [default: the repo's directory name].
+        #[arg(long)]
+        prefix: Option<String>,
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long, default_value_t = 3)]
+        max_files: usize,
+        #[arg(long, default_value_t = 200)]
+        max_lines: usize,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        /// Output `.jsonl` (stdout when omitted).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Recommend AV_TOKEN_FACTOR_CLAUDE from stored packs (pack.md files under DIR).
     Calibrate {
         #[arg(long)]
@@ -398,6 +459,75 @@ fn main() -> ExitCode {
             let md = render_report(&rows, &meta);
             std::fs::write(dir.join("report.md"), &md).map_err(|e| e.to_string())?;
             print!("{md}");
+            Ok(0)
+        })(),
+        Cmd::Retrieval {
+            tasks,
+            repos,
+            budgets,
+            out,
+            url,
+            token,
+            import_dir,
+            import_mount,
+            allow_no_semantic,
+            index_wait_secs,
+            no_pack,
+        } => (|| {
+            let tasks = retrieval::load_tasks(&tasks, repos.as_deref().map(expand).as_deref())?;
+            let daemon = url.as_deref().map(|u| Daemon::new(u, token.as_deref()));
+            if let Some(d) = &daemon {
+                d.preflight()?;
+            }
+            let args = RetrievalArgs {
+                budgets,
+                out: expand(&out),
+                import_dir: expand(&import_dir),
+                import_mount,
+                allow_no_semantic,
+                index_wait_secs,
+                no_pack,
+            };
+            retrieval::run(&tasks, daemon.as_ref(), &args)?;
+            println!("report: {}", args.out.join("report.md").display());
+            Ok(0)
+        })(),
+        Cmd::Mine {
+            repo,
+            repo_path,
+            prefix,
+            since,
+            max_files,
+            max_lines,
+            limit,
+            out,
+        } => (|| {
+            let repo = expand(&repo);
+            let name = repo
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "repo".into());
+            let args = MineArgs {
+                repo_path: repo_path.unwrap_or_else(|| repo.display().to_string()),
+                prefix: prefix.unwrap_or(name),
+                since,
+                max_files,
+                max_lines,
+                limit,
+            };
+            let tasks = mine(&repo, &args)?;
+            let text: String = tasks
+                .iter()
+                .map(|t| serde_json::to_string(t).map(|l| l + "\n"))
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            match out {
+                Some(p) => {
+                    std::fs::write(expand(&p), text).map_err(|e| e.to_string())?;
+                    eprintln!("{} tasks -> {}", tasks.len(), p.display());
+                }
+                None => print!("{text}"),
+            }
             Ok(0)
         })(),
         Cmd::Calibrate {

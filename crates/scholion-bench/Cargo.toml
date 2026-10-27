@@ -9,6 +9,7 @@ publish.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 globset = "0.4"
 regex = "1"
+scholion-index = { path = "../scholion-index" }
 serde.workspace = true
 serde_json.workspace = true
 tiktoken-rs = "0.9"
@@ -18,7 +19,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 scholion-daemon = { path = "../scholion-daemon" }
-scholion-index = { path = "../scholion-index" }
 scholion-store = { path = "../scholion-store" }
 scholion-testutil = { path = "../scholion-testutil" }
 scholion-vcs = { path = "../scholion-vcs" }

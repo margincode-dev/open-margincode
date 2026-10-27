@@ -2,19 +2,11 @@ mod common;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::thread::JoinHandle;
 
 use common::*;
 use scholion_bench::runner::{Arm, RunConfig, run_session};
 use scholion_bench::spec::{TaskSpec, load_spec};
-use scholion_daemon::{AppState, router};
-use scholion_index::PgIndex;
-use scholion_store::PgStore;
-use scholion_testutil::TestDb;
-use scholion_vcs::JjVcs;
 use tempfile::TempDir;
-use tokio::sync::oneshot;
 
 /// A fake `claude`: checks its working directory, runs the SessionStart and PostToolUse hooks
 /// from `--settings`, edits `calc.py` (unless FAKE_MODE=nofix) and prints a canned transcript.
@@ -208,72 +200,6 @@ fn av_arm_aborts_before_spending_when_daemon_down() {
     let err = run_session(&f.spec, Arm::Av, 1, "t5", &f.cfg).unwrap_err();
     assert!(err.contains("not up"), "{err}");
     assert!(!f.marker.exists(), "claude must never be invoked");
-}
-
-/// A real daemon on an ephemeral port.
-struct Daemon {
-    url: String,
-    shutdown: Option<oneshot::Sender<()>>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
-fn start_daemon(token: Option<&str>) -> Daemon {
-    let token = token.map(str::to_owned);
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let thread = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async move {
-            let db = TestDb::new().await;
-            let store_dir = TempDir::new().unwrap();
-            let ws = TempDir::new().unwrap();
-            let store = Arc::new(PgStore::connect(&db.url).await.unwrap());
-            let index = Arc::new(PgIndex::new(store.pool().clone()));
-            let vcs = Arc::new(JjVcs::new(
-                store_dir.path().to_path_buf(),
-                ws.path().to_path_buf(),
-            ));
-            let state = AppState::new(
-                vcs,
-                store,
-                index,
-                ws.path().to_path_buf(),
-                ws.path().to_path_buf(),
-            )
-            .with_token(token);
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            ready_tx
-                .send(format!("http://{}", listener.local_addr().unwrap()))
-                .unwrap();
-            axum::serve(listener, router(state))
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .await
-                .unwrap();
-            drop((db, store_dir, ws));
-        });
-    });
-    let url = ready_rx.recv().expect("daemon failed to start");
-    Daemon {
-        url,
-        shutdown: Some(shutdown_tx),
-        thread: Some(thread),
-    }
 }
 
 fn get(url: &str) -> serde_json::Value {

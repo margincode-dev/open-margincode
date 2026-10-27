@@ -2,6 +2,16 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+use scholion_daemon::{AppState, router};
+use scholion_index::PgIndex;
+use scholion_store::PgStore;
+use scholion_testutil::TestDb;
+use scholion_vcs::JjVcs;
+use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 pub fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -69,4 +79,70 @@ pattern = 'return b - a'
 "#,
         repo = repo.display()
     )
+}
+
+/// A real daemon on an ephemeral port.
+pub struct TestDaemon {
+    pub url: String,
+    shutdown: Option<oneshot::Sender<()>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Drop for TestDaemon {
+    fn drop(&mut self) {
+        if let Some(tx) = self.shutdown.take() {
+            let _ = tx.send(());
+        }
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+pub fn start_daemon(token: Option<&str>) -> TestDaemon {
+    let token = token.map(str::to_owned);
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let thread = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let db = TestDb::new().await;
+            let store_dir = TempDir::new().unwrap();
+            let ws = TempDir::new().unwrap();
+            let store = Arc::new(PgStore::connect(&db.url).await.unwrap());
+            let index = Arc::new(PgIndex::new(store.pool().clone()));
+            let vcs = Arc::new(JjVcs::new(
+                store_dir.path().to_path_buf(),
+                ws.path().to_path_buf(),
+            ));
+            let state = AppState::new(
+                vcs,
+                store,
+                index,
+                ws.path().to_path_buf(),
+                ws.path().to_path_buf(),
+            )
+            .with_token(token);
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            ready_tx
+                .send(format!("http://{}", listener.local_addr().unwrap()))
+                .unwrap();
+            axum::serve(listener, router(state))
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+            drop((db, store_dir, ws));
+        });
+    });
+    let url = ready_rx.recv().expect("daemon failed to start");
+    TestDaemon {
+        url,
+        shutdown: Some(shutdown_tx),
+        thread: Some(thread),
+    }
 }

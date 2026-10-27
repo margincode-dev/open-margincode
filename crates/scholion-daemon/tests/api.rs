@@ -2576,3 +2576,23 @@ async fn context_with_code_signatures_shows_where_code_is_but_not_its_body() {
     assert!(md.contains("def format_name(n):"), "{md}");
     assert!(!md.contains("n.title()"), "{md}");
 }
+
+#[tokio::test]
+async fn context_can_leave_out_the_map_and_cap_the_code_items() {
+    let e = env().await;
+    let t = start_task(&e, "Lean").await;
+    let uri = |extra: &str, s: &str| {
+        format!(
+            "/v1/tasks/{}/context?budget=3000&focus=format_name&session={s}{extra}",
+            id(&t)
+        )
+    };
+    let (_, all) = call(&e.app, "GET", &uri("", "lean-a"), None).await;
+    let all = all["markdown"].as_str().unwrap();
+    assert!(all.contains("## Map"), "{all}");
+    let (status, lean) = call(&e.app, "GET", &uri("&map=false&max_code=1", "lean-b"), None).await;
+    assert_eq!(status, StatusCode::OK, "{lean}");
+    let md = lean["markdown"].as_str().unwrap();
+    assert!(!md.contains("## Map"), "{md}");
+    assert_eq!(md.matches("- sym:").count(), 1, "{md}");
+}

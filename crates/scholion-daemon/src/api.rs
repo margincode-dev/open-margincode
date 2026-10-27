@@ -204,6 +204,8 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
             session: Some(req.session),
             family: AgentFamily::default(),
             code: CodeDetail::Full,
+            map: true,
+            max_code: None,
         })
         .await?;
     Ok(Json(Started { task, pack }))
@@ -407,6 +409,10 @@ struct ContextQuery {
     family: Option<AgentFamily>,
     /// `full` (default) or `signatures`: code items without their bodies.
     code: Option<CodeDetail>,
+    /// `false`: no Map section (file skeletons, repo layout).
+    map: Option<bool>,
+    /// At most this many code items, the best scored.
+    max_code: Option<usize>,
 }
 
 async fn context(
@@ -423,6 +429,8 @@ async fn context(
             session: q.session.filter(|s| !s.trim().is_empty()),
             family: q.family.unwrap_or_default(),
             code: q.code.unwrap_or_default(),
+            map: q.map.unwrap_or(true),
+            max_code: q.max_code,
         })
         .await?;
     Ok(Json(with_main_health(&st, task_id(id), pack).await))

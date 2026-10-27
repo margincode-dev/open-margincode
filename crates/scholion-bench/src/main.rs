@@ -82,6 +82,10 @@ struct SessionArgs {
     /// `--code` for the session-start hook: `full` or `signatures` (default: the hook's own).
     #[arg(long, value_parser = ["full", "signatures"])]
     hook_code: Option<String>,
+    /// One more argument for the session-start hook, repeatable: `--hook-arg=--no-map
+    /// --hook-arg=--max-code=3`.
+    #[arg(long = "hook-arg", allow_hyphen_values = true)]
+    hook_args: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -242,6 +246,7 @@ fn config(s: &SessionArgs) -> RunConfig {
         index_wait_secs: s.index_wait_secs,
         av_mcp: !s.no_av_mcp,
         hook_code: s.hook_code.clone(),
+        hook_args: s.hook_args.clone(),
     }
 }
 
@@ -270,6 +275,12 @@ fn meta(cfg: &RunConfig, specs: &[TaskSpec], seed: u64) -> Meta {
         models,
         seed,
         av_mcp: Some(cfg.av_mcp),
+        hook_args: cfg
+            .hook_code
+            .iter()
+            .map(|c| format!("--code={c}"))
+            .chain(cfg.hook_args.iter().cloned())
+            .collect(),
     }
 }
 

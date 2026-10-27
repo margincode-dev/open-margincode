@@ -97,3 +97,17 @@ prompts. Both shrink relative to what a pack saves as the repo grows. The next m
 
 Within 0.02 everywhere; more gold files are named. E1 scores full packs. A signatures pack shows
 no bodies, so for it only files_code, symbols_sig and files_named apply.
+
+## Follow-up: the pack makes agents open more files
+
+`tool-mass.py` over the `04-final-shipped-*` transcripts: av agents read 2.88 files per session
+(4.9k characters), baseline agents 1.45 (1.9k, plus 1.8k through `cat`). Signatures packs list a
+median of 12 code items over several files, and agents open the files of the weak ones (`Order`,
+`Product.__post_init__` on csv-escaping). Full-body packs, which answer more in place, led to about
+1.8 reads. Half of an 800-token pack was the repo layout.
+
+On E1 (2000-token packs), the first gold file is the top code item in 64% of tasks, within the top
+3 in 83% and the top 5 in 88%. So the hook can name far fewer items and lose little:
+`av hook session-start --no-map --max-code N` (and `map=false&max_code=N` on the context route)
+leave out the Map section and keep the N best code items. The defaults are unchanged until a run
+measures them: `scholion-bench run --no-av-mcp --hook-arg=--no-map --hook-arg=--max-code=3`.

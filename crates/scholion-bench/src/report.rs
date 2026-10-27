@@ -52,6 +52,9 @@ pub struct Meta {
     /// Whether the av arms had the av MCP server besides the hooks; `None` in older results.
     #[serde(default)]
     pub av_mcp: Option<bool>,
+    /// Arguments the session-start hook ran with beyond its budget; empty = its defaults.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hook_args: Vec<String>,
 }
 
 fn valid<'a>(rows: &'a [Row], arm: &str) -> Vec<&'a Row> {
@@ -132,7 +135,7 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# scholion-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {}{} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
@@ -142,6 +145,11 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
             Some(true) => " · av arms: hooks + MCP",
             Some(false) => " · av arms: hooks only",
             None => "",
+        },
+        if meta.hook_args.is_empty() {
+            String::new()
+        } else {
+            format!(" · hook: {}", meta.hook_args.join(" "))
         },
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)

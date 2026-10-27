@@ -921,6 +921,35 @@ fn hook_session_start_leaves_bodies_out_unless_asked_for_full_code() {
 }
 
 #[test]
+fn hook_session_start_can_leave_out_the_map_and_cap_the_code_items() {
+    let (d, ws, _scratch) = started();
+    let mut tf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    tf["session"] = "fresh-session".into();
+    std::fs::write(ws.join(".av-task"), tf.to_string()).unwrap();
+    let pack = ok(av(&d, &ws, &["hook", "session-start", "--budget", "3000"]));
+    assert!(pack.contains("## Map"), "{pack}");
+    assert!(pack.matches("- sym:").count() > 1, "{pack}");
+    tf["session"] = "another-fresh-session".into();
+    std::fs::write(ws.join(".av-task"), tf.to_string()).unwrap();
+    let lean = ok(av(
+        &d,
+        &ws,
+        &[
+            "hook",
+            "session-start",
+            "--budget",
+            "3000",
+            "--no-map",
+            "--max-code",
+            "1",
+        ],
+    ));
+    assert!(!lean.contains("## Map"), "{lean}");
+    assert_eq!(lean.matches("- sym:").count(), 1, "{lean}");
+}
+
+#[test]
 fn hook_post_edit_exits_zero_when_daemon_down() {
     let (_d, ws, _scratch) = started();
     let o = av_with("http://127.0.0.1:1", &ws, &["hook", "post-edit"]);

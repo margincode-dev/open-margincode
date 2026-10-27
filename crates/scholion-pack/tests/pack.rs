@@ -1418,6 +1418,71 @@ async fn a_signatures_pack_locates_code_without_its_bodies() {
 }
 
 #[tokio::test]
+async fn a_pack_without_the_map_leaves_out_the_repo_layout() {
+    let fx = fixture().await;
+    let with = fx
+        .packer
+        .build(req(&fx.task, 2000, "map-on"))
+        .await
+        .unwrap();
+    assert!(with.markdown.contains("repo map"), "{}", with.markdown);
+    let without = fx
+        .packer
+        .build(PackRequest {
+            map: false,
+            ..req(&fx.task, 2000, "map-off")
+        })
+        .await
+        .unwrap();
+    assert!(!without.markdown.contains("## Map"), "{}", without.markdown);
+    assert!(without.markdown.contains("## Code"), "{}", without.markdown);
+}
+
+/// The `- sym:` lines of a pack's Code section, in order.
+fn code_lines(md: &str) -> Vec<&str> {
+    let code = md.split("## Code").nth(1).unwrap_or("");
+    let code = code.split("\n## ").next().unwrap_or("");
+    code.lines().filter(|l| l.starts_with("- sym:")).collect()
+}
+
+#[tokio::test]
+async fn a_pack_capped_at_n_code_items_keeps_the_best_scored_ones() {
+    let fx = fixture().await;
+    let all = fx
+        .packer
+        .build(req(&fx.task, 4000, "uncapped"))
+        .await
+        .unwrap();
+    let all = code_lines(&all.markdown);
+    assert!(
+        all.len() > 1,
+        "the fixture needs several code items: {all:?}"
+    );
+    let capped = fx
+        .packer
+        .build(PackRequest {
+            max_code: Some(1),
+            ..req(&fx.task, 4000, "capped")
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        code_lines(&capped.markdown),
+        all[..1],
+        "{}",
+        capped.markdown
+    );
+    assert!(
+        !capped
+            .omitted
+            .iter()
+            .any(|h| all[1..].iter().any(|l| l.contains(h.as_str()))),
+        "items past the cap are left out, not listed as omitted: {:?}",
+        capped.omitted
+    );
+}
+
+#[tokio::test]
 async fn a_body_left_out_of_a_signatures_pack_is_still_sent_by_a_later_full_pack() {
     let fx = fixture().await;
     let t = cold_task(&fx, "Zebra", "The zebra function should return two").await;

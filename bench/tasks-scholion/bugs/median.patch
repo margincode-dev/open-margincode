@@ -1,0 +1,21 @@
+diff --git a/crates/scholion-bench/src/stats.rs b/crates/scholion-bench/src/stats.rs
+index 19412b8..b4fc46a 100644
+--- a/crates/scholion-bench/src/stats.rs
++++ b/crates/scholion-bench/src/stats.rs
+@@ -39,7 +39,7 @@ pub fn median(values: &[f64]) -> Option<f64> {
+     Some(if n % 2 == 1 {
+         v[n / 2]
+     } else {
+-        (v[n / 2 - 1] + v[n / 2]) / 2.0
++        v[n / 2]
+     })
+ }
+ 
+@@ -76,7 +76,6 @@ mod tests {
+     #[test]
+     fn median_of_odd_even_and_empty() {
+         assert_eq!(median(&[3.0, 1.0, 2.0]), Some(2.0));
+-        assert_eq!(median(&[4.0, 1.0, 2.0, 3.0]), Some(2.5));
+         assert_eq!(median(&[]), None);
+     }
+ 

@@ -17,6 +17,10 @@
 > ```
 
 
+> Two public task sets ship instead, each with a script that builds its repo
+> ([Public task sets](#public-task-sets)): `bench/tasks-tallyho` (a small Python shop library)
+> and `bench/tasks-scholion` (this repository with injected bugs).
+
 Plan 4 (`docs/superpowers/plans/2026-10-18-agentvcs-plan-4-benchmark.md`). Ten real tasks from
 `bench-repo` run with headless Claude Code in three arms that start from the same scrubbed
 single-commit tree:
@@ -151,7 +155,9 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
 3. **Claude Code**: `claude -p "<goal>" --output-format stream-json --verbose` with an empty
    `CLAUDE_CONFIG_DIR` (your `~/.claude/.credentials.json` copied in), `--setting-sources project`,
    `--settings` and `--strict-mcp-config --mcp-config` files kept outside the workspace (empty for
-   the baseline; the av hooks and the av MCP server with `X-Av-Task` otherwise),
+   the baseline; the av hooks and the av MCP server with `X-Av-Task` otherwise; `--no-av-mcp`
+   leaves the MCP server out, as the shipped Claude Code integration does, and `--hook-code
+   full|signatures` is passed to the session-start hook as `--code`),
    `--permission-mode acceptEdits`, `--allowedTools Read,Edit,Write,MultiEdit,Glob,Grep,LS,Bash`
    (plus `mcp__av` in the av arms), `--no-session-persistence`, `--max-budget-usd`, and a timeout
    that kills the whole process group (`session_timeout_secs`, default 30 min). The goal text is
@@ -220,3 +226,32 @@ removed):
 - Tokens exclude cache reads in every arm. Dead ends count `Edit.new_string`, `Write.content` and
   `MultiEdit.edits[].new_string` matching the pattern on a file matching the glob, once per call;
   `old_string` never counts, and edits made through Bash are not seen.
+
+## Public task sets
+
+| set | repo | tasks | build the repo |
+|---|---|---|---|
+| `bench/tasks-tallyho` | tallyho, a 25-file Python library written for the benchmark | 4 bugs, one file each, hidden pytest files | `bench/tallyho/make-repo.sh` |
+| `bench/tasks-scholion` | this repository at `0a08e6e`, about 20k lines of Rust | 4 injected bugs, hidden integration tests | `bench/tasks-scholion/make-repo.sh` |
+
+Each script writes the repo where the task files expect it (`~/bench-repos/…`). The tallyho
+tasks need a Python with pytest at `~/bench-work/venv`. The scholion tasks build Rust in every
+session: export `CARGO_TARGET_DIR` (one shared target) and `AV_TEST_DATABASE_URL`, and plan on
+about 1 GB of disk per session. Every task uses `claude-haiku-5-5`.
+
+```bash
+bench/tallyho/make-repo.sh && python3 -m venv ~/bench-work/venv && ~/bench-work/venv/bin/pip install pytest
+scholion-bench check bench/tasks-tallyho
+scholion-bench run bench/tasks-tallyho --reps 10 --arms baseline,av --budget-usd 5 \
+  --out bench/results/$(date +%F)-tallyho $COMMON --confirm
+```
+
+### Haiku runs (2026-10-27)
+
+`bench/results/2026-10-27-haiku/README.md` has the numbers, the analysis and the fixes they led
+to. In short: on tallyho, av used to cost more than plain git (+21% tokens). Agents never called
+the MCP tools, and the extra cost came from the pack. It repeated the goal and pasted bodies
+Claude Code reads again before every edit, and a cold start pulled in nothing the target uses.
+After the fixes, av matches baseline on cost with 13% fewer turns; it still uses about 6% more
+tokens.
+

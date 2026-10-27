@@ -1,0 +1,25 @@
+diff --git a/crates/scholion-core/src/types.rs b/crates/scholion-core/src/types.rs
+index 14c1c8b..3e998b7 100644
+--- a/crates/scholion-core/src/types.rs
++++ b/crates/scholion-core/src/types.rs
+@@ -195,7 +195,7 @@ pub struct NewRecord {
+ 
+ impl NewRecord {
+     pub fn validate(&self) -> Result<()> {
+-        let n = self.summary.chars().count();
++        let n = self.summary.len();
+         if n > MAX_SUMMARY_CHARS {
+             return Err(AvError::SummaryTooLong(n));
+         }
+@@ -453,11 +453,6 @@ mod tests {
+         ));
+     }
+ 
+-    #[test]
+-    fn summary_length_counts_chars_not_bytes() {
+-        assert!(new_record("é".repeat(200)).validate().is_ok());
+-    }
+-
+     #[test]
+     fn task_status_roundtrips_as_snake_case() {
+         let json = serde_json::to_string(&TaskStatus::HandedOff).unwrap();

@@ -1,0 +1,15 @@
+name = "median-even"
+repo_path = "~/bench-repos/scholion-t"
+base_rev = "bug-median"
+fix_rev = "main"
+goal = """The benchmark report shows the wrong median whenever an arm has an even number of sessions: with session costs 1, 2, 3 and 4 dollars it reports 3 instead of 2.5, which also skews the relative changes and confidence intervals. Fix the median so an even count averages the two middle values. Run only the tests of the crate you change (`cargo test -p <crate> --lib`): the whole workspace takes many minutes to build and its other tests need services this machine does not have."""
+relevant_files = ["crates/scholion-bench/src/stats.rs"]
+verify_cmd = "CARGO_TARGET_DIR=$HOME/bench-work/cargo-target cargo test -q -p scholion-bench --lib --test hidden_stats"
+verify_timeout_secs = 900
+max_turns = 40
+model = "claude-haiku-5-5"
+session_timeout_secs = 1200
+
+[[local_tests]]
+path = "crates/scholion-bench/tests/hidden_stats.rs"
+source = "files/hidden_stats.rs"

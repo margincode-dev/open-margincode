@@ -2554,3 +2554,25 @@ async fn submit_refuses_leftover_conflict_markers() {
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn context_with_code_signatures_shows_where_code_is_but_not_its_body() {
+    let e = env().await;
+    let t = start_task(&e, "Sigs").await;
+    let uri = |extra: &str, s: &str| {
+        format!(
+            "/v1/tasks/{}/context?budget=3000&focus=format_name&session={s}{extra}",
+            id(&t)
+        )
+    };
+    let (_, full) = call(&e.app, "GET", &uri("", "sig-a"), None).await;
+    assert!(
+        full["markdown"].as_str().unwrap().contains("n.title()"),
+        "{full}"
+    );
+    let (status, sigs) = call(&e.app, "GET", &uri("&code=signatures", "sig-b"), None).await;
+    assert_eq!(status, StatusCode::OK, "{sigs}");
+    let md = sigs["markdown"].as_str().unwrap();
+    assert!(md.contains("def format_name(n):"), "{md}");
+    assert!(!md.contains("n.title()"), "{md}");
+}

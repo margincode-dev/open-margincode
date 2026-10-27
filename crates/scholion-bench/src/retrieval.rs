@@ -770,6 +770,9 @@ fn wait_semantic(daemon: &Daemon, repo: &str, args: &RetrievalArgs) -> Result<bo
     }
 }
 
+/// Per budget, one pack's text and what it reported as degraded.
+type BudgetPacks = Vec<(String, Vec<String>)>;
+
 /// Imports the base tree as its own repo, starts a task with the goal, and returns the first pack
 /// at each budget, each for a fresh session (nothing deduplicated against earlier packs).
 fn packs(
@@ -778,7 +781,7 @@ fn packs(
     src: &Path,
     daemon: &Daemon,
     args: &RetrievalArgs,
-) -> Result<(Vec<(String, Vec<String>)>, bool)> {
+) -> Result<(BudgetPacks, bool)> {
     let name = src
         .file_name()
         .and_then(|n| n.to_str())

@@ -26,6 +26,19 @@ pub struct PackRequest {
     /// time and nothing is remembered (no shared default ledger between unrelated agents).
     pub session: Option<String>,
     pub family: AgentFamily,
+    pub code: CodeDetail,
+}
+
+/// How much of each code item a pack may show.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeDetail {
+    /// Up to the source excerpt.
+    #[default]
+    Full,
+    /// Up to path, lines and signature. For agents that must read a file before editing it
+    /// (Claude Code), a body in the pack is only sent a second time when they do.
+    Signatures,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +67,7 @@ pub struct Expanded {
 }
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 2;
+pub const PACKER_VERSION: u32 = 3;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -108,6 +121,15 @@ impl Packer {
             gather(&self.deps(), &task, req.focus.as_deref(), req.budget_tokens).await?;
         if task.pack_mode == PackMode::TaskOnly {
             gathered.items.retain(|i| i.section == Section::Task);
+        }
+        if req.code == CodeDetail::Signatures {
+            for i in gathered
+                .items
+                .iter_mut()
+                .filter(|i| i.section == Section::Code)
+            {
+                i.tiers[Tier::Full as usize] = i.tiers[Tier::Summary as usize].clone();
+            }
         }
         if let Some(session) = &req.session {
             let sent = self.store.ledger_get(session).await?;

@@ -89,7 +89,23 @@ fn meta() -> Meta {
         av_rev: "abc1234".into(),
         models: vec!["claude-sonnet-5-5".into()],
         seed: 1,
+        av_mcp: Some(true),
     }
+}
+
+#[test]
+fn report_says_whether_the_av_arms_had_the_mcp_server() {
+    let hooks_only = Meta {
+        av_mcp: Some(false),
+        ..meta()
+    };
+    assert!(render_report(&fixture_rows(), &hooks_only).contains("av arms: hooks only"));
+    assert!(render_report(&fixture_rows(), &meta()).contains("av arms: hooks + MCP"));
+    let older = Meta {
+        av_mcp: None,
+        ..meta()
+    };
+    assert!(!render_report(&fixture_rows(), &older).contains("av arms:"));
 }
 
 #[test]
@@ -195,6 +211,8 @@ fn setup() -> Setup {
         hook_budget: 800,
         allow_no_semantic: true,
         index_wait_secs: 60,
+        av_mcp: true,
+        hook_code: None,
     };
     let out = work.path().join("results");
     Setup {

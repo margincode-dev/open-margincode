@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use scholion_core::*;
 use scholion_index::{CodeIndex, PgIndex};
-use scholion_pack::{PackRequest, Packer};
+use scholion_pack::{CodeDetail, PackRequest, Packer};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 
@@ -206,6 +206,7 @@ pub fn req(task: &Task, budget: u32, session: &str) -> PackRequest {
         focus: None,
         session: Some(session.into()),
         family: AgentFamily::Other,
+        code: CodeDetail::Full,
     }
 }
 

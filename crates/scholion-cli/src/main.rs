@@ -270,6 +270,10 @@ enum HookCmd {
     SessionStart {
         #[arg(long, default_value_t = 800)]
         budget: u32,
+        /// `signatures`: path, lines and signature of each code item; `full`: with its source.
+        /// Claude Code must read a file before editing it, so a body in the pack is sent twice.
+        #[arg(long, default_value = "signatures", value_parser = ["full", "signatures"])]
+        code: String,
     },
     /// Checkpoint the task, at most every 2 s (Claude Code `PostToolUse` on edits).
     PostEdit,
@@ -1142,7 +1146,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("{}", s(&r["bundle"]["markdown"]));
         }
         Cmd::Hook { cmd } => match cmd {
-            HookCmd::SessionStart { budget } => hook::session_start(&client, *budget),
+            HookCmd::SessionStart { budget, code } => hook::session_start(&client, *budget, code),
             HookCmd::PostEdit => hook::post_edit(&client, &cli.agent),
         },
         Cmd::Search { query, repo, limit } => {

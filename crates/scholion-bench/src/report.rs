@@ -49,6 +49,9 @@ pub struct Meta {
     pub av_rev: String,
     pub models: Vec<String>,
     pub seed: u64,
+    /// Whether the av arms had the av MCP server besides the hooks; `None` in older results.
+    #[serde(default)]
+    pub av_mcp: Option<bool>,
 }
 
 fn valid<'a>(rows: &'a [Row], arm: &str) -> Vec<&'a Row> {
@@ -129,12 +132,17 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# scholion-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
         meta.models.join(", "),
         meta.seed,
+        match meta.av_mcp {
+            Some(true) => " · av arms: hooks + MCP",
+            Some(false) => " · av arms: hooks only",
+            None => "",
+        },
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)
             .count(),

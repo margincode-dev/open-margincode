@@ -14,7 +14,7 @@ const STOP: &[&str] = &[
     "while", "does", "doesn", "don", "get", "set", "test", "tests",
 ];
 
-/// At most this many search words, rarest first (the store weighs them by IDF).
+/// At most this many search words, in goal order; the store weighs each by IDF.
 pub const MAX_TERMS: usize = 16;
 /// At most this many identifiers taken from one goal.
 pub const MAX_NAMED: usize = 8;

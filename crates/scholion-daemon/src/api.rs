@@ -5,7 +5,7 @@ use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use scholion_core::*;
-use scholion_pack::{Pack, PackRequest};
+use scholion_pack::{CodeDetail, Pack, PackRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -203,6 +203,7 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
             focus: None,
             session: Some(req.session),
             family: AgentFamily::default(),
+            code: CodeDetail::Full,
         })
         .await?;
     Ok(Json(Started { task, pack }))
@@ -404,6 +405,8 @@ struct ContextQuery {
     focus: Option<String>,
     session: Option<String>,
     family: Option<AgentFamily>,
+    /// `full` (default) or `signatures`: code items without their bodies.
+    code: Option<CodeDetail>,
 }
 
 async fn context(
@@ -419,6 +422,7 @@ async fn context(
             focus: q.focus.filter(|f| !f.trim().is_empty()),
             session: q.session.filter(|s| !s.trim().is_empty()),
             family: q.family.unwrap_or_default(),
+            code: q.code.unwrap_or_default(),
         })
         .await?;
     Ok(Json(with_main_health(&st, task_id(id), pack).await))

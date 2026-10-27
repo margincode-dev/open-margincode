@@ -48,7 +48,7 @@ fn now_ms() -> u64 {
 
 /// Prints a small context pack for the task of this directory. After a compaction or `/clear`
 /// the agent has lost what it was sent, so the session starts over and everything is sent again.
-pub fn session_start(client: &Client, budget: u32) {
+pub fn session_start(client: &Client, budget: u32, code: &str) {
     let input = hook_input();
     let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
         return;
@@ -68,6 +68,7 @@ pub fn session_start(client: &Client, budget: u32) {
         &[
             ("budget", budget.as_str()),
             ("session", tf.session.as_str()),
+            ("code", code),
         ],
     ) {
         Ok(pack) => println!("{}", pack["markdown"].as_str().unwrap_or_default()),

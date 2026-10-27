@@ -38,6 +38,9 @@ struct Structural {
 }
 
 const MAX_NEIGHBORS: usize = 40;
+/// With no seeds (a fresh task whose goal names no identifier), this many of the best text hits
+/// stand in for seeds, so what they reference comes in too.
+const HIT_SEEDS: usize = 2;
 const FOCUS_LIMIT: usize = 10;
 /// Symbols one identifier named in the goal may seed (a method name shared by many classes).
 const NAMED_PER_IDENT: usize = 4;
@@ -222,13 +225,14 @@ fn line_ranges(base: &str, head: &str) -> Vec<(u32, u32)> {
     out
 }
 
-/// The auto-recorded intent (summary = first line of the goal, body empty or the goal itself) adds nothing
-/// next to the `Goal:` line of the task header.
+/// The auto-recorded intent (summary = first line of the goal, clipped to the summary limit; body
+/// empty or the goal itself) adds nothing next to the `Goal:` line of the task header.
 fn repeats_goal(rec: &Record, task: &Task) -> bool {
     let goal = task.goal.trim();
     let first = goal.lines().next().unwrap_or("").trim();
+    let summary = rec.summary.trim();
     let body = rec.body.trim();
-    rec.summary.trim() == first && (body.is_empty() || body == goal)
+    !summary.is_empty() && first.starts_with(summary) && (body.is_empty() || body == goal)
 }
 
 struct Located {
@@ -282,7 +286,85 @@ pub(crate) async fn gather(
     let mut parts = structural?;
     apply_lexical(d, task, lexical_out, limit, &mut parts).await?;
     apply_semantic(d, task, query.as_deref(), search_out, limit, &mut parts).await?;
+    if parts.seed_set.is_empty() {
+        expand_best_hits(d, task, limit, &mut parts).await?;
+    }
     Ok(parts.gathered)
+}
+
+/// A cold start has no seeds, so nothing comes in through the reference graph, and an agent
+/// goes looking for the types and functions the code it will change uses. The best production
+/// functions and methods among the code hits stand in for seeds: their direct neighbours join as
+/// two hops away (one hop from a guess), which ranks them above weak text matches and below the
+/// hits themselves. They are context for a guess, so at most a signature each, and at most half
+/// the candidate limit: their bodies would crowd out the hits' own (E1).
+async fn expand_best_hits(
+    d: &Deps<'_>,
+    task: &Task,
+    limit: usize,
+    parts: &mut Structural,
+) -> Result<()> {
+    let mut hits: Vec<(&Item, SymbolId)> = parts
+        .gathered
+        .items
+        .iter()
+        .filter(|i| i.section == Section::Code && parts.code_factor.get(&i.id) == Some(&1.0))
+        .filter_map(|i| Some((i, SymbolId(i.id.strip_prefix("sym:")?.parse().ok()?))))
+        .collect();
+    hits.sort_by(|(a, _), (b, _)| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    // A type's neighbours are everything that uses it, so only functions and methods stand in.
+    let best: Vec<SymbolId> = hits.iter().take(limit).map(|(_, id)| *id).collect();
+    let kinds: HashMap<SymbolId, scholion_index::SymbolKind> = d
+        .index
+        .get_symbols(&best)
+        .await?
+        .into_iter()
+        .map(|s| (s.id, s.symbol.kind))
+        .collect();
+    let seeds: Vec<SymbolId> = best
+        .into_iter()
+        .filter(|id| {
+            kinds
+                .get(id)
+                .is_some_and(|k| *k != scholion_index::SymbolKind::Type)
+        })
+        .take(HIT_SEEDS)
+        .collect();
+    if seeds.is_empty() {
+        return Ok(());
+    }
+    let mut near = d.index.neighbors(&task.repo, &task.slug, &seeds, 1).await?;
+    near.retain(|(id, _)| {
+        let key = format!("sym:{}", id.0);
+        !parts.gathered.items.iter().any(|i| i.id == key)
+    });
+    near.sort_by_key(|(id, _)| id.0);
+    near.truncate(limit / 2);
+    let ids: Vec<SymbolId> = near.iter().map(|(id, _)| *id).collect();
+    let syms = d.index.get_symbols(&ids).await?;
+    let mut pool = parts.located.clone();
+    pool.extend(syms.iter().cloned());
+    for sym in &syms {
+        let hide = listed_type_hides_body(sym, &pool);
+        let src = source_at_head(
+            d,
+            task,
+            parts.has_head,
+            &mut parts.contents,
+            &sym.symbol.path,
+        )
+        .await;
+        let mut it = code_item(sym, 2, 0.0, src.as_deref(), hide).because("hit-neighbor");
+        it.tiers[Tier::Full as usize] = it.tiers[Tier::Summary as usize].clone();
+        let factor = if score::is_test_path(&sym.symbol.path) {
+            score::TEST_CODE_FACTOR
+        } else {
+            1.0
+        };
+        parts.code_factor.insert(it.id.clone(), factor);
+        parts.gathered.items.push(it);
+    }
+    Ok(())
 }
 
 /// Full-text code hits (Plan 6). The best hit counts as similarity `score::LEXICAL_SIM`, the

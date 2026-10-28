@@ -48,7 +48,7 @@ fn now_ms() -> u64 {
 
 /// Prints a small context pack for the task of this directory. After a compaction or `/clear`
 /// the agent has lost what it was sent, so the session starts over and everything is sent again.
-pub fn session_start(client: &Client, budget: u32, code: &str) {
+pub fn session_start(client: &Client, budget: u32, code: &str, map: bool, max_code: Option<usize>) {
     let input = hook_input();
     let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
         return;
@@ -63,14 +63,18 @@ pub fn session_start(client: &Client, budget: u32, code: &str) {
         }
     }
     let budget = budget.to_string();
-    match client.get(
-        &format!("/v1/tasks/{}/context", tf.task),
-        &[
-            ("budget", budget.as_str()),
-            ("session", tf.session.as_str()),
-            ("code", code),
-        ],
-    ) {
+    let map = map.to_string();
+    let mut query = vec![
+        ("budget", budget.as_str()),
+        ("session", tf.session.as_str()),
+        ("code", code),
+        ("map", map.as_str()),
+    ];
+    let max_code = max_code.map(|n| n.to_string());
+    if let Some(n) = &max_code {
+        query.push(("max_code", n.as_str()));
+    }
+    match client.get(&format!("/v1/tasks/{}/context", tf.task), &query) {
         Ok(pack) => println!("{}", pack["markdown"].as_str().unwrap_or_default()),
         Err(e) => eprintln!("av: hook session-start: {e}"),
     }

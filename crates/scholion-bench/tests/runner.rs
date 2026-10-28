@@ -96,6 +96,7 @@ fn fixture(mode: &str) -> Fixture {
         index_wait_secs: 60,
         av_mcp: true,
         hook_code: None,
+        hook_args: vec![],
     };
     Fixture {
         _repo: repo,
@@ -324,6 +325,22 @@ fn hook_code_is_passed_to_the_session_start_hook() {
     let settings = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
     assert!(
         settings.contains("session-start --budget 800 --code 'signatures'"),
+        "{settings}"
+    );
+}
+
+#[test]
+fn hook_args_are_passed_to_the_session_start_hook() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.hook_args = vec!["--no-map".into(), "--max-code=3".into()];
+    let o = run_session(&f.spec, Arm::Av, 1, "t13", &f.cfg).unwrap();
+    assert!(o.valid, "the hook accepts them: {o:?}");
+    let settings = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
+    assert!(
+        settings.contains("session-start --budget 800 '--no-map' '--max-code=3'"),
         "{settings}"
     );
 }

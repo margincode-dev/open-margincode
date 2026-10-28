@@ -88,6 +88,8 @@ pub struct RunConfig {
     pub av_mcp: bool,
     /// `--code` for the session-start hook (`full` or `signatures`); `None` = the hook's default.
     pub hook_code: Option<String>,
+    /// More arguments for the session-start hook, e.g. `--no-map`, `--max-code=3`.
+    pub hook_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -476,8 +478,13 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
         .as_deref()
         .map(|c| format!(" --code {}", sh_quote(c)))
         .unwrap_or_default();
+    let extra: String = cfg
+        .hook_args
+        .iter()
+        .map(|a| format!(" {}", sh_quote(a)))
+        .collect();
     let start = format!(
-        "echo session-start >> {count}; {av} hook session-start --budget {}{code}",
+        "echo session-start >> {count}; {av} hook session-start --budget {}{code}{extra}",
         cfg.hook_budget
     );
     let edit = format!("echo post-edit >> {count}; {av} hook post-edit");

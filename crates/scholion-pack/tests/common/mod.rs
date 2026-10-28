@@ -207,6 +207,8 @@ pub fn req(task: &Task, budget: u32, session: &str) -> PackRequest {
         session: Some(session.into()),
         family: AgentFamily::Other,
         code: CodeDetail::Full,
+        map: true,
+        max_code: None,
     }
 }
 

@@ -27,6 +27,12 @@ pub struct PackRequest {
     pub session: Option<String>,
     pub family: AgentFamily,
     pub code: CodeDetail,
+    /// Include the Map section (file skeletons and the repo layout). An agent that lists files
+    /// itself, or finds them from the code items' paths, can do without it.
+    pub map: bool,
+    /// At most this many code items, the best scored. Every item a pack names is a file an agent
+    /// may open, so a long list of weak candidates costs reads, not just pack tokens.
+    pub max_code: Option<usize>,
 }
 
 /// How much of each code item a pack may show.
@@ -122,6 +128,12 @@ impl Packer {
         if task.pack_mode == PackMode::TaskOnly {
             gathered.items.retain(|i| i.section == Section::Task);
         }
+        if !req.map {
+            gathered.items.retain(|i| i.section != Section::Map);
+        }
+        if let Some(max) = req.max_code {
+            cap_code(&mut gathered.items, max);
+        }
         if req.code == CodeDetail::Signatures {
             for i in gathered
                 .items
@@ -159,7 +171,7 @@ impl Packer {
                     total,
                     n,
                     req.budget_tokens,
-                    task.pack_mode == PackMode::Full,
+                    req.map && task.pack_mode == PackMode::Full,
                 )
             },
         );
@@ -411,4 +423,19 @@ impl Packer {
             "cannot expand {item_id:?}; expected rec:<id>, sym:<n>, conv:<n> or task:<slug>"
         )))
     }
+}
+
+/// Keep the `max` best-scored code items (ties: lower id first, for determinism).
+fn cap_code(items: &mut Vec<crate::budget::Item>, max: usize) {
+    let mut code: Vec<(f32, String)> = items
+        .iter()
+        .filter(|i| i.section == Section::Code)
+        .map(|i| (i.score, i.id.clone()))
+        .collect();
+    if code.len() <= max {
+        return;
+    }
+    code.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let keep: std::collections::HashSet<String> = code.into_iter().take(max).map(|c| c.1).collect();
+    items.retain(|i| i.section != Section::Code || keep.contains(&i.id));
 }

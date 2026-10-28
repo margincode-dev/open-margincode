@@ -90,7 +90,22 @@ fn meta() -> Meta {
         models: vec!["claude-sonnet-5-5".into()],
         seed: 1,
         av_mcp: Some(true),
+        hook_args: vec![],
     }
+}
+
+#[test]
+fn report_names_the_session_start_hook_arguments() {
+    let lean = Meta {
+        hook_args: vec!["--no-map".into(), "--max-code=3".into()],
+        ..meta()
+    };
+    assert!(
+        render_report(&fixture_rows(), &lean).contains(" · hook: --no-map --max-code=3 · "),
+        "{}",
+        render_report(&fixture_rows(), &lean)
+    );
+    assert!(!render_report(&fixture_rows(), &meta()).contains("hook:"));
 }
 
 #[test]
@@ -213,6 +228,7 @@ fn setup() -> Setup {
         index_wait_secs: 60,
         av_mcp: true,
         hook_code: None,
+        hook_args: vec![],
     };
     let out = work.path().join("results");
     Setup {

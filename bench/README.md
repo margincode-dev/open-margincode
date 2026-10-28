@@ -157,7 +157,9 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
    `--settings` and `--strict-mcp-config --mcp-config` files kept outside the workspace (empty for
    the baseline; the av hooks and the av MCP server with `X-Av-Task` otherwise; `--no-av-mcp`
    leaves the MCP server out, as the shipped Claude Code integration does, and `--hook-code
-   full|signatures` is passed to the session-start hook as `--code`),
+   full|signatures` is passed to the session-start hook as `--code`; each `--hook-arg=X`, e.g.
+   `--hook-arg=--no-map --hook-arg=--max-code=3`, is passed to it as well and named in the
+   report header),
    `--permission-mode acceptEdits`, `--allowedTools Read,Edit,Write,MultiEdit,Glob,Grep,LS,Bash`
    (plus `mcp__av` in the av arms), `--no-session-persistence`, `--max-budget-usd`, and a timeout
    that kills the whole process group (`session_timeout_secs`, default 30 min). The goal text is

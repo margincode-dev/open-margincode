@@ -5,5 +5,8 @@
   "assets": {
     "directory": "./site",
     "not_found_handling": "404-page"
-  }
+  },
+  // Cloudflare's Git integration runs `wrangler preview` for non-production branches; it needs
+  // this block, even empty.
+  "previews": {}
 }

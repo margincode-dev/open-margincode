@@ -37,7 +37,7 @@ pub struct Config {
     /// `AV_BACKUP_REMOTES`: whitespace-separated `repo=url` pairs, pushed after every merge.
     /// `POST /v1/repos/{name}/backup` sets one at runtime.
     pub backup_remotes: Vec<(String, String)>,
-    /// `AV_TOKEN`: shared bearer token for every route but `/healthz`; unset = open.
+    /// `AV_TOKEN`: shared bearer token for every route but `/healthz` and `/ui`; unset = open.
     pub token: Option<String>,
 }
 

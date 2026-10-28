@@ -56,7 +56,46 @@ fn task_from_row(r: &PgRow) -> Result<Task> {
 const TASK_COLS: &str = "id, repo, slug, title, goal, status, owner_agent, base_change, head_change, \
                          workspace_path, generation, lease_expires, pack_mode";
 
+/// One row of `PgStore::list_tasks`.
+#[derive(Debug, Clone)]
+pub struct TaskSummary {
+    pub task: Task,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub record_count: i64,
+}
+
 impl PgStore {
+    /// Tasks newest first, optionally of one repo and one status, with how many records each has.
+    pub async fn list_tasks(
+        &self,
+        repo: Option<&str>,
+        status: Option<TaskStatus>,
+        limit: usize,
+    ) -> Result<Vec<TaskSummary>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS}, created_at,
+                    (SELECT count(*) FROM records r WHERE r.task_id = tasks.id) AS record_count
+             FROM tasks
+             WHERE ($1::text IS NULL OR repo = $1) AND ($2::text IS NULL OR status = $2)
+             ORDER BY created_at DESC, id DESC LIMIT $3"
+        ))
+        .bind(repo)
+        .bind(status.map(|s| s.as_str()))
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(TaskSummary {
+                    task: task_from_row(r)?,
+                    created_at: r.try_get("created_at").map_err(serr)?,
+                    record_count: r.try_get("record_count").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+
     /// Deletes the ledgers and expand totals of sessions that wrote nothing for `idle`; returns
     /// how many sessions were removed.
     pub async fn prune_sessions(&self, idle: std::time::Duration) -> Result<u64> {

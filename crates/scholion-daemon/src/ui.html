@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scholion dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c8371a'/%3E%3Cpath d='M9 22V10h3v12zm6-12h8v3h-5v2h4v3h-4v4h-3z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #0c0d10; --panel: #15171d; --panel-2: #1b1e25; --line: #262a33;
+  --text: #e9e7e1; --muted: #9a9ca5; --faint: #6b6e78;
+  --rubric: #ff6b4a; --rubric-soft: rgba(255, 107, 74, .14);
+  --decision: #7aa2ff; --attempt: #ff6b4a; --note: #f2c14e; --handoff: #4fd1a5;
+  --intent: #c39bff; --review: #4fd1a5; --ok: #4fd1a5; --bad: #ff6b4a; --warn: #f2c14e;
+  --code-bg: #0f1014; --radius: 12px;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f3ec; --panel: #fffdf8; --panel-2: #f4f0e6; --line: #e2dccd;
+    --text: #1d1b17; --muted: #5e5a52; --faint: #8b8579;
+    --rubric: #c8371a; --rubric-soft: rgba(200, 55, 26, .09);
+    --decision: #2f5fd0; --attempt: #c8371a; --note: #a87a00; --handoff: #13845f;
+    --intent: #7a3fd0; --review: #13845f; --ok: #13845f; --bad: #c8371a; --warn: #a87a00;
+    --code-bg: #fbf8f1; color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
+header {
+  position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 650; letter-spacing: .01em; display: flex; gap: 8px; align-items: center; }
+.brand b { color: var(--rubric); }
+.spacer { flex: 1; }
+.ctl { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.live { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.dot.red { background: var(--bad); } .dot.green { background: var(--ok); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; padding: 16px; }
+@media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } }
+.board { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 12px; overflow-x: auto; align-items: start; }
+@media (max-width: 720px) { .board { grid-template-columns: minmax(0, 1fr); } }
+.col { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; min-height: 120px; }
+.col h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+  display: flex; justify-content: space-between; }
+.card { display: block; width: 100%; text-align: left; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 9px 10px; margin-bottom: 8px; }
+.card:hover, .card:focus-visible { border-color: var(--rubric); outline: none; }
+.card .t { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.card .m { color: var(--muted); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.empty { color: var(--faint); font-size: 12px; padding: 6px 2px; }
+aside.feed { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
+  max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 66px; }
+aside.feed h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.ev { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line);
+  font-size: 12.5px; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; }
+.ev:hover { background: var(--panel-2); }
+.ev .k { font-family: var(--mono); font-size: 11.5px; }
+.ev .w { color: var(--faint); font-size: 11.5px; }
+.k-started { color: var(--intent); } .k-submit { color: var(--decision); } .k-approve, .k-merged, .k-resolve { color: var(--ok); }
+.k-request_changes, .k-conflicted, .k-abandon, .k-undo { color: var(--bad); } .k-handoff, .k-claim { color: var(--handoff); }
+.s-open { color: var(--decision); } .s-handed_off { color: var(--handoff); } .s-in_review { color: var(--note); }
+.s-conflicted { color: var(--bad); } .s-merged { color: var(--ok); } .s-abandoned { color: var(--faint); }
+/* detail drawer */
+#drawer { position: fixed; inset: 0; display: none; z-index: 10; }
+#drawer.open { display: block; }
+#drawer .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+#drawer .sheet { position: absolute; top: 0; right: 0; bottom: 0; width: min(760px, 100%); background: var(--bg);
+  border-left: 1px solid var(--line); overflow: auto; padding: 18px 20px 40px; }
+.sheet h1 { font-size: 20px; margin: 4px 0 6px; overflow-wrap: anywhere; }
+.sheet h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 0 8px; }
+.close { float: right; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; }
+.goal { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.fact { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; }
+.fact .l { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+.fact .v { overflow-wrap: anywhere; }
+.files { margin: 0; padding: 0; list-style: none; }
+.files li { font-family: var(--mono); font-size: 12.5px; padding: 2px 0; overflow-wrap: anywhere; }
+.rec { border-left: 3px solid var(--line); padding: 6px 10px 8px; margin: 0 0 10px; background: var(--panel); border-radius: 0 10px 10px 0; }
+.rec .h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rec .kind { font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.rec .sum { font-weight: 550; overflow-wrap: anywhere; }
+.rec .who { color: var(--faint); font-size: 12px; }
+.rec .body { white-space: pre-wrap; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.rec .anc { margin-top: 5px; display: flex; gap: 6px; flex-wrap: wrap; }
+.rec .anc code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
+.rec.superseded { opacity: .55; } .rec.superseded .sum { text-decoration: line-through; }
+.r-intent { border-left-color: var(--intent); } .r-intent .kind { color: var(--intent); }
+.r-decision { border-left-color: var(--decision); } .r-decision .kind { color: var(--decision); }
+.r-attempt { border-left-color: var(--attempt); } .r-attempt .kind { color: var(--attempt); }
+.r-note { border-left-color: var(--note); } .r-note .kind { color: var(--note); }
+.r-handoff { border-left-color: var(--handoff); } .r-handoff .kind { color: var(--handoff); }
+.r-review { border-left-color: var(--review); } .r-review .kind { color: var(--review); }
+.r-validation .kind { color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; }
+.btn.primary { background: var(--rubric); border-color: var(--rubric); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+pre.pack { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow: auto;
+  max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; }
+.meter { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; flex: 1; min-width: 80px; }
+.meter > i { display: block; height: 100%; background: var(--rubric); }
+.err { color: var(--bad); }
+.muted { color: var(--muted); } .faint { color: var(--faint); }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; width: min(420px, 92vw); }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog input { width: 100%; margin: 10px 0; }
+.banner { margin: 16px 16px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bad); background: var(--rubric-soft); }
+.banner[hidden] { display: none; }
+.toggle { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><b>§</b> Scholion <span class="faint" style="font-weight:400">dashboard</span></span>
+  <select id="repo" class="ctl" aria-label="Repository"></select>
+  <span id="health" class="chip" title="Post-merge check on main"><span class="dot"></span>main: …</span>
+  <label class="toggle"><input type="checkbox" id="showAbandoned"> abandoned</label>
+  <span class="spacer"></span>
+  <span id="live" class="chip"><span class="dot"></span><span>connecting</span></span>
+  <button id="tokenBtn" class="ctl" type="button">Token</button>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main>
+  <section class="board" id="board" aria-label="Tasks by status"></section>
+  <aside class="feed" aria-label="Activity">
+    <h2>Activity</h2>
+    <div id="feed"><div class="empty">No events yet.</div></div>
+  </aside>
+</main>
+
+<div id="drawer" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+  <div class="scrim" data-close></div>
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<dialog id="tokenDlg">
+  <form method="dialog">
+    <strong>Daemon token</strong>
+    <div class="muted" style="font-size:13px;margin-top:4px">This daemon has <code>AV_TOKEN</code> set. The token stays in this browser tab only.</div>
+    <input id="tokenIn" type="password" class="ctl" autocomplete="off" placeholder="AV_TOKEN">
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" value="cancel">Cancel</button>
+      <button class="btn primary" value="ok" id="tokenOk">Use token</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+// Read-only view of the daemon's /v1 API. Every string shown comes from agents, so the page only
+// ever sets textContent (never innerHTML with data).
+
+const COLUMNS = [
+  ["open", "Open"], ["handed_off", "Handed off"], ["in_review", "In review"],
+  ["conflicted", "Conflicted"], ["merged", "Merged"],
+];
+const S = { repo: null, tasks: [], byId: new Map(), events: [], next: 0, openTask: null, pack: null };
+
+function store(get, key, value) {
+  try {
+    if (get) return sessionStorage.getItem(key);
+    if (value == null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, value);
+  } catch (_) { return null; }
+}
+
+/// replaceChildren that flattens arrays and drops null/false, like `h` does for its children.
+function fill(el, ...kids) {
+  el.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false));
+}
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+class Unauthorized extends Error {}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const tok = store(true, "av_token");
+  if (tok) headers.Authorization = "Bearer " + tok;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) { askToken(); throw new Unauthorized("token needed"); }
+  const text = await res.text();
+  let body; try { body = JSON.parse(text); } catch (_) { body = text; }
+  if (!res.ok) throw new Error((body && body.error) || `${res.status} ${res.statusText}`);
+  return body;
+}
+
+let asking = false;
+function askToken() {
+  const dlg = document.getElementById("tokenDlg");
+  if (asking || dlg.open) return;
+  asking = true;
+  dlg.showModal();
+}
+document.getElementById("tokenDlg").addEventListener("close", () => {
+  asking = false;
+  const dlg = document.getElementById("tokenDlg");
+  if (dlg.returnValue === "ok") {
+    store(false, "av_token", document.getElementById("tokenIn").value.trim() || null);
+    document.getElementById("tokenIn").value = "";
+    boot();
+  }
+});
+document.getElementById("tokenBtn").addEventListener("click", askToken);
+
+function ago(iso) {
+  if (!iso) return "";
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${Math.round(s)}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+function short(id) { return id ? String(id).slice(0, 8) : "—"; }
+function banner(msg) {
+  const b = document.getElementById("banner");
+  b.hidden = !msg; b.textContent = msg || "";
+}
+
+// ---- data ----
+
+async function loadTasks() {
+  const all = await api("/v1/tasks?limit=500");
+  const repos = [...new Set(all.tasks.map(t => t.repo))].sort();
+  const sel = document.getElementById("repo");
+  const want = S.repo || store(true, "av_repo") || repos[0] || null;
+  sel.replaceChildren(...(repos.length ? repos : ["(no tasks yet)"]).map(r => h("option", { value: r }, r)));
+  S.repo = repos.includes(want) ? want : (repos[0] || null);
+  if (S.repo) sel.value = S.repo;
+  S.tasks = all.tasks.filter(t => t.repo === S.repo);
+  S.byId = new Map(all.tasks.map(t => [t.id, t]));
+  renderBoard();
+  loadHealth();
+}
+
+async function loadHealth() {
+  const chip = document.getElementById("health");
+  if (!S.repo) { chip.replaceChildren(h("span", { class: "dot" }), "main: —"); return; }
+  try {
+    const hl = await api(`/v1/repos/${encodeURIComponent(S.repo)}/health`);
+    const label = hl.state === "red" ? `main red since ${short(hl.since)}` : `main ${hl.state}`;
+    chip.replaceChildren(h("span", { class: "dot " + (hl.state || "") }), label);
+    chip.title = hl.state === "red" ? `${hl.command} exited ${hl.exit_code} (task ${hl.task || "?"})` : "Post-merge check on main";
+  } catch (e) {
+    if (!(e instanceof Unauthorized)) chip.replaceChildren(h("span", { class: "dot" }), "main: ?");
+  }
+}
+
+// ---- board ----
+
+function card(t) {
+  const lease = t.status === "open" && t.lease_expires && new Date(t.lease_expires) > new Date() ? "leased" : null;
+  return h("button", { class: "card", type: "button", onclick: () => openTask(t.id) },
+    h("div", { class: "t" }, t.title),
+    h("div", { class: "m" },
+      h("span", { class: "mono" }, t.slug),
+      h("span", {}, "👤 " + t.owner_agent),
+      h("span", { title: "records" }, "✎ " + t.record_count),
+      lease && h("span", { title: "lease until " + t.lease_expires }, "⏱ " + lease),
+      h("span", { class: "faint" }, ago(t.created_at))));
+}
+
+function renderBoard() {
+  const board = document.getElementById("board");
+  const cols = COLUMNS.slice();
+  if (document.getElementById("showAbandoned").checked) cols.push(["abandoned", "Abandoned"]);
+  board.style.gridTemplateColumns = `repeat(${cols.length}, minmax(180px, 1fr))`;
+  if (matchMedia("(max-width: 720px)").matches) board.style.gridTemplateColumns = "";
+  fill(board, cols.map(([status, label]) => {
+    const ts = S.tasks.filter(t => t.status === status);
+    return h("div", { class: "col" },
+      h("h2", {}, h("span", { class: "s-" + status }, label), h("span", {}, ts.length)),
+      ts.length ? ts.map(card) : h("div", { class: "empty" }, "Nothing here."));
+  }));
+}
+
+document.getElementById("repo").addEventListener("change", e => {
+  S.repo = e.target.value; store(false, "av_repo", S.repo);
+  S.events = []; renderFeed(); loadTasks().catch(showErr); startFeed();
+});
+document.getElementById("showAbandoned").addEventListener("change", renderBoard);
+
+// ---- activity feed (long-poll /v1/events) ----
+
+let feedGen = 0;
+async function startFeed() {
+  const gen = ++feedGen;
+  const live = document.getElementById("live");
+  const setLive = (ok, text) => live.replaceChildren(h("span", { class: "dot" + (ok ? " live" : "") }), h("span", {}, text));
+  if (!S.repo) { setLive(false, "idle"); return; }
+  const q = `repo=${encodeURIComponent(S.repo)}`;
+  try {
+    const head = await api(`/v1/events?${q}`);
+    const back = await api(`/v1/events?${q}&since=${Math.max(0, head.next - 40)}&limit=40`);
+    if (gen !== feedGen) return;
+    S.events = back.events.reverse(); S.next = head.next; renderFeed();
+  } catch (e) { if (gen === feedGen) setLive(false, "offline"); return; }
+  setLive(true, "live");
+  let refresh = null;
+  while (gen === feedGen) {
+    try {
+      const r = await api(`/v1/events?${q}&since=${S.next}&wait=25&limit=100`);
+      if (gen !== feedGen) return;
+      setLive(true, "live");
+      if (r.events.length) {
+        S.next = r.next;
+        S.events = r.events.slice().reverse().concat(S.events).slice(0, 200);
+        renderFeed();
+        clearTimeout(refresh);
+        refresh = setTimeout(() => {
+          loadTasks().catch(showErr);
+          if (S.openTask) openTask(S.openTask, true);
+        }, 300);
+      }
+    } catch (e) {
+      if (gen !== feedGen) return;
+      setLive(false, e instanceof Unauthorized ? "token needed" : "reconnecting");
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+}
+
+function renderFeed() {
+  const feed = document.getElementById("feed");
+  if (!S.events.length) { feed.replaceChildren(h("div", { class: "empty" }, "No events yet.")); return; }
+  fill(feed, S.events.map(ev => {
+    const t = ev.task_id && S.byId.get(ev.task_id);
+    const who = (ev.payload && (ev.payload.agent || ev.payload.reviewer || ev.payload.by)) || "";
+    return h("button", { class: "ev", type: "button", onclick: () => ev.task_id && openTask(ev.task_id) },
+      h("span", { class: "k k-" + ev.kind }, ev.kind),
+      h("span", {},
+        h("div", {}, t ? t.title : (ev.task_id ? short(ev.task_id) : ev.repo)),
+        h("div", { class: "w" }, [who, ev.change && "@" + short(ev.change), ago(ev.at)].filter(Boolean).join(" · "))));
+  }));
+}
+
+// ---- task drawer ----
+
+const drawer = document.getElementById("drawer");
+function closeDrawer() {
+  drawer.classList.remove("open"); S.openTask = null; S.pack = null;
+  if (location.hash) history.replaceState(null, "", location.pathname);
+}
+drawer.addEventListener("click", e => { if (e.target.hasAttribute("data-close")) closeDrawer(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && drawer.classList.contains("open")) closeDrawer(); });
+
+async function openTask(id, quiet) {
+  if (!quiet) S.pack = null;
+  S.openTask = id;
+  history.replaceState(null, "", "#task=" + id);
+  const sheet = document.getElementById("sheet");
+  if (!quiet) { sheet.replaceChildren(h("div", { class: "muted" }, "Loading…")); drawer.classList.add("open"); }
+  try {
+    const [detail, recs] = await Promise.all([
+      api(`/v1/tasks/${id}`), api(`/v1/tasks/${id}/records`),
+    ]);
+    if (S.openTask !== id) return;
+    renderTask(detail, recs.records);
+  } catch (e) {
+    if (!quiet) sheet.replaceChildren(h("button", { class: "close", onclick: closeDrawer }, "Close"), h("p", { class: "err" }, e.message));
+  }
+}
+
+function fact(label, value, title) {
+  return h("div", { class: "fact", title }, h("div", { class: "l" }, label), h("div", { class: "v" }, value ?? "—"));
+}
+
+function renderTask(d, records) {
+  const t = d.task;
+  // a lease only matters while the task is being worked on
+  const leaseLeft = t.status === "open" && t.lease_expires ? new Date(t.lease_expires) - new Date() : null;
+  const sheet = document.getElementById("sheet");
+  const verdict = d.verdict ? `${d.verdict.verdict} by ${d.verdict.reviewer}` : null;
+  const conflicts = d.merge && d.merge.conflicts && d.merge.conflicts.length ? d.merge.conflicts : null;
+  fill(sheet,
+    h("button", { class: "close", type: "button", onclick: closeDrawer }, "Close ✕"),
+    h("div", { class: "row" },
+      h("span", { class: "chip s-" + t.status }, t.status.replace("_", " ")),
+      h("span", { class: "mono faint" }, `${t.repo} / ${t.slug}`)),
+    h("h1", { id: "dTitle" }, t.title),
+    h("div", { class: "goal" }, t.goal),
+    h("div", { class: "facts" },
+      fact("Owner", t.owner_agent),
+      fact("Claim generation", t.generation, "Writes under an older generation are refused"),
+      fact("Lease", leaseLeft == null ? "none" : leaseLeft > 0 ? `${Math.round(leaseLeft / 60000)} min left` : "expired"),
+      fact("Base → head", `${short(t.base_change)} → ${short(t.head_change)}`),
+      fact("Review", verdict || "not reviewed"),
+      fact("Pack mode", t.pack_mode),
+      d.merge && d.merge.merge_commit && fact("Merged", `${short(d.merge.merge_commit)} by ${d.merge.merged_by || "?"}`),
+      d.backup && d.backup.remote && fact("Backup", d.backup.last_error ? "failing" : "ok", d.backup.last_error || "pushes are succeeding")),
+    conflicts && [h("h3", {}, "Conflicts"), h("ul", { class: "files" }, conflicts.map(p => h("li", { class: "err" }, p)))],
+    h("h3", {}, `Changed files (${d.changed.length})`),
+    d.changed.length ? h("ul", { class: "files" }, d.changed.map(p => h("li", {}, p))) : h("div", { class: "empty" }, "No changes yet."),
+    h("h3", {}, `Records (${records.length})`),
+    records.length ? records.map(recordEl) : h("div", { class: "empty" }, "No records."),
+    h("h3", {}, "What the next agent gets"),
+    packControls(t),
+    h("div", { id: "packOut" }, S.pack ? packEl(S.pack) : null),
+    h("p", { class: "faint", style: "font-size:12px;margin-top:18px" },
+      "Workspace: ", h("span", { class: "mono" }, t.workspace_path || "—")));
+}
+
+function recordEl(r) {
+  return h("div", { class: `rec r-${r.kind}` + (r.superseded_by ? " superseded" : "") },
+    h("div", { class: "h" },
+      h("span", { class: "kind" }, r.kind),
+      h("span", { class: "sum" }, r.summary)),
+    r.body && bodyEl(r.body),
+    r.anchors?.length > 0 && h("div", { class: "anc" },
+      r.anchors.map(a => h("code", {}, a.symbol ? `${a.path}:${a.symbol}` : a.path))),
+    h("div", { class: "who" },
+      [r.author_agent, ago(r.created_at), r.change_id && "@" + short(r.change_id),
+       r.superseded_by && "superseded by " + short(r.superseded_by)].filter(Boolean).join(" · ")));
+}
+
+/// Handoff and validation records keep a JSON object as their body: show its non-empty fields.
+function bodyEl(body) {
+  let obj = null;
+  try { obj = JSON.parse(body); } catch (_) {}
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return h("div", { class: "body" }, body);
+  const rows = Object.entries(obj).filter(([, v]) => v !== "" && v != null && !(Array.isArray(v) && !v.length));
+  return h("div", { class: "body" }, rows.map(([k, v]) => h("div", {},
+    h("span", { class: "faint" }, k.replace(/_/g, " ") + ": "),
+    typeof v === "string" ? (/^[0-9a-f]{40}$/.test(v) ? short(v) : v) : JSON.stringify(v))));
+}
+
+function packControls(t) {
+  const budget = h("select", { class: "ctl", "aria-label": "Token budget" },
+    [1000, 2000, 4000, 8000].map(b => h("option", { value: b, selected: b === 4000 }, `${b} tokens`)));
+  const out = () => document.getElementById("packOut");
+  const run = async (btn, path, kind) => {
+    btn.disabled = true;
+    try {
+      const p = await api(path(budget.value));
+      S.pack = kind === "bundle" ? { ...p.bundle || p, kind } : { ...p, kind };
+      out().replaceChildren(packEl(S.pack));
+    } catch (e) { out().replaceChildren(h("p", { class: "err" }, e.message)); }
+    finally { btn.disabled = false; }
+  };
+  const packBtn = h("button", { class: "btn primary", type: "button" }, "Build context pack");
+  packBtn.onclick = () => run(packBtn, b => `/v1/tasks/${t.id}/context?budget=${b}`, "pack");
+  const handBtn = h("button", { class: "btn", type: "button" }, "Handoff bundle");
+  handBtn.onclick = () => run(handBtn, b => `/v1/tasks/${t.id}/bundle?kind=handoff&budget=${b}`, "bundle");
+  const prBtn = h("button", { class: "btn", type: "button" }, "PR bundle");
+  prBtn.onclick = () => run(prBtn, b => `/v1/tasks/${t.id}/bundle?kind=pr&budget=${b}`, "bundle");
+  return h("div", {},
+    h("div", { class: "row" }, budget, packBtn, handBtn, prBtn),
+    h("div", { class: "faint", style: "font-size:12px;margin-top:6px" },
+      "Built the same way an agent's is: deterministic, within the budget, no LLM. Building one stores a receipt."));
+}
+
+function packEl(p) {
+  const budget = p.budget_tokens || Number(document.querySelector("#sheet select")?.value) || 4000;
+  const md = p.markdown || p.text || JSON.stringify(p, null, 2);
+  const pct = Math.min(100, Math.round(100 * (p.tokens || 0) / budget));
+  return h("div", { style: "margin-top:10px" },
+    h("div", { class: "row", style: "margin-bottom:8px" },
+      h("span", { class: "mono" }, `${p.tokens ?? "?"} tokens`),
+      h("div", { class: "meter", title: `${pct}% of the budget` }, h("i", { style: `width:${pct}%` })),
+      p.receipt && h("span", { class: "chip mono" }, p.receipt),
+      p.degraded?.length > 0 && h("span", { class: "chip", title: p.degraded.join("\n") }, "degraded: " + p.degraded.length)),
+    p.omitted && p.omitted.length ? h("div", { class: "faint", style: "font-size:12px;margin-bottom:6px" },
+      `${p.omitted.length} item(s) did not fit; an agent can pull them with av expand.`) : null,
+    h("pre", { class: "pack" }, md));
+}
+
+// ---- boot ----
+
+function showErr(e) { if (!(e instanceof Unauthorized)) banner("Could not reach the daemon: " + e.message); }
+
+async function boot() {
+  banner(null);
+  try {
+    await loadTasks();
+    startFeed();
+    const m = location.hash.match(/^#task=([0-9a-f-]{36})$/);
+    if (m) openTask(m[1]);
+  } catch (e) { showErr(e); }
+}
+setInterval(() => { if (S.tasks.length) renderBoard(); }, 60000); // keep "5m ago" fresh
+boot();
+</script>
+</body>
+</html>

@@ -318,9 +318,15 @@ def main():
     record("gemini", "Gemini records why it reads the constant instead of hard-coding 10.", t2, t2["generation"],
            "decision", "Receipt reads pricing.BULK_QTY so the threshold has one source of truth",
            anchors=[{"path": "shop/receipt.py", "symbol": "render"}])
+    step("gemini", "Gemini asks for context. It only touched receipt.py, but it now uses pricing's constant.",
+         "av context --budget 2000", "GET", f"/v1/tasks/{t2['id']}/context?budget=2000&session=gemini-1",
+         task=t2["id"], show=lambda r: r["markdown"],
+         expect=("decision: Apply the bulk discount", "attempt: Tried rounding"),
+         note="render uses BULK_QTY, and BULK_QTY is used by line_total: two hops through the reference "
+              "graph, so the decision and dead end recorded on pricing.py reach a task in another file.")
 
     t3 = start("claude", "Claude, in a new session, has another idea about line_total.", "Cache price lookups",
-               "Memoize line_total for repeated carts.", "claude-2", 1000,
+               "Memoize pricing.line_total for repeated carts.", "claude-2", 1000,
                note="Its very first pack already lists what earlier agents decided and ruled out about "
                     "line_total, including the dead end from a task that is now merged.",
                expect=("## Decisions & dead ends", "attempt: Tried rounding"))

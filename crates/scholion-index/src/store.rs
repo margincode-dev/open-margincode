@@ -191,6 +191,7 @@ fn kind_from_str(s: &str) -> Result<SymbolKind> {
         "function" => Ok(SymbolKind::Function),
         "method" => Ok(SymbolKind::Method),
         "type" => Ok(SymbolKind::Type),
+        "constant" => Ok(SymbolKind::Constant),
         other => Err(AvError::Index(format!("unknown symbol kind {other}"))),
     }
 }

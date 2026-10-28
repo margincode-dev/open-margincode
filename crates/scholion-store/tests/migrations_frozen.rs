@@ -83,6 +83,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0019_code_fts.sql",
         "edaca9127b1da383e607f22ce67b3bb132d3ef999f226e715f99407ee29ce64f",
     ),
+    (
+        "0020_constants.sql",
+        "eb90ab46cf77ea193401f0ee43fe69c1e18ebe08c962f8ea63f59c73c077b80f",
+    ),
 ];
 
 #[test]

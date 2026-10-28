@@ -1556,3 +1556,112 @@ async fn a_type_that_tops_the_text_hits_does_not_pull_in_everything_that_uses_it
         "a type's neighbours are everything that uses it: no guess to expand from:\n{md}"
     );
 }
+
+// ---- a module-qualified goal and a link through a constant (found by the site's replay) ----
+
+const SHOP: &[(&str, &str)] = &[
+    (
+        "shop/pricing.py",
+        "BULK_QTY = 10\n\n\ndef line_total(price, qty):\n    if qty >= BULK_QTY:\n        return price * qty * 0.95\n    return price * qty\n\n\ndef total(lines):\n    return sum(line_total(p, q) for p, q in lines)\n",
+    ),
+    (
+        "shop/cart.py",
+        "from pricing import total\n\n\nclass Cart:\n    def checkout_total(self):\n        return total(self.lines)\n",
+    ),
+    (
+        "shop/receipt.py",
+        "def render(cart):\n    return str(cart.checkout_total())\n",
+    ),
+];
+
+/// A task on the shop files, at `head` (defaults to the base files), with an earlier task's
+/// decision anchored to `pricing.py:line_total`.
+async fn shop_task(fx: &Fx, goal: &str, head: Option<&[(&str, &str)]>) -> Task {
+    fx.vcs.set("shop", SHOP);
+    let head_files = head.unwrap_or(SHOP);
+    fx.vcs.set("shop-head", head_files);
+    let earlier = fx
+        .store
+        .create_task(new_task("Bulk discount"))
+        .await
+        .unwrap();
+    fx.store
+        .add_record(record(
+            earlier.id,
+            RecordKind::Decision,
+            "Apply the bulk discount in line_total, not in Cart",
+            "",
+            vec![anchor("shop/pricing.py", Some("line_total"))],
+        ))
+        .await
+        .unwrap();
+    let t = fx
+        .store
+        .create_task(NewTask {
+            goal: goal.into(),
+            ..new_task("Shop work")
+        })
+        .await
+        .unwrap();
+    fx.store
+        .set_workspace(
+            t.id,
+            std::path::Path::new("/ws/demo/shop"),
+            &ChangeId("shop".into()),
+        )
+        .await
+        .unwrap();
+    fx.store
+        .set_head(t.id, &ChangeId("shop-head".into()), &[])
+        .await
+        .unwrap();
+    fx.index
+        .index_paths(
+            "demo",
+            &t.slug,
+            head_files
+                .iter()
+                .map(|(p, c)| (p.to_string(), c.as_bytes().to_vec()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    fx.store.get_task(t.id).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_goal_naming_module_dot_function_seeds_that_function_and_its_records() {
+    let fx = fixture().await;
+    let t = shop_task(&fx, "Memoize pricing.line_total for repeated carts", None).await;
+    let pack = fx.packer.build(req(&t, 2000, "dotted")).await.unwrap();
+    let md = &pack.markdown;
+    assert!(
+        md.contains("Apply the bulk discount in line_total"),
+        "the decision anchored to the named function:\n{md}"
+    );
+    assert!(md.contains("def line_total(price, qty):\n"), "{md}");
+}
+
+#[tokio::test]
+async fn a_change_that_uses_another_modules_constant_gets_that_modules_records() {
+    let fx = fixture().await;
+    let receipt = "from pricing import BULK_QTY\n\n\ndef render(cart):\n    rows = [str(cart.checkout_total())]\n    if any(q >= BULK_QTY for _, q in cart.lines):\n        rows.append('bulk -5%')\n    return '\\n'.join(rows)\n";
+    let head: Vec<(&str, &str)> = SHOP
+        .iter()
+        .map(|&(p, c)| {
+            if p == "shop/receipt.py" {
+                (p, receipt)
+            } else {
+                (p, c)
+            }
+        })
+        .collect();
+    let t = shop_task(&fx, "Receipts list a bulk discount line", Some(&head)).await;
+    let pack = fx.packer.build(req(&t, 2000, "constant")).await.unwrap();
+    let md = &pack.markdown;
+    assert!(
+        md.contains("Apply the bulk discount in line_total"),
+        "render uses BULK_QTY, which line_total uses: the decision on line_total is two hops \
+         away:\n{md}"
+    );
+}

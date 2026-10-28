@@ -17,6 +17,9 @@ pub enum SymbolKind {
     Function,
     Method,
     Type,
+    /// A named module-level value: `UPPER_CASE = …` in Python and TypeScript, any `const` or
+    /// `static` in Rust. Indexed so code that uses one links to the module that defines it.
+    Constant,
 }
 
 impl SymbolKind {
@@ -25,6 +28,7 @@ impl SymbolKind {
             Self::Function => "function",
             Self::Method => "method",
             Self::Type => "type",
+            Self::Constant => "constant",
         }
     }
 }
@@ -220,6 +224,23 @@ impl<'a> Walker<'a> {
         Some(q)
     }
 
+    /// A constant: its signature is its first line (a table can run for pages), refs cover it all.
+    fn push_constant(&mut self, node: Node, prefix: &str, name: &str) {
+        let start = node.start_byte();
+        let first_line_end = self.src[start..node.end_byte()]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(node.end_byte(), |i| start + i);
+        let q = Self::qualify(prefix, name);
+        self.push(
+            node,
+            q,
+            SymbolKind::Constant,
+            first_line_end,
+            node.end_byte(),
+        );
+    }
+
     /// A type with no member symbols: refs cover the whole node.
     fn push_leaf_type(&mut self, node: Node, prefix: &str) {
         if let Some(name) = self.name_of(node) {
@@ -260,6 +281,19 @@ impl<'a> Walker<'a> {
                     SymbolKind::Function
                 };
                 self.push_callable(node, prefix, kind);
+            }
+            // `NAME = …` / `NAME: T = …` at module level; one plain name, upper case
+            "expression_statement" if prefix.is_empty() && !in_class => {
+                let Some(assign) = node.named_child(0).filter(|a| a.kind() == "assignment") else {
+                    return;
+                };
+                let Some(left) = assign.child_by_field_name("left") else {
+                    return;
+                };
+                if left.kind() == "identifier" && is_constant_name(self.text(left)) {
+                    let name = self.text(left);
+                    self.push_constant(node, prefix, name);
+                }
             }
             "class_definition" => {
                 if let Some(q) = self.push_container(node, prefix)
@@ -313,6 +347,13 @@ impl<'a> Walker<'a> {
                             value.kind(),
                             "arrow_function" | "function_expression" | "function"
                         ) {
+                            let is_const = child.child(0).is_some_and(|k| k.kind() == "const");
+                            if let Some(name) = self.name_of(d)
+                                && is_const
+                                && is_constant_name(name)
+                            {
+                                self.push_constant(child, prefix, name);
+                            }
                             continue;
                         }
                         if let Some(name) = self.name_of(d) {
@@ -347,6 +388,11 @@ impl<'a> Walker<'a> {
                     self.push_callable(child, prefix, kind);
                 }
                 "function_signature_item" => self.push_callable(child, prefix, SymbolKind::Method),
+                "const_item" | "static_item" => {
+                    if let Some(name) = self.name_of(child) {
+                        self.push_constant(child, prefix, name);
+                    }
+                }
                 "struct_item" | "enum_item" | "union_item" | "type_item" => {
                     self.push_leaf_type(child, prefix)
                 }
@@ -389,4 +435,14 @@ impl<'a> Walker<'a> {
             }
         }
     }
+}
+
+/// `BULK_QTY`, `MAX_2`: the naming convention that marks a module-level value as a constant in
+/// Python and TypeScript (where any variable may be reassigned).
+fn is_constant_name(name: &str) -> bool {
+    name.len() >= 2
+        && name.chars().any(|c| c.is_ascii_uppercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }

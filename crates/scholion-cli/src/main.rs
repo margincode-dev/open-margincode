@@ -890,8 +890,8 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Reindex { repo } => {
             let r = client.post("/v1/reindex", &json!({ "repo": repo }))?;
             println!(
-                "reindex: enqueued {}, upserted {}",
-                r["enqueued"], r["upserted"]
+                "reindex: {} code files re-extracted, enqueued {}, upserted {}",
+                r["code_files_reindexed"], r["enqueued"], r["upserted"]
             );
             print_notes(&r);
         }

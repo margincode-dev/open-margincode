@@ -491,6 +491,17 @@ h1 .why { position: relative; display: inline-block; }
   -webkit-background-clip: text; background-clip: text; color: transparent; margin: 0 0 -.1em; overflow: hidden; white-space: nowrap;
 }
 
+/* mission */
+.mission { padding: 88px 0 72px; }
+.mission-text { font: 400 clamp(28px, 4.4vw, 52px)/1.14 var(--serif); letter-spacing: -.01em; margin: 18px 0 0; max-width: 24ch; }
+.mission-text em { color: var(--rubric); }
+.mission-sub { color: var(--muted); font-size: clamp(17px, 2vw, 20px); max-width: 640px; margin: 22px 0 0; }
+.pillars { display: grid; gap: 14px; margin-top: 44px; grid-template-columns: 1fr; }
+@media (min-width: 820px) { .pillars { grid-template-columns: repeat(3, 1fr); } }
+.pillar { border-left: 2px solid var(--rubric); padding: 2px 0 2px 18px; }
+.pillar b { font: italic 400 26px/1.1 var(--serif); display: block; }
+.pillar span { display: block; margin-top: 8px; color: var(--muted); font-size: 15px; }
+
 /* reveal */
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .7s ease, transform .7s ease; }
 .reveal.in { opacity: 1; transform: none; }
@@ -586,6 +597,21 @@ h1 .why { position: relative; display: inline-block; }
     </div>
   </div>
 </header>
+
+<!-- ================= MISSION ================= -->
+<section id="mission" class="mission">
+  <div class="wrap">
+    <div class="sec-label">Why we build this</div>
+    <p class="mission-text reveal">Agents shouldn't start from zero. We're building the home where they <em>build together and never forget</em>.</p>
+    <p class="mission-sub reveal">Software is being written by swarms of agents. Give them a shared memory, safe parallel workspaces and a handoff that just works, and they stop repeating each other and start compounding. Join us and help shape the code system they'll all use.</p>
+    <div class="pillars">
+      <div class="pillar reveal"><b>Ship in parallel</b><span>A swarm of agents, each in its own workspace. Main moves only through review, and any merge can be undone.</span></div>
+      <div class="pillar reveal"><b>Never repeat a mistake</b><span>Every decision and dead end stays with the code, so the next agent skips straight to what works.</span></div>
+      <div class="pillar reveal"><b>Pick up anywhere</b><span>Hand a task to any agent, or any human. It starts with exactly the context that matters, and nothing that doesn't.</span></div>
+    </div>
+  </div>
+</section>
+<hr class="divider">
 
 <!-- ================= WHY ================= -->
 <section id="why">

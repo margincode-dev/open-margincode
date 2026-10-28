@@ -39,7 +39,7 @@
   {
    "actor": "claude",
    "say": "A decision, anchored to the function it is about.",
-   "cli": "av record --kind decision --anchor shop/pricing.py:line_total \"Apply the bulk discount in pricing.line_total…\"",
+   "cli": "av record --kind decision --anchor shop/pricing.py:line_total --summary \"Apply the bulk discount in pricing.line_total…\"",
    "note": null,
    "task": "c499a5a8",
    "out": "rec:7620c742 decision → shop/pricing.py:line_total\nApply the bulk discount in pricing.line_total, not in Cart: invoices call pricing directly\n\nbilling/invoice.py imports pricing.total and never builds a Cart, so a Cart-level discount would make invoices and checkout disagree.",
@@ -107,7 +107,7 @@
   {
    "actor": "claude",
    "say": "A dead end goes on the record too, so no agent tries it again.",
-   "cli": "av record --kind attempt --anchor shop/pricing.py:total \"Tried rounding every line to the cent before …\"",
+   "cli": "av record --kind attempt --anchor shop/pricing.py:total --summary \"Tried rounding every line to the cent before …\"",
    "note": "Git would keep the code and lose this. Scholion keeps both, anchored to pricing.py:total.",
    "task": "c499a5a8",
    "out": "rec:3e5e25f5 attempt → shop/pricing.py:total\nTried rounding every line to the cent before summing: totals drift 1-2 cents from invoices\n\ntest_total_rounds_once fails: 3 x 0.333 gives 0.99 instead of 1.00. Round only the discount amount, and the total once.",
@@ -350,7 +350,7 @@
   {
    "actor": "codex",
    "say": "Codex answers Claude's open question on the record.",
-   "cli": "av record --kind note --anchor shop/pricing.py:line_total \"Threshold is per line (10 of one item), as th…\"",
+   "cli": "av record --kind note --anchor shop/pricing.py:line_total --summary \"Threshold is per line (10 of one item), as th…\"",
    "note": null,
    "task": "c499a5a8",
    "out": "rec:42a41d78 note → shop/pricing.py:line_total\nThreshold is per line (10 of one item), as the goal says; per-order would need Cart",
@@ -863,7 +863,7 @@
   {
    "actor": "gemini",
    "say": "Gemini records why it reads the constant instead of hard-coding 10.",
-   "cli": "av record --kind decision --anchor shop/receipt.py:render \"Receipt reads pricing.BULK_QTY so the thresho…\"",
+   "cli": "av record --kind decision --anchor shop/receipt.py:render --summary \"Receipt reads pricing.BULK_QTY so the thresho…\"",
    "note": null,
    "task": "c8a79dfc",
    "out": "rec:7ada9342 decision → shop/receipt.py:render\nReceipt reads pricing.BULK_QTY so the threshold has one source of truth",
@@ -1169,7 +1169,7 @@
   {
    "actor": "claude",
    "say": "It profiles first and finds nothing to gain. That result becomes a dead end too.",
-   "cli": "av record --kind attempt --anchor shop/pricing.py:line_total \"Memoizing line_total saves nothing: carts are…\"",
+   "cli": "av record --kind attempt --anchor shop/pricing.py:line_total --summary \"Memoizing line_total saves nothing: carts are…\"",
    "note": null,
    "task": "86ef9cb0",
    "out": "rec:205b884f attempt → shop/pricing.py:line_total\nMemoizing line_total saves nothing: carts are tiny and Decimal math is ~1us",
@@ -1683,7 +1683,7 @@
   {
    "actor": "codex",
    "say": "Why it raises instead of clamping.",
-   "cli": "av record --kind decision --anchor shop/cart.py:Cart.add \"Raise on qty < 1 instead of clamping: a silen…\"",
+   "cli": "av record --kind decision --anchor shop/cart.py:Cart.add --summary \"Raise on qty < 1 instead of clamping: a silen…\"",
    "note": null,
    "task": "224eb55d",
    "out": "rec:7e5c4cdf decision → shop/cart.py:Cart.add\nRaise on qty < 1 instead of clamping: a silent clamp hid a bad import in billing",

@@ -61,6 +61,8 @@ Open problems:
 
 ## Optional
 
+- Guide, handing a task between agents: https://openevaluations.si/guides/handoff-between-ai-coding-agents
+- Guide, persistent memory for coding agents over MCP: https://openevaluations.si/guides/memory-for-coding-agents
 - Replay of a real run (handoff, claim, context pack, review, merge), raw JSON: https://openevaluations.si/demo-replay.json
 - README: https://github.com/vinhqbui/scholion/blob/main/README.md
 - Design spec: https://github.com/vinhqbui/scholion/tree/main/docs/superpowers/specs

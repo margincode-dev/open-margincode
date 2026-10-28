@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hand off a coding task between AI agents without losing context · Scholion</title>
+<meta name="description" content="How to pass a half-finished task from Claude Code to Codex (or any coding agent) with its decisions, dead ends and open questions, so the next agent does not re-read the repo or repeat a failed approach.">
+<link rel="canonical" href="https://openevaluations.si/guides/handoff-between-ai-coding-agents">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://openevaluations.si/guides/handoff-between-ai-coding-agents">
+<meta property="og:title" content="Hand off a coding task between AI agents without losing context">
+<meta property="og:description" content="Claude Code runs out of context; Codex picks up from a 544-token handoff bundle instead of re-reading the repo.">
+<meta property="og:image" content="https://openevaluations.si/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/guides/guide.css">
+<script>try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "TechArticle",
+ "headline": "Hand off a coding task between AI agents without losing context",
+ "about": ["AI coding agents", "Claude Code", "Codex", "agent handoff", "context window"],
+ "url": "https://openevaluations.si/guides/handoff-between-ai-coding-agents",
+ "isPartOf": {"@type": "WebSite", "name": "Scholion", "url": "https://openevaluations.si/"}}
+</script>
+</head>
+<body>
+<nav><div class="in">
+  <a class="brand" href="/"><i>σ</i>Scholion</a><span class="sp"></span>
+  <a class="l hide" href="/demo">Demo</a>
+  <a class="l" href="/guides/memory-for-coding-agents">Agent memory</a>
+  <a class="l" href="https://github.com/vinhqbui/scholion">GitHub</a>
+</div></nav>
+<main>
+  <span class="eyebrow">guide · 5 minutes</span>
+  <h1>Hand off a coding task between AI agents without losing context</h1>
+  <p class="lede">An agent's context window fills up, or you want a second model to finish the job. The next agent then starts cold: it re-reads the repository, rediscovers what was decided, and often <strong>retries the approach that already failed</strong>. Git does not help, because a diff shows what changed, never why or what was tried.</p>
+
+  <h2>What a good handoff contains</h2>
+  <ul>
+    <li><strong>Done and remaining</strong>: where the work stands.</li>
+    <li><strong>Decisions</strong> and the reason for each, attached to the code they are about.</li>
+    <li><strong>Dead ends</strong>: what was tried and why it failed, so nobody tries it again.</li>
+    <li><strong>What is broken</strong> right now and <strong>open questions</strong>.</li>
+    <li>The changes themselves, <strong>small enough to fit</strong> in the next agent's first prompt.</li>
+  </ul>
+  <p>Writing that by hand at the end of every session is the step everyone skips. Scholion has the agents record it as they go and assembles it for them.</p>
+
+  <h2>Set up (once)</h2>
+<pre><code><span class="c"># the daemon, Postgres and an embedding server, all on 127.0.0.1</span>
+export UID GID=$(id -g)
+docker compose -f deploy/docker-compose.yml up -d --build
+<span class="c"># connect any MCP client, e.g. Claude Code</span>
+claude mcp add --transport http av http://localhost:7420/mcp</code></pre>
+  <p>Agents without MCP use the <code>av</code> CLI, which offers the same operations.</p>
+
+  <h2>1. The first agent records as it works</h2>
+<pre><code>av task start --repo shop --title "Bulk discount on cart totals" --goal "..."
+av record --kind decision --anchor shop/pricing.py:line_total \
+  --summary "Apply the bulk discount in pricing.line_total, not in Cart: invoices call pricing directly"
+av record --kind attempt --anchor shop/pricing.py:total \
+  --summary "Tried rounding every line to the cent before summing: totals drift 1-2 cents from invoices"</code></pre>
+  <p>Each record is one line (at most 200 characters) with an optional body, <strong>anchored to a function</strong>. If that code changes later, packs flag the record "changed since recorded".</p>
+
+  <h2>2. Hand off</h2>
+<pre><code>av handoff --done "Discount in line_total, rounded on the discount amount only." \
+  --remaining "Tests for the 10-unit threshold" \
+  --questions "Should the threshold be per line or per order?"</code></pre>
+  <p>This is the bundle the daemon returned in a recorded run, trimmed:</p>
+<pre><code>## State
+Remaining: Tests for the 10-unit threshold
+Done: Discount in line_total, rounded on the discount amount only.
+
+## Records
+- rec:3e5e25f5 attempt: Tried rounding every line to the cent before summing: totals drift 1-2 cents from invoices
+  anchors: shop/pricing.py:total
+- rec:7620c742 decision: Apply the bulk discount in pricing.line_total, not in Cart: invoices call pricing directly
+  anchors: shop/pricing.py:line_total
+
+## Changes
+- line_total (shop/pricing.py:9-13)  <span class="c">(diff of just this function)</span>
+
+## Open questions
+Question: Should the threshold be per line or per order? Spec says per line.
+---
+tokens: 544/4000</code></pre>
+
+  <h2>3. The next agent claims it</h2>
+<pre><code>AV_AGENT=codex av claim &lt;task-id&gt;
+av context --budget 2000</code></pre>
+  <p class="callout">The claim bumps a generation number, so a late write from the first agent is refused instead of silently clobbering the work. The context pack is built without an LLM: seeds from the goal and the changed code, the reference graph, and a token budget. <strong>The same state always produces the same pack.</strong></p>
+  <p>In the recorded run, Codex's first pack was 890 tokens out of 2,000, and it led with Claude's decision and dead end.</p>
+
+  <div class="cta">
+    <a class="btn p" href="/demo">Watch the full run</a>
+    <a class="btn" href="https://github.com/vinhqbui/scholion">Get Scholion on GitHub</a>
+  </div>
+</main>
+<footer>Scholion is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google. Commands and output on this page come from <code>scripts/demo-replay.py</code> in the repository.</footer>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persistent memory for AI coding agents, anchored to code (MCP) · Scholion</title>
+<meta name="description" content="Give Claude Code, Codex, Gemini or any MCP client a shared, persistent memory of decisions and dead ends, attached to the functions they are about and delivered within a token budget.">
+<link rel="canonical" href="https://openevaluations.si/guides/memory-for-coding-agents">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://openevaluations.si/guides/memory-for-coding-agents">
+<meta property="og:title" content="Persistent memory for AI coding agents, anchored to code">
+<meta property="og:description" content="Decisions and dead ends that resurface whenever any agent touches the same code, without blowing the context window.">
+<meta property="og:image" content="https://openevaluations.si/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/guides/guide.css">
+<script>try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "TechArticle",
+ "headline": "Persistent memory for AI coding agents, anchored to code",
+ "about": ["AI coding agents", "agent memory", "Model Context Protocol", "context engineering"],
+ "url": "https://openevaluations.si/guides/memory-for-coding-agents",
+ "isPartOf": {"@type": "WebSite", "name": "Scholion", "url": "https://openevaluations.si/"}}
+</script>
+</head>
+<body>
+<nav><div class="in">
+  <a class="brand" href="/"><i>σ</i>Scholion</a><span class="sp"></span>
+  <a class="l hide" href="/demo">Demo</a>
+  <a class="l" href="/guides/handoff-between-ai-coding-agents">Handoffs</a>
+  <a class="l" href="https://github.com/vinhqbui/scholion">GitHub</a>
+</div></nav>
+<main>
+  <span class="eyebrow">guide · agent memory</span>
+  <h1>Persistent memory for AI coding agents, anchored to code</h1>
+  <p class="lede">Every new agent session starts with amnesia. Notes files like <code>CLAUDE.md</code> help with conventions, but they do not scale to <strong>hundreds of small decisions</strong>, they are loaded whole whatever the task, and nothing tells you when a note has gone stale.</p>
+
+  <h2>Memory that lives next to the code</h2>
+  <p>Scholion stores short, typed records (<strong>decision</strong>, <strong>attempt</strong> for a dead end, <strong>note</strong>, <strong>handoff</strong>), each anchored to a file or a function such as <code>shop/pricing.py:line_total</code>. Records are append-only: a newer one supersedes an older one instead of rewriting history.</p>
+  <ul>
+    <li><strong>They come back on their own.</strong> When any later task touches that function, or code up to two hops away in the reference graph, the record is part of its context pack.</li>
+    <li><strong>They say when they may be wrong.</strong> The anchored code's hash is kept, so a record whose code has since changed is marked "changed since recorded".</li>
+    <li><strong>They fit.</strong> Packs are built for a token budget (say 2,000 tokens), ranked by distance to the work, and a session is not sent the same item twice.</li>
+  </ul>
+
+  <h2>Connect your agent</h2>
+<pre><code><span class="c"># start the daemon (Postgres + optional semantic search, on 127.0.0.1)</span>
+export UID GID=$(id -g)
+docker compose -f deploy/docker-compose.yml up -d --build
+
+<span class="c"># Claude Code, or any other MCP client</span>
+claude mcp add --transport http av http://localhost:7420/mcp</code></pre>
+  <p>The MCP server exposes the same operations as the HTTP API and the <code>av</code> CLI: start a task, record, get a context pack, hand off, claim, review and merge. For Claude Code there are also hooks that print a pack at session start and checkpoint after edits (<code>integrations/claude-code/install.sh</code>).</p>
+
+  <h2>What an agent sees</h2>
+  <p>In a recorded run, a task that only edited <code>receipt.py</code> began using a constant from <code>pricing.py</code>. Its next pack included what other agents had recorded about pricing:</p>
+<pre><code>## Decisions &amp; dead ends
+- decision: Receipt reads pricing.BULK_QTY so the threshold has one source of truth
+- attempt: Tried rounding every line to the cent before summing: totals drift 1-2 cents from invoices
+- note: Threshold is per line (10 of one item), as the goal says; per-order would need Cart
+- decision: Apply the bulk discount in pricing.line_total, not in Cart: invoices call pricing directly (changed since recorded)</code></pre>
+  <p class="callout">No LLM chooses what goes in. The pack comes from the goal, the changed code, the reference graph and the budget, so it is reproducible, and every pack is stored with a receipt you can inspect.</p>
+
+  <h2>Does it help?</h2>
+  <p>On a small Python repository with Claude Code and Haiku (40 sessions per arm), sessions needed <strong>12.9% fewer turns at unchanged cost</strong>, while input tokens rose 5.9% against plain git. The gain on large codebases is not measured yet. The benchmark harness and raw results are in the repository's <code>bench/</code> directory.</p>
+
+  <div class="cta">
+    <a class="btn p" href="/demo">Watch a recorded run</a>
+    <a class="btn" href="/guides/handoff-between-ai-coding-agents">Handing off between agents</a>
+    <a class="btn" href="https://github.com/vinhqbui/scholion">GitHub</a>
+  </div>
+</main>
+<footer>Scholion is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google.</footer>
+</body>
+</html>

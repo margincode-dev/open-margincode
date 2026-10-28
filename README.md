@@ -7,6 +7,30 @@ Context-first version control for coding agents: tasks in isolated jj workspaces
 dead ends recorded next to the code, and a token-budgeted context pack for any agent that picks the
 work up.
 
+[![CI](https://github.com/vinhqbui/scholion/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vinhqbui/scholion/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/vinhqbui/scholion?include_prereleases)](https://github.com/vinhqbui/scholion/releases)
+[![MCP server](https://img.shields.io/badge/MCP-server-8A2BE2)](#agent-integrations)
+
+**[Watch a recorded run](https://openevaluations.si/demo)**: Claude records a decision and a dead
+end, hands off; Codex picks the task up from a context pack instead of re-reading the repo; Gemini
+reviews. On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same
+cost** ([benchmark](bench/results/2026-10-27-haiku/), including where it did not help).
+
+[![A recorded run: Codex's context pack leads with Claude's decision and dead end](docs/img/demo-replay.png)](https://openevaluations.si/demo)
+
+**Try it** (Docker; the first build compiles the daemon, so give it a few minutes):
+
+```bash
+export UID GID=$(id -g) AV_IMPORT_ROOT=~/projects                # repos to import live here
+docker compose -f deploy/docker-compose.yml up -d --build      # daemon on 127.0.0.1:7420
+claude mcp add --transport http av http://localhost:7420/mcp   # or any MCP client
+av repo add myrepo /import/myrepo                              # path inside the container
+```
+
+Then watch your agents at `http://localhost:7420/ui`. Prebuilt `av` CLI binaries are on the
+[releases page](https://github.com/vinhqbui/scholion/releases).
+
 ## How this was built
 
 Scholion is **vibe-coded**: AI coding agents (mostly Claude Code, with some help from other

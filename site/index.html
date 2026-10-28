@@ -515,6 +515,38 @@ h1 .why { position: relative; display: inline-block; }
 }
 </style>
 <script>try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "SoftwareApplication",
+   "name": "Scholion",
+   "alternateName": "av",
+   "description": "Open-source, context-first version control for coding agents: decisions and dead ends anchored to code, isolated task workspaces, and a deterministic, token-budgeted context pack for Claude Code, Codex, Gemini or any MCP client.",
+   "applicationCategory": "DeveloperApplication",
+   "operatingSystem": "Linux, macOS",
+   "url": "https://openevaluations.si/",
+   "downloadUrl": "https://github.com/vinhqbui/scholion/releases",
+   "codeRepository": "https://github.com/vinhqbui/scholion",
+   "license": "https://opensource.org/licenses/MIT",
+   "programmingLanguage": "Rust",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+   },
+   "keywords": "AI coding agents, version control, MCP server, Claude Code, context engineering, agent handoff, jujutsu"
+  },
+  {
+   "@type": "WebSite",
+   "name": "Scholion",
+   "url": "https://openevaluations.si/"
+  }
+ ]
+}
+</script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -966,6 +998,8 @@ av submit &amp;&amp; av merge</pre>
       <a href="https://github.com/vinhqbui/scholion">GitHub</a>
       <a href="https://github.com/vinhqbui/scholion/blob/main/README.md">Docs</a>
       <a href="https://github.com/vinhqbui/scholion/tree/main/bench">Benchmarks</a>
+      <a href="/guides/handoff-between-ai-coding-agents">Handoffs between agents</a>
+      <a href="/guides/memory-for-coding-agents">Memory for coding agents</a>
       <a href="/llms.txt">llms.txt</a>
       <span>MIT licensed</span>
     </div>

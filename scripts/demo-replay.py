@@ -182,7 +182,7 @@ def record(actor, say, task, gen, kind, summary, body="", anchors=(), note=None)
         where = f" → {', '.join(a['path'] + (':' + a['symbol'] if a.get('symbol') else '') for a in anchors)}" if anchors else ""
         return f"rec:{r['id'][:8]} {kind}{where}\n{summary}" + (f"\n\n{body}" if body else "")
 
-    return step(actor, say, f'av record --kind {kind}{anchor_flags} "{short}"', "POST",
+    return step(actor, say, f'av record --kind {kind}{anchor_flags} --summary "{short}"', "POST",
                 f"/v1/tasks/{task['id']}/records",
                 {"kind": kind, "summary": summary, "body": body, "agent": actor, "anchors": list(anchors)},
                 gen=gen, task=task["id"], note=note, show=show)

@@ -3,7 +3,7 @@ name: ci
 on:
   # branch pushes are covered by their pull request; running both doubles the minutes
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 

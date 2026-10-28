@@ -6,6 +6,7 @@ The project website: a static page, no build step. Everything is in this folder.
 |---|---|
 | `index.html` | The page (inline CSS and JS; fonts from Google Fonts). |
 | `llms.txt` | The same story in Markdown for agents ([llmstxt.org](https://llmstxt.org)); the page's "agent view" shows it. |
+| `guides/` | Plain how-to pages aimed at search (handoffs between agents, agent memory). Use real commands and recorded output only. |
 | `demo.html` | `/demo`: plays back `demo-replay.json`, a recorded run of three agents on a toy repo. |
 | `demo-replay.json` | Written by `scripts/demo-replay.py` from a real daemon; do not edit by hand. |
 | `404.html` | Served by Cloudflare Pages for unknown paths. |

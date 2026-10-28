@@ -22,7 +22,7 @@ python3 -m http.server -d site 8000   # then open http://localhost:8000
 
 ## Deploy to Cloudflare
 
-`wrangler.jsonc` at the repo root serves `site/` as static assets (Worker name `scholion`).
+`wrangler.jsonc` at the repo root serves `site/` as static assets (Worker name `scholion-deploy`).
 
 **Git integration.** Cloudflare dashboard → Workers & Pages → Create → Import a repository →
 this repo. Leave the build command empty and keep the deploy command `npx wrangler deploy`.

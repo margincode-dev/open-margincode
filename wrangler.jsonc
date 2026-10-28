@@ -1,6 +1,6 @@
 {
   // Static site for openevaluations.si: serves site/ as is, no Worker code.
-  "name": "scholion",
+  "name": "scholion-deploy",
   "compatibility_date": "2026-10-28",
   "assets": {
     "directory": "./site",

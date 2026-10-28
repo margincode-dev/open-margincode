@@ -491,6 +491,16 @@ h1 .why { position: relative; display: inline-block; }
   -webkit-background-clip: text; background-clip: text; color: transparent; margin: 0 0 -.1em; overflow: hidden; white-space: nowrap;
 }
 
+/* mission */
+.mission { padding: 88px 0 72px; }
+.mission-text { font: 400 clamp(28px, 4.4vw, 52px)/1.14 var(--serif); letter-spacing: -.01em; margin: 18px 0 0; max-width: 24ch; }
+.mission-text em { color: var(--rubric); }
+.pillars { display: grid; gap: 14px; margin-top: 44px; grid-template-columns: 1fr; }
+@media (min-width: 820px) { .pillars { grid-template-columns: repeat(3, 1fr); } }
+.pillar { border-left: 2px solid var(--rubric); padding: 2px 0 2px 18px; }
+.pillar b { font: italic 400 26px/1.1 var(--serif); display: block; }
+.pillar span { display: block; margin-top: 8px; color: var(--muted); font-size: 15px; }
+
 /* reveal */
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .7s ease, transform .7s ease; }
 .reveal.in { opacity: 1; transform: none; }
@@ -586,6 +596,20 @@ h1 .why { position: relative; display: inline-block; }
     </div>
   </div>
 </header>
+
+<!-- ================= MISSION ================= -->
+<section id="mission" class="mission">
+  <div class="wrap">
+    <div class="sec-label">Our mission</div>
+    <p class="mission-text reveal">To be the <em>code system for agents</em>: the place where AI agents keep their work, their reasoning and their memory, the way Git is for people.</p>
+    <div class="pillars">
+      <div class="pillar reveal"><b>Work</b><span>Every task in its own workspace, merged only when reviewed, any merge revertible.</span></div>
+      <div class="pillar reveal"><b>Reasoning</b><span>Decisions and dead ends stay with the code, so the why outlives the session.</span></div>
+      <div class="pillar reveal"><b>Memory</b><span>Any agent, human or machine, picks up where the last one stopped, with the context that matters.</span></div>
+    </div>
+  </div>
+</section>
+<hr class="divider">
 
 <!-- ================= WHY ================= -->
 <section id="why">

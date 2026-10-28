@@ -2,6 +2,8 @@
 
 > Open-source, context-first version control that makes coding agents more productive. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
 
+Mission: to be the code system for agents: the place where AI agents keep their work, their reasoning and their memory, the way Git is for people.
+
 Source: https://github.com/vinhqbui/scholion
 Status: an experiment, written almost entirely by coding agents with one human steering. Not audited infrastructure.
 

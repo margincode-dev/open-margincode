@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scholion · version control for coding agents</title>
-<meta name="description" content="Scholion is open-source, context-first version control for coding agents. Isolated tasks, decisions and dead ends stored next to the code, and a deterministic, token-budgeted context pack for whichever agent picks the work up.">
+<meta name="description" content="Scholion is open-source, context-first version control that makes coding agents more productive: decisions and dead ends kept next to the code, isolated tasks, and a deterministic context pack that gives any agent what it needs without blowing up its context window or token budget.">
 <link rel="canonical" href="https://openevaluations.si/">
 <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://openevaluations.si/">
 <meta property="og:title" content="Scholion: Git remembers what changed. Scholion remembers why.">
-<meta property="og:description" content="Open-source version control for coding agents: isolated tasks, decisions and dead ends anchored to code, and deterministic context packs.">
+<meta property="og:description" content="Open-source version control that makes coding agents more productive: the right context, anchored to code, always within the token budget.">
 <meta property="og:image" content="https://openevaluations.si/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -547,7 +547,7 @@ h1 .why { position: relative; display: inline-block; }
   <div class="wrap">
     <span class="eyebrow"><b>open source · MIT</b> Version control for the age of coding agents</span>
     <h1>Git remembers what changed. Scholion remembers <em class="why">why<svg class="scribble" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 13 C 45 5, 90 4, 128 9 S 190 17, 217 6"/></svg></em>.</h1>
-    <p class="lede">Every new agent session re-reads the tree and rediscovers what was already tried, decided and rejected. Scholion keeps <strong>decisions and dead ends next to the code</strong>, gives each task its own isolated workspace, and hands whichever agent picks the work up a <strong>deterministic, token-budgeted context pack</strong>.</p>
+    <p class="lede">Scholion makes coding agents <strong>more productive</strong>. Instead of re-reading the tree and rediscovering what was already tried, decided and rejected, every agent starts from <strong>the context that matters</strong>: decisions and dead ends anchored to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the context window or the token budget</strong>.</p>
     <div class="cta">
       <a class="btn btn-primary btn-ring" href="https://github.com/vinhqbui/scholion" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>
@@ -582,7 +582,7 @@ h1 .why { position: relative; display: inline-block; }
       <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
       <div class="stat"><b>24</b><span>MCP tools: any MCP-speaking agent can drive it</span></div>
       <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
-      <div class="stat"><b>≤200</b><span>characters per record summary. Append-only, superseded, never edited.</span></div>
+      <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost (<a href="#evidence">benchmark</a>)</span></div>
     </div>
   </div>
 </header>
@@ -592,7 +592,7 @@ h1 .why { position: relative; display: inline-block; }
   <div class="wrap">
     <div class="sec-label">The problem</div>
     <h2>Git keeps snapshots and throws the <em>reasoning</em> away.</h2>
-    <p class="sec-intro dropcap">Put several coding agents on one repository and they hit the same three walls, over and over. Each one costs tokens, time, and sometimes a broken main.</p>
+    <p class="sec-intro dropcap">Put several coding agents on one repository and they hit the same three walls, over and over. Each one costs turns, time, and sometimes a broken main. Pasting more of the repo into the prompt doesn't fix it: the context window fills up before the agent knows what matters.</p>
     <div class="grid-3">
       <article class="card reveal"><div class="num">i.</div><h3>The re-orientation tax</h3><p>Every fresh session spends its first turns reading the tree, grepping for the target and reconstructing context the last agent already had.</p></article>
       <article class="card reveal"><div class="num">ii.</div><h3>Dead ends get retried</h3><p>"Tried tenacity, not installed." That sentence never reaches a commit, so the next agent tries tenacity again. Rejected approaches vanish with the session.</p></article>
@@ -643,7 +643,7 @@ h1 .why { position: relative; display: inline-block; }
 <section id="pack">
   <div class="wrap">
     <div class="sec-label">The context pack</div>
-    <h2>Exactly what the next agent needs. <em>Nothing it has already read.</em></h2>
+    <h2>More of what matters. <em>Never more than fits.</em></h2>
     <div class="split">
       <div>
         <p class="sec-intro" style="margin-top:0">No LLM in the loop. Seeds (the goal, changed files and symbols) pull in candidates from the reference graph, anchored records, semantic search and other live tasks. Those are scored and fitted into a fixed budget split, with unused share spilling over.</p>
@@ -664,6 +664,7 @@ h1 .why { position: relative; display: inline-block; }
           </div>
         </div>
         <ul class="checks">
+          <li><div><b>A hard ceiling.</b> <span>A pack never exceeds its budget, and the session ledger refers back to what an agent already saw instead of resending it. Context grows in relevance, not in length, even across a long session.</span></div></li>
           <li><div><b>Deterministic.</b> <span>Same state, same pack, regardless of database locale. Golden-file tested.</span></div></li>
           <li><div><b>Progressive tiers.</b> <span>Each item shows at the richest tier that fits; <code>av expand &lt;id&gt;</code> pulls the rest on demand.</span><div class="tiers"><code>handle</code><code>summary</code><code>full</code></div></div></li>
           <li><div><b>Graceful degradation.</b> <span>If Qdrant or the embedder is down, packs still return from structure and Postgres full-text, marked <code>degraded: semantic</code>.</span></div></li>
@@ -860,7 +861,7 @@ av submit &amp;&amp; av merge</pre>
       </div>
       <div class="ev reveal">
         <h3>End-to-end agents <small>Claude Code · Haiku · 40 sessions per arm</small></h3>
-        <p>Headless Claude Code fixing one-file bugs in a 25-file Python library, hidden tests decide acceptance. av with hooks against plain git.</p>
+        <p>Headless Claude Code fixing one-file bugs in a 25-file Python library, hidden tests decide acceptance. With av, agents reach the fix in fewer turns, and the bill stays where it was.</p>
         <div class="delta">
           <div><b>−12.9%</b><span>turns</span><small>95% CI [−18.3, −7.0]</small></div>
           <div><b>±0.0%</b><span>cost</span><small>95% CI [−3.9, +4.2]</small></div>
@@ -872,7 +873,7 @@ av submit &amp;&amp; av merge</pre>
     </div>
     <div class="honest reveal">
       <span class="ico" aria-hidden="true">※</span>
-      <p><b>Not yet shown:</b> <span>that context packs save tokens over plain git on real work. A 25-file repo is the hard case, since one cheap grep finds the target. The 20k-line Rust task set where navigation really costs is still unmeasured; it needs more disk per session than our sandbox had. That's an open invitation.</span></p>
+      <p><b>Not yet shown:</b> <span>the productivity gain on large codebases, where re-orientation costs the most. A 25-file repo is the hard case, since one cheap grep finds the target, and there the pack adds about 6% input tokens. The 20k-line Rust task set where navigation really costs is still unmeasured; it needs more disk per session than our sandbox had. That's an open invitation.</span></p>
     </div>
   </div>
 </section>
@@ -906,10 +907,10 @@ av submit &amp;&amp; av merge</pre>
     <h2>Pick a margin. <em>Leave a note.</em></h2>
     <p class="sec-intro">Rust 2024, a Cargo workspace of focused crates, TDD all the way down. Humans and agents both welcome; if your agent writes the PR, say so.</p>
     <div class="issues">
-      <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/bench" style="text-decoration:none"><div class="labels"><span class="l-bench">benchmark</span><span class="l-core">high impact</span></div><h3>Run the medium task set</h3><p>Measure av on <code>bench/tasks-scholion</code> (20k lines of Rust), where navigation is expensive. Needs ~1 GB of disk per session.</p><span class="where">bench/README.md</span></a>
+      <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/bench" style="text-decoration:none"><div class="labels"><span class="l-bench">benchmark</span><span class="l-core">high impact</span></div><h3>Run the medium task set</h3><p>Measure the productivity gain on <code>bench/tasks-scholion</code> (20k lines of Rust), where navigation is expensive. Needs ~1 GB of disk per session.</p><span class="where">bench/README.md</span></a>
       <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/crates/scholion-index" style="text-decoration:none"><div class="labels"><span class="l-lang">indexer</span><span class="l-int">good first issue</span></div><h3>Teach the index Go, Java, C#…</h3><p>Symbols, references and skeletons come from tree-sitter. Rust, TypeScript and Python today; each new grammar opens Scholion to a new ecosystem.</p><span class="where">crates/scholion-index</span></a>
       <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/integrations" style="text-decoration:none"><div class="labels"><span class="l-int">integrations</span></div><h3>First-class hooks for more agents</h3><p>MCP already works anywhere. Session-start packs and edit checkpoints, like the Claude Code hooks, for Codex, Gemini CLI, Cursor, Aider and friends.</p><span class="where">integrations/</span></a>
-      <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/crates/scholion-pack" style="text-decoration:none"><div class="labels"><span class="l-core">packer</span></div><h3>Shrink the pack's own overhead</h3><p>About 1k tokens are cache-written once and re-read every turn. Smarter tiers, better cold-start seeds, sharper scoring.</p><span class="where">crates/scholion-pack</span></a>
+      <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/crates/scholion-pack" style="text-decoration:none"><div class="labels"><span class="l-core">packer</span></div><h3>More context per token</h3><p>About 1k tokens of pack are cache-written once and re-read every turn. Sharper scoring, better cold-start seeds and smarter tiers put more of what matters in the same budget.</p><span class="where">crates/scholion-pack</span></a>
       <a class="issue reveal" href="https://github.com/vinhqbui/scholion/tree/main/crates/scholion-daemon" style="text-decoration:none"><div class="labels"><span class="l-core">security</span></div><h3>Real agent identity</h3><p>Agent names are self-asserted today: fencing stops accidents between cooperating agents, not impersonation. Design something better.</p><span class="where">crates/scholion-daemon</span></a>
       <a class="issue reveal" href="https://github.com/vinhqbui/scholion/issues" style="text-decoration:none"><div class="labels"><span class="l-bench">field report</span></div><h3>Use it on your repo, tell us</h3><p>Point a few agents at a real project and file what broke, what helped and what you'd want in the pack. Rough-edge reports are contributions.</p><span class="where">github.com/vinhqbui/scholion/issues</span></a>
     </div>

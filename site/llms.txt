@@ -1,6 +1,6 @@
 # Scholion
 
-> Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic, token-budgeted context pack hands any agent what it needs. MIT licensed. The CLI is `scholion`, alias `av` (same program).
+> Open-source, context-first version control that makes coding agents more productive. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
 
 Source: https://github.com/vinhqbui/scholion
 Status: an experiment, written almost entirely by coding agents with one human steering. Not audited infrastructure.
@@ -9,7 +9,8 @@ Status: an experiment, written almost entirely by coding agents with one human s
 
 - Each new agent session spends tokens re-orienting: reading the tree, rediscovering what was tried, decided and rejected.
 - Git keeps snapshots and drops intent, decisions and dead ends. A diff shows what changed, never why.
-- Scholion stores the "why" next to the code and hands any agent a context pack built from it.
+- Pasting more of the repo into the prompt doesn't help: the context window fills before the agent knows what matters.
+- Scholion stores the "why" next to the code and hands any agent a context pack built from it: more relevant context, never more than the budget allows.
 
 ## Concepts
 
@@ -41,8 +42,8 @@ av submit
 ## Evidence (reproducible, in the repo)
 
 - Retrieval E1, 42 tasks from 6 public repos, 4000-token budget: the pack shows code for 0.91 of the gold files (BM25 over symbols 0.89, repo map 0.68, BM25 over files 0.44). `bench/retrieval/`
-- Claude Code + Haiku, 40 sessions per arm, small Python repo: turns −12.9%, cost ±0.0%, tokens +5.9% vs plain git. `bench/results/2026-10-27-haiku/`
-- Not yet shown: that packs save tokens on real work. The 20k-line Rust task set is unmeasured.
+- Claude Code + Haiku, 40 sessions per arm, small Python repo: turns −12.9% at unchanged cost (±0.0%); input tokens +5.9% vs plain git. `bench/results/2026-10-27-haiku/`
+- Not yet shown: the productivity gain on large codebases. The 20k-line Rust task set is unmeasured.
 
 ## Contribute
 
@@ -52,7 +53,7 @@ Open problems:
 - Run the medium benchmark (`bench/tasks-scholion`, ~1 GB disk per session).
 - Add tree-sitter languages to `crates/scholion-index` (Rust, TypeScript, Python today).
 - Hooks for more agents (Codex, Gemini CLI, Cursor, Aider) in `integrations/`.
-- Reduce pack overhead in `crates/scholion-pack`.
+- Fit more relevant context into the same budget in `crates/scholion-pack`.
 - Real agent identity (agent names are self-asserted today).
 - Use it on a real repo and file issues: https://github.com/vinhqbui/scholion/issues
 

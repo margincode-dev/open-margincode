@@ -33,7 +33,7 @@ Cargo workspace, `crates/*`, edition 2024. A daemon (axum, `:7420`) owns all sta
 
 - `scholion-core` — shared types, `AvError`, and the traits every unit talks through (`traits.rs`: `Vcs`, `IntentStore`, `Semantic`). `lifecycle.rs` is the pure task state machine (`next(status, Event)`); illegal transitions are `AvError::IllegalState` → HTTP 422 (`Invalid` stays 400 = malformed input).
 - `scholion-vcs` — **the only crate that touches jj-lib** (pinned `=0.46.0`). Repos are git imports; one jj workspace per task. After any jj-lib rewrite call `rebase_descendants()`. `ChangeId` is the jj *commit id* hex, so any snapshot/squash/rebase produces a new id.
-- `scholion-store` — Postgres `IntentStore` (sqlx, migrations in `crates/scholion-store/migrations/`, numbered `000N_*.sql`, embedded via `sqlx::migrate!`; two branches adding the same number break every DB test, so check `master`'s highest number before merging). Postgres is the source of truth. Writes that need embedding enqueue an `outbox` row in the same transaction (`outbox.rs`).
+- `scholion-store` — Postgres `IntentStore` (sqlx, migrations in `crates/scholion-store/migrations/`, numbered `000N_*.sql`, embedded via `sqlx::migrate!`; two branches adding the same number break every DB test, so check `main`'s highest number before merging). Postgres is the source of truth. Writes that need embedding enqueue an `outbox` row in the same transaction (`outbox.rs`).
 - `scholion-index` — tree-sitter (Rust, TS, Python) symbols, reference graph, skeletons and code chunks, stored in Postgres, incremental by content hash.
 - `scholion-semantic` — `Embedder` (TEI, Ollama, `ScriptedEmbedder` fake) and `VectorIndex` (Qdrant, `MemoryIndex` fake). `Embedder::dimension` is `async` and fallible (the plan text says sync; the code is right). Qdrant is derived data, rebuildable with `av reindex`.
 - `scholion-pack` — deterministic context packer, no LLM: seeds → candidates (structural, anchored records, semantic, live work) → scoring → budget split by section with spillover → progressive tiers (handle/summary/full) → session ledger so later packs reference instead of resend. Each pack stores a receipt (`rcp:<8 hex>`). Golden output in `tests/golden/`.
@@ -48,6 +48,6 @@ Invariants worth not breaking: record summaries ≤ 200 chars and records are ap
 
 ## Working conventions
 
-- `master` is the base. Start each change on a branch off `master` and land it through a pull request; prefer one PR per change over stacked PRs (a PR stacked on another merges into that branch, not `master`).
+- `main` is the base. Start each change on a branch off `main` and land it through a pull request; prefer one PR per change over stacked PRs (a PR stacked on another merges into that branch, not `main`).
 - Work is TDD: failing test first, then implementation, then fmt + clippy + tests. See `CONTRIBUTING.md`.
 - Agent-facing text (pack output, MCP tool descriptions, hook messages) says `av`, not `scholion`: it is shorter for agents to type and both names are always installed.

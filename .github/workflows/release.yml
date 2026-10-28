@@ -1,12 +1,12 @@
 name: release
 
-# Push a tag like v0.1.0 to build the CLI (`scholion` and its alias `av`) for Linux and macOS and
-# publish them, with SHA-256 sums, as a GitHub release. The daemon still runs from
-# deploy/docker-compose.yml.
+# Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`scholion` and its alias `av`) for
+# Linux and macOS and publish them, with SHA-256 sums, as a GitHub release. The daemon still runs
+# from deploy/docker-compose.yml.
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'release/*']
   workflow_dispatch:
     inputs:
       tag:
@@ -45,7 +45,9 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name="scholion-${TAG}-${{ matrix.target }}"
+          # release/0.1.0 -> v0.1.0: a tag may contain a slash, a file name may not
+          ver="${TAG#release/}"; ver="v${ver#v}"
+          name="scholion-${ver}-${{ matrix.target }}"
           mkdir "$name"
           cp target/${{ matrix.target }}/release/scholion target/${{ matrix.target }}/release/av \
              LICENSE README.md "$name/"
@@ -72,5 +74,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" scholion-*.tar.gz* --clobber
           else
-            gh release create "$TAG" scholion-*.tar.gz* --generate-notes --title "Scholion $TAG"
+            gh release create "$TAG" scholion-*.tar.gz* --generate-notes --title "Scholion ${TAG#release/}"
           fi

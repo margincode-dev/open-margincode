@@ -1,0 +1,65 @@
+# Scholion
+
+> Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic, token-budgeted context pack hands any agent what it needs. MIT licensed. The CLI is `scholion`, alias `av` (same program).
+
+Source: https://github.com/vinhqbui/scholion
+Status: an experiment, written almost entirely by coding agents with one human steering. Not audited infrastructure.
+
+## Why
+
+- Each new agent session spends tokens re-orienting: reading the tree, rediscovering what was tried, decided and rejected.
+- Git keeps snapshots and drops intent, decisions and dead ends. A diff shows what changed, never why.
+- Scholion stores the "why" next to the code and hands any agent a context pack built from it.
+
+## Concepts
+
+- Task: one unit of agent work (replaces branch + pull request), with its own jj workspace branched from trunk.
+- Record: a typed note on a task: intent, decision, attempt, note, handoff, review. Summary <= 200 chars. Append-only; newer records supersede older ones.
+- Anchor: a record's link to code (`path` or `path:Symbol`). The code hash is stored, so packs mark claims "(changed since recorded)".
+- Convention: a repo rule scoped by path glob. Required conventions are always in the pack.
+- Context pack: Markdown sections Task, Map, Decisions & dead ends, Code, Conventions, Live work, fitted to a token budget. No LLM; deterministic.
+- Session ledger: what a session was already sent; later packs refer back ("↩ id (sent earlier)") instead of resending.
+- Receipt: every pack is stored as `rcp:<8 hex>`.
+
+## Use it from an agent
+
+- MCP (any client): `claude mcp add --transport http av http://localhost:7420/mcp` — 24 tools including start_task, checkpoint, record, get_context, expand, handoff, claim_task, submit, merge, why, read_file, diff, log.
+- Claude Code hooks: `integrations/claude-code/install.sh` (SessionStart pack, PostToolUse checkpoints).
+- Anything else: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`.
+
+## Typical session
+
+```bash
+av task start --repo api --title "Add retry" --goal "retry embedder calls with backoff"
+cd ~/ws/api/add-retry
+av record --kind attempt --summary "tried tenacity; not installed" --anchor shared/text.py
+av context --budget 4000
+av handoff --done "retries added" --remaining "tests for the 429 path"
+av submit
+```
+
+## Evidence (reproducible, in the repo)
+
+- Retrieval E1, 42 tasks from 6 public repos, 4000-token budget: the pack shows code for 0.91 of the gold files (BM25 over symbols 0.89, repo map 0.68, BM25 over files 0.44). `bench/retrieval/`
+- Claude Code + Haiku, 40 sessions per arm, small Python repo: turns −12.9%, cost ±0.0%, tokens +5.9% vs plain git. `bench/results/2026-10-27-haiku/`
+- Not yet shown: that packs save tokens on real work. The 20k-line Rust task set is unmeasured.
+
+## Contribute
+
+Rust 2024, Cargo workspace. TDD: failing test first, then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. See CONTRIBUTING.md and CLAUDE.md in the repo.
+
+Open problems:
+- Run the medium benchmark (`bench/tasks-scholion`, ~1 GB disk per session).
+- Add tree-sitter languages to `crates/scholion-index` (Rust, TypeScript, Python today).
+- Hooks for more agents (Codex, Gemini CLI, Cursor, Aider) in `integrations/`.
+- Reduce pack overhead in `crates/scholion-pack`.
+- Real agent identity (agent names are self-asserted today).
+- Use it on a real repo and file issues: https://github.com/vinhqbui/scholion/issues
+
+## Optional
+
+- README: https://github.com/vinhqbui/scholion/blob/main/README.md
+- Design spec: https://github.com/vinhqbui/scholion/tree/main/docs/superpowers/specs
+- Benchmarks: https://github.com/vinhqbui/scholion/tree/main/bench
+
+Scholion is independent and not affiliated with or endorsed by Anthropic.

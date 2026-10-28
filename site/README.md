@@ -6,6 +6,8 @@ The project website: a static page, no build step. Everything is in this folder.
 |---|---|
 | `index.html` | The page (inline CSS and JS; fonts from Google Fonts). |
 | `llms.txt` | The same story in Markdown for agents ([llmstxt.org](https://llmstxt.org)); the page's "agent view" shows it. |
+| `demo.html` | `/demo`: plays back `demo-replay.json`, a recorded run of three agents on a toy repo. |
+| `demo-replay.json` | Written by `scripts/demo-replay.py` from a real daemon; do not edit by hand. |
 | `404.html` | Served by Cloudflare Pages for unknown paths. |
 | `_headers` | Cloudflare Pages response headers (CSP, `text/markdown` for `llms.txt`). |
 | `og.png` | 1200×630 link preview. |
@@ -13,6 +15,13 @@ The project website: a static page, no build step. Everything is in this folder.
 
 Numbers on the page come from `bench/` (E1 retrieval at a 4000-token budget, and the 2026-10-27
 Haiku runs). When the benchmarks change, update `index.html` and `llms.txt` together.
+
+## The replay demo
+
+`/demo` shows what the daemon actually returned. To re-record it after a change to packs or the
+API, start a daemon on an empty database and run `scripts/demo-replay.py` (see its docstring). The
+script stops if a caption's claim (say, "the pack leads with the dead end") no longer holds in the
+output; fix the caption or the story, not the check.
 
 ## Preview
 

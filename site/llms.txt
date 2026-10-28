@@ -61,6 +61,7 @@ Open problems:
 
 ## Optional
 
+- Replay of a real run (handoff, claim, context pack, review, merge), raw JSON: https://openevaluations.si/demo-replay.json
 - README: https://github.com/vinhqbui/scholion/blob/main/README.md
 - Design spec: https://github.com/vinhqbui/scholion/tree/main/docs/superpowers/specs
 - Benchmarks: https://github.com/vinhqbui/scholion/tree/main/bench

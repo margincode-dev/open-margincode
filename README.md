@@ -51,7 +51,7 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
 - **Context pack**: Markdown with the sections *Task, Map, Decisions & dead ends, Code,
   Conventions, Live work*, built for one task within a token budget. No LLM is involved: seeds
   (the goal, changed files and symbols, an optional focus) pull in candidates (reference-graph
-  neighbours, anchored records, semantic hits, other tasks touching the same files), which are
+  neighbours, records anchored up to two hops away, semantic hits, other tasks touching the same files), which are
   scored and fitted into per-section shares (map 10 % · task 10 % · history 20 % · code 50 % ·
   conventions + live work 10 %, with unused share spilling over). Each item is shown at the
   richest tier that fits (handle → summary → full); `scholion expand <id>` pulls the rest.
@@ -156,7 +156,7 @@ The daemon can also run on the host (`cargo run -p scholion-daemon`) against the
 | `scholion-core` | Shared types, `AvError`, the `Vcs` / `IntentStore` / `Semantic` traits every unit talks through, and the lifecycle state machine. |
 | `scholion-vcs` | The only crate that touches jj-lib (pinned `=0.46.0`). Imports a git repo, creates a jj workspace per task, snapshots, diffs and reads files by commit id. |
 | `scholion-store` | Postgres `IntentStore`: tasks, records, anchors, conventions, ledger, receipts, outbox. Migrations in `crates/scholion-store/migrations/`. |
-| `scholion-index` | Tree-sitter extraction (Rust, TypeScript, Python): symbols, reference graph, skeletons, code chunks, stored per *scope* (`main` or a task) and updated incrementally by content hash. |
+| `scholion-index` | Tree-sitter extraction (Rust, TypeScript, Python): symbols (functions, methods, types, and module constants: `UPPER_CASE` in Python/TypeScript, `const`/`static` in Rust), reference graph, skeletons, code chunks, stored per *scope* (`main` or a task) and updated incrementally by content hash. |
 | `scholion-semantic` | `Embedder` (TEI, Ollama, a scripted fake) and `VectorIndex` (Qdrant, an in-memory fake). |
 | `scholion-pack` | The context packer: seeds → candidates → scoring → budget → tiers → ledger and receipt. Golden-file tests. |
 | `scholion-daemon` | Wiring from environment variables, HTTP routes under `/v1`, lifecycle operations (`flow.rs`), indexing glue, the outbox worker. |
@@ -247,7 +247,9 @@ outbox drained every second, and context packs then also rank by semantic simila
 container has no `ollama` CLI, so in compose it uses TEI. If Qdrant or the embedder is unreachable,
 packs still return and carry the note `semantic`: they used Postgres full-text instead. After
 changing the embedding model, run `scholion reindex` with no `--repo` (it recreates the collections at
-the new dimension); `scholion reindex --repo NAME` rebuilds one repo. TEI downloads its model on first
+the new dimension); `scholion reindex --repo NAME` rebuilds one repo. Reindex also brings `main`'s
+code index up to date (unchanged files are skipped by content hash); after upgrading past migration
+`0020` (constants became symbols), run it once so existing repos are extracted again. TEI downloads its model on first
 start, which can take minutes; `scripts/smoke.sh` does not wait for it.
 
 Defaults (override with environment variables before `up`):

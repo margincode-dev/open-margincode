@@ -55,6 +55,9 @@ pub(crate) struct ReindexRequest {
 #[derive(Serialize)]
 pub(crate) struct ReindexReport {
     repo: Option<String>,
+    /// Files of main whose symbols were extracted again; unchanged files are skipped by content
+    /// hash, so this is 0 unless the index was out of date (e.g. after migration 0020).
+    code_files_reindexed: usize,
     enqueued: usize,
     upserted: usize,
     degraded: Vec<String>,
@@ -79,6 +82,7 @@ pub(crate) async fn reindex(
 }
 
 async fn run(st: &AppState, repo: Option<&str>) -> Result<ReindexReport> {
+    let (code_files_reindexed, code_degraded) = refresh_main(st, repo).await?;
     let rows = rebuild_rows(st, repo).await?;
     let enqueued = rows.len();
     let mut tx = st.pg.pool().begin().await.map_err(serr)?;
@@ -94,9 +98,10 @@ async fn run(st: &AppState, repo: Option<&str>) -> Result<ReindexReport> {
 
     let mut report = ReindexReport {
         repo: repo.map(str::to_owned),
+        code_files_reindexed,
         enqueued,
         upserted: 0,
-        degraded: vec![],
+        degraded: code_degraded,
     };
     let (Some(embedder), Some(vectors), Some(worker)) =
         (st.embedder.clone(), st.vectors.clone(), st.worker())
@@ -130,6 +135,37 @@ async fn run(st: &AppState, repo: Option<&str>) -> Result<ReindexReport> {
         report.degraded.push("semantic".into());
     }
     Ok(report)
+}
+
+/// Brings main's code index of `repo` (or every repo) up to date with trunk; returns how many
+/// files were extracted again, and a `code index of <repo>: …` entry per repo that failed (the
+/// others still run). Task scopes catch up as their files change.
+async fn refresh_main(st: &AppState, repo: Option<&str>) -> Result<(usize, Vec<String>)> {
+    let repos: Vec<String> = match repo {
+        Some(r) => vec![r.to_owned()],
+        None => sqlx::query_scalar(
+            "SELECT DISTINCT repo FROM index_files WHERE scope = 'main' ORDER BY repo",
+        )
+        .fetch_all(st.pg.pool())
+        .await
+        .map_err(serr)?,
+    };
+    let (mut reindexed, mut degraded) = (0, vec![]);
+    for r in repos {
+        let stats = match st.vcs.trunk(&r).await {
+            Ok(trunk) => crate::indexing::index_change(st, &r, "main", &trunk).await,
+            Err(e) => Err(e),
+        };
+        match stats {
+            Ok(s) => reindexed += s.parsed + s.cached,
+            Err(e) if repo.is_none() => {
+                tracing::warn!(repo = %r, error = %e, "reindex: code index not refreshed");
+                degraded.push(format!("code index of {r}: {e}"));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok((reindexed, degraded))
 }
 
 /// Every embeddable entity of `repo` (or all repos), as upserts. Code chunks follow the

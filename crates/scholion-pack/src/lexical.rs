@@ -137,6 +137,47 @@ pub fn names_symbol(ident: &str, qname: &str) -> bool {
     q == i || q.ends_with(&format!(".{i}"))
 }
 
+/// `names_symbol`, or a module path followed by the symbol's whole qname: `pricing.line_total`
+/// names `line_total` in `shop/pricing.py` (qnames do not include the module). The module part
+/// must match whole trailing segments of the file's module path; `crate`, `self` and `super`
+/// lead nowhere and are ignored.
+pub fn names_symbol_at(ident: &str, qname: &str, path: &str) -> bool {
+    if names_symbol(ident, qname) {
+        return true;
+    }
+    let module = module_path(path);
+    let (ident, qname) = (ident.to_lowercase(), qname.to_lowercase());
+    ident.match_indices('.').any(|(i, _)| {
+        let (prefix, rest) = (&ident[..i], &ident[i + 1..]);
+        let prefix = prefix
+            .trim_start_matches("crate.")
+            .trim_start_matches("self.")
+            .trim_start_matches("super.");
+        rest == qname
+            && !matches!(prefix, "crate" | "self" | "super")
+            && (module == prefix || module.ends_with(&format!(".{prefix}")))
+    })
+}
+
+/// `shop/pricing.py` → `shop.pricing`; a package's `__init__.py`, `mod.rs` or `index.ts` is the
+/// package itself.
+fn module_path(path: &str) -> String {
+    let stem = path.rsplit_once('.').map_or(path, |(s, _)| s);
+    let stem = ["/__init__", "/mod", "/index"]
+        .iter()
+        .find_map(|tail| stem.strip_suffix(tail))
+        .unwrap_or(stem);
+    stem.replace('/', ".").to_lowercase()
+}
+
+/// What to search the symbol index for to find what `ident` names: the name itself and, for a
+/// dotted name, what follows each dot (the module part is not in any qname).
+pub fn symbol_queries(ident: &str) -> Vec<&str> {
+    std::iter::once(ident)
+        .chain(ident.match_indices('.').map(|(i, _)| &ident[i + 1..]))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +225,64 @@ mod tests {
             "short names are noise"
         );
         assert!(named_identifiers("Fix the bug when the path is empty").is_empty());
+    }
+
+    #[test]
+    fn a_module_qualified_name_matches_the_symbol_in_that_module() {
+        assert!(names_symbol_at(
+            "pricing.line_total",
+            "line_total",
+            "shop/pricing.py"
+        ));
+        assert!(names_symbol_at(
+            "shop.pricing.Cart.add",
+            "Cart.add",
+            "shop/pricing.py"
+        ));
+        assert!(names_symbol_at(
+            "crate.pricing.line_total",
+            "line_total",
+            "src/pricing.rs"
+        ));
+        assert!(names_symbol_at(
+            "pricing.line_total",
+            "line_total",
+            "pricing/__init__.py"
+        ));
+        assert!(names_symbol_at(
+            "pricing.line_total",
+            "line_total",
+            "src/pricing/mod.rs"
+        ));
+        assert!(
+            !names_symbol_at("billing.line_total", "line_total", "shop/pricing.py"),
+            "another module's line_total"
+        );
+        assert!(
+            !names_symbol_at("ricing.line_total", "line_total", "shop/pricing.py"),
+            "whole path segments only"
+        );
+        assert!(
+            !names_symbol_at("pricing.line_total", "Cart.line_total", "shop/pricing.py"),
+            "the rest must be the whole qname"
+        );
+        assert!(
+            names_symbol_at("Cart.add", "Cart.add", "x/anything.py"),
+            "as before"
+        );
+    }
+
+    #[test]
+    fn a_dotted_name_also_searches_for_what_follows_each_dot() {
+        assert_eq!(
+            symbol_queries("shop.pricing.line_total"),
+            vec![
+                "shop.pricing.line_total",
+                "pricing.line_total",
+                "line_total"
+            ]
+        );
+        assert_eq!(symbol_queries("format_name"), vec!["format_name"]);
     }
 
     #[test]

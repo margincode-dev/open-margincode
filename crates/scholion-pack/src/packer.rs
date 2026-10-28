@@ -73,7 +73,7 @@ pub struct Expanded {
 }
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 3;
+pub const PACKER_VERSION: u32 = 4;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,

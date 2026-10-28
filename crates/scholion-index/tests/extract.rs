@@ -169,3 +169,67 @@ fn unknown_extension_returns_empty() {
     assert!(extract("README.md", b"# hi\n").unwrap().is_empty());
     assert!(extract("Makefile", b"all:\n").unwrap().is_empty());
 }
+
+#[test]
+fn extracts_module_constants_so_their_users_link_to_their_module() {
+    let py = "\
+BULK_QTY = 10
+CENT: Decimal = Decimal(\"0.01\")
+logger = make_logger()
+a, B = 1, 2
+
+class Cart:
+    MAX = 3
+
+def f():
+    LOCAL = 1
+    return BULK_QTY
+";
+    let syms = extract("shop/pricing.py", py.as_bytes()).unwrap();
+    assert_eq!(qnames(&syms), vec!["BULK_QTY", "CENT", "Cart", "f"]);
+    let q = find(&syms, "BULK_QTY");
+    assert_eq!(q.kind, SymbolKind::Constant);
+    assert_eq!(q.signature, "BULK_QTY = 10");
+    assert_eq!((q.start_line, q.end_line), (1, 1));
+    assert!(find(&syms, "CENT").refs.contains(&"Decimal".to_string()));
+    assert!(find(&syms, "f").refs.contains(&"BULK_QTY".to_string()));
+
+    let rs = "\
+pub const MAX_FILE_BYTES: usize = 1024 * 1024;
+static GREETING: &str = \"hi\";
+struct S;
+impl S {
+    const LIMIT: u32 = 3;
+}
+";
+    let syms = extract("src/lib.rs", rs.as_bytes()).unwrap();
+    assert_eq!(
+        qnames(&syms),
+        vec!["GREETING", "MAX_FILE_BYTES", "S", "S.LIMIT"]
+    );
+    assert_eq!(find(&syms, "MAX_FILE_BYTES").kind, SymbolKind::Constant);
+    assert_eq!(
+        find(&syms, "MAX_FILE_BYTES").signature,
+        "pub const MAX_FILE_BYTES: usize = 1024 * 1024"
+    );
+    assert_eq!(find(&syms, "S.LIMIT").kind, SymbolKind::Constant);
+
+    let ts = "\
+export const MAX_RETRIES = 5;
+const routes = [];
+let COUNTER = 0;
+export const handler = () => 1;
+";
+    let syms = extract("src/a.ts", ts.as_bytes()).unwrap();
+    assert_eq!(qnames(&syms), vec!["MAX_RETRIES", "handler"]);
+    assert_eq!(find(&syms, "MAX_RETRIES").kind, SymbolKind::Constant);
+}
+
+#[test]
+fn a_long_constant_keeps_only_its_first_line_as_signature() {
+    let py = "TABLE = {\n    \"a\": 1,\n    \"b\": 2,\n}\n";
+    let syms = extract("t.py", py.as_bytes()).unwrap();
+    let t = find(&syms, "TABLE");
+    assert_eq!(t.signature, "TABLE = {");
+    assert_eq!((t.start_line, t.end_line), (1, 4));
+}

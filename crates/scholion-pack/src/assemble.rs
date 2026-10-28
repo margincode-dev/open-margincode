@@ -312,7 +312,8 @@ async fn expand_best_hits(
         .filter_map(|i| Some((i, SymbolId(i.id.strip_prefix("sym:")?.parse().ok()?))))
         .collect();
     hits.sort_by(|(a, _), (b, _)| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
-    // A type's neighbours are everything that uses it, so only functions and methods stand in.
+    // A type's or a constant's neighbours are everything that uses it, so only functions and
+    // methods stand in.
     let best: Vec<SymbolId> = hits.iter().take(limit).map(|(_, id)| *id).collect();
     let kinds: HashMap<SymbolId, scholion_index::SymbolKind> = d
         .index
@@ -324,9 +325,12 @@ async fn expand_best_hits(
     let seeds: Vec<SymbolId> = best
         .into_iter()
         .filter(|id| {
-            kinds
-                .get(id)
-                .is_some_and(|k| *k != scholion_index::SymbolKind::Type)
+            kinds.get(id).is_some_and(|k| {
+                matches!(
+                    k,
+                    scholion_index::SymbolKind::Function | scholion_index::SymbolKind::Method
+                )
+            })
         })
         .take(HIT_SEEDS)
         .collect();
@@ -459,14 +463,26 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     // outright (Plan 6), plus `focus` matches ----
     let mut seeds = changed_symbols(d, task, &changed).await?;
     for ident in lexical::named_identifiers(&task.goal) {
-        let named = d
-            .index
-            .search_symbols(repo, scope, &ident, FOCUS_LIMIT)
-            .await?
-            .into_iter()
-            .filter(|s| lexical::names_symbol(&ident, &s.symbol.qname))
-            .take(NAMED_PER_IDENT);
-        for s in named {
+        // `pricing.line_total`: qnames carry no module, so a dotted name is also looked up by
+        // what follows each dot, and the module part checked against the symbol's path.
+        let mut named: Vec<IndexedSymbol> = vec![];
+        for query in lexical::symbol_queries(&ident) {
+            for s in d
+                .index
+                .search_symbols(repo, scope, query, FOCUS_LIMIT)
+                .await?
+            {
+                if lexical::names_symbol_at(&ident, &s.symbol.qname, &s.symbol.path)
+                    && !named.iter().any(|x| x.id == s.id)
+                {
+                    named.push(s);
+                }
+            }
+            if !named.is_empty() {
+                break;
+            }
+        }
+        for s in named.into_iter().take(NAMED_PER_IDENT) {
             if !seeds.iter().any(|x| x.id == s.id) {
                 seeds.push(s);
             }
@@ -617,9 +633,11 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     }
 
     // ---- History / Task records ----
+    // Two hops: a change that only shares a constant with a function (render → BULK_QTY →
+    // line_total) still sees what was decided about it, ranked by distance like everything else.
     let qnames: Vec<String> = located
         .iter()
-        .filter(|l| l.hops <= 1)
+        .filter(|l| l.hops <= 2)
         .map(|l| l.sym.symbol.qname.clone())
         .collect();
     let own = d.store.task_records(task.id).await?;

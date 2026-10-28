@@ -2701,3 +2701,26 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
     let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reindex_refreshes_mains_code_index_and_skips_unchanged_files() {
+    let e = env().await;
+    // what migration 0020 does to an index built before constants were symbols
+    sqlx::query("UPDATE index_files SET content_hash = ''")
+        .execute(e.store.pool())
+        .await
+        .unwrap();
+    let (status, body) = call(&e.app, "POST", "/v1/reindex", Some(json!({"repo": "demo"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let refreshed = body["code_files_reindexed"].as_u64().unwrap();
+    assert!(refreshed >= 2, "both .py files are read again: {body}");
+
+    let (_, body) = call(&e.app, "POST", "/v1/reindex", Some(json!({"repo": "demo"}))).await;
+    assert_eq!(
+        body["code_files_reindexed"], 0,
+        "nothing changed since: {body}"
+    );
+
+    let (_, body) = call(&e.app, "POST", "/v1/reindex", None).await;
+    assert_eq!(body["code_files_reindexed"], 0, "all repos, same: {body}");
+}

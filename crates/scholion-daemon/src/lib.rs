@@ -11,6 +11,7 @@ mod flow;
 mod indexing;
 mod mcp;
 mod reindex;
+mod ui;
 mod wiring;
 mod worker;
 
@@ -51,7 +52,7 @@ pub struct AppState {
     pub(crate) expand_cap: Option<u64>,
     /// `AV_LEASE_SECS`: how long a claim lasts without a fenced write renewing it.
     pub(crate) lease_secs: u64,
-    /// `AV_TOKEN`: when set, every route but `/healthz` needs it as a bearer token.
+    /// `AV_TOKEN`: when set, every route but `/healthz` and `/ui` needs it as a bearer token.
     pub(crate) token: Option<String>,
     /// Open MCP sessions (`/mcp`), by `Mcp-Session-Id`.
     pub(crate) mcp: mcp::Sessions,
@@ -100,7 +101,7 @@ impl AppState {
         lock.lock_owned().await
     }
 
-    /// Requires `token` on every route but `/healthz`; `None` leaves the API open.
+    /// Requires `token` on every route but `/healthz` and `/ui`; `None` leaves the API open.
     pub fn with_token(mut self, token: Option<String>) -> Self {
         self.token = token.filter(|t| !t.trim().is_empty());
         self

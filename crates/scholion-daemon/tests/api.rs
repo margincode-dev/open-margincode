@@ -2596,3 +2596,108 @@ async fn context_can_leave_out_the_map_and_cap_the_code_items() {
     assert!(!md.contains("## Map"), "{md}");
     assert_eq!(md.matches("- sym:").count(), 1, "{md}");
 }
+
+// ---- Dashboard (`/ui`) and the listings it reads ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_tasks_returns_newest_first_with_record_counts_and_filters() {
+    let e = env().await;
+    let a = start_task(&e, "First task").await;
+    let b = start_task(&e, "Second task").await;
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/records", id(&a)),
+        Some(json!({"kind": "note", "summary": "a note", "agent": "claude"})),
+    )
+    .await;
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/abandon", id(&b)),
+        Some(json!({"agent": "claude"})),
+    )
+    .await;
+
+    let (status, body) = call(&e.app, "GET", "/v1/tasks?repo=demo", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let tasks = body["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 2, "{body}");
+    assert_eq!(tasks[0]["id"], b["task"]["id"], "newest first: {body}");
+    assert_eq!(tasks[1]["title"], "First task");
+    assert!(tasks[1]["created_at"].is_string(), "{body}");
+    assert!(tasks[1]["record_count"].as_u64().unwrap() >= 1, "{body}");
+
+    let (_, open) = call(&e.app, "GET", "/v1/tasks?repo=demo&status=open", None).await;
+    let open = open["tasks"].as_array().unwrap();
+    assert_eq!(open.len(), 1, "{open:?}");
+    assert_eq!(open[0]["id"], a["task"]["id"]);
+
+    let (_, other) = call(&e.app, "GET", "/v1/tasks?repo=nope", None).await;
+    assert!(other["tasks"].as_array().unwrap().is_empty(), "{other}");
+
+    let (status, body) = call(&e.app, "GET", "/v1/tasks?status=bogus", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_records_returns_them_in_order_with_anchors() {
+    let e = env().await;
+    let t = start_task(&e, "Records listing").await;
+    for (kind, summary) in [
+        ("decision", "keep title case"),
+        ("attempt", "tried caching"),
+    ] {
+        let (status, body) = call(
+            &e.app,
+            "POST",
+            &format!("/v1/tasks/{}/records", id(&t)),
+            Some(json!({"kind": kind, "summary": summary, "agent": "claude",
+                        "anchors": [{"path": "app/greeter.py", "symbol": "Greeter.hello"}]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let (status, body) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records", id(&t)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let recs = body["records"].as_array().unwrap();
+    let kinds: Vec<&str> = recs.iter().map(|r| r["kind"].as_str().unwrap()).collect();
+    let n = kinds.len();
+    assert_eq!(&kinds[n - 2..], ["decision", "attempt"], "{body}");
+    assert_eq!(
+        recs[n - 1]["anchors"][0]["symbol"],
+        "Greeter.hello",
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
+    use tower::ServiceExt as _;
+    let e = env_with(|s| s.with_token(Some("sekrit".into()))).await;
+    let resp = e
+        .app
+        .clone()
+        .oneshot(Request::get("/ui").body(axum::body::Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ct = resp.headers()["content-type"].to_str().unwrap().to_owned();
+    assert!(ct.starts_with("text/html"), "{ct}");
+    assert!(resp.headers().contains_key("content-security-policy"));
+    let html = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let html = String::from_utf8_lossy(&html);
+    assert!(html.contains("<title>"), "{html}");
+    assert!(html.contains("/v1/tasks"), "the page reads the task list");
+
+    let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

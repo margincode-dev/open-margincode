@@ -18,7 +18,10 @@ use crate::indexing::{index_change, reindex_changed};
 pub(crate) const DEFAULT_BUDGET: u32 = 4000;
 
 pub fn router(state: AppState) -> Router {
-    let open = Router::new().route("/healthz", get(|| async { "ok" }));
+    // `/ui` is a static page with no data in it; what it shows comes from `/v1`, behind the token.
+    let open = Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .route("/ui", get(crate::ui::page));
     let api = routes()
         .route(
             "/mcp",
@@ -42,7 +45,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/repos", post(add_repo))
         .route("/v1/reindex", post(crate::reindex::reindex))
-        .route("/v1/tasks", post(start_task))
+        .route("/v1/tasks", post(start_task).get(list_tasks))
         .route("/v1/tasks/{id}", get(get_task))
         .route("/v1/tasks/{id}/checkpoint", post(checkpoint))
         .route("/v1/tasks/{id}/submit", post(crate::flow::submit))
@@ -61,7 +64,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/repos/{name}/files/{*path}", get(read_file_at))
         .route("/v1/repos/{name}/tree", get(tree))
         .route("/v1/repos/{name}/diff", get(diff))
-        .route("/v1/tasks/{id}/records", post(add_record))
+        .route("/v1/tasks/{id}/records", post(add_record).get(list_records))
         .route("/v1/tasks/{id}/context", get(context))
         .route("/v1/tasks/{id}/items/{item_id}", get(expand))
         .route("/v1/receipts/{id}", get(get_receipt))
@@ -253,6 +256,48 @@ async fn get_task(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult
         "backup": backup,
         "verdict": verdict.map(|(reviewer, v)| json!({"reviewer": reviewer, "verdict": v.as_str()})),
     })))
+}
+
+#[derive(Deserialize)]
+struct ListTasksQuery {
+    repo: Option<String>,
+    status: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Most tasks `GET /v1/tasks` returns.
+const MAX_TASKS: usize = 500;
+
+/// Tasks newest first, for the dashboard: `?repo=`, `?status=`, `?limit=` (default 200).
+async fn list_tasks(
+    State(st): State<AppState>,
+    Query(q): Query<ListTasksQuery>,
+) -> ApiResult<Value> {
+    let status = q
+        .status
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(str::parse::<TaskStatus>)
+        .transpose()?;
+    let limit = q.limit.unwrap_or(200).clamp(1, MAX_TASKS);
+    let rows = st.pg.list_tasks(q.repo.as_deref(), status, limit).await?;
+    let tasks: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            let mut t = json!(r.task);
+            t["created_at"] = json!(r.created_at);
+            t["record_count"] = json!(r.record_count);
+            t
+        })
+        .collect();
+    Ok(Json(json!({ "tasks": tasks })))
+}
+
+/// Every record of a task, oldest first, superseded ones included (`superseded_by` says so).
+async fn list_records(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
+    let task = st.store.get_task(task_id(id)).await?;
+    let records = st.store.task_records(task.id).await?;
+    Ok(Json(json!({ "records": records })))
 }
 
 async fn checkpoint(

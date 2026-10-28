@@ -267,7 +267,7 @@ Defaults (override with environment variables before `up`):
 | `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. The model tag comes from `ollama list` (`qwen3-embedding` by default). |
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |
-| `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
+| `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
 
 ### Docker Desktop without WSL integration
@@ -305,6 +305,15 @@ scholion log                                       # main's history, newest firs
 scholion abandon                                   # end a task for good (owner only)
 ```
 
+### Dashboard
+
+Open `http://localhost:7420/ui` to watch agents work: tasks by status, a live activity feed (the
+`/v1/events` long-poll), and for each task its records, changed files, claim and review state.
+"Build context pack" shows exactly what the next agent would receive at a given budget. The page
+is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks for the
+token once per browser tab. It reads two listing routes added for it: `GET /v1/tasks`
+(`?repo=`, `?status=`, `?limit=`) and `GET /v1/tasks/{id}/records`.
+
 ## Test
 
 ```bash
@@ -316,7 +325,7 @@ scripts/smoke.sh         # end-to-end against the Docker stack (needs Docker)
 
 ## Security
 
-Set `AV_TOKEN` to require `Authorization: Bearer <token>` on every route but `/healthz` (compared in constant time);
+Set `AV_TOKEN` to require `Authorization: Bearer <token>` on every route but `/healthz` and `/ui` (compared in constant time; `/ui` is a static page with no data in it);
 the `av` CLI and its hooks send `$AV_TOKEN`. Without it the daemon is open, which is why the compose file publishes it
 (and Postgres, Qdrant) on `127.0.0.1` only; do not expose these ports either way. Agent names (`--agent`, `AV_AGENT`)
 are self-asserted: "the reviewer is not the owner", "only the owner hands off" and claim fencing prevent accidents

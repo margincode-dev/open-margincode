@@ -5,14 +5,12 @@ what to work on next. Delete this file once you've acted on it.
 
 ## 1. Where things stand
 
-- **Default branch is `main`** (not `master`; see "Quick fixes" below). Plans 1–5 are built and
-  merged (PRs #1–#9). No open PRs, no open issues.
-- **`discoverability` is pushed but not merged and has no PR.** One commit (`a2f7251`): README
-  badges + quickstart + demo screenshot, two how-to guides on the site, a release workflow, CI now
-  runs on pushes to `main`, a fixed `av record` example in the replay. Open a PR for it first.
-- **Release workflow is wired to `v*` tags, but the only tag is `release/0.0.1`**, so no release
-  binaries exist yet and the README's release badge/links point at nothing. Push a `v0.1.0` tag
-  after the PR merges.
+- **Default branch is `main`.** Plans 1–5 are built and merged (PRs #1–#11, including the
+  discoverability work: README quickstart, site guides, release workflow, CI on `main`). No open
+  PRs, no open issues.
+- **Releases**: the release workflow builds on `v*` and `release/*` tags. The first release is
+  built from the existing `release/0.0.1` tag (archives are named `scholion-v0.0.1-<target>`).
+  Tag later releases `v0.1.0` and so on.
 - **Evidence so far** (all in `bench/`):
   - E1 offline retrieval (42 public tasks, `bench/retrieval/`): the pack names gold files best
     (0.93–0.98) but **BM25 over symbols beats it on symbol recall and precision at every budget**
@@ -33,7 +31,6 @@ Docker + Compose, `git`, `jq` (Claude Code hook installer). Optional: `ollama` w
 
 ```bash
 git clone git@github.com:vinhqbui/scholion.git && cd scholion
-git fetch origin discoverability            # the unmerged work, if you want it locally
 
 # 1. Prove the toolchain (first run downloads an embedded Postgres; no Docker needed)
 cargo fmt --all --check
@@ -76,12 +73,9 @@ Gotchas:
 
 ## 3. Quick fixes (an hour or less each)
 
-1. **`master` → `main` in `CLAUDE.md`, `CONTRIBUTING.md` and the README's CI paragraph.** Agents
-   following CLAUDE.md will branch from and diff against a branch that doesn't exist.
-2. Merge `discoverability`, then tag `v0.1.0` so the release workflow publishes binaries.
-3. README "Status" still says the paid benchmark "has not been done"; the Haiku runs exist now.
+1. README "Status" still says the paid benchmark "has not been done"; the Haiku runs exist now.
    Replace with the one-line E1/E3 summary above.
-4. Add a `curl | sh` installer (or use `cargo-dist`, which generates installer scripts, a
+2. Add a `curl | sh` installer (or use `cargo-dist`, which generates installer scripts, a
    Homebrew formula and the release workflow in one go).
 
 ## 4. What to improve next — ranked
@@ -182,7 +176,7 @@ about what it saves. Move the history part to the moment it matters:
 
 ## 5. Suggested order
 
-1. Quick fixes 1–3, merge `discoverability`, tag `v0.1.0`.
+1. Quick fixes 1–2.
 2. A1 (BM25 symbols + RRF) with E1 as the gate — a day, fully offline.
 3. B6 + B7 (just-in-time records, record-writing nudge), then E4 to measure them.
 4. Run `tasks-scholion` (F22) to see whether the effect grows with repo size.

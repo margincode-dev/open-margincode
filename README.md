@@ -247,7 +247,7 @@ Several agents work against one daemon at once:
 
 `cargo test --workspace` runs everything against Postgres (see [Test](#test)). GitHub Actions
 (`.github/workflows/ci.yml`) runs fmt, clippy with `-D warnings`, and all tests against Postgres
-and Qdrant service containers on every pull request and every push to `master`. CI's Postgres
+and Qdrant service containers on every pull request and every push to `main`. CI's Postgres
 sorts text with an English locale on purpose, which catches orderings that depend on the
 database's locale.
 

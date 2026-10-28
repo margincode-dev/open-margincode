@@ -33,11 +33,11 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
   agents at once in `tests/swarm.rs`; MCP in `tests/mcp.rs`; context-pack output against golden
   files in `crates/scholion-pack/tests/golden/`.
 - **Migrations** live in `crates/scholion-store/migrations/`, numbered `000N_*.sql`. Take the next
-  number after `master`'s highest; two branches with the same number break every database test.
+  number after `main`'s highest; two branches with the same number break every database test.
   A merged migration is never edited, not even a comment: databases store its checksum and refuse
   to start when the file differs. `tests/migrations_frozen.rs` pins each file's hash; add a line for
   a new migration.
-- **One change per pull request**, branched from `master`.
+- **One change per pull request**, branched from `main`.
 - Larger features start as a plan in `docs/superpowers/plans/`, in the style of the existing ones.
   Older plans and the design spec use the project's earlier name (`agentvcs`, crates `av-*`).
 

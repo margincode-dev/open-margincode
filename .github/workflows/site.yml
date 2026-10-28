@@ -1,6 +1,6 @@
 name: site
 
-# Deploys site/ (openevaluations.si) to Cloudflare Pages. Needs the repository secrets
+# Deploys site/ (openevaluations.si) to Cloudflare Workers static assets (wrangler.jsonc). Needs the repository secrets
 # CLOUDFLARE_API_TOKEN (Account > Cloudflare Pages > Edit) and CLOUDFLARE_ACCOUNT_ID;
 # without them the deploy step is skipped. See site/README.md.
 
@@ -32,7 +32,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=openevaluations --branch=main --commit-dirty=true
+          command: deploy
       - name: Skipped
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
         run: echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set; site not deployed."

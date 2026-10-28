@@ -20,21 +20,16 @@ Haiku runs). When the benchmarks change, update `index.html` and `llms.txt` toge
 python3 -m http.server -d site 8000   # then open http://localhost:8000
 ```
 
-## Deploy to Cloudflare Pages
+## Deploy to Cloudflare
 
-Either way, the project is named `openevaluations` and serves this folder as is.
+`wrangler.jsonc` at the repo root serves `site/` as static assets (Worker name `scholion`).
 
-**Git integration (no secrets in GitHub).** Cloudflare dashboard → Workers & Pages → Create →
-Pages → Connect to Git → this repository. Production branch `main`, framework preset *None*,
-build command empty, build output directory `site`.
+**Git integration.** Cloudflare dashboard → Workers & Pages → Create → Import a repository →
+this repo. Leave the build command empty and keep the deploy command `npx wrangler deploy`.
+Cloudflare builds the production branch (`main`), so merge the site there first.
 
-**GitHub Actions.** `.github/workflows/site.yml` deploys on every push to `main` that touches
-`site/`. Create the Pages project once (`npx wrangler pages project create openevaluations
---production-branch main`), then add the repository secrets `CLOUDFLARE_API_TOKEN` (a token with
-*Account → Cloudflare Pages → Edit*) and `CLOUDFLARE_ACCOUNT_ID`. Without them the workflow skips
-the deploy.
+**GitHub Actions.** `.github/workflows/site.yml` runs `wrangler deploy` on pushes to `main` that
+touch `site/`, if the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exist.
 
-**Custom domain.** Pages project → Custom domains → add `openevaluations.si` (and
-`www.openevaluations.si`, redirected to the apex with a Bulk Redirect or a redirect rule). With
-the `.si` zone on Cloudflare the DNS records are created for you; otherwise point a `CNAME` at
-`openevaluations.pages.dev` at your registrar.
+**Custom domain.** Worker → Settings → Domains & Routes → add `openevaluations.si` (the zone must
+be on Cloudflare; otherwise move the `.si` nameservers there).

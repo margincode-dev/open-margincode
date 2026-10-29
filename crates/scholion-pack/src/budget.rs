@@ -224,6 +224,29 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
         out.chosen.extend(kept);
         carry = remaining;
     }
+    // What the last share leaves would be wasted: spend it on chosen items in any section, best
+    // first, signatures before bodies (a named symbol is worth more than a longer one).
+    let mut order: Vec<usize> = (0..out.chosen.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (pa, pb) = (&priced[out.chosen[a].0].item, &priced[out.chosen[b].0].item);
+        pb.score
+            .total_cmp(&pa.score)
+            .then_with(|| pa.id.cmp(&pb.id))
+    });
+    for (from, to) in [(Tier::Handle, Tier::Summary), (Tier::Summary, Tier::Full)] {
+        for &k in &order {
+            let (i, tier) = out.chosen[k];
+            if tier != from {
+                continue;
+            }
+            let (cur, cand) = (priced[i].costs[from as usize], priced[i].costs[to as usize]);
+            if cand > cur && cand - cur <= carry {
+                carry -= cand - cur;
+                out.used += cand - cur;
+                out.chosen[k].1 = to;
+            }
+        }
+    }
     out
 }
 

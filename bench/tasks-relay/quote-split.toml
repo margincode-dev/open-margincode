@@ -1,0 +1,20 @@
+name = "relay-quote-split"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Customers want to split a bill between several payers. Add `Quote.split(parts)`, returning a list of `parts` Money amounts, one per payer, that together pay the quote's total; payers should pay as evenly as possible. Raise ValidationError when parts is less than 1."""
+relevant_files = ["tallyho/pricing/quote.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "pool/notes.toml"
+relay_pair = "quote-split"
+
+[[local_tests]]
+path = "tests/test_relay_quote_split.py"
+source = "files/test_relay_quote_split.py"
+
+[[dead_end]]
+description = "the obvious approach this pair's note warns about"
+file_glob = "tallyho/pricing/quote.py"
+pattern = '''times\(\s*(Decimal\(\s*)?["']?1["']?\s*\)?\s*/'''

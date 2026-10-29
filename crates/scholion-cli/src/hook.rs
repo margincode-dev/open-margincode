@@ -1,5 +1,5 @@
 //! `av hook …` (Plan 3 Task 9): commands for agent hooks (Claude Code `SessionStart`,
-//! `PreToolUse` and `PostToolUse`). A hook must never break the agent, so every failure is one line on stderr and
+//! `PreToolUse`, `PostToolUse` and `Stop`). A hook must never break the agent, so every failure is one line on stderr and
 //! exit code 0, and a directory without a task is silent.
 
 use std::io::{IsTerminal, Read};
@@ -141,6 +141,67 @@ pub fn post_edit(client: &Client, agent: &str) {
     ) {
         eprintln!("av: hook post-edit: checkpoint failed: {e}");
     }
+}
+
+/// Most symbol names the stop request lists.
+const NUDGE_SYMBOLS: usize = 8;
+
+/// Before the agent ends its turn (Claude Code `Stop`): if the task has changes that no record
+/// explains, block once per agent session and ask for the decisions and dead ends behind them.
+/// Records that are never written are the likelier way knowledge fails to reach the next agent.
+pub fn stop(client: &Client, agent: &str) {
+    let input = hook_input();
+    if input["stop_hook_active"] == true {
+        return;
+    }
+    let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
+        return;
+    };
+    let session = input["session_id"]
+        .as_str()
+        .unwrap_or(&tf.session)
+        .to_owned();
+    if tf.nudged_session.as_deref() == Some(session.as_str()) {
+        return;
+    }
+    // the last edits may be inside post-edit's debounce
+    if let Err(e) = client.post_as(
+        &format!("/v1/tasks/{}/checkpoint", tf.task),
+        &json!({}),
+        generation(&tf, agent),
+    ) {
+        eprintln!("av: hook stop: checkpoint failed: {e}");
+        return;
+    }
+    let r = match client.get(&format!("/v1/tasks/{}/unrecorded", tf.task), &[]) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("av: hook stop: {e}");
+            return;
+        }
+    };
+    let syms: Vec<&str> = r["unrecorded_symbols"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if r["status"] != "open" || syms.is_empty() {
+        return;
+    }
+    tf.nudged_session = Some(session);
+    if let Err(e) = taskfile::write(&dir, &tf) {
+        eprintln!("av: hook stop: cannot update {}: {e}", taskfile::NAME);
+    }
+    let mut names = syms[..syms.len().min(NUDGE_SYMBOLS)].join(", ");
+    if syms.len() > NUDGE_SYMBOLS {
+        names.push_str(&format!(" and {} more", syms.len() - NUDGE_SYMBOLS));
+    }
+    let reason = format!(
+        "av: no record explains your changes to {names}. Before stopping, record why, so the \
+         next agent does not redo or undo it: `av record --kind decision --summary \"...\" \
+         --anchor path:Symbol`, and `--kind attempt` for anything you tried that failed. If \
+         nothing is worth recording, say so and stop."
+    );
+    println!("{}", json!({"decision": "block", "reason": reason}));
 }
 
 /// As `generation_for` in main.rs, for the hook's own task file.

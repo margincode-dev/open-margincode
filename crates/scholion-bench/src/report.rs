@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::metrics::SessionMetrics;
 use crate::stats::{bootstrap_median_ci, median, relative_change};
 
-pub const ARMS: [&str; 3] = ["baseline", "av_no_packs", "av"];
+pub const ARMS: [&str; 4] = ["baseline", "notes", "av_no_packs", "av"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -165,15 +165,27 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
              intervals below are bootstrap 95% CIs of the median and are wide at this n."
         );
     }
+    let relay = arms.contains(&"notes");
+    let method = if relay {
+        "Every arm starts from the same tree with what an earlier agent learned on top, one note \
+         per task (the one it needs and the others as noise): as commit messages in every arm, \
+         plus a NOTES.md that CLAUDE.md points at in `notes`, plus anchored records of an \
+         earlier task in the av arms. Only the channel differs. The notes were written for the \
+         benchmark, so this measures whether recorded knowledge reaches the next agent, not \
+         whether agents write it. Repeated dead ends count edits that write the approach the \
+         task's note warns about; a decision ignored shows as a failed hidden test."
+    } else {
+        "Every arm starts from the same single-commit \
+         tree with no history (the av arms have no `.git` at all); a real git checkout would also \
+         have history, so this comparison is conservative for av. Dead ends are seeded as \
+         `attempt` records in the av arms only: the dead-end column measures whether existing \
+         records stop repeats, not whether agents write them."
+    };
     let _ = writeln!(
         out,
         "\nToken counts exclude cache reads in every arm, so per-turn re-reads of the same context \
          are not counted. `tokens_to_first_edit` counts output tokens as each message reports \
-         them, which can lag the session totals. Every arm starts from the same single-commit \
-         tree with no history (the av arms have no `.git` at all); a real git checkout would also \
-         have history, so this comparison is conservative for av. Dead ends are seeded as \
-         `attempt` records in the av arms only: the dead-end column measures whether existing \
-         records stop repeats, not whether agents write them.\n"
+         them, which can lag the session totals. {method}\n"
     );
 
     let _ = writeln!(out, "## Cost and wall time per accepted task\n");
@@ -204,6 +216,8 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         ("engine: av_no_packs vs baseline", "baseline", "av_no_packs"),
         ("context compiler: av vs av_no_packs", "av_no_packs", "av"),
         ("total: av vs baseline", "baseline", "av"),
+        ("relay: notes vs baseline", "baseline", "notes"),
+        ("relay: av vs notes", "notes", "av"),
     ];
     let present: Vec<_> = pairs
         .iter()

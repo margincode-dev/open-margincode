@@ -105,7 +105,9 @@ fn unused_share_spills_to_next_section() {
             40,
         ));
     }
-    let a = allocate(items, 10_000, FAM);
+    // only the shares up to the map, so the last-pass refill (tested below) adds nothing
+    let shares = [("task", 10), ("conflicts", 5), ("map", 10)].map(|(k, p)| (k.to_owned(), p));
+    let a = allocate_with_shares(items, 10_000, FAM, &shares);
     let map_used = used_by(&a, Section::Map);
     assert!(
         map_used > 1950 && map_used <= 2250,
@@ -121,7 +123,8 @@ fn higher_score_gets_richer_tier_first() {
         item("high", Section::Task, 0.9, 2, 10, 30),
         item("mid", Section::Task, 0.5, 2, 10, 30),
     ];
-    let a = allocate(items, 500, FAM);
+    // the task share alone: the other sections' budget would reach these items in the last pass
+    let a = allocate_with_shares(items, 500, FAM, &[("task".to_owned(), 10)]);
     let tier_of = |id: &str| a.chosen.iter().find(|(i, _)| i.id == id).unwrap().1;
     assert_eq!(tier_of("high"), Tier::Full);
     assert_eq!(tier_of("mid"), Tier::Summary);
@@ -359,4 +362,31 @@ fn custom_shares_respect_budget_and_spill_over() {
     // chosen items come grouped in share order, best score first
     let ids: Vec<&str> = a.chosen.iter().map(|(i, _)| i.id.as_str()).collect();
     assert_eq!(ids, ["b:0", "b:1", "b:2", "b:3", "b:4", "b:5"]);
+}
+
+#[test]
+fn budget_left_after_the_last_section_upgrades_earlier_handles() {
+    // Code holds every item; the conventions/live share after it is empty. What it leaves must
+    // not be wasted while code items are still handles.
+    let items: Vec<Item> = (0..40)
+        .map(|i| {
+            item(
+                &format!("c-{i:02}"),
+                Section::Code,
+                1.0 - i as f32 / 100.0,
+                2,
+                6,
+                60,
+            )
+        })
+        .collect();
+    let a = allocate(items, 1000, FAM);
+    let left = 900 - a.used;
+    for (i, t) in &a.chosen {
+        if *t == Tier::Handle {
+            let up = tok(i.text(Tier::Summary)) - tok(i.text(Tier::Handle));
+            assert!(left < up, "{} is a handle with {left} tokens unused", i.id);
+        }
+    }
+    assert_eq!(a.used, recomputed_used(&a));
 }

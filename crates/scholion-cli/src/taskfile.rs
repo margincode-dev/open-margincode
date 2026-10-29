@@ -19,6 +19,9 @@ pub struct TaskFile {
     /// When `av hook post-edit` last checkpointed (Unix ms), for its debounce.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_checkpoint_ms: Option<u64>,
+    /// The agent session `av hook stop` last asked to record its changes; it asks once per session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nudged_session: Option<String>,
 }
 
 /// Nearest `.av-task` in `start` or any ancestor, with the directory that holds it.

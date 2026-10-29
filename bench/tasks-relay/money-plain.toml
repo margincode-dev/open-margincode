@@ -1,0 +1,20 @@
+name = "relay-money-plain"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Report tables want amounts without the currency code. Add `Money.format_plain()`, returning the amount as text without the currency code, for example "12.34" for 12.34 USD."""
+relevant_files = ["tallyho/money.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "pool/notes.toml"
+relay_pair = "money-plain"
+
+[[local_tests]]
+path = "tests/test_relay_money_plain.py"
+source = "files/test_relay_money_plain.py"
+
+[[dead_end]]
+description = "the obvious approach this pair's note warns about"
+file_glob = "tallyho/money.py"
+pattern = '''\.2f|/\s*100\b|round\([^)]*,\s*2\s*\)'''

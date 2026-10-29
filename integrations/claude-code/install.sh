@@ -12,7 +12,7 @@ claude="$HOME/.claude"
 dest="$claude/av-hooks"
 settings="$claude/settings.json"
 mkdir -p "$dest"
-install -m 0755 "$here/hooks/session-start.sh" "$here/hooks/pre-read.sh" "$here/hooks/post-edit.sh" "$dest/"
+install -m 0755 "$here/hooks/session-start.sh" "$here/hooks/pre-read.sh" "$here/hooks/post-edit.sh" "$here/hooks/stop.sh" "$dest/"
 [ -f "$settings" ] || echo '{}' >"$settings"
 jq empty "$settings" || { echo "install.sh: $settings is not valid JSON; nothing changed" >&2; exit 1; }
 cp "$settings" "$settings.bak"

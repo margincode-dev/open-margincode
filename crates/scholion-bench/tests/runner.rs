@@ -97,6 +97,8 @@ fn fixture(mode: &str) -> Fixture {
         av_mcp: true,
         hook_code: None,
         hook_args: vec![],
+        jit_hooks: false,
+        prices: None,
     };
     Fixture {
         _repo: repo,
@@ -378,4 +380,165 @@ fn a_wrong_token_aborts_before_spending() {
     let err = run_session(&f.spec, Arm::Av, 1, "t9", &f.cfg).unwrap_err();
     assert!(err.contains("401"), "{err}");
     assert!(!f.marker.exists());
+}
+
+// ---- E4 knowledge relay: what an earlier agent learned reaches each arm by its own channel ----
+
+const RELAY_NOTES: &str = r#"
+[[note]]
+pair = "calc-add"
+kind = "attempt"
+path = "calc.py"
+symbol = "add"
+summary = "Swapping the operands of the subtraction does not fix add(): b - a is still a subtraction."
+body = "Tried it first; the sign flips but the sum is still wrong."
+
+[[note]]
+pair = "other"
+kind = "decision"
+path = "README.md"
+summary = "The README stays one line long."
+body = "Decided with the maintainers."
+"#;
+
+fn relay_fixture(mode: &str) -> Fixture {
+    let mut f = fixture(mode);
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+    f
+}
+
+fn log_messages(ws: &Path) -> String {
+    git(ws, &["log", "--format=%B"])
+}
+
+#[test]
+fn relay_notes_are_commit_messages_in_the_git_arm() {
+    let _g = serial();
+    let f = relay_fixture("fix");
+    assert_eq!(f.spec.relay_notes.len(), 2);
+    let o = run_session(&f.spec, Arm::Baseline, 1, "r1", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let log = log_messages(&ws);
+    assert!(log.contains("Swapping the operands"), "{log}");
+    assert!(log.contains("Tried it first"), "the body too: {log}");
+    assert!(log.contains("README stays one line"), "{log}");
+    assert_eq!(
+        git(&ws, &["rev-list", "--all", "--count"]),
+        "3",
+        "base + one per note"
+    );
+    assert!(!ws.join("NOTES.md").exists());
+    assert_eq!(o.verify_exit, Some(0), "the notes change no file: {o:?}");
+}
+
+#[test]
+fn the_notes_arm_also_gets_every_note_in_notes_md() {
+    let _g = serial();
+    let f = relay_fixture("fix");
+    let o = run_session(&f.spec, Arm::Notes, 1, "r2", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let notes = std::fs::read_to_string(ws.join("NOTES.md")).unwrap();
+    for s in [
+        "Swapping the operands",
+        "Tried it first",
+        "README stays one line",
+        "calc.py",
+    ] {
+        assert!(notes.contains(s), "{s}: {notes}");
+    }
+    let claude_md = std::fs::read_to_string(ws.join("CLAUDE.md")).unwrap();
+    assert!(claude_md.contains("NOTES.md"), "{claude_md}");
+    assert!(log_messages(&ws).contains("Swapping the operands"));
+    assert!(!Arm::Notes.uses_av());
+    assert_eq!(Arm::parse("notes").unwrap(), Arm::Notes);
+}
+
+#[test]
+fn the_av_arm_gets_the_notes_as_an_earlier_tasks_anchored_records() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = relay_fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    let o = run_session(&f.spec, Arm::Av, 1, "r3", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    let task = task_of(&ws);
+    let t = get(&format!("{}/v1/tasks/{task}", d.url));
+    let repo = t["task"]["repo"].as_str().unwrap();
+    let hits = get(&format!("{}/v1/repos/{repo}/search?q=swapping", d.url));
+    let rec = &hits["records"][0];
+    assert_eq!(rec["kind"], "attempt", "{hits}");
+    assert_ne!(
+        rec["task_id"].as_str().unwrap(),
+        task,
+        "another task's record: {hits}"
+    );
+    let own = get(&format!("{}/v1/tasks/{task}/records", d.url));
+    assert!(
+        !own.to_string().contains("Swapping"),
+        "the [[dead_end]] is not seeded on top of the relay notes: {own}"
+    );
+    let all = get(&format!("{}/v1/repos/{repo}/search?q=README", d.url));
+    assert!(all.to_string().contains("one line long"), "{all}");
+}
+
+#[test]
+fn jit_hooks_add_pre_read_and_stop_to_the_av_arms() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.jit_hooks = true;
+    let o = run_session(&f.spec, Arm::Av, 1, "r4", &f.cfg).unwrap();
+    let s = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&s).unwrap();
+    let pre = v["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap();
+    assert!(pre.contains("hook pre-read"), "{s}");
+    assert_eq!(
+        v["hooks"]["PreToolUse"][0]["matcher"],
+        "Read|Edit|MultiEdit"
+    );
+    let stop = v["hooks"]["Stop"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap();
+    assert!(stop.contains("hook stop"), "{s}");
+    f.cfg.jit_hooks = false;
+    let o = run_session(&f.spec, Arm::Av, 2, "r4", &f.cfg).unwrap();
+    let s = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
+    assert!(!s.contains("PreToolUse") && !s.contains("\"Stop\""), "{s}");
+}
+
+#[test]
+fn priced_runs_do_not_pass_claudes_own_budget_cap() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    let args = f.marker.with_extension("args");
+    let claude = script(
+        f._tools.path(),
+        "claude-args",
+        &FAKE_CLAUDE.replace(
+            "echo \"$PWD\" >> \"$FAKE_MARKER\"\n",
+            &format!(
+                "echo \"$PWD\" >> \"$FAKE_MARKER\"\necho \"$@\" > {}\n",
+                args.display()
+            ),
+        ),
+    );
+    f.cfg.claude_bin = claude.to_string_lossy().into();
+    f.cfg.prices = Some(scholion_bench::metrics::Prices::parse("0.3,0.3,0.03,1.2").unwrap());
+    run_session(&f.spec, Arm::Baseline, 1, "r5", &f.cfg).unwrap();
+    let a = std::fs::read_to_string(&args).unwrap();
+    assert!(!a.contains("--max-budget-usd"), "{a}");
 }

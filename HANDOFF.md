@@ -1,27 +1,54 @@
-# Handoff — 2026-10-28
+# Handoff — 2026-10-29
 
-State of Scholion at the end of the cloud session, how to pick it up on your own machine, and
-what to work on next. Delete this file once you've acted on it.
+State of Scholion after the handoff session, how to pick it up on your own machine, and what to
+work on next. Delete this file once you've acted on it.
 
 ## 1. Where things stand
 
-- **Default branch is `main`.** Plans 1–5 are built and merged (PRs #1–#11, including the
-  discoverability work: README quickstart, site guides, release workflow, CI on `main`). No open
-  PRs, no open issues.
-- **Releases**: the release workflow builds on `v*` and `release/*` tags. The first release is
-  built from the existing `release/0.0.1` tag (archives are named `scholion-v0.0.1-<target>`).
-  Tag later releases `v0.1.0` and so on.
-- **Evidence so far** (all in `bench/`):
-  - E1 offline retrieval (42 public tasks, `bench/retrieval/`): the pack names gold files best
-    (0.93–0.98) but **BM25 over symbols beats it on symbol recall and precision at every budget**
-    (e.g. 4k: symbols_sig 0.62 vs 0.60, symbols_body 0.58 vs 0.56, gold_share 0.33 vs 0.25).
-  - E3 Haiku on `tasks-tallyho` (25-file Python, 160 sessions): av saves **~12 % turns and ~14 %
-    wall time at equal cost** (cost interval contains zero). Pack bodies were paid twice because
-    Claude Code re-reads files before editing, hence the signatures-only default.
-  - Not yet measured: `bench/tasks-scholion` (20k lines Rust, ~1 GB disk/session — did not fit
-    the sandbox), E2 merge fuzzing, E4 knowledge relay (the core thesis), E5 git-worktree
-    baseline, E6, E7. Plan 6 (`docs/superpowers/plans/2026-10-25-scholion-plan-6-evaluation.md`)
-    is the roadmap for those.
+- **Default branch is `main`.** Plans 1–5 are built and merged. The handoff session's single PR added:
+  - `scripts/install.sh` (`curl | sh`), and the README status with the E1/E3 numbers;
+  - **A1**: BM25 (not `ts_rank`) and reciprocal rank fusion for code hits, the leftover budget
+    spent on earlier handles, test code ranked down. E1 at 4k: `symbols_sig` 0.73 against
+    `bm25_symbols`' 0.64 (before: 0.61), 8k 0.82 against 0.76, 2k level. `files_named` 0.96 vs
+    0.98. Details and the variants that did not help: `bench/retrieval/README.md`;
+  - **B6** `PreToolUse` hook (`av hook pre-read`, `GET /v1/tasks/{id}/records/at`) and **B7**
+    `Stop` hook (`av hook stop`, `GET /v1/tasks/{id}/unrecorded`), installed by
+    `integrations/claude-code/install.sh`; the `/ui` task drawer lists the unrecorded changes;
+  - **E4** knowledge relay (`bench/tasks-relay`, arms `baseline`/`notes`/`av`, run on DeepSeek;
+    result in 1a below) and the harness changes it needed.
+- **Releases**: the release workflow builds on `v*` and `release/*` tags (first release from
+  `release/0.0.1`). Tag later releases `v0.1.0` and so on.
+- **Evidence** (all in `bench/`): E1 above; E3 Haiku on `tasks-tallyho` (160 sessions): av saves
+  ~12 % turns and ~14 % wall time at equal cost; E4 below. Not yet measured: `bench/tasks-scholion`
+  (20k lines Rust, ~1 GB disk/session), E2 merge fuzzing, E5 worktree baseline, E6, E7. Plan 6
+  (`docs/superpowers/plans/2026-10-25-scholion-plan-6-evaluation.md`) is the roadmap.
+
+### 1a. E4 knowledge relay
+
+`bench/tasks-relay` (10 tasks x 3 arms x 3 reps = 90 headless sessions on DeepSeek flash, 2026-10-28,
+about $1.37 by the assumed prices; `bench/results/2026-10-28-relay/`). Agent A's ten lessons (five
+dead ends, five decisions) reach agent B as commit messages (`baseline`), plus `NOTES.md` (`notes`),
+or plus anchored records and the pack/`PreToolUse` hook (`av`).
+
+**Result: it does not discriminate.** Accepted 30/30 in every arm and repeated dead ends 0 in every
+arm, so there is nothing for the lessons to improve. Cost per accepted task: baseline $0.014,
+notes $0.014, av $0.017 (+22 %); wall 41 s / 40 s / 57 s. So in this setup the hook and pack add
+cost without a measurable gain, and `notes` is free. Read this as "the tasks are too easy", not
+"records do not help": probably (not checked per session) the model avoids each trap on its own,
+so the baseline has no headroom. Before spending more:
+
+- Make the tasks need the lesson: the dead end must be the natural first move and not visible from
+  the code or the task text, and the baseline should fail a visible share (aim for under 70 %).
+  Check that with a baseline-only pilot first (about $0.40 for 10 x 3).
+- Use a weaker model or a larger tree, where finding the one relevant note among many matters.
+- Cost is estimated at DeepSeek peak prices ($0.30 in / $0.006 cache hit / $1.20 out per Mtok);
+  the account balance went from $4.89 to $3.59, so about $1.30 real.
+
+### Not verified by hand
+
+The hooks were tested through the CLI and daemon test suites and `bench/tasks-relay` (headless
+Claude Code on DeepSeek), not in an interactive Claude Code session. `integrations/claude-code/install.sh`
+was not run end to end. `scripts/install.sh` was run against `release/0.0.1`.
 
 ## 2. Kick-start on your machine
 
@@ -71,50 +98,26 @@ Gotchas:
 - Docker Desktop on Windows without WSL integration: see the README section of that name.
 - New migration? Next number is **`0021`**, and add its hash to `tests/migrations_frozen.rs`.
 
-## 3. Quick fixes (an hour or less each)
-
-1. README "Status" still says the paid benchmark "has not been done"; the Haiku runs exist now.
-   Replace with the one-line E1/E3 summary above.
-2. Add a `curl | sh` installer (or use `cargo-dist`, which generates installer scripts, a
-   Homebrew formula and the release workflow in one go).
-
 ## 4. What to improve next — ranked
 
 Ranked by (expected impact on the core claims) / effort. Ideas borrowed from other open-source
 projects are named.
 
-### A. Retrieval: close the gap E1 already shows (cheap, measurable offline)
+### A. Retrieval (cheap, measurable offline; A1 and A4 are done)
 
-1. **Fuse BM25-over-symbols into the candidate set** with reciprocal rank fusion (RRF, as in
-   Elastic/Vespa hybrid search) alongside structural, record and semantic candidates. E1 says it
-   is the strongest single signal you don't use. Postgres FTS can do it (`ts_rank_cd` over a
-   per-symbol tsvector of name + signature + docstring + split identifiers); or embed
-   [Tantivy](https://github.com/quickwit-oss/tantivy) for real BM25. Gate: E1 symbols_sig at 4k
-   ≥ 0.62 without losing files_named.
 2. **PageRank over the reference graph** as a prior (the
    [Aider repo map](https://aider.chat/docs/repomap.html) idea, personalised to the seeds).
    repo_map wins symbols_sig at 8k (0.81); the pack's Map section could use the same ranking.
 3. **Rerank the final candidates** with a cross-encoder — TEI already serves
    `BAAI/bge-reranker-*` on a `/rerank` endpoint, so it's one more container, no new code path
    in the hot loop beyond one HTTP call. Keep it optional so packs stay deterministic without it.
-4. **Identifier splitting** (`parseHTTPResponse` → parse http response) for FTS and seeds; a
-   common cheap win in code search (Sourcegraph, Zoekt).
 5. Make **E1 a CI regression gate** on a fixed subset (Plan 6 already proposes this).
 
-### B. Deliver context just in time instead of up front
+### B. Deliver context just in time (B6 and B7 are done)
 
 The Haiku runs show an up-front pack is cache-written once and re-read every turn, so it costs
 about what it saves. Move the history part to the moment it matters:
 
-6. **Claude Code `PreToolUse`/`PostToolUse` hook on `Read`/`Edit`**: when the agent opens a file,
-   inject only the decisions and dead ends anchored to that file/symbol (`additionalContext`).
-   Small, targeted, and it never duplicates file bodies. This is the cleanest test of "why next
-   to the code".
-7. **Make records get written.** E4's failure mode "never written" is the likelier one. Add a
-   `Stop`/`PreCompact` hook that, when a task has changed symbols with no covering record, asks the
-   agent to record decisions/dead ends before the session ends (the submit gate already computes
-   the uncovered symbols). Inspired by memory layers like [Mem0](https://github.com/mem0ai/mem0)
-   and [Letta](https://github.com/letta-ai/letta), which extract memories at session boundaries.
 8. **Stable pack prefix for prompt caching**: order sections so the part that changes least
    (conventions, map) comes first and is byte-identical across packs in a session.
 
@@ -170,14 +173,11 @@ about what it saves. Move the history part to the moment it matters:
 
 22. Run `bench/tasks-scholion` on your machine (it needs the ~1 GB/session disk the sandbox
     lacked) — it is the repo size where navigation savings should show up.
-23. E4 knowledge relay (20 pairs, ~$3 on a cheap model) is the single most important unrun
-    experiment: it tests the project's thesis. Do it before polishing anything in C–E.
 24. E5 with a `git worktree` baseline, so the coordination claim has a comparison.
 
 ## 5. Suggested order
 
-1. Quick fixes 1–2.
-2. A1 (BM25 symbols + RRF) with E1 as the gate — a day, fully offline.
-3. B6 + B7 (just-in-time records, record-writing nudge), then E4 to measure them.
-4. Run `tasks-scholion` (F22) to see whether the effect grows with repo size.
-5. Then adoption (C9, C11, C12) or merge quality (D14) depending on what E4/E5 say.
+1. Run `tasks-scholion` (F22) to see whether the effect grows with repo size.
+2. Read the E4 result above; if records helped, widen the task set (more traps, other repos);
+   if they did not, find out whether agents ignored them or the hooks never delivered them.
+3. Then adoption (C9, C11, C12) or merge quality (D14) depending on what E4/E5 say.

@@ -1269,3 +1269,101 @@ fn hook_pre_read_is_silent_outside_a_task_and_when_the_daemon_is_down() {
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "");
 }
+
+fn stop_input(ws: &Path, session: &str, active: bool) -> String {
+    serde_json::json!({
+        "hook_event_name": "Stop", "session_id": session, "stop_hook_active": active, "cwd": ws,
+    })
+    .to_string()
+}
+
+#[test]
+fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
+    let (d, ws, _scratch) = started();
+    // nothing changed: nothing to ask
+    assert_eq!(
+        ok(av_stdin(
+            &d,
+            &ws,
+            &["hook", "stop"],
+            &stop_input(&ws, "cc-0", false)
+        )),
+        ""
+    );
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    let o = ok(av_stdin(
+        &d,
+        &ws,
+        &["hook", "stop"],
+        &stop_input(&ws, "cc-1", false),
+    ));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    assert_eq!(v["decision"], "block", "{o}");
+    let reason = v["reason"].as_str().unwrap();
+    assert!(reason.contains("Greeter.hello"), "{reason}");
+    assert!(reason.contains("av record"), "{reason}");
+    // asked once: the same session may stop now, and so may a Stop hook already continuing
+    assert_eq!(
+        ok(av_stdin(
+            &d,
+            &ws,
+            &["hook", "stop"],
+            &stop_input(&ws, "cc-1", false)
+        )),
+        ""
+    );
+    assert_eq!(
+        ok(av_stdin(
+            &d,
+            &ws,
+            &["hook", "stop"],
+            &stop_input(&ws, "cc-2", true)
+        )),
+        ""
+    );
+    // once the change is explained, nobody is asked
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout the name",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    assert_eq!(
+        ok(av_stdin(
+            &d,
+            &ws,
+            &["hook", "stop"],
+            &stop_input(&ws, "cc-3", false)
+        )),
+        ""
+    );
+}
+
+#[test]
+fn hook_stop_is_silent_outside_a_task_and_when_the_daemon_is_down() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let o = av_stdin(
+        &d,
+        scratch.path(),
+        &["hook", "stop"],
+        &stop_input(scratch.path(), "s", false),
+    );
+    assert!(o.status.success());
+    assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
+    let (_d, ws, _scratch) = started();
+    let o = av_with("http://127.0.0.1:1", &ws, &["hook", "stop"]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+}

@@ -1,0 +1,15 @@
+name = "relay-order-ids"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Add `Repository.next_order_id()`, which returns the id to give a new order."""
+relevant_files = ["tallyho/repository.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "pool/notes.toml"
+relay_pair = "order-ids"
+
+[[local_tests]]
+path = "tests/test_relay_order_ids.py"
+source = "files/test_relay_order_ids.py"

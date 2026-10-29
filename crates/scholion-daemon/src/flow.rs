@@ -56,10 +56,10 @@ pub(crate) async fn fence(st: &AppState, task: &Task, headers: &HeaderMap) -> Re
     Ok(())
 }
 
-/// The submit and handoff gate: besides its intent, the task has at least one decision, attempt,
-/// note or handoff record with a summary. Returns the changed symbols that no record of the task
-/// anchors to (by symbol or by file); the refusal lists them too.
-async fn gate(st: &AppState, task: &Task, action: &str) -> Result<Vec<String>> {
+/// Whether the task explains itself (besides its intent, at least one decision, attempt, note or
+/// handoff record with a summary), and its changed symbols that no record of the task anchors to
+/// (by symbol or by file), sorted.
+pub(crate) async fn coverage(st: &AppState, task: &Task) -> Result<(bool, Vec<String>)> {
     let records = st.store.task_records(task.id).await?;
     let explained = records.iter().any(|r| {
         matches!(
@@ -90,6 +90,13 @@ async fn gate(st: &AppState, task: &Task, action: &str) -> Result<Vec<String>> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    Ok((explained, unrecorded))
+}
+
+/// The submit and handoff gate: the task must explain itself (`coverage`). Returns the changed
+/// symbols that no record of the task anchors to; the refusal lists them too.
+async fn gate(st: &AppState, task: &Task, action: &str) -> Result<Vec<String>> {
+    let (explained, unrecorded) = coverage(st, task).await?;
     if !explained {
         return Err(AvError::IllegalState(format!(
             "record a decision, attempt or note before {action} (av record ...); \
@@ -102,6 +109,21 @@ async fn gate(st: &AppState, task: &Task, action: &str) -> Result<Vec<String>> {
         )));
     }
     Ok(unrecorded)
+}
+
+/// What the submit gate would say now, without submitting (handoff B7): for a hook that asks the
+/// agent to record its decisions and dead ends before a session ends. Reads the last checkpoint.
+pub(crate) async fn unrecorded(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<serde_json::Value> {
+    let task = st.store.get_task(TaskId(id)).await?;
+    let (explained, unrecorded) = coverage(&st, &task).await?;
+    Ok(Json(serde_json::json!({
+        "status": task.status.as_str(),
+        "explained": explained,
+        "unrecorded_symbols": unrecorded,
+    })))
 }
 
 #[derive(Deserialize)]

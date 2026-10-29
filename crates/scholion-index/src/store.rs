@@ -842,13 +842,15 @@ impl CodeIndex for PgIndex {
         if terms.is_empty() || limit == 0 {
             return Ok(vec![]);
         }
-        let n: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM code_chunks WHERE repo = $1 AND scope = $2")
-                .bind(repo)
-                .bind(scope)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(ierr)?;
+        let (n, avgdl): (i64, Option<f64>) = sqlx::query_as(
+            "SELECT count(*), avg(length(tsv))::float8 FROM code_chunks WHERE repo = $1 AND scope = $2",
+        )
+        .bind(repo)
+        .bind(scope)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(ierr)?;
+        let avgdl = avgdl.unwrap_or(1.0).max(1.0);
         if n == 0 {
             return Ok(vec![]);
         }
@@ -873,13 +875,19 @@ impl CodeIndex for PgIndex {
         if words.is_empty() {
             return Ok(vec![]);
         }
-        // ts_rank with normalization 1 divides by 1 + log(chunk length), so long chunks do not
-        // win on length alone.
+        // Okapi BM25 (k1 = 1.2, b = 0.75, as E1's bm25_symbols): a term's count in the chunk is the
+        // number of its positions, and a chunk's length is its number of distinct words (cheap,
+        // and the same measure for the average).
         let rows: Vec<(i64, f64)> = sqlx::query_as(
-            "SELECT c.symbol_id, sum(w.idf * ts_rank(c.tsv, plainto_tsquery('simple', w.t), 1))::float8 AS s
+            "SELECT c.symbol_id,
+                    sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)))::float8 AS s
              FROM code_chunks c
              JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
                ON c.tsv @@ plainto_tsquery('simple', w.t)
+             CROSS JOIN LATERAL (
+                 SELECT coalesce(sum(coalesce(array_length(u.positions, 1), 1)), 1)::float8 AS n
+                 FROM unnest(c.tsv) AS u WHERE u.lexeme = w.t
+             ) AS tf
              WHERE c.repo = $1 AND c.scope = $2
              GROUP BY c.symbol_id
              ORDER BY s DESC, c.symbol_id
@@ -890,6 +898,7 @@ impl CodeIndex for PgIndex {
         .bind(&words)
         .bind(&idfs)
         .bind(limit as i64)
+        .bind(avgdl)
         .fetch_all(&self.pool)
         .await
         .map_err(ierr)?;

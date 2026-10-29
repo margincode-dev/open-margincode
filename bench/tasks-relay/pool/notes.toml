@@ -1,0 +1,86 @@
+# What an earlier agent (A) learned while working on tallyho: one note per relay pair. Every arm
+# gets all of them, so for each task one note is the one it needs and nine are noise:
+#   baseline - each note is a commit message on top of the base,
+#   notes    - the same commits, plus NOTES.md with every note (CLAUDE.md points at it),
+#   av       - the same commits, plus each note as a record of an earlier task, anchored to its code.
+# Summaries are at most 200 characters (the record limit).
+
+[[note]]
+pair = "quote-split"
+kind = "attempt"
+path = "tallyho/money.py"
+symbol = "Money.allocate"
+summary = "Splitting Money by multiplying with 1/n (total.times(Decimal(1) / n)) drops or adds cents, so the parts stop adding up to the total. Money.allocate(n) splits exactly."
+body = "Tried it for gift-card splits: 46.81 in three parts gave 15.60 each (46.80). allocate() hands out the remainder one cent at a time and raises ValidationError for parts < 1."
+
+[[note]]
+pair = "store-count"
+kind = "attempt"
+path = "tallyho/store/base.py"
+symbol = "RecordStore.list_page"
+summary = "list_page never returns more than max_page_size (100) records, whatever limit asks for, and iter_records/count_records only read its first page. Counting through them stops at 100."
+body = "Found when a 250-order export came back with 100 rows. Count the backend's own data instead (MemoryStore._keys, JsonFileStore._load)."
+
+[[note]]
+pair = "line-taxes"
+kind = "attempt"
+path = "tallyho/pricing/quote.py"
+symbol = "quote_order"
+summary = "Taxing each line separately (taxes.tax per line) and rounding per line drifts from Quote.tax by a cent or more. Compute the tax once, then split it across lines by largest remainder."
+body = "Three 0.10 pens in US-CA: 1 cent tax each per line, but 2 cents on the 0.30 total. Split the order's tax in proportion to each taxable line's subtotal, giving leftover cents to the largest remainders."
+
+[[note]]
+pair = "coupon-remove"
+kind = "attempt"
+path = "tallyho/pricing/coupons.py"
+symbol = "CouponBook"
+summary = "CouponBook stores codes as code.upper() and get() looks them up with code.strip().upper(). Indexing _by_code with the code as typed misses ' save10 ' or 'save10'."
+body = "Staff type codes in any case with stray spaces. Any new lookup or removal must normalize exactly as get() does."
+
+[[note]]
+pair = "money-plain"
+kind = "attempt"
+path = "tallyho/money.py"
+symbol = "Money.format"
+summary = "Currencies have different minor units (JPY 0 decimals, KWD 3). A fixed :.2f or minor/100 prints 1200 yen as 12.00 and drops a KWD digit. Take the decimals from _exponent(currency)."
+body = "format() already does this; any other formatting of amounts should too."
+
+[[note]]
+pair = "customer-region"
+kind = "decision"
+path = "tallyho/validate.py"
+symbol = "check_region"
+summary = "Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value."
+body = "Applies to region, email and anything else from a customer. Older messages that include the value are being cleaned up as they are touched."
+
+[[note]]
+pair = "refund-event"
+kind = "decision"
+path = "tallyho/workflow.py"
+symbol = "Workflow"
+summary = "Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages."
+body = "Agreed with the accounting service team. Keep the order id under \"id\" as the existing events do."
+
+[[note]]
+pair = "product-slug"
+kind = "decision"
+path = "tallyho/models.py"
+symbol = "Product"
+summary = "Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads."
+body = "Use text.slugify on f\"{sku} {name}\" so the rules for spaces and punctuation stay in one place."
+
+[[note]]
+pair = "ledger-refund"
+kind = "decision"
+path = "tallyho/ledger.py"
+symbol = "Ledger.record_sale"
+summary = "A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id."
+body = "Not \"refund of order ...\" or \"order ... refund\": the report matches the memo prefix exactly."
+
+[[note]]
+pair = "order-ids"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository"
+summary = "Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs."
+body = "The sequence is the number of orders stored so far plus one."

@@ -229,6 +229,8 @@ fn setup() -> Setup {
         av_mcp: true,
         hook_code: None,
         hook_args: vec![],
+        jit_hooks: false,
+        prices: None,
     };
     let out = work.path().join("results");
     Setup {
@@ -342,4 +344,28 @@ fn av_arms_check_the_daemon_before_the_first_session() {
     let err = run(&s.specs, &a, &s.cfg).err().unwrap();
     assert!(err.contains("not up"), "{err}");
     assert!(!s.marker.exists(), "not even the baseline sessions ran");
+}
+
+#[test]
+fn a_relay_report_compares_av_with_notes_and_says_how_the_notes_arrived() {
+    let rows = vec![
+        row(
+            "relay-a",
+            "baseline",
+            1,
+            false,
+            m(Some(9000), 40000, 0.02, 1),
+        ),
+        row("relay-a", "notes", 1, true, m(Some(8000), 38000, 0.02, 1)),
+        row("relay-a", "av", 1, true, m(Some(7000), 36000, 0.02, 0)),
+    ];
+    let md = render_report(&rows, &meta());
+    assert!(md.contains("| notes | 1/1 |"), "{md}");
+    assert!(md.contains("| relay: av vs notes |"), "{md}");
+    assert!(md.contains("| relay: notes vs baseline |"), "{md}");
+    assert!(md.contains("NOTES.md"), "explains the channels: {md}");
+    assert!(
+        !md.contains("single-commit tree"),
+        "the E3 note does not apply: {md}"
+    );
 }

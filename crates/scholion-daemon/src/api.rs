@@ -49,6 +49,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/tasks/{id}", get(get_task))
         .route("/v1/tasks/{id}/checkpoint", post(checkpoint))
         .route("/v1/tasks/{id}/submit", post(crate::flow::submit))
+        .route("/v1/tasks/{id}/unrecorded", get(crate::flow::unrecorded))
         .route("/v1/tasks/{id}/validate", post(crate::flow::validate))
         .route("/v1/tasks/{id}/review", post(crate::flow::review))
         .route("/v1/tasks/{id}/merge", post(crate::flow::merge))

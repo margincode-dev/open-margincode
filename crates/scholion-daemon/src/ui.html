@@ -375,11 +375,13 @@ async function openTask(id, quiet) {
   const sheet = document.getElementById("sheet");
   if (!quiet) { sheet.replaceChildren(h("div", { class: "muted" }, "Loading…")); drawer.classList.add("open"); }
   try {
-    const [detail, recs] = await Promise.all([
+    const [detail, recs, unrec] = await Promise.all([
       api(`/v1/tasks/${id}`), api(`/v1/tasks/${id}/records`),
+      // only shown while open; an older daemon without the route just leaves it out
+      api(`/v1/tasks/${id}/unrecorded`).catch(() => null),
     ]);
     if (S.openTask !== id) return;
-    renderTask(detail, recs.records);
+    renderTask(detail, recs.records, unrec);
   } catch (e) {
     if (!quiet) sheet.replaceChildren(h("button", { class: "close", onclick: closeDrawer }, "Close"), h("p", { class: "err" }, e.message));
   }
@@ -389,7 +391,7 @@ function fact(label, value, title) {
   return h("div", { class: "fact", title }, h("div", { class: "l" }, label), h("div", { class: "v" }, value ?? "—"));
 }
 
-function renderTask(d, records) {
+function renderTask(d, records, unrec) {
   const t = d.task;
   // a lease only matters while the task is being worked on
   const leaseLeft = t.status === "open" && t.lease_expires ? new Date(t.lease_expires) - new Date() : null;
@@ -415,6 +417,11 @@ function renderTask(d, records) {
     conflicts && [h("h3", {}, "Conflicts"), h("ul", { class: "files" }, conflicts.map(p => h("li", { class: "err" }, p)))],
     h("h3", {}, `Changed files (${d.changed.length})`),
     d.changed.length ? h("ul", { class: "files" }, d.changed.map(p => h("li", {}, p))) : h("div", { class: "empty" }, "No changes yet."),
+    t.status === "open" && unrec && unrec.unrecorded_symbols.length > 0 && [
+      h("h3", {}, `Changes no record explains (${unrec.unrecorded_symbols.length})`),
+      h("p", { class: "faint", style: "font-size:12px;margin:0 0 6px" },
+        "Submit lists these, and the Stop hook asks the agent once to record the decision or dead end behind them."),
+      h("ul", { class: "files" }, unrec.unrecorded_symbols.map(s => h("li", { class: "mono" }, s)))],
     h("h3", {}, `Records (${records.length})`),
     records.length ? records.map(recordEl) : h("div", { class: "empty" }, "No records."),
     h("h3", {}, "What the next agent gets"),

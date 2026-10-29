@@ -12,13 +12,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Result;
-use crate::spec::{TaskSpec, git_in, resolve_rev};
+use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Arm {
     /// Plain git checkout, no av.
     Baseline,
+    /// As `Baseline`, plus a `NOTES.md` of what earlier agents learned (E4; `CLAUDE.md` points
+    /// at it).
+    Notes,
     /// av workspaces, records, hooks and MCP, but packs reduced to the Task section.
     AvNoPacks,
     /// Full av.
@@ -26,30 +29,37 @@ pub enum Arm {
 }
 
 impl Arm {
+    /// The E3 arms.
     pub const ALL: [Arm; 3] = [Arm::Baseline, Arm::AvNoPacks, Arm::Av];
+    /// Every arm `--arms` accepts (E4 adds `notes`).
+    pub const KNOWN: [Arm; 4] = [Arm::Baseline, Arm::Notes, Arm::AvNoPacks, Arm::Av];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Arm::Baseline => "baseline",
+            Arm::Notes => "notes",
             Arm::AvNoPacks => "av_no_packs",
             Arm::Av => "av",
         }
     }
 
     pub fn parse(s: &str) -> Result<Arm> {
-        Arm::ALL
+        Arm::KNOWN
             .into_iter()
             .find(|a| a.as_str() == s)
-            .ok_or_else(|| format!("unknown arm {s:?}; expected baseline, av_no_packs or av"))
+            .ok_or_else(|| {
+                format!("unknown arm {s:?}; expected baseline, notes, av_no_packs or av")
+            })
     }
 
     pub fn uses_av(self) -> bool {
-        self != Arm::Baseline
+        matches!(self, Arm::AvNoPacks | Arm::Av)
     }
 
     fn short(self) -> &'static str {
         match self {
             Arm::Baseline => "base",
+            Arm::Notes => "notes",
             Arm::AvNoPacks => "nopacks",
             Arm::Av => "av",
         }
@@ -90,6 +100,12 @@ pub struct RunConfig {
     pub hook_code: Option<String>,
     /// More arguments for the session-start hook, e.g. `--no-map`, `--max-code=3`.
     pub hook_args: Vec<String>,
+    /// Also install the just-in-time hooks in the av arms: `PreToolUse` on reads and edits
+    /// (`av hook pre-read`: other tasks' records about the file) and `Stop` (`av hook stop`).
+    pub jit_hooks: bool,
+    /// Cost sessions from their token usage at these prices instead of Claude Code's
+    /// `total_cost_usd`, and do not pass `--max-budget-usd` (it is in Claude prices).
+    pub prices: Option<crate::metrics::Prices>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +206,99 @@ pub fn scrubbed_copy(repo: &Path, rev: &str, dest: &Path) -> Result<()> {
     git_ok(dest, &["remote", "remove", "origin"])?;
     git_ok(dest, &["reflog", "expire", "--expire=now", "--all"])?;
     git_ok(dest, &["gc", "-q", "--prune=now"])?;
+    Ok(())
+}
+
+/// E4: each relay note becomes an empty commit by the earlier agent on top of the base, its
+/// summary the subject and its body the message, so `git log` carries what that agent learned.
+pub fn relay_commits(dest: &Path, notes: &[RelayNote]) -> Result<()> {
+    for n in notes {
+        let mut args = vec![
+            "-c",
+            "user.name=agent-a",
+            "-c",
+            "user.email=agent-a@localhost",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            &n.summary,
+        ];
+        if !n.body.trim().is_empty() {
+            args.extend(["-m", &n.body]);
+        }
+        git_ok(dest, &args)?;
+    }
+    Ok(())
+}
+
+/// E4, `notes` arm: every relay note in `NOTES.md`, and a `CLAUDE.md` that points at it,
+/// committed by the earlier agent.
+pub fn write_notes_md(dest: &Path, notes: &[RelayNote]) -> Result<()> {
+    let mut md = String::from(
+        "# Notes\n\nWhat earlier agents learned about this code: decisions to follow and \
+         approaches that failed.\n",
+    );
+    for n in notes {
+        let at = match &n.symbol {
+            Some(sym) => format!("{}:{sym}", n.path),
+            None => n.path.clone(),
+        };
+        md.push_str(&format!("\n## {} ({at})\n\n{}\n", n.kind, n.summary));
+        if !n.body.trim().is_empty() {
+            md.push_str(&format!("\n{}\n", n.body.trim()));
+        }
+    }
+    std::fs::write(dest.join("NOTES.md"), md).map_err(|e| e.to_string())?;
+    std::fs::write(
+        dest.join("CLAUDE.md"),
+        "Read NOTES.md before you change code: it records decisions to follow and approaches \
+         that already failed.\n",
+    )
+    .map_err(|e| e.to_string())?;
+    git_ok(dest, &["add", "NOTES.md", "CLAUDE.md"])?;
+    git_ok(
+        dest,
+        &[
+            "-c",
+            "user.name=agent-a",
+            "-c",
+            "user.email=agent-a@localhost",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "Keep notes for the next agent",
+        ],
+    )
+}
+
+/// E4, av arms: the relay notes as records of an earlier task, anchored to their code, so
+/// packs and the pre-read hook can show them to the agent's task.
+fn seed_relay_records(spec: &TaskSpec, daemon: &Daemon, repo: &str) -> Result<()> {
+    let started = daemon.post(
+        "/v1/tasks",
+        json!({"repo": repo, "title": "earlier work", "goal": "Earlier work on this code",
+               "agent": "agent-a", "session": format!("relay-{}", uuid::Uuid::new_v4())}),
+        None,
+    )?;
+    let task = started["task"]["id"].as_str().ok_or("no task id")?;
+    let generation = started["task"]["generation"].as_i64().unwrap_or(1);
+    for n in &spec.relay_notes {
+        let mut anchor = json!({"path": n.path});
+        if let Some(sym) = &n.symbol {
+            anchor["symbol"] = json!(sym);
+        }
+        daemon.post(
+            &format!("/v1/tasks/{task}/records"),
+            json!({"kind": n.kind, "summary": n.summary, "body": n.body,
+                   "anchors": [anchor], "agent": "agent-a"}),
+            Some(generation),
+        )?;
+    }
     Ok(())
 }
 
@@ -355,11 +464,15 @@ fn start_av_task(
     let name = format!("b{run_id}-{}-{}-{rep}", spec.name, arm.short());
     let src = cfg.import_dir.join(&name);
     scrubbed_copy(&spec.repo_path, &spec.base_rev, &src)?;
+    relay_commits(&src, &spec.relay_notes)?;
     daemon.post(
         "/v1/repos",
         json!({"name": name, "git_source": format!("{}/{name}", cfg.import_mount.trim_end_matches('/'))}),
         None,
     )?;
+    if !spec.relay_notes.is_empty() {
+        seed_relay_records(spec, daemon, &name)?;
+    }
     // The start pack is only kept for calibration (`pack.md`), so it goes to a session of its
     // own: under the agent's session the ledger would mark everything as sent, and the agent's
     // first pack would be nothing but back-references.
@@ -392,7 +505,9 @@ fn start_av_task(
         &workspace.join(".av-task"),
         &json!({"task": id, "session": session, "generation": generation, "agent": AGENT}),
     )?;
-    seed_dead_ends(spec, daemon, &id, generation)?;
+    if spec.relay_notes.is_empty() {
+        seed_dead_ends(spec, daemon, &id, generation)?;
+    }
     Ok(AvTask {
         repo: name,
         id,
@@ -488,11 +603,19 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
         cfg.hook_budget
     );
     let edit = format!("echo post-edit >> {count}; {av} hook post-edit");
-    json!({"hooks": {
+    let mut hooks = json!({
         "SessionStart": [{"hooks": [{"type": "command", "command": start}]}],
         "PostToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit",
                          "hooks": [{"type": "command", "command": edit}]}]
-    }})
+    });
+    if cfg.jit_hooks {
+        let read = format!("echo pre-read >> {count}; {av} hook pre-read");
+        let stop = format!("echo stop >> {count}; {av} hook stop");
+        hooks["PreToolUse"] = json!([{"matcher": "Read|Edit|MultiEdit",
+                                      "hooks": [{"type": "command", "command": read}]}]);
+        hooks["Stop"] = json!([{"hooks": [{"type": "command", "command": stop}]}]);
+    }
+    json!({ "hooks": hooks })
 }
 
 fn mcp_config(arm: Arm, cfg: &RunConfig, task: Option<&AvTask>) -> Value {
@@ -558,6 +681,10 @@ pub fn run_session(
     } else {
         let ws = dir.join("ws");
         scrubbed_copy(&spec.repo_path, &spec.base_rev, &ws)?;
+        relay_commits(&ws, &spec.relay_notes)?;
+        if arm == Arm::Notes {
+            write_notes_md(&ws, &spec.relay_notes)?;
+        }
         tree_matches(
             &spec.repo_path,
             &resolve_rev(&spec.repo_path, &spec.base_rev)?,
@@ -611,7 +738,6 @@ pub fn run_session(
         .arg(&mcp_path)
         .args(["--permission-mode", &cfg.permission_mode])
         .arg("--no-session-persistence")
-        .args(["--max-budget-usd", &format!("{:.2}", cfg.session_cap_usd)])
         .arg("--allowedTools")
         .args(&tools)
         .current_dir(&workspace)
@@ -620,6 +746,9 @@ pub fn run_session(
         .stderr(File::create(dir.join("claude.stderr")).map_err(|e| e.to_string())?)
         .env("CLAUDE_CONFIG_DIR", &config_dir)
         .env("AV_AGENT", AGENT);
+    if cfg.prices.is_none() {
+        cmd.args(["--max-budget-usd", &format!("{:.2}", cfg.session_cap_usd)]);
+    }
     for v in NESTED_ENV {
         cmd.env_remove(v);
     }

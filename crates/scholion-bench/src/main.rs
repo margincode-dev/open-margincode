@@ -86,6 +86,15 @@ struct SessionArgs {
     /// --hook-arg=--max-code=3`.
     #[arg(long = "hook-arg", allow_hyphen_values = true)]
     hook_args: Vec<String>,
+    /// Also give the av arms the just-in-time hooks: `av hook pre-read` on reads and edits,
+    /// `av hook stop` when the agent stops.
+    #[arg(long)]
+    jit_hooks: bool,
+    /// Cost sessions from token usage at these prices, dollars per million tokens:
+    /// `input,cache_write,cache_read,output`. For models Claude Code cannot price (DeepSeek
+    /// through its Anthropic API); claude's own --max-budget-usd is then not passed.
+    #[arg(long, value_parser = scholion_bench::metrics::Prices::parse)]
+    price_per_mtok: Option<scholion_bench::metrics::Prices>,
 }
 
 #[derive(Subcommand)]
@@ -162,6 +171,10 @@ enum Cmd {
         /// Baselines only (no daemon).
         #[arg(long)]
         no_pack: bool,
+        /// Reuse the repos the run with this id imported (the `r<id>-` prefix of its repo names)
+        /// into the same daemon: measures a new packer without importing and embedding again.
+        #[arg(long)]
+        reuse_run: Option<String>,
     },
     /// Mine retrieval tasks from a repo's history (small commits to non-test source files).
     Mine {
@@ -245,6 +258,8 @@ fn config(s: &SessionArgs) -> RunConfig {
         allow_no_semantic: s.allow_no_semantic,
         index_wait_secs: s.index_wait_secs,
         av_mcp: !s.no_av_mcp,
+        jit_hooks: s.jit_hooks,
+        prices: s.price_per_mtok,
         hook_code: s.hook_code.clone(),
         hook_args: s.hook_args.clone(),
     }
@@ -494,6 +509,7 @@ fn main() -> ExitCode {
             allow_no_semantic,
             index_wait_secs,
             no_pack,
+            reuse_run,
         } => (|| {
             let tasks = retrieval::load_tasks(&tasks, repos.as_deref().map(expand).as_deref())?;
             let daemon = url.as_deref().map(|u| Daemon::new(u, token.as_deref()));
@@ -508,6 +524,7 @@ fn main() -> ExitCode {
                 allow_no_semantic,
                 index_wait_secs,
                 no_pack,
+                reuse_run,
             };
             retrieval::run(&tasks, daemon.as_ref(), &args)?;
             println!("report: {}", args.out.join("report.md").display());

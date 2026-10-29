@@ -49,3 +49,35 @@ scholion-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:743
   - A commit message is a thinner goal than a real issue.
   - The gold set is what one fix touched, not everything relevant.
   - The text measures what an agent is shown, not whether it would succeed. E3 measures that.
+
+`--reuse-run ID` measures a new packer on the repos an earlier run (its `meta.json` names the id)
+already imported into the same daemon, so a rerun takes minutes instead of an hour of embedding.
+Reruns differ by about ±0.02 between themselves (semantic search sometimes times out).
+
+## Results: BM25 and rank fusion (2026-10-28, handoff A1)
+
+`results/2026-10-28-packer-v3` re-baselined the pack at `main` (fresh imports). Then every variant
+ran on those imports with `--reuse-run`. `symbols_sig` is the share of gold symbols whose
+signature the text shows:
+
+| pack variant (all tasks) | 2k | 4k | 8k | files_named 4k |
+|---|---|---|---|---|
+| `main` (`results/2026-10-28-control`) | 0.41 | 0.61 | 0.74 | 0.98 |
+| + Rust/Python test code ranked down | 0.34 | 0.57 | 0.68 | 0.98 |
+| + true BM25 instead of `ts_rank` | 0.29 | 0.55 | 0.71 | 0.96 |
+| + budget the last section leaves upgrades earlier handles | 0.37 | 0.58 | 0.74 | 0.96 |
+| same, signatures before any body | 0.33 | 0.43 | 0.67 | 0.96 |
+| + rank fusion of lexical and semantic hits, k = 60 (`results/2026-10-28-packer-rrf`) | **0.54** | **0.73** | **0.82** | 0.96 |
+| same, k = 10 | 0.34 | 0.58 | 0.74 | 0.96 |
+| `bm25_symbols` baseline | 0.55 | 0.64 | 0.76 | 0.92 |
+
+Only the `main`, k = 60 and `bm25_symbols` rows were scored by the current scorer. The other rows
+used the old one, which missed a signature shown without its opener (` {`, `:`), the form the
+pack's summary tier prints. That understated the pack, by 0.03 at 4k for `main` alone, more once
+more items are summaries. Compare the intermediate rows with each other, not with the first and
+last.
+
+The kept change is the k = 60 row (it includes the rows above it except "signatures before any
+body"). It passes the A1 gate: `symbols_sig` at 4k is 0.73 against `bm25_symbols`' 0.64, and 0.82
+against 0.76 at 8k; 2k is level (0.54 vs 0.55). `files_named` is 0.96 instead of 0.98 at 4k:
+one task (ripgrep-020687a) names one of its two gold files instead of both; 2k and 8k are unchanged.

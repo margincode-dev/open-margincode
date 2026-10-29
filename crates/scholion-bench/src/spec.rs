@@ -50,6 +50,17 @@ pub struct TaskSpec {
     pub session_timeout_secs: u64,
     #[serde(default, rename = "dead_end")]
     pub dead_ends: Vec<DeadEnd>,
+    /// E4 knowledge relay: a `notes.toml` (relative to the spec file) of what an earlier agent
+    /// learned. Every arm gets the notes as commits on top of the base; `notes` also as
+    /// `NOTES.md`, the av arms as anchored records of an earlier task (instead of `dead_end`s).
+    #[serde(default)]
+    pub relay_pool: Option<PathBuf>,
+    /// The pool note this task needs (the rest are noise for it).
+    #[serde(default)]
+    pub relay_pair: Option<String>,
+    /// The notes of `relay_pool`, read when the spec loads.
+    #[serde(skip)]
+    pub relay_notes: Vec<RelayNote>,
     /// The directory of the spec file, which `LocalTest::source` is relative to.
     #[serde(skip)]
     pub spec_dir: PathBuf,
@@ -71,6 +82,65 @@ pub struct DeadEnd {
     pub file_glob: String,
     /// A regex over the text an edit writes.
     pub pattern: String,
+}
+
+/// One thing an earlier agent learned (`[[note]]` in a relay pool).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelayNote {
+    /// The task that needs it.
+    pub pair: String,
+    /// A record kind: `attempt` (a dead end) or `decision`.
+    pub kind: String,
+    /// The file it is about, and optionally the symbol.
+    pub path: String,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    /// At most 200 characters (the record limit).
+    pub summary: String,
+    #[serde(default)]
+    pub body: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelayPool {
+    note: Vec<RelayNote>,
+}
+
+fn load_relay(spec: &mut TaskSpec) -> Result<()> {
+    let Some(pool) = &spec.relay_pool else {
+        return Ok(());
+    };
+    let path = spec.spec_dir.join(pool);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let pool: RelayPool = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    for n in &pool.note {
+        if n.summary.chars().count() > 200 {
+            return Err(format!(
+                "{}: note for {} has a summary over 200 characters",
+                path.display(),
+                n.pair
+            ));
+        }
+        if !matches!(n.kind.as_str(), "attempt" | "decision" | "note") {
+            return Err(format!(
+                "{}: note for {}: kind must be attempt, decision or note",
+                path.display(),
+                n.pair
+            ));
+        }
+    }
+    if let Some(pair) = &spec.relay_pair
+        && !pool.note.iter().any(|n| &n.pair == pair)
+    {
+        return Err(format!(
+            "{}: no note for relay_pair {pair:?}",
+            path.display()
+        ));
+    }
+    spec.relay_notes = pool.note;
+    Ok(())
 }
 
 fn default_verify_timeout() -> u64 {
@@ -100,6 +170,7 @@ pub fn load_spec_with_root(path: &Path, repos_root: Option<&Path>) -> Result<Tas
     let mut spec: TaskSpec =
         toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     spec.spec_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    load_relay(&mut spec)?;
     spec.repo_path = match repos_root {
         Some(root) => root.join(spec.repo_path.file_name().unwrap_or_default()),
         None => expand_home(&spec.repo_path),

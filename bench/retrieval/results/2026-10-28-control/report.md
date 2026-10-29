@@ -1,0 +1,143 @@
+# Offline pack retrieval (Plan 6, E1)
+
+42 tasks (15 whose goal names a gold file or symbol). Semantic layer: on. Methods get the same cl100k budget; every text is scored by the same line matching against the fix's gold files and symbols.
+
+Packs marked degraded (semantic search failed or timed out): 2 of 126.
+
+Metrics (higher is better, means over tasks):
+
+- `files_code`: gold files with code shown (a gold signature, or three lines unique to the file)
+- `symbols_sig`: gold symbols whose signature line is shown
+- `symbols_body`: gold symbols with at least half their lines shown
+- `files_named`: gold file paths mentioned
+- `gold_share`: share of the text's lines that are gold code (precision)
+
+## All tasks (n = 42)
+
+### Budget 2000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 1635 | 0.70 | 0.41 | 0.21 | 0.96 | 0.12 |
+| bm25_files | 1965 | 0.36 | 0.17 | 0.14 | 0.36 | 0.31 |
+| bm25_symbols | 1994 | 0.83 | 0.55 | 0.49 | 0.86 | 0.40 |
+| repo_map | 1991 | 0.60 | 0.60 | 0.02 | 0.60 | 0.00 |
+
+### Budget 4000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 3226 | 0.86 | 0.61 | 0.45 | 0.98 | 0.18 |
+| bm25_files | 3964 | 0.44 | 0.26 | 0.22 | 0.44 | 0.32 |
+| bm25_symbols | 3994 | 0.89 | 0.64 | 0.60 | 0.92 | 0.34 |
+| repo_map | 3990 | 0.65 | 0.67 | 0.02 | 0.67 | 0.00 |
+
+### Budget 8000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 6485 | 0.89 | 0.74 | 0.64 | 0.98 | 0.23 |
+| bm25_files | 7994 | 0.44 | 0.37 | 0.36 | 0.44 | 0.29 |
+| bm25_symbols | 7992 | 0.93 | 0.76 | 0.75 | 0.93 | 0.31 |
+| repo_map | 7095 | 0.80 | 0.81 | 0.04 | 0.81 | 0.00 |
+
+## Goal names no gold file or symbol: tasks (n = 27)
+
+### Budget 2000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 1621 | 0.73 | 0.41 | 0.25 | 0.95 | 0.14 |
+| bm25_files | 1993 | 0.28 | 0.13 | 0.07 | 0.28 | 0.25 |
+| bm25_symbols | 1994 | 0.78 | 0.48 | 0.44 | 0.81 | 0.38 |
+| repo_map | 1990 | 0.61 | 0.62 | 0.04 | 0.61 | 0.00 |
+
+### Budget 4000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 3223 | 0.82 | 0.60 | 0.46 | 0.96 | 0.20 |
+| bm25_files | 3990 | 0.41 | 0.23 | 0.17 | 0.41 | 0.28 |
+| bm25_symbols | 3993 | 0.85 | 0.61 | 0.57 | 0.89 | 0.35 |
+| repo_map | 3990 | 0.65 | 0.67 | 0.04 | 0.67 | 0.00 |
+
+### Budget 8000
+
+| method | tokens | files_code | symbols_sig | symbols_body | files_named | gold_share |
+|---|---|---|---|---|---|---|
+| pack | 6486 | 0.87 | 0.68 | 0.64 | 0.96 | 0.22 |
+| bm25_files | 7994 | 0.41 | 0.32 | 0.32 | 0.41 | 0.28 |
+| bm25_symbols | 7992 | 0.89 | 0.76 | 0.76 | 0.89 | 0.33 |
+| repo_map | 6860 | 0.80 | 0.81 | 0.04 | 0.81 | 0.00 |
+
+## Pack against each baseline, paired by task
+
+Mean difference (pack minus baseline) with a 95 % bootstrap interval, and wins/ties/losses over tasks.
+
+| budget | baseline | metric | diff | 95 % CI | W/T/L |
+|---|---|---|---|---|---|
+| 2000 | bm25_files | files_code | +0.34 | [+0.13, +0.54] | 22/14/6 |
+| 2000 | bm25_files | symbols_sig | +0.23 | [+0.04, +0.41] | 21/15/6 |
+| 2000 | bm25_symbols | files_code | -0.13 | [-0.27, +0.00] | 2/31/9 |
+| 2000 | bm25_symbols | symbols_sig | -0.14 | [-0.30, +0.02] | 7/20/15 |
+| 2000 | repo_map | files_code | +0.10 | [-0.03, +0.25] | 9/28/5 |
+| 2000 | repo_map | symbols_sig | -0.19 | [-0.37, -0.02] | 8/16/18 |
+| 4000 | bm25_files | files_code | +0.42 | [+0.27, +0.58] | 20/21/1 |
+| 4000 | bm25_files | symbols_sig | +0.35 | [+0.20, +0.49] | 25/14/3 |
+| 4000 | bm25_symbols | files_code | -0.03 | [-0.11, +0.05] | 1/37/4 |
+| 4000 | bm25_symbols | symbols_sig | -0.03 | [-0.16, +0.11] | 9/21/12 |
+| 4000 | repo_map | files_code | +0.21 | [+0.08, +0.34] | 11/28/3 |
+| 4000 | repo_map | symbols_sig | -0.05 | [-0.22, +0.11] | 8/18/16 |
+| 8000 | bm25_files | files_code | +0.45 | [+0.30, +0.62] | 21/20/1 |
+| 8000 | bm25_files | symbols_sig | +0.37 | [+0.24, +0.52] | 21/19/2 |
+| 8000 | bm25_symbols | files_code | -0.04 | [-0.12, +0.02] | 1/39/2 |
+| 8000 | bm25_symbols | symbols_sig | -0.02 | [-0.13, +0.08] | 9/26/7 |
+| 8000 | repo_map | files_code | +0.10 | [+0.01, +0.19] | 5/36/1 |
+| 8000 | repo_map | symbols_sig | -0.07 | [-0.20, +0.07] | 4/26/12 |
+
+## Per task at budget 4000: `files_code` / `symbols_sig`
+
+| task | gold files | gold symbols | leak | pack | bm25_files | bm25_symbols | repo_map |
+|---|---|---|---|---|---|---|---|
+| click-05f6fd0 | 1 | 2 |  | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| click-22177f8 | 1 | 4 | yes | 1.00 / 0.75 | 0.00 / 0.00 | 1.00 / 0.25 | 1.00 / 1.00 |
+| click-405a548 | 1 | 8 | yes | 1.00 / 0.25 | 0.00 / 0.00 | 1.00 / 0.75 | 1.00 / 1.00 |
+| click-9f0bcdf | 1 | 9 | yes | 1.00 / 0.56 | 1.00 / 0.22 | 1.00 / 0.78 | 1.00 / 1.00 |
+| click-b90faad | 1 | 4 | yes | 1.00 / 0.75 | 0.00 / 0.00 | 1.00 / 0.50 | 1.00 / 1.00 |
+| click-e2bddbc | 1 | 4 | yes | 1.00 / 0.25 | 0.00 / 0.00 | 1.00 / 0.00 | 1.00 / 1.00 |
+| click-f25f697 | 1 | 1 |  | 1.00 / 1.00 | 1.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| click-f67c2bb | 1 | 1 |  | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 1.00 | 0.00 / 0.00 |
+| fd-3b3baea | 1 | 2 | yes | 1.00 / 1.00 | 1.00 / 0.50 | 1.00 / 1.00 | 1.00 / 1.00 |
+| fd-4a89aff | 1 | 1 |  | 1.00 / 1.00 | 1.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| fd-68edfde | 1 | 8 | yes | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| fd-a3942db | 1 | 1 | yes | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| fd-b3a8ff6 | 2 | 6 | yes | 1.00 / 0.83 | 0.50 / 0.17 | 1.00 / 0.33 | 1.00 / 1.00 |
+| fd-b422e5d | 1 | 1 |  | 1.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 | 0.00 / 0.00 |
+| fd-de2137e | 2 | 2 | yes | 1.00 / 1.00 | 1.00 / 0.50 | 1.00 / 1.00 | 0.00 / 0.00 |
+| fd-e422fc3 | 1 | 3 |  | 1.00 / 0.67 | 0.00 / 0.00 | 1.00 / 0.67 | 0.00 / 0.00 |
+| hono-06a45bc | 1 | 2 | yes | 1.00 / 0.50 | 1.00 / 1.00 | 1.00 / 1.00 | 0.00 / 0.00 |
+| hono-08807ce | 1 | 1 |  | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 0.00 | 0.00 / 0.00 |
+| hono-5ca49b0 | 1 | 1 |  | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| hono-ae401f0 | 1 | 1 |  | 1.00 / 1.00 | 0.00 / 0.00 | 0.00 / 0.00 | 1.00 / 1.00 |
+| hono-d54720d | 1 | 1 |  | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| hono-e77c7c8 | 1 | 1 | yes | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| hono-e9c0107 | 2 | 1 |  | 0.50 / 1.00 | 0.50 / 1.00 | 0.50 / 1.00 | 0.50 / 1.00 |
+| hono-eb78eca | 1 | 1 |  | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| httpx-336204f | 1 | 1 |  | 1.00 / 1.00 | 1.00 / 1.00 | 1.00 / 1.00 | 0.00 / 0.00 |
+| httpx-ae1b9f6 | 2 | 0 |  | 0.50 / 0.00 | 0.50 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| ky-01b0839 | 2 | 2 |  | 0.50 / 0.50 | 0.50 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| ky-0b1f462 | 3 | 6 |  | 0.67 / 0.17 | 0.00 / 0.00 | 1.00 / 0.33 | 1.00 / 1.00 |
+| ky-33462fc | 2 | 3 |  | 0.50 / 0.67 | 0.50 / 0.33 | 0.50 / 0.33 | 1.00 / 1.00 |
+| ky-4cc6698 | 1 | 3 |  | 1.00 / 0.67 | 0.00 / 0.00 | 1.00 / 0.67 | 1.00 / 1.00 |
+| ky-619c427 | 1 | 8 |  | 1.00 / 0.88 | 1.00 / 0.12 | 1.00 / 0.38 | 1.00 / 1.00 |
+| ky-6e27594 | 1 | 2 |  | 1.00 / 0.00 | 0.00 / 0.00 | 1.00 / 0.50 | 1.00 / 1.00 |
+| ky-74224d8 | 1 | 3 |  | 1.00 / 0.33 | 1.00 / 0.33 | 1.00 / 1.00 | 1.00 / 1.00 |
+| ky-8a3a9cf | 1 | 1 |  | 1.00 / 0.00 | 0.00 / 0.00 | 1.00 / 0.00 | 1.00 / 1.00 |
+| ripgrep-020687a | 2 | 3 | yes | 0.00 / 0.00 | 0.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| ripgrep-2d4fa85 | 1 | 5 |  | 1.00 / 0.20 | 0.00 / 0.00 | 1.00 / 0.20 | 1.00 / 1.00 |
+| ripgrep-435f59f | 1 | 3 |  | 0.00 / 0.00 | 1.00 / 0.33 | 1.00 / 0.33 | 0.00 / 0.00 |
+| ripgrep-6892bc2 | 1 | 5 | yes | 1.00 / 0.80 | 1.00 / 0.40 | 1.00 / 1.00 | 0.00 / 0.00 |
+| ripgrep-7155f64 | 2 | 1 |  | 0.50 / 1.00 | 0.00 / 0.00 | 0.50 / 0.00 | 0.00 / 0.00 |
+| ripgrep-b5611fc | 1 | 1 |  | 1.00 / 0.00 | 0.00 / 0.00 | 1.00 / 1.00 | 1.00 / 1.00 |
+| ripgrep-c5e744c | 1 | 1 | yes | 1.00 / 0.00 | 0.00 / 0.00 | 1.00 / 1.00 | 0.00 / 0.00 |
+| ripgrep-d99ac34 | 1 | 0 |  | 0.00 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 | 0.00 / 0.00 |

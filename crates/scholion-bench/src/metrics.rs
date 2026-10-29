@@ -4,7 +4,7 @@ use globset::Glob;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::events::{ParsedSession, ToolUse};
+use crate::events::{ParsedSession, ToolUse, Usage};
 use crate::spec::TaskSpec;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +20,19 @@ pub struct SessionMetrics {
     pub tool_calls: u32,
     pub repeated_dead_ends: u32,
     pub truncated: bool,
+}
+
+/// The `result` event's usage, or the sum over messages when there is none.
+fn session_usage(s: &ParsedSession) -> Usage {
+    match &s.result {
+        Some(r) if r.usage.counted() > 0 || r.usage.cache_read > 0 => r.usage,
+        _ => s.messages.iter().fold(Usage::default(), |a, m| Usage {
+            input: a.input + m.usage.input,
+            cache_creation: a.cache_creation + m.usage.cache_creation,
+            cache_read: a.cache_read + m.usage.cache_read,
+            output: a.output + m.usage.output,
+        }),
+    }
 }
 
 /// Tools that write files, and the input key that names the file.
@@ -59,7 +72,58 @@ pub fn relative<'a>(path: &'a str, cwd: Option<&str>) -> &'a str {
     path.strip_prefix("./").unwrap_or(path)
 }
 
+/// Dollars per million tokens, for models Claude Code cannot price (its `total_cost_usd` uses
+/// Claude's prices for any model name, so a DeepSeek session would be costed as a Claude one).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Prices {
+    pub input: f64,
+    pub cache_write: f64,
+    pub cache_read: f64,
+    pub output: f64,
+}
+
+impl Prices {
+    /// `input,cache_write,cache_read,output`, dollars per million tokens.
+    pub fn parse(s: &str) -> Result<Prices, String> {
+        let v: Vec<f64> = s
+            .split(',')
+            .map(|x| x.trim().parse::<f64>())
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("prices {s:?}: {e}"))?;
+        match v[..] {
+            [input, cache_write, cache_read, output] if v.iter().all(|x| *x >= 0.0) => Ok(Prices {
+                input,
+                cache_write,
+                cache_read,
+                output,
+            }),
+            _ => Err(format!(
+                "prices {s:?}: expected four non-negative numbers: input,cache_write,cache_read,output"
+            )),
+        }
+    }
+
+    pub fn cost(&self, u: &Usage) -> f64 {
+        (u.input as f64 * self.input
+            + u.cache_creation as f64 * self.cache_write
+            + u.cache_read as f64 * self.cache_read
+            + u.output as f64 * self.output)
+            / 1e6
+    }
+}
+
 pub fn compute(spec: &TaskSpec, s: &ParsedSession, session_cap_usd: f64) -> SessionMetrics {
+    compute_priced(spec, s, session_cap_usd, None)
+}
+
+/// `compute`, with the cost taken from token usage at `prices` when given: the `result` event's
+/// session usage, else the sum over messages (a killed session is charged what it used).
+pub fn compute_priced(
+    spec: &TaskSpec,
+    s: &ParsedSession,
+    session_cap_usd: f64,
+    prices: Option<&Prices>,
+) -> SessionMetrics {
     let cwd = s.cwd.as_deref();
     let dead_ends: Vec<(globset::GlobMatcher, Regex)> = spec
         .dead_ends
@@ -104,7 +168,10 @@ pub fn compute(spec: &TaskSpec, s: &ParsedSession, session_cap_usd: f64) -> Sess
         // per-message output counts can lag the session's; never report more than the total
         tokens_to_first_edit: first_edit.map(|t| t.min(total)),
         tokens_total: total,
-        cost_usd: s.result.as_ref().map_or(session_cap_usd, |r| r.cost_usd),
+        cost_usd: match prices {
+            Some(p) => p.cost(&session_usage(s)),
+            None => s.result.as_ref().map_or(session_cap_usd, |r| r.cost_usd),
+        },
         turns: s
             .result
             .as_ref()

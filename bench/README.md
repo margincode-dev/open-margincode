@@ -235,11 +235,13 @@ removed):
 |---|---|---|---|
 | `bench/tasks-tallyho` | tallyho, a 25-file Python library written for the benchmark | 4 bugs, one file each, hidden pytest files | `bench/tallyho/make-repo.sh` |
 | `bench/tasks-scholion` | this repository at `0a08e6e`, about 20k lines of Rust | 4 injected bugs, hidden integration tests | `bench/tasks-scholion/make-repo.sh` |
+| `bench/tasks-relay` | tallyho | E4 knowledge relay: 10 tasks, each needing one lesson an earlier agent left (arms `baseline`, `notes`, `av`); see its README | `bench/tallyho/make-repo.sh` |
 
 Each script writes the repo where the task files expect it (`~/bench-repos/…`). The tallyho
 tasks need a Python with pytest at `~/bench-work/venv`. The scholion tasks build Rust in every
 session: export `CARGO_TARGET_DIR` (one shared target) and `AV_TEST_DATABASE_URL`, and plan on
-about 1 GB of disk per session. Every task uses `claude-haiku-5-5`.
+about 1 GB of disk per session. The tallyho and scholion tasks use `claude-haiku-5-5`; the relay
+tasks use DeepSeek (`bench/tasks-relay/README.md`).
 
 ```bash
 bench/tallyho/make-repo.sh && python3 -m venv ~/bench-work/venv && ~/bench-work/venv/bin/pip install pytest

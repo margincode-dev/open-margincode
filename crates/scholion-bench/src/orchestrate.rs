@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::Result;
 use crate::events::parse_stream;
-use crate::metrics::compute;
+use crate::metrics::compute_priced;
 use crate::report::{Meta, Row, Status, read_rows, render_report};
 use crate::runner::{Arm, Daemon, RunConfig, run_session};
 use crate::spec::TaskSpec;
@@ -64,7 +64,7 @@ fn arm_estimates(pilot: Option<&Path>) -> Vec<(Arm, f64)> {
     let Ok(rows) = read_rows(&p.join("rows.jsonl")) else {
         return vec![];
     };
-    Arm::ALL
+    Arm::KNOWN
         .into_iter()
         .filter_map(|a| {
             let costs: Vec<f64> = rows
@@ -244,7 +244,12 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
             );
             let o = run_session(spec, p.arm, p.rep, &run_id, cfg)?;
             let events = std::fs::read_to_string(&o.events_path).unwrap_or_default();
-            let m = compute(spec, &parse_stream(&events), cfg.session_cap_usd);
+            let m = compute_priced(
+                spec,
+                &parse_stream(&events),
+                cfg.session_cap_usd,
+                cfg.prices.as_ref(),
+            );
             spent += m.cost_usd;
             let reason = o.invalid_reason.clone().or_else(|| {
                 o.verify_timed_out

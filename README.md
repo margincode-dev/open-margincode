@@ -141,10 +141,12 @@ post-merge checks, revert of any merge, bisect and `why` blame.
 
 Measured so far (details in `bench/README.md` and `bench/retrieval/`): offline, on 42 tasks from
 six public repositories (E1), the first pack names the files a fix touches best of all methods
-(0.93–0.98), but BM25 over symbols still shows more of the changed symbols. With Claude Haiku on a
+(0.96–0.98), and since BM25 and rank fusion went in it also shows more of the changed symbols' 
+signatures than BM25 over symbols at 4k and 8k tokens (0.73 vs 0.64 at 4k; level at 2k). With Claude Haiku on a
 25-file Python project (E3, 160 sessions), av took about 12 % fewer turns and 14 % less wall time
 at equal cost (the cost interval contains zero). Not yet measured: larger repositories, merge
-fuzzing, and whether records actually carry knowledge from one agent to the next (E4). Two
+fuzzing, and whether records carry knowledge to the next agent: a first relay test (E4, 90 sessions on
+DeepSeek flash) was inconclusive, every arm solved every task. Two
 eight-agent stress runs (cheap models, a small Python web app) merged every feature through
 Scholion with main green after every merge, which shows the workflow holds up, not that it is
 cheaper.
@@ -414,8 +416,10 @@ opens with a warning naming the culprit merge.
   ends, notes; at most 400 tokens, each record once per session and never one the pack already sent) as
   `additionalContext`, so the why arrives when the file is opened instead of up front
   (`GET /v1/tasks/{id}/records/at?path=…&session=…`). `PostToolUse` on `Edit|Write|MultiEdit` checkpoints at most
-  every 2 s. All three are silent outside a task and never fail the agent (`scholion hook session-start`,
-  `scholion hook pre-read`, `scholion hook post-edit`).
+  every 2 s. `Stop` checkpoints and, when changed symbols have no record of the task anchored to them (what
+  `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
+  decisions and dead ends behind them. All four are silent outside a task and never fail the agent
+  (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
   command and checkpoints.
 - **Maintenance**: `POST /v1/maintenance/prune` deletes the ledgers of sessions idle for 30 days and parse-cache

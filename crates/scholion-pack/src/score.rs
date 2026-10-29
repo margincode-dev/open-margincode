@@ -15,8 +15,16 @@ pub const SEED_BONUS: f32 = 1.0;
 pub const SEMANTIC_LIMIT: usize = 8;
 /// Upper bound of `candidate_limit`.
 pub const MAX_CANDIDATES: usize = 40;
-/// Similarity the best lexical hit counts as (the rest in proportion to their scores).
-pub const LEXICAL_SIM: f32 = 0.75;
+/// Reciprocal rank fusion (handoff A1): a code hit counts as similarity
+/// `RRF_SIM * (RRF_K + 1) / (RRF_K + 1 + rank)` from each search that found it (lexical BM25,
+/// semantic), so the top hit of one search is `RRF_SIM` and a symbol both find adds up both.
+pub const RRF_SIM: f32 = 0.75;
+pub const RRF_K: f32 = 60.0;
+
+/// The similarity a code hit at 0-based `rank` of one search counts as.
+pub fn rrf_sim(rank: usize) -> f32 {
+    RRF_SIM * (RRF_K + 1.0) / (RRF_K + 1.0 + rank as f32)
+}
 
 /// How many semantic and lexical code candidates a pack of `budget` tokens considers: about one
 /// per 250 tokens, so a larger budget is filled rather than left empty (Plan 6, E1).
@@ -105,6 +113,32 @@ pub fn is_test_path(path: &str) -> bool {
         .any(|suffix| file.ends_with(suffix))
 }
 
+/// Test code: a test path, a `test_` function, a Rust `#[test]`-style attribute just above the
+/// symbol, or anything after the file's `#[cfg(test)]` (where Rust keeps its unit tests).
+/// `start_line` is 1-based; without the source only the path and name are checked.
+pub fn is_test_code(path: &str, name: &str, start_line: u32, src: Option<&str>) -> bool {
+    let leaf = name.rsplit('.').next().unwrap_or(name);
+    if is_test_path(path) || leaf.starts_with("test_") {
+        return true;
+    }
+    let Some(src) = src.filter(|_| path.ends_with(".rs")) else {
+        return false;
+    };
+    let before: Vec<&str> = src
+        .lines()
+        .take(start_line.saturating_sub(1) as usize)
+        .map(str::trim)
+        .collect();
+    if before.iter().any(|l| l.starts_with("#[cfg(test)]")) {
+        return true;
+    }
+    before
+        .iter()
+        .rev()
+        .take_while(|l| l.starts_with("#[") || l.starts_with("///") || l.is_empty())
+        .any(|l| l.starts_with("#[") && l.contains("test") && !l.starts_with("#[cfg(not(test"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +173,32 @@ mod tests {
         ] {
             assert!(!is_test_path(p), "{p}");
         }
+    }
+
+    #[test]
+    fn test_code_is_found_by_its_source_not_only_its_path() {
+        let rs = "pub fn add_parents() {}\n\n#[test]\nfn absolute_parent() {}\n\n#[tokio::test(flavor = \"multi_thread\")]\nasync fn spawns() {}\n\n#[cfg(test)]\nmod tests {\n    fn helper() {}\n}\n";
+        assert!(!is_test_code("src/dir.rs", "add_parents", 1, Some(rs)));
+        assert!(is_test_code("src/dir.rs", "absolute_parent", 4, Some(rs)));
+        assert!(is_test_code("src/dir.rs", "spawns", 7, Some(rs)));
+        assert!(
+            is_test_code("src/dir.rs", "helper", 11, Some(rs)),
+            "after #[cfg(test)]"
+        );
+        assert!(is_test_code("app/x.py", "test_split", 1, None));
+        assert!(is_test_code("tests/a.rs", "anything", 1, None));
+        assert!(!is_test_code("app/x.py", "latest_split", 1, None));
+        assert!(!is_test_code("src/dir.rs", "add_parents", 1, None));
+    }
+
+    #[test]
+    fn rrf_sim_falls_slowly_with_rank() {
+        assert_eq!(rrf_sim(0), RRF_SIM);
+        assert!(rrf_sim(1) < rrf_sim(0) && rrf_sim(15) > RRF_SIM * 0.75);
+        assert!(
+            rrf_sim(0) + rrf_sim(20) > rrf_sim(0) * 1.5,
+            "found twice beats found once"
+        );
     }
 
     #[test]

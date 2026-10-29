@@ -1,0 +1,15 @@
+name = "relay-refund-event"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Support refunds. Add `Workflow.refund(order, on)` for paid orders only (ValidationError otherwise): it moves the order to a new REFUNDED status and publishes an `order.refunded` event with the refunded amount (the order's total), so the accounting service can book it."""
+relevant_files = ["tallyho/workflow.py", "tallyho/models.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "pool/notes.toml"
+relay_pair = "refund-event"
+
+[[local_tests]]
+path = "tests/test_relay_refund_event.py"
+source = "files/test_relay_refund_event.py"

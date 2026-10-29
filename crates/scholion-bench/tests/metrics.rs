@@ -113,3 +113,25 @@ fn real_capture_parses_with_partial_message_events() {
     assert_eq!(m.turns, 3);
     assert!((m.cost_usd - 0.0373412).abs() < 1e-6);
 }
+
+#[test]
+fn prices_turn_token_usage_into_cost_instead_of_claudes_estimate() {
+    use scholion_bench::metrics::{Prices, compute_priced};
+    let (_r, s) = spec();
+    let parsed = parse_stream(&fixture("edit_first.jsonl"));
+    let usage = parsed.result.as_ref().unwrap().usage;
+    let p = Prices::parse("1,2,0.5,10").unwrap();
+    let m = compute_priced(&s, &parsed, 2.0, Some(&p));
+    let want = (usage.input as f64 * 1.0
+        + usage.cache_creation as f64 * 2.0
+        + usage.cache_read as f64 * 0.5
+        + usage.output as f64 * 10.0)
+        / 1e6;
+    assert!(
+        (m.cost_usd - want).abs() < 1e-12,
+        "{} vs {want}",
+        m.cost_usd
+    );
+    assert!(Prices::parse("1,2,3").is_err());
+    assert!(Prices::parse("1,x,3,4").is_err());
+}

@@ -1,0 +1,20 @@
+name = "relay-store-count"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Add `count(collection)` to the record store: it returns how many records a collection holds (0 for an unknown one). Every backend (MemoryStore and JsonFileStore) must support it, and it must be right for collections of any size."""
+relevant_files = ["tallyho/store/base.py", "tallyho/store/memory.py", "tallyho/store/jsonfile.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "pool/notes.toml"
+relay_pair = "store-count"
+
+[[local_tests]]
+path = "tests/test_relay_store_count.py"
+source = "files/test_relay_store_count.py"
+
+[[dead_end]]
+description = "the obvious approach this pair's note warns about"
+file_glob = "tallyho/store/*.py"
+pattern = '''len\(\s*self\.list_page\(|count_records\(\s*self\s*,|iter_records\(\s*self\s*,'''

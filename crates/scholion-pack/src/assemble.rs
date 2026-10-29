@@ -360,7 +360,7 @@ async fn expand_best_hits(
         .await;
         let mut it = code_item(sym, 2, 0.0, src.as_deref(), hide).because("hit-neighbor");
         it.tiers[Tier::Full as usize] = it.tiers[Tier::Summary as usize].clone();
-        let factor = if score::is_test_path(&sym.symbol.path) {
+        let factor = if is_test_sym(sym, src.as_deref()) {
             score::TEST_CODE_FACTOR
         } else {
             1.0
@@ -371,8 +371,8 @@ async fn expand_best_hits(
     Ok(())
 }
 
-/// Full-text code hits (Plan 6). The best hit counts as similarity `score::LEXICAL_SIM`, the
-/// others in proportion; a hit on an item already in the pack raises its score instead.
+/// Full-text (BM25) code hits (Plan 6), each counting as `score::rrf_sim` of its rank; a hit on an
+/// item already in the pack raises its score instead.
 async fn apply_lexical(
     d: &Deps<'_>,
     task: &Task,
@@ -387,18 +387,15 @@ async fn apply_lexical(
             return Ok(());
         }
     };
-    let Some(top) = hits.first().map(|(_, s)| *s).filter(|s| *s > 0.0) else {
-        return Ok(());
-    };
-    let sim = |s: f32| score::LEXICAL_SIM * s / top;
     let mut fresh: Vec<(SymbolId, f32)> = vec![];
-    for (id, s) in &hits {
+    for (rank, (id, _)) in hits.iter().enumerate() {
         let key = format!("sym:{}", id.0);
+        let sim = score::rrf_sim(rank);
         if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == key) {
             let factor = parts.code_factor.get(&key).copied().unwrap_or(1.0);
-            item.score += score::W_SEM * sim(*s) * factor;
+            item.score += score::W_SEM * sim * factor;
         } else if fresh.len() < limit {
-            fresh.push((*id, *s));
+            fresh.push((*id, sim));
         }
     }
     if fresh.is_empty() {
@@ -422,15 +419,16 @@ async fn apply_lexical(
             &sym.symbol.path,
         )
         .await;
-        let factor = if score::is_test_path(&sym.symbol.path) {
+        let factor = if is_test_sym(sym, src.as_deref()) {
             score::TEST_CODE_FACTOR
         } else {
             1.0
         };
         parts.code_factor.insert(format!("sym:{}", id.0), factor);
-        parts.gathered.items.push(
-            code_item(sym, score::FAR_HOPS, sim(*s), src.as_deref(), hide).because("lexical"),
-        );
+        parts
+            .gathered
+            .items
+            .push(code_item(sym, score::FAR_HOPS, *s, src.as_deref(), hide).because("lexical"));
     }
     Ok(())
 }
@@ -607,7 +605,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             ),
             None => summary.clone(),
         };
-        let factor = if score::is_test_path(&s.symbol.path) {
+        let factor = if is_test_sym(s, contents.get(&s.symbol.path).map(String::as_str)) {
             score::TEST_CODE_FACTOR
         } else {
             1.0
@@ -972,6 +970,7 @@ async fn merge_hits(
     });
 
     let mut candidates: Vec<(SymbolId, f32)> = Vec::new();
+    let mut rank = 0;
     for hit in &hits {
         if hit.kind != SemanticKind::CodeChunk || hit.superseded {
             continue;
@@ -983,13 +982,15 @@ async fn merge_hits(
         let Some(sym_id) = hit.symbol_id else {
             continue;
         };
+        let sim = score::rrf_sim(rank);
+        rank += 1;
         let id = format!("sym:{}", sym_id.0);
         if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == id) {
             let factor = parts.code_factor.get(&id).copied().unwrap_or(1.0);
-            item.score += score::W_SEM * score::clamp_sim(hit.score) * factor;
+            item.score += score::W_SEM * sim * factor;
             continue;
         }
-        candidates.push((sym_id, hit.score));
+        candidates.push((sym_id, sim));
     }
     if !candidates.is_empty() {
         let ids: Vec<SymbolId> = candidates.iter().map(|(id, _)| *id).collect();
@@ -1204,7 +1205,7 @@ fn code_item(
         ),
         None => summary.clone(),
     };
-    let factor = if score::is_test_path(&s.symbol.path) {
+    let factor = if is_test_sym(s, src) {
         score::TEST_CODE_FACTOR
     } else {
         1.0
@@ -1217,6 +1218,10 @@ fn code_item(
     )
     .because("semantic")
     .at(&s.symbol.path, s.symbol.start_line, s.symbol.end_line)
+}
+
+fn is_test_sym(s: &IndexedSymbol, src: Option<&str>) -> bool {
+    score::is_test_code(&s.symbol.path, &s.symbol.qname, s.symbol.start_line, src)
 }
 
 /// Excerpt bytes come only from this task's head. A missing path keeps the signature.

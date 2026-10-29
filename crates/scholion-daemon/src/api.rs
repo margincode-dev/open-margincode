@@ -15,7 +15,14 @@ use crate::error::ApiResult;
 use crate::flow::fence;
 use crate::indexing::{index_change, reindex_changed};
 
-pub(crate) const DEFAULT_BUDGET: u32 = 4000;
+/// Budget of a work pack (start, `context`) when the client names none: agents get small packs and
+/// ask for more.
+pub(crate) const DEFAULT_BUDGET: u32 = 800;
+/// Budget of a handoff or review bundle when the client names none: a reviewer reads all of it.
+pub(crate) const BUNDLE_BUDGET: u32 = 4000;
+/// Code detail of a work pack when the client names none: agents read a file before editing
+/// it, so a body in the pack would be paid for twice.
+const DEFAULT_CODE: CodeDetail = CodeDetail::Signatures;
 
 pub fn router(state: AppState) -> Router {
     // `/ui` is a static page with no data in it; what it shows comes from `/v1`, behind the token.
@@ -208,7 +215,7 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
             focus: None,
             session: Some(req.session),
             family: AgentFamily::default(),
-            code: CodeDetail::Full,
+            code: DEFAULT_CODE,
             map: true,
             max_code: None,
         })
@@ -500,7 +507,7 @@ struct ContextQuery {
     focus: Option<String>,
     session: Option<String>,
     family: Option<AgentFamily>,
-    /// `full` (default) or `signatures`: code items without their bodies.
+    /// `signatures` (default): code items without their bodies; `full`: with them.
     code: Option<CodeDetail>,
     /// `false`: no Map section (file skeletons, repo layout).
     map: Option<bool>,
@@ -521,7 +528,7 @@ async fn context(
             focus: q.focus.filter(|f| !f.trim().is_empty()),
             session: q.session.filter(|s| !s.trim().is_empty()),
             family: q.family.unwrap_or_default(),
-            code: q.code.unwrap_or_default(),
+            code: q.code.unwrap_or(DEFAULT_CODE),
             map: q.map.unwrap_or(true),
             max_code: q.max_code,
         })
@@ -831,7 +838,7 @@ async fn bundle(
 ) -> ApiResult<scholion_pack::Bundle> {
     let req = scholion_pack::BundleRequest {
         task_id: task_id(id),
-        budget_tokens: q.budget.unwrap_or(DEFAULT_BUDGET),
+        budget_tokens: q.budget.unwrap_or(BUNDLE_BUDGET),
         family: q.family.unwrap_or_default(),
     };
     let bundle = match q.kind.as_deref().unwrap_or("handoff") {

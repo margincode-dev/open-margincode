@@ -9,7 +9,7 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 export AV_CONTEXT_FILE="${AV_CONTEXT_FILE:-${TMPDIR:-/tmp}/av-context-$$.md}"
-if ! av context --budget "${AV_CONTEXT_BUDGET:-4000}" >"$AV_CONTEXT_FILE"; then
+if ! av context --budget "${AV_CONTEXT_BUDGET:-800}" >"$AV_CONTEXT_FILE"; then
     echo "av-wrap: no context pack (continuing without one)" >&2
 fi
 "$@"

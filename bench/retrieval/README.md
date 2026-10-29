@@ -43,6 +43,9 @@ scholion-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:743
   changed.
 - **Scoring:** each method's text is cut to the same cl100k budget and scored by line matching
   against the gold set. The metrics are explained in the report.
+- **Two packs:** `pack` asks the daemon for `code=full` (comparable with runs before
+  2026-10-29); `pack_sig` asks for `code=signatures`, the default agents get. Budgets default to
+  800 (the agents' default), 2000, 4000 and 8000.
 - **Leaky goals:** commit messages often name the code they change (a `leak`). The report shows
   those tasks separately, since they are easier for every method.
 - **Limits:**

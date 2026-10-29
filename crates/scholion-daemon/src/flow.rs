@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::api::{DEFAULT_BUDGET, RecordBody, check_record, snapshot_and_index, write_record};
+use crate::api::{BUNDLE_BUDGET, RecordBody, check_record, snapshot_and_index, write_record};
 use crate::error::ApiResult;
 use crate::indexing::{index_change, reindex_changed};
 
@@ -1124,7 +1124,7 @@ pub(crate) async fn handoff(
         .packer
         .handoff_bundle(BundleRequest {
             task_id: task.id,
-            budget_tokens: b.budget.unwrap_or(DEFAULT_BUDGET),
+            budget_tokens: b.budget.unwrap_or(BUNDLE_BUDGET),
             family: b.family.unwrap_or_default(),
         })
         .await?;
@@ -1164,7 +1164,7 @@ pub(crate) async fn claim(
         .packer
         .handoff_bundle(BundleRequest {
             task_id: task.id,
-            budget_tokens: b.budget.unwrap_or(DEFAULT_BUDGET),
+            budget_tokens: b.budget.unwrap_or(BUNDLE_BUDGET),
             family: b.family.unwrap_or_default(),
         })
         .await?;

@@ -20,7 +20,10 @@ use crate::spec::load_spec_with_root;
 use crate::stats::Rng;
 
 /// The methods, in report order.
-pub const METHODS: [&str; 4] = ["pack", "bm25_files", "bm25_symbols", "repo_map"];
+/// `pack` shows code bodies (`code=full`); `pack_sig` is what agents get by default (`code=signatures`).
+pub const METHODS: [&str; 5] = ["pack", "pack_sig", "bm25_files", "bm25_symbols", "repo_map"];
+/// The pack methods and the `code` detail each asks the daemon for.
+const PACK_METHODS: [(&str, &str); 2] = [("pack", "full"), ("pack_sig", "signatures")];
 
 /// Lines shorter than this (after whitespace is collapsed) are too generic to count as evidence.
 const MIN_LINE: usize = 12;
@@ -775,8 +778,8 @@ fn wait_semantic(daemon: &Daemon, repo: &str, args: &RetrievalArgs) -> Result<bo
     }
 }
 
-/// Per budget, one pack's text and what it reported as degraded.
-type BudgetPacks = Vec<(String, Vec<String>)>;
+/// (method, budget, markdown, degraded) for each pack method and budget.
+type BudgetPacks = Vec<(&'static str, u32, String, Vec<String>)>;
 
 /// Imports the base tree as its own repo, starts a task with the goal, and returns the first pack
 /// at each budget, each for a fresh session (nothing deduplicated against earlier packs).
@@ -811,22 +814,26 @@ fn packs(
         .to_owned();
     let mut out = vec![];
     for b in &args.budgets {
-        let session = uuid::Uuid::new_v4();
-        let p = daemon.get(&format!(
-            "/v1/tasks/{id}/context?budget={b}&family=other&session=ret-{session}"
-        ))?;
-        let degraded = p["degraded"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.push((
-            p["markdown"].as_str().unwrap_or_default().to_owned(),
-            degraded,
-        ));
+        for (method, code) in PACK_METHODS {
+            let session = uuid::Uuid::new_v4();
+            let p = daemon.get(&format!(
+                "/v1/tasks/{id}/context?budget={b}&code={code}&family=other&session=ret-{session}"
+            ))?;
+            let degraded = p["degraded"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            out.push((
+                method,
+                *b,
+                p["markdown"].as_str().unwrap_or_default().to_owned(),
+                degraded,
+            ));
+        }
     }
     Ok((out, semantic))
 }
@@ -873,9 +880,7 @@ pub fn run(
             let daemon = daemon.ok_or("the pack method needs a daemon (--url)")?;
             let (ps, semantic) = packs(t, &run_id, &src, daemon, args)?;
             semantic_any = Some(semantic_any.unwrap_or(false) || semantic);
-            for (b, (p, degraded)) in args.budgets.iter().zip(ps) {
-                texts.push(("pack", *b, p, degraded));
-            }
+            texts.extend(ps);
         }
         for &b in &args.budgets {
             texts.push(("bm25_files", b, bm25_files(&repo, &t.goal, b), vec![]));
@@ -1069,9 +1074,19 @@ pub fn report(rows: &[Row], meta: &serde_json::Value) -> String {
         }
     }
     if methods.contains(&"pack") {
-        s.push_str("## Pack against each baseline, paired by task\n\nMean difference (pack minus baseline) with a 95 % bootstrap interval, and wins/ties/losses over tasks.\n\n| budget | baseline | metric | diff | 95 % CI | W/T/L |\n|---|---|---|---|---|---|\n");
+        s.push_str("## Pack against each baseline, paired by task\n\nMean difference (pack minus baseline) with a 95 % bootstrap interval, and wins/ties/losses over tasks.\n\n| budget | pack | baseline | metric | diff | 95 % CI | W/T/L |\n|---|---|---|---|---|---|---|\n");
+        let packs: Vec<&str> = methods
+            .iter()
+            .copied()
+            .filter(|m| PACK_METHODS.iter().any(|(p, _)| p == m))
+            .collect();
         for b in &budgets {
-            for base in methods.iter().filter(|m| **m != "pack") {
+            for (pack, base) in packs.iter().flat_map(|p| {
+                methods
+                    .iter()
+                    .filter(|m| !packs.contains(m))
+                    .map(move |m| (*p, *m))
+            }) {
                 for k in ["files_code", "symbols_sig"] {
                     let mut diffs = vec![];
                     let (mut w, mut t, mut l) = (0, 0, 0);
@@ -1081,7 +1096,7 @@ pub fn report(rows: &[Row], meta: &serde_json::Value) -> String {
                                 .find(|r| r.task == *task && r.method == m && r.budget == *b)
                                 .map(|r| metric(r, k))
                         };
-                        if let (Some(p), Some(q)) = (get("pack"), get(base)) {
+                        if let (Some(p), Some(q)) = (get(pack), get(base)) {
                             diffs.push(p - q);
                             match (p - q).partial_cmp(&0.0) {
                                 Some(std::cmp::Ordering::Greater) => w += 1,
@@ -1094,7 +1109,7 @@ pub fn report(rows: &[Row], meta: &serde_json::Value) -> String {
                         .map(|(a, c)| format!("[{a:+.2}, {c:+.2}]"))
                         .unwrap_or_else(|| "n/a".into());
                     s.push_str(&format!(
-                        "| {b} | {base} | {k} | {:+.2} | {ci} | {w}/{t}/{l} |\n",
+                        "| {b} | {pack} | {base} | {k} | {:+.2} | {ci} | {w}/{t}/{l} |\n",
                         mean(&diffs)
                     ));
                 }

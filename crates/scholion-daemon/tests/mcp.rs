@@ -593,3 +593,30 @@ async fn x_av_task_header_pins_the_session_to_a_task() {
     let (_, _, body) = initialize_with(&e, ("x-av-task", "not-a-uuid")).await;
     assert_eq!(body["error"]["code"], -32602, "{body}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mcp_packs_are_800_tokens_of_signatures_unless_asked() {
+    let e = env().await;
+    let s = connect(&e, "claude-code").await;
+    let started = text(
+        &tool(
+            &e,
+            &s,
+            "start_task",
+            json!({"repo": "demo", "title": "Lean start", "goal": "format_name"}),
+        )
+        .await,
+    );
+    assert!(started.contains("/800\n"), "{started}");
+    assert!(!started.contains("n.title()"), "no bodies: {started}");
+    let full = text(
+        &tool(
+            &e,
+            &s,
+            "get_context",
+            json!({"code": "full", "focus": "format_name"}),
+        )
+        .await,
+    );
+    assert!(full.contains("n.title()"), "code=full has bodies: {full}");
+}

@@ -83,6 +83,9 @@ enum Cmd {
     Context {
         #[arg(long, default_value_t = 800)]
         budget: u32,
+        /// `signatures`: path, lines and signature of each code item; `full`: with its source.
+        #[arg(long, default_value = "signatures", value_parser = ["full", "signatures"])]
+        code: String,
         #[arg(long)]
         focus: Option<String>,
         /// Forget what this session was already sent (e.g. after the agent's context was compacted)
@@ -483,7 +486,7 @@ enum TaskCmd {
         title: String,
         #[arg(long)]
         goal: String,
-        #[arg(long, default_value_t = 4000)]
+        #[arg(long, default_value_t = 800)]
         budget: u32,
     },
 }
@@ -851,6 +854,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Context {
             budget,
+            code,
             focus,
             fresh,
         } => {
@@ -867,7 +871,11 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             let budget = budget.to_string();
-            let mut query = vec![("budget", budget.as_str()), ("session", session.as_str())];
+            let mut query = vec![
+                ("budget", budget.as_str()),
+                ("code", code.as_str()),
+                ("session", session.as_str()),
+            ];
             if let Some(f) = focus {
                 query.push(("focus", f.as_str()));
             }
@@ -1544,6 +1552,31 @@ mod tests {
         match cli.cmd {
             Cmd::Context { budget, .. } => assert_eq!(budget, 800),
             _ => panic!("not a context command"),
+        }
+    }
+
+    #[test]
+    fn context_code_defaults_to_signatures() {
+        let cli = Cli::try_parse_from(["av", "context"]).unwrap();
+        match cli.cmd {
+            Cmd::Context { code, .. } => assert_eq!(code, "signatures"),
+            _ => panic!("not a context command"),
+        }
+        assert!(Cli::try_parse_from(["av", "context", "--code", "full"]).is_ok());
+        assert!(Cli::try_parse_from(["av", "context", "--code", "bodies"]).is_err());
+    }
+
+    #[test]
+    fn task_start_budget_defaults_to_800() {
+        let cli = Cli::try_parse_from([
+            "av", "task", "start", "--repo", "r", "--title", "t", "--goal", "g",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Cmd::Task {
+                cmd: TaskCmd::Start { budget, .. },
+            } => assert_eq!(budget, 800),
+            _ => panic!("not a task start command"),
         }
     }
 

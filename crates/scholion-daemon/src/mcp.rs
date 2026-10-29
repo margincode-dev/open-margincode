@@ -68,7 +68,7 @@ fn tools() -> Value {
         {"name": "start_task", "description": "Start a task: creates its isolated workspace and returns the workspace path and a first context pack.",
          "inputSchema": {"type": "object", "required": ["repo", "title", "goal"], "properties": {
             "repo": {"type": "string"}, "title": {"type": "string"}, "goal": {"type": "string"},
-            "budget": {"type": "integer", "description": "Token budget of the pack (default 4000)."}}}},
+            "budget": {"type": "integer", "description": "Token budget of the pack (default 800)."}}}},
         {"name": "checkpoint", "description": "Snapshot the workspace and refresh the code index. Only needed to refresh `get_context` mid-task; `submit` checkpoints for you.",
          "inputSchema": {"type": "object", "properties": {"task_id": task_id}}},
         {"name": "record", "description": "Record a decision, attempt (dead end), note or intent, anchored to code. Call `record` with kind=attempt immediately when an approach fails, including why. Summary at most 200 characters.",
@@ -80,6 +80,7 @@ fn tools() -> Value {
         {"name": "get_context", "description": "A token-budgeted context pack for the task (small by default; pass a larger budget for more): code, decisions, dead ends, conventions, other agents' live work. Items sent earlier in this session are referenced, not resent.",
          "inputSchema": {"type": "object", "properties": {
             "budget": {"type": "integer", "description": "Token budget (default 800)."},
+            "code": {"type": "string", "enum": ["signatures", "full"], "description": "`signatures` (default): path, lines and signature of each code item; `full`: with its source."},
             "focus": {"type": "string"}, "task_id": task_id}}},
         {"name": "expand", "description": "Full text of an item id shown in a pack (rec:… or sym:…).",
          "inputSchema": {"type": "object", "required": ["item_id"], "properties": {
@@ -675,6 +676,9 @@ async fn run_tool(
                     );
                     if let Some(f) = str_arg(args, "focus") {
                         uri.push_str(&format!("&focus={}", enc(f)));
+                    }
+                    if let Some(c) = str_arg(args, "code") {
+                        uri.push_str(&format!("&code={}", enc(c)));
                     }
                     ("GET", uri, None, None, |r| {
                         let mut text = r["markdown"].as_str().unwrap_or_default().to_owned();

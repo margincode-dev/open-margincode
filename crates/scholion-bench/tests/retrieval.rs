@@ -327,6 +327,14 @@ fn packs_come_from_the_daemon_within_budget() {
     );
     let report = std::fs::read_to_string(out.path().join("report.md")).unwrap();
     assert!(report.contains("Pack against each baseline"), "{report}");
+    // the packs agents get: signatures only, scored beside the full ones
+    let sigs: Vec<_> = rows.iter().filter(|r| r.method == "pack_sig").collect();
+    assert_eq!(sigs.len(), 2);
+    let sig = std::fs::read_to_string(out.path().join("texts/greet/pack_sig-2000.md")).unwrap();
+    assert!(sig.contains("def hello(self, name):"), "{sig}");
+    assert!(!sig.contains("```"), "no code bodies: {sig}");
+    assert!(text.contains("```"), "the full pack has bodies: {text}");
+    assert!(report.contains("| pack_sig | bm25_symbols |"), "{report}");
 }
 
 #[test]

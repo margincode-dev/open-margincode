@@ -147,7 +147,7 @@ enum Cmd {
         /// Where the source repos live, side by side (looked up by directory name).
         #[arg(long, env = "AV_BENCH_REPOS")]
         repos: Option<PathBuf>,
-        #[arg(long, value_delimiter = ',', default_value = "2000,4000,8000")]
+        #[arg(long, value_delimiter = ',', default_value = "800,2000,4000,8000")]
         budgets: Vec<u32>,
         /// Results directory (rows.jsonl, gold.jsonl, texts/, report.md).
         #[arg(long)]

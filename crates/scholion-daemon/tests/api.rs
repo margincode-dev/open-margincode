@@ -2715,7 +2715,7 @@ async fn context_with_code_signatures_shows_where_code_is_but_not_its_body() {
             id(&t)
         )
     };
-    let (_, full) = call(&e.app, "GET", &uri("", "sig-a"), None).await;
+    let (_, full) = call(&e.app, "GET", &uri("&code=full", "sig-a"), None).await;
     assert!(
         full["markdown"].as_str().unwrap().contains("n.title()"),
         "{full}"
@@ -3174,4 +3174,51 @@ async fn submit_report_leaves_out_rust_unit_tests_without_a_checkpoint() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["unrecorded_symbols"], json!(["add"]), "{body}");
+}
+
+// ---- one budget law: work packs are 800 tokens of signatures unless asked ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn work_packs_default_to_800_tokens_of_signatures() {
+    let e = env().await;
+    let t = start_task(&e, "Defaults").await;
+    let ctx = |q: String| format!("/v1/tasks/{}/context?focus=format_name{q}", id(&t));
+    let (status, default) = call(&e.app, "GET", &ctx("&session=d-a".into()), None).await;
+    assert_eq!(status, StatusCode::OK, "{default}");
+    let (_, explicit) = call(
+        &e.app,
+        "GET",
+        &ctx("&session=d-b&budget=800&code=signatures".into()),
+        None,
+    )
+    .await;
+    assert_eq!(default["markdown"], explicit["markdown"]);
+    let (_, larger) = call(&e.app, "GET", &ctx("&session=d-c&budget=4000".into()), None).await;
+    assert_ne!(
+        default["markdown"], larger["markdown"],
+        "the default is not 4000"
+    );
+
+    let (status, started) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": "Started", "goal": "Make hello louder",
+                    "agent": "claude", "session": "d-start"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let (_, same) = call(
+        &e.app,
+        "GET",
+        &format!(
+            "/v1/tasks/{}/context?session=d-again&budget=800&code=signatures",
+            id(&started)
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(started["pack"]["markdown"], same["markdown"]);
 }

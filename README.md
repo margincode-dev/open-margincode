@@ -333,7 +333,7 @@ scholion task start --repo bench-repo --title "Add retry" --goal "retry embedder
 cd ~/ws/bench-repo/add-retry                  # printed as `workspace:`
 scholion checkpoint                                # snapshot + refresh the index
 scholion record --kind attempt --summary "tried tenacity; not installed" --anchor shared/text.py
-scholion context --budget 4000                     # what an agent needs, within the budget
+scholion context                                   # 800 tokens of what an agent needs; --budget N for more
 scholion context --fresh                           # resend everything (e.g. after context compaction)
 scholion submit                                    # to review (needs a decision, attempt or note)
 scholion handoff --done "retries added" --remaining "tests for the 429 path"   # prints the bundle

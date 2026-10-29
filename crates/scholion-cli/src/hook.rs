@@ -1,5 +1,5 @@
-//! `av hook …` (Plan 3 Task 9): commands for agent hooks (Claude Code `SessionStart` and
-//! `PostToolUse`). A hook must never break the agent, so every failure is one line on stderr and
+//! `av hook …` (Plan 3 Task 9): commands for agent hooks (Claude Code `SessionStart`,
+//! `PreToolUse` and `PostToolUse`). A hook must never break the agent, so every failure is one line on stderr and
 //! exit code 0, and a directory without a task is silent.
 
 use std::io::{IsTerminal, Read};
@@ -77,6 +77,41 @@ pub fn session_start(client: &Client, budget: u32, code: &str, map: bool, max_co
     match client.get(&format!("/v1/tasks/{}/context", tf.task), &query) {
         Ok(pack) => println!("{}", pack["markdown"].as_str().unwrap_or_default()),
         Err(e) => eprintln!("av: hook session-start: {e}"),
+    }
+}
+
+/// Before the agent reads or edits a file: what other tasks recorded about that file (decisions,
+/// dead ends), as Claude Code `additionalContext`, each record once per session. Prints nothing
+/// when there is nothing new or the file is outside the task's workspace.
+pub fn pre_read(client: &Client) {
+    let input = hook_input();
+    let Some((dir, tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
+        return;
+    };
+    let Some(file) = input["tool_input"]["file_path"].as_str().map(PathBuf::from) else {
+        return;
+    };
+    let Some(path) = file
+        .strip_prefix(&dir)
+        .ok()
+        .and_then(|p| p.to_str())
+        .map(|p| p.replace('\\', "/"))
+    else {
+        return;
+    };
+    let query = [("path", path.as_str()), ("session", tf.session.as_str())];
+    match client.get(&format!("/v1/tasks/{}/records/at", tf.task), &query) {
+        Ok(r) => {
+            let md = r["markdown"].as_str().unwrap_or_default();
+            if !md.is_empty() {
+                let event = input["hook_event_name"].as_str().unwrap_or("PreToolUse");
+                println!(
+                    "{}",
+                    json!({"hookSpecificOutput": {"hookEventName": event, "additionalContext": md}})
+                );
+            }
+        }
+        Err(e) => eprintln!("av: hook pre-read: {e}"),
     }
 }
 

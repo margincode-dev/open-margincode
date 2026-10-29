@@ -394,14 +394,18 @@ opens with a warning naming the culprit merge.
   remembers the task it started or claimed (and the claim generation its writes carry); the agent name is the
   client's name, or an `X-Av-Agent` header. Checked with Claude Code 2.1.308: `claude mcp list` shows `av`
   connected against a locally started daemon.
-- **Claude Code**: `integrations/claude-code/install.sh` (needs `jq`) copies two hooks to `~/.claude/av-hooks/` and
+- **Claude Code**: `integrations/claude-code/install.sh` (needs `jq`) copies three hooks to `~/.claude/av-hooks/` and
   merges them into `~/.claude/settings.json` (previous file kept as `settings.json.bak`; running it again replaces
   them). `SessionStart` prints an 800-token pack for the task of the session's directory (a fresh session after
   compaction or `/clear`). Its code items show path, lines and signature, not bodies (`--code full` adds them):
   Claude Code must read a file before it edits it, so a body in the pack is paid for twice (bench/README.md,
   "Haiku runs"). `--no-map` leaves out the repo layout and `--max-code N` keeps the N best code items (each
-  item named is a file the agent may open; `GET /v1/tasks/{id}/context?map=false&max_code=N`). `PostToolUse` on `Edit|Write|MultiEdit` checkpoints at most every 2 s. Both are silent
-  outside a task and never fail the agent (`scholion hook session-start`, `scholion hook post-edit`).
+  item named is a file the agent may open; `GET /v1/tasks/{id}/context?map=false&max_code=N`). `PreToolUse` on `Read|Edit|MultiEdit` adds what other tasks recorded about that file (decisions, dead
+  ends, notes; at most 400 tokens, each record once per session and never one the pack already sent) as
+  `additionalContext`, so the why arrives when the file is opened instead of up front
+  (`GET /v1/tasks/{id}/records/at?path=…&session=…`). `PostToolUse` on `Edit|Write|MultiEdit` checkpoints at most
+  every 2 s. All three are silent outside a task and never fail the agent (`scholion hook session-start`,
+  `scholion hook pre-read`, `scholion hook post-edit`).
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
   command and checkpoints.
 - **Maintenance**: `POST /v1/maintenance/prune` deletes the ledgers of sessions idle for 30 days and parse-cache

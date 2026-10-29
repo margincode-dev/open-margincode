@@ -28,8 +28,13 @@ claude mcp add --transport http av http://localhost:7420/mcp   # or any MCP clie
 av repo add myrepo /import/myrepo                              # path inside the container
 ```
 
-Then watch your agents at `http://localhost:7420/ui`. Prebuilt `av` CLI binaries are on the
-[releases page](https://github.com/vinhqbui/scholion/releases).
+Then watch your agents at `http://localhost:7420/ui`. Prebuilt `av` CLI binaries (Linux x86-64
+and arm64, macOS arm64) are on the [releases page](https://github.com/vinhqbui/scholion/releases),
+or install them into `~/.local/bin` with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+```
 
 ## How this was built
 
@@ -134,10 +139,15 @@ task set it was built for comes from a private repository and is not included. P
 Scion-inspired features below: a workspace-free read API, carried approvals, enforced conventions,
 post-merge checks, revert of any merge, bisect and `why` blame.
 
-Not yet shown: that context packs save tokens over plain git on real work. The benchmark harness
-exists to measure that, and the paid run has not been done. Two eight-agent stress runs (cheap
-models, a small Python web app) merged every feature through Scholion with main green after every
-merge, but that is evidence that the workflow holds up, not that it is cheaper.
+Measured so far (details in `bench/README.md` and `bench/retrieval/`): offline, on 42 tasks from
+six public repositories (E1), the first pack names the files a fix touches best of all methods
+(0.93–0.98), but BM25 over symbols still shows more of the changed symbols. With Claude Haiku on a
+25-file Python project (E3, 160 sessions), av took about 12 % fewer turns and 14 % less wall time
+at equal cost (the cost interval contains zero). Not yet measured: larger repositories, merge
+fuzzing, and whether records actually carry knowledge from one agent to the next (E4). Two
+eight-agent stress runs (cheap models, a small Python web app) merged every feature through
+Scholion with main green after every merge, which shows the workflow holds up, not that it is
+cheaper.
 
 ## Ideas borrowed from Scion
 

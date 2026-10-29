@@ -3783,6 +3783,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "clap",
+ "scholion-core",
  "scholion-daemon",
  "scholion-index",
  "scholion-store",

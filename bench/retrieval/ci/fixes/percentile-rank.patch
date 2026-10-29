@@ -1,0 +1,15 @@
+diff --git a/queue/src/metrics.rs b/queue/src/metrics.rs
+index ac8d37d..ca60c57 100644
+--- a/queue/src/metrics.rs
++++ b/queue/src/metrics.rs
+@@ -31,8 +31,8 @@ impl Latencies {
+         }
+         let mut sorted = self.samples.clone();
+         sorted.sort_by(|a, b| a.total_cmp(b));
+-        let rank = (p / 100.0 * sorted.len() as f64) as usize;
+-        Some(sorted[rank.min(sorted.len() - 1)])
++        let rank = (p / 100.0 * sorted.len() as f64).ceil() as usize;
++        Some(sorted[rank.saturating_sub(1).min(sorted.len() - 1)])
+     }
+ 
+     pub fn mean(&self) -> Option<f64> {

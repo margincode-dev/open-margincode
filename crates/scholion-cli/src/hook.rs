@@ -196,10 +196,11 @@ pub fn stop(client: &Client, agent: &str) {
         names.push_str(&format!(" and {} more", syms.len() - NUDGE_SYMBOLS));
     }
     let reason = format!(
-        "av: no record explains your changes to {names}. Before stopping, record why, so the \
-         next agent does not redo or undo it: `av record --kind decision --summary \"...\" \
-         --anchor path:Symbol`, and `--kind attempt` for anything you tried that failed. If \
-         nothing is worth recording, say so and stop."
+        "av: no record explains your changes to {names}. Record why in one call so the next \
+         agent does not redo or undo it: `av record --json -` with a list of {{kind, summary, \
+         anchors}}, or `av submit --record \"decision: ... @ path:Symbol\"` if you are done. \
+         Use kind attempt for anything you tried that failed. If nothing is worth recording, \
+         say so and stop."
     );
     println!("{}", json!({"decision": "block", "reason": reason}));
 }

@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use scholion_bench::spec::{check_spec, load_spec};
+use scholion_bench::spec::{check_spec, check_warnings, load_spec};
 use tempfile::TempDir;
 
 fn write_spec(dir: &TempDir, text: &str) -> std::path::PathBuf {
@@ -192,4 +192,70 @@ fn local_tests_resolve_next_to_the_spec_and_must_exist() {
     check_spec(&s).unwrap();
     std::fs::remove_file(d.path().join("files/t.py")).unwrap();
     assert!(check_spec(&s).unwrap_err().contains("files/t.py"));
+}
+
+fn with_path_prepend(toml: &str, dirs: &str) -> String {
+    toml.replace(
+        "setup_cmd = \"\"\n",
+        &format!("setup_cmd = \"\"\npath_prepend = {dirs}\n"),
+    )
+}
+
+#[test]
+fn path_prepend_defaults_to_empty_and_tilde_is_expanded() {
+    let repo = TempDir::new().unwrap();
+    let (base, fix) = fixture_repo(repo.path());
+    let d = TempDir::new().unwrap();
+    let toml = spec_toml(repo.path(), &base, &fix);
+    assert!(
+        load_spec(&write_spec(&d, &toml))
+            .unwrap()
+            .path_prepend
+            .is_empty()
+    );
+    let toml = with_path_prepend(&toml, r#"["~/x", "/abs/y"]"#);
+    let s = load_spec(&write_spec(&d, &toml)).unwrap();
+    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap());
+    assert_eq!(s.path_prepend, [home.join("x"), "/abs/y".into()]);
+}
+
+#[test]
+fn check_warns_about_a_missing_path_prepend_dir_but_does_not_fail() {
+    let repo = TempDir::new().unwrap();
+    let (base, fix) = fixture_repo(repo.path());
+    let tasks = TempDir::new().unwrap();
+    let present = TempDir::new().unwrap();
+    let missing = tasks.path().join("no-such-venv/bin");
+    let dirs = format!(
+        "[{:?}, {:?}]",
+        present.path().display().to_string(),
+        missing.display().to_string()
+    );
+    let toml = with_path_prepend(&spec_toml(repo.path(), &base, &fix), &dirs);
+    let spec = load_spec(&write_spec(&tasks, &toml)).unwrap();
+    assert!(check_spec(&spec).is_ok());
+    let w = check_warnings(&spec);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(
+        w[0].contains("path_prepend") && w[0].contains(&missing.display().to_string()),
+        "{w:?}"
+    );
+
+    // The CLI prints the warning and still succeeds.
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_scholion-bench"))
+        .arg("check")
+        .arg(tasks.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{text}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("calc-add: ok"), "{text}");
+    assert!(
+        text.contains("path_prepend") && text.contains(&missing.display().to_string()),
+        "{text}"
+    );
 }

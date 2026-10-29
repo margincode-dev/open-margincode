@@ -1,0 +1,9 @@
+{"name": "discount-cap", "goal": "Discounts above 100 percent made invoice totals negative"}
+{"name": "refund-over-captured", "goal": "Refunding a payment for more than was captured reached the gateway before being rejected"}
+{"name": "aging-due-today", "goal": "Invoices due today were listed as overdue in the aging report"}
+{"name": "requeue-attempts", "goal": "Jobs whose lease expired were requeued without counting the failed attempt"}
+{"name": "backoff-overflow", "goal": "Retry delay panicked with a shift overflow after many attempts"}
+{"name": "percentile-rank", "goal": "Latency percentile picked the wrong sample for small sets"}
+{"name": "retry-after-date", "goal": "Retry-After headers given as a date were ignored"}
+{"name": "cache-key-order", "goal": "The same request with parameters in a different order missed the response cache"}
+{"name": "token-skew", "goal": "Refresh access tokens shortly before they expire instead of after"}

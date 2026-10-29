@@ -54,6 +54,23 @@ scholion-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:743
 already imported into the same daemon, so a rerun takes minutes instead of an hour of embedding.
 Reruns differ by about ±0.02 between themselves (semantic search sometimes times out).
 
+## CI regression gate
+
+`cargo test -p scholion-bench --test retrieval_gate` (part of `cargo test --workspace`, about 5 s)
+runs the same pipeline on a fixture in `bench/retrieval/ci/`: a 12-file repo in Python, Rust and
+TypeScript (`repo/`), nine tasks (`tasks.jsonl`: a goal each) and one patch per task (`fixes/`) that
+is the fix. It starts a real daemon with no semantic layer, so it guards the lexical, structural
+and budgeting parts of the packer, not the embedding model, and it needs no network, Ollama or
+clones. The pack's mean `files_named`, `files_code` and `symbols_sig` at 300, 450 and 600 tokens
+may not fall below `FLOORS` in `crates/scholion-bench/tests/retrieval_gate.rs`. The budgets are
+small because the fixture is: past about 1000 tokens everything fits and any ranking scores 1.0.
+
+To change a floor on purpose, run the test with `-- --nocapture`, which prints the measured mean for
+every metric and budget, set each floor to that value minus 0.03 (rounded down), record the
+measured values in the comment above `FLOORS`, and say in the commit message why retrieval
+dropped. Do not lower a floor to make an unexplained failure pass. To add a task, add a line to
+`tasks.jsonl` and a `fixes/NAME.patch` (the diff of the fix against `repo/`), then re-measure.
+
 ## Results: BM25 and rank fusion (2026-10-28, handoff A1)
 
 `results/2026-10-28-packer-v3` re-baselined the pack at `main` (fresh imports). Then every variant

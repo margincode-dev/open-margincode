@@ -1,0 +1,12 @@
+diff --git a/queue/src/queue.rs b/queue/src/queue.rs
+index ddfd7a0..7719929 100644
+--- a/queue/src/queue.rs
++++ b/queue/src/queue.rs
+@@ -47,6 +47,7 @@ impl JobQueue {
+         let n = stale.len();
+         for mut job in stale {
+             job.leased_at = None;
++            job.attempts += 1;
+             self.ready.push_front(job);
+         }
+         n

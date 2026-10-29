@@ -295,6 +295,119 @@ fn record_with_anchor_flag_parses_path_and_symbol() {
 }
 
 #[test]
+fn submit_with_record_flags_records_and_submits_in_one_call() {
+    let (d, ws, _scratch) = started();
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    let stdout = ok(av(
+        &d,
+        &ws,
+        &[
+            "submit",
+            "--record",
+            "decision: Shout the greeting @ app/greeter.py:Greeter.hello",
+        ],
+    ));
+    assert!(stdout.contains("submitted (in_review)"), "{stdout}");
+    assert!(
+        stdout.contains("av review"),
+        "the daemon's next step: {stdout}"
+    );
+    assert!(stdout.contains("recorded 1"), "{stdout}");
+    let st = ok(av(&d, &ws, &["status"]));
+    assert!(st.contains("in_review"), "{st}");
+    let md = ok(av(&d, &ws, &["context", "--budget", "3000"]));
+    assert!(md.contains("Shout the greeting"), "{md}");
+    let bad = av(&d, &ws, &["submit", "--record", "no colon here"]);
+    assert!(
+        !bad.status.success() && err(&bad).contains("KIND: SUMMARY @ path[:Symbol]"),
+        "{}",
+        err(&bad)
+    );
+}
+
+fn two_records_json() -> &'static str {
+    r#"[{"kind": "decision", "summary": "first record", "anchors": ["app/greeter.py:Greeter.hello"]},
+        {"kind": "attempt", "summary": "second record", "body": "why", "anchors": ["README.md"]}]"#
+}
+
+#[test]
+fn record_json_writes_every_record() {
+    let (d, ws, _scratch) = started();
+    let file = ws.join("..").join("records.json");
+    std::fs::write(&file, two_records_json()).unwrap();
+    let o = ok(av(&d, &ws, &["record", "--json", file.to_str().unwrap()]));
+    assert_eq!(o.matches("recorded rec:").count(), 2, "{o}");
+    let o = ok(av_stdin(
+        &d,
+        &ws,
+        &["record", "--json", "-"],
+        two_records_json(),
+    ));
+    assert_eq!(o.matches("recorded rec:").count(), 2, "{o}");
+    let md = ok(av(&d, &ws, &["context", "--budget", "3000"]));
+    assert!(
+        md.contains("first record") && md.contains("second record"),
+        "{md}"
+    );
+    let neither = av(&d, &ws, &["record"]);
+    assert!(!neither.status.success(), "{}", err(&neither));
+    let both = av(
+        &d,
+        &ws,
+        &["record", "--json", "-", "--kind", "note", "--summary", "x"],
+    );
+    assert!(!both.status.success(), "{}", err(&both));
+}
+
+#[test]
+fn record_json_checks_every_item_before_sending_any() {
+    let (d, ws, _scratch) = started();
+    let items = format!(
+        r#"[{{"kind": "decision", "summary": "first fine record"}},
+            {{"kind": "note", "summary": "{}"}}]"#,
+        "y".repeat(201)
+    );
+    let o = av_stdin(&d, &ws, &["record", "--json", "-"], &items);
+    let e = err(&o);
+    assert!(
+        !o.status.success() && e.contains("records[1]") && e.contains("201"),
+        "{e}"
+    );
+    let bad_kind = r#"[{"kind": "decision", "summary": "fine"}, {"kind": "idea", "summary": "x"}]"#;
+    let o = av_stdin(&d, &ws, &["record", "--json", "-"], bad_kind);
+    let e = err(&o);
+    assert!(
+        !o.status.success() && e.contains("records[1]") && e.contains("idea"),
+        "{e}"
+    );
+    let md = ok(av(&d, &ws, &["context", "--budget", "3000"]));
+    assert!(
+        !md.contains("first fine record") && !md.contains("decision: fine"),
+        "nothing was sent: {md}"
+    );
+}
+
+#[test]
+fn context_defaults_to_800_tokens() {
+    let (d, ws, _scratch) = started();
+    let o = av(&d, &ws, &["context", "--fresh"]);
+    let stderr = err(&o);
+    ok(o);
+    let rcp = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("av: receipt "))
+        .unwrap_or_else(|| panic!("no receipt line in stderr: {stderr}"))
+        .trim()
+        .to_owned();
+    let shown = ok(av(&d, &ws, &["receipt", &rcp]));
+    assert!(shown.contains("/800 tokens"), "{shown}");
+}
+
+#[test]
 fn checkpoint_reports_changed_files_and_status_shows_task() {
     let (d, ws, _scratch) = started();
     std::fs::write(
@@ -1305,7 +1418,10 @@ fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
     assert_eq!(v["decision"], "block", "{o}");
     let reason = v["reason"].as_str().unwrap();
     assert!(reason.contains("Greeter.hello"), "{reason}");
-    assert!(reason.contains("av record"), "{reason}");
+    assert!(
+        reason.contains("av submit --record") && reason.contains("av record --json"),
+        "{reason}"
+    );
     // asked once: the same session may stop now, and so may a Stop hook already continuing
     assert_eq!(
         ok(av_stdin(

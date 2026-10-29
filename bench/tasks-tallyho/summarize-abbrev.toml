@@ -5,6 +5,7 @@ fix_rev = "fix-summarize"
 goal = """The one-line summaries in listings are cut at the first period, so "Compare mugs vs. cups and report." becomes "Compare mugs vs." Fix the summary helper: a period ends the first sentence only when it closes the text or when the next word does not start in lowercase (so "vs." or "e.g." keep the sentence going). When the sentence is longer than the maximum length, shorten it on word boundaries with a "..." suffix (the result including the suffix fits the maximum) without splitting hyphenated words; if the maximum is shorter than the suffix, return just "...". Keep considering only the first paragraph with whitespace collapsed."""
 relevant_files = ["tallyho/text.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 40
 model = "claude-haiku-5-5"
 session_timeout_secs = 900

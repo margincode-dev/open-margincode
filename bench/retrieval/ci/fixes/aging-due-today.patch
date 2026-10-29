@@ -1,0 +1,13 @@
+diff --git a/ledger/reports.py b/ledger/reports.py
+index 7e21ed2..44c608d 100644
+--- a/ledger/reports.py
++++ b/ledger/reports.py
+@@ -19,7 +19,7 @@ def aging_buckets(invoices, today):
+         if inv.paid:
+             continue
+         overdue = (today - inv.due).days
+-        if overdue < 0:
++        if overdue <= 0:
+             buckets["current"].append(inv)
+         elif overdue < 30:
+             buckets["30"].append(inv)

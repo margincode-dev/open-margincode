@@ -4,6 +4,7 @@ base_rev = "main"
 goal = """Report tables want amounts without the currency code. Add `Money.format_plain()`, returning the amount as text without the currency code, for example "12.34" for 12.34 USD."""
 relevant_files = ["tallyho/money.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 30
 model = "deepseek-flash"
 session_timeout_secs = 900

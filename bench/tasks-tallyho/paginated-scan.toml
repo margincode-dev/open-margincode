@@ -5,6 +5,7 @@ fix_rev = "fix-scan"
 goal = """Listing all products, customers or orders silently stops after the first page of the record store, so shops with more records than one page see only part of them. Make whole-collection scans read every page, for every store backend, including when the requested page size is larger than what a backend returns per page."""
 relevant_files = ["tallyho/store/scan.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 40
 model = "claude-haiku-5-5"
 session_timeout_secs = 900

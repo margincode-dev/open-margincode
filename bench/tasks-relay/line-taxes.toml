@@ -1,9 +1,10 @@
 name = "relay-line-taxes"
 repo_path = "~/bench-repos/tallyho"
 base_rev = "main"
-goal = """Receipts must show the tax of each order line. Add `line_taxes` to Quote: a list of (sku, tax) pairs, one per taxable order line in order (lines exempt from tax are left out), filled in by quote_order. The line taxes must add up exactly to the quote's `tax`."""
+goal = """Receipts must show the tax of each order line. Add `line_taxes` to Quote: a list of (sku, tax) pairs, one per taxable order line in order (lines exempt from tax are left out), filled in by quote_order."""
 relevant_files = ["tallyho/pricing/quote.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 30
 model = "deepseek-flash"
 session_timeout_secs = 900

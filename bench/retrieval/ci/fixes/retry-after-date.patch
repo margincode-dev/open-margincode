@@ -1,0 +1,16 @@
+diff --git a/client/src/http.ts b/client/src/http.ts
+index 802d600..162b15c 100644
+--- a/client/src/http.ts
++++ b/client/src/http.ts
+@@ -16,7 +16,10 @@ export function buildUrl(base: string, path: string, query: Record<string, strin
+ export function parseRetryAfter(header: string | null): number | null {
+   if (header === null) return null;
+   const seconds = Number(header);
+-  if (Number.isNaN(seconds)) return null;
++  if (Number.isNaN(seconds)) {
++    const date = Date.parse(header);
++    return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
++  }
+   return seconds * 1000;
+ }
+ 

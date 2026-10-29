@@ -14,4 +14,5 @@ pub use bundle::{Bundle, BundleRequest};
 pub use packer::{
     CodeDetail, Expanded, PACKER_VERSION, Pack, PackRequest, Packer, RECORDS_AT_TOKENS, RecordsAt,
 };
+pub use score::is_test_code;
 pub use tokens::estimate_tokens;

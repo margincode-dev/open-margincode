@@ -1,0 +1,16 @@
+diff --git a/client/src/auth.ts b/client/src/auth.ts
+index a539dde..fbbfee6 100644
+--- a/client/src/auth.ts
++++ b/client/src/auth.ts
+@@ -4,8 +4,10 @@ export interface Token {
+   expiresAt: number;
+ }
+ 
++const SKEW_MS = 30_000;
++
+ export function isTokenExpired(token: Token, now = Date.now()): boolean {
+-  return token.expiresAt <= now;
++  return token.expiresAt - SKEW_MS <= now;
+ }
+ 
+ export function authHeader(token: Token): Record<string, string> {

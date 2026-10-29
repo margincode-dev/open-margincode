@@ -1,9 +1,10 @@
 name = "relay-coupon-remove"
 repo_path = "~/bench-repos/tallyho"
 base_rev = "main"
-goal = """Shops need to withdraw coupons. Add `CouponBook.remove(code)`: afterwards `get` no longer finds that coupon, and removing a code the book does not know does nothing. Staff type the codes in by hand."""
+goal = """Shops need to withdraw coupons. Add `CouponBook.remove(code)`: afterwards `get` no longer finds that coupon, and removing a code the book does not know does nothing."""
 relevant_files = ["tallyho/pricing/coupons.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 30
 model = "deepseek-flash"
 session_timeout_secs = 900

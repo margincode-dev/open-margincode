@@ -4,6 +4,7 @@ base_rev = "main"
 goal = """Customer regions are never checked, so typos such as "us-ca" end up in the store. Validate the region when a Customer is created and raise ValidationError (with field "region") for an invalid one."""
 relevant_files = ["tallyho/models.py", "tallyho/validate.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 30
 model = "deepseek-flash"
 session_timeout_secs = 900

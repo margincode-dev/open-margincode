@@ -347,6 +347,34 @@ fn av_arms_check_the_daemon_before_the_first_session() {
 }
 
 #[test]
+fn a_relay_report_with_a_cold_arm_compares_every_channel_with_it() {
+    let rows = vec![
+        row("relay-a", "cold", 1, false, m(Some(9000), 40000, 0.02, 1)),
+        row(
+            "relay-a",
+            "baseline",
+            1,
+            true,
+            m(Some(9000), 40000, 0.02, 1),
+        ),
+        row("relay-a", "notes", 1, true, m(Some(8000), 38000, 0.02, 1)),
+        row("relay-a", "av", 1, true, m(Some(7000), 36000, 0.02, 0)),
+    ];
+    let md = render_report(&rows, &meta());
+    assert!(md.contains("| cold | 0/1 |"), "{md}");
+    for label in [
+        "relay: baseline vs cold",
+        "relay: notes vs cold",
+        "relay: av vs cold",
+    ] {
+        assert!(md.contains(&format!("| {label} |")), "{label}: {md}");
+    }
+    assert!(md.contains("`cold`"), "explains the cold arm: {md}");
+    let cold = md.find("| cold |").unwrap();
+    assert!(cold < md.find("| baseline |").unwrap(), "cold first: {md}");
+}
+
+#[test]
 fn a_relay_report_compares_av_with_notes_and_says_how_the_notes_arrived() {
     let rows = vec![
         row(

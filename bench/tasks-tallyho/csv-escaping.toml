@@ -5,6 +5,7 @@ fix_rev = "fix-csv"
 goal = """The CSV export only quotes cells that contain a comma, so a customer name with a double quote or a line break corrupts the file. Make the export follow RFC 4180: quote a cell when it contains a comma, a double quote, a carriage return or a line feed, or has leading or trailing spaces, and double any double quote inside a quoted cell. Header cells are escaped the same way, and an empty value stays an empty unquoted cell."""
 relevant_files = ["tallyho/report/csv_export.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 40
 model = "claude-haiku-5-5"
 session_timeout_secs = 900

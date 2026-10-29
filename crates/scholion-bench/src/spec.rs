@@ -45,6 +45,10 @@ pub struct TaskSpec {
     /// Run with `sh -c` in the working directory before the session (both arms).
     #[serde(default)]
     pub setup_cmd: String,
+    /// Directories put first on the agent's `PATH` (so it finds the interpreter that has the
+    /// test runner). `~/` is expanded.
+    #[serde(default)]
+    pub path_prepend: Vec<PathBuf>,
     /// The `claude` process is killed after this long.
     #[serde(default = "default_session_timeout")]
     pub session_timeout_secs: u64,
@@ -171,6 +175,7 @@ pub fn load_spec_with_root(path: &Path, repos_root: Option<&Path>) -> Result<Tas
         toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     spec.spec_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     load_relay(&mut spec)?;
+    spec.path_prepend = spec.path_prepend.iter().map(|p| expand_home(p)).collect();
     spec.repo_path = match repos_root {
         Some(root) => root.join(spec.repo_path.file_name().unwrap_or_default()),
         None => expand_home(&spec.repo_path),
@@ -327,4 +332,19 @@ pub fn check_spec(spec: &TaskSpec) -> Result<()> {
         return fail("max_turns is 0".into());
     }
     Ok(())
+}
+
+/// Problems that do not stop a run: a `path_prepend` directory that is not there.
+pub fn check_warnings(spec: &TaskSpec) -> Vec<String> {
+    spec.path_prepend
+        .iter()
+        .filter(|d| !d.is_dir())
+        .map(|d| {
+            format!(
+                "task {}: warning: path_prepend {} is not a directory",
+                spec.name,
+                d.display()
+            )
+        })
+        .collect()
 }

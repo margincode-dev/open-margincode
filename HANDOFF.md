@@ -25,24 +25,40 @@ work on next. Delete this file once you've acted on it.
 
 ### 1a. E4 knowledge relay
 
-`bench/tasks-relay` (10 tasks x 3 arms x 3 reps = 90 headless sessions on DeepSeek flash, 2026-10-28,
-about $1.37 by the assumed prices; `bench/results/2026-10-28-relay/`). Agent A's ten lessons (five
-dead ends, five decisions) reach agent B as commit messages (`baseline`), plus `NOTES.md` (`notes`),
-or plus anchored records and the pack/`PreToolUse` hook (`av`).
+`bench/tasks-relay`: agent A's ten lessons (five dead ends, five team decisions) reach agent B, who
+starts with no memory of A. Arms: `cold` (no lessons, the control), `baseline` (lessons as commit
+messages), `notes` (plus `NOTES.md`), `av` (plus anchored records, delivered by the pack and the
+`PreToolUse` hook). DeepSeek flash, headless Claude Code; costs at assumed peak prices ($0.30 in /
+$0.006 cache hit / $1.20 out per Mtok).
 
-**Result: it does not discriminate.** Accepted 30/30 in every arm and repeated dead ends 0 in every
-arm, so there is nothing for the lessons to improve. Cost per accepted task: baseline $0.014,
-notes $0.014, av $0.017 (+22 %); wall 41 s / 40 s / 57 s. So in this setup the hook and pack add
-cost without a measurable gain, and `notes` is free. Read this as "the tasks are too easy", not
-"records do not help": probably (not checked per session) the model avoids each trap on its own,
-so the baseline has no headroom. Before spending more:
+1. **First run** (2026-10-28, `bench/results/2026-10-28-relay/`): every arm 30/30, av +22 % cost per
+   accepted task. Not a test of memory: `baseline` agents ran `git log` in 18 of 30 sessions and
+   read the lessons there, four goals gave the trap away, and no agent could run pytest (the venv
+   was not on their PATH). Fixed with the `cold` arm, plain goals and `path_prepend`.
+2. **Lean av** (2026-10-29, `bench/results/2026-10-29-relay-lean/`, 90 sessions, $1.17 at those
+   prices, the balance fell $3.40 → $2.83). av on hooks + CLI (no MCP), no manual checkpoints,
+   records and submit in one call, 800-token default context
+   (`docs/superpowers/specs/2026-10-29-lean-av-design.md`).
 
-- Make the tasks need the lesson: the dead end must be the natural first move and not visible from
-  the code or the task text, and the baseline should fail a visible share (aim for under 70 %).
-  Check that with a baseline-only pilot first (about $0.40 for 10 x 3).
-- Use a weaker model or a larger tree, where finding the one relevant note among many matters.
-- Cost is estimated at DeepSeek peak prices ($0.30 in / $0.006 cache hit / $1.20 out per Mtok);
-  the account balance went from $4.89 to $3.59, so about $1.30 real.
+| arm | accepted | cost / accepted | wall / accepted |
+|---|---|---|---|
+| cold | 18/30 | $0.022 | 63 s |
+| notes | 30/30 | $0.013 | 36 s |
+| av | 30/30 | $0.013 | 38 s |
+
+- Recorded knowledge pays: with the lessons, cost per accepted task falls about 42 % and every task
+  is solved. Without them `customer-region`, `product-slug` and `refund-event` fail every time (team
+  decisions the code does not show).
+- av now costs the same as a `NOTES.md` (-1.8 %, within noise), where the first run's av cost 22 %
+  more. The token analysis behind the fix: 85 % of that overhead was close-out calls
+  (`checkpoint`, `record`, `submit`, `status`, MCP schema loading), not the pack.
+- av does not beat `notes` here. With ten notes a plain file is cheap to read whole. What av is
+  built for, hundreds of records where the agent can read only the relevant ones, is untested.
+- The trap tasks (coupon, money, quote-split, store-count) pass even `cold`, so only about half the
+  set tests memory.
+
+Next for E4: a scale test (hundreds of notes, most irrelevant) is the one that can show av beating
+`NOTES.md`; and tasks where the lesson matters, not traps the model avoids alone.
 
 ### Not verified by hand
 
@@ -103,7 +119,7 @@ Gotchas:
 Ranked by (expected impact on the core claims) / effort. Ideas borrowed from other open-source
 projects are named.
 
-### A. Retrieval (cheap, measurable offline; A1 and A4 are done)
+### A. Retrieval (cheap, measurable offline; A1, A4 and A5 are done)
 
 2. **PageRank over the reference graph** as a prior (the
    [Aider repo map](https://aider.chat/docs/repomap.html) idea, personalised to the seeds).
@@ -111,7 +127,8 @@ projects are named.
 3. **Rerank the final candidates** with a cross-encoder — TEI already serves
    `BAAI/bge-reranker-*` on a `/rerank` endpoint, so it's one more container, no new code path
    in the hot loop beyond one HTTP call. Keep it optional so packs stay deterministic without it.
-5. Make **E1 a CI regression gate** on a fixed subset (Plan 6 already proposes this).
+5. ~~Make **E1 a CI regression gate**~~ done: `crates/scholion-bench/tests/retrieval_gate.rs` on the
+   fixture in `bench/retrieval/ci/` (lexical, structural and budget parts; no semantic layer).
 
 ### B. Deliver context just in time (B6 and B7 are done)
 
@@ -177,7 +194,12 @@ about what it saves. Move the history part to the moment it matters:
 
 ## 5. Suggested order
 
-1. Run `tasks-scholion` (F22) to see whether the effect grows with repo size.
-2. Read the E4 result above; if records helped, widen the task set (more traps, other repos);
-   if they did not, find out whether agents ignored them or the hooks never delivered them.
-3. Then adoption (C9, C11, C12) or merge quality (D14) depending on what E4/E5 say.
+The goal is a product people adopt, judged by tokens per solved task. E4 shows recorded knowledge
+pays and lean av delivers it at `NOTES.md` cost; it does not yet show av is worth installing over a
+`NOTES.md`.
+
+1. E4 at scale: hundreds of notes, most irrelevant, so reading them all costs more than av's
+   targeted delivery. This is the test that decides whether av's infrastructure earns its place.
+2. Adoption (option B in the 2026-10-29 discussion): records as files in git and a no-daemon solo
+   mode (C9, C11, C12), so the install cost matches the measured gain.
+3. Run `tasks-scholion` (F22) when there is budget, to see whether the effect grows with repo size.

@@ -17,6 +17,9 @@ use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Arm {
+    /// E4 control: the base tree without anything the earlier agent learned (no relay commits,
+    /// no notes, no records).
+    Cold,
     /// Plain git checkout, no av.
     Baseline,
     /// As `Baseline`, plus a `NOTES.md` of what earlier agents learned (E4; `CLAUDE.md` points
@@ -31,11 +34,18 @@ pub enum Arm {
 impl Arm {
     /// The E3 arms.
     pub const ALL: [Arm; 3] = [Arm::Baseline, Arm::AvNoPacks, Arm::Av];
-    /// Every arm `--arms` accepts (E4 adds `notes`).
-    pub const KNOWN: [Arm; 4] = [Arm::Baseline, Arm::Notes, Arm::AvNoPacks, Arm::Av];
+    /// Every arm `--arms` accepts (E4 adds `cold` and `notes`).
+    pub const KNOWN: [Arm; 5] = [
+        Arm::Cold,
+        Arm::Baseline,
+        Arm::Notes,
+        Arm::AvNoPacks,
+        Arm::Av,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Arm::Cold => "cold",
             Arm::Baseline => "baseline",
             Arm::Notes => "notes",
             Arm::AvNoPacks => "av_no_packs",
@@ -48,7 +58,7 @@ impl Arm {
             .into_iter()
             .find(|a| a.as_str() == s)
             .ok_or_else(|| {
-                format!("unknown arm {s:?}; expected baseline, notes, av_no_packs or av")
+                format!("unknown arm {s:?}; expected cold, baseline, notes, av_no_packs or av")
             })
     }
 
@@ -58,6 +68,7 @@ impl Arm {
 
     fn short(self) -> &'static str {
         match self {
+            Arm::Cold => "cold",
             Arm::Baseline => "base",
             Arm::Notes => "notes",
             Arm::AvNoPacks => "nopacks",
@@ -681,7 +692,9 @@ pub fn run_session(
     } else {
         let ws = dir.join("ws");
         scrubbed_copy(&spec.repo_path, &spec.base_rev, &ws)?;
-        relay_commits(&ws, &spec.relay_notes)?;
+        if arm != Arm::Cold {
+            relay_commits(&ws, &spec.relay_notes)?;
+        }
         if arm == Arm::Notes {
             write_notes_md(&ws, &spec.relay_notes)?;
         }
@@ -746,6 +759,18 @@ pub fn run_session(
         .stderr(File::create(dir.join("claude.stderr")).map_err(|e| e.to_string())?)
         .env("CLAUDE_CONFIG_DIR", &config_dir)
         .env("AV_AGENT", AGENT);
+    if !spec.path_prepend.is_empty() {
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let dirs = spec
+            .path_prepend
+            .iter()
+            .cloned()
+            .chain(std::env::split_paths(&inherited));
+        cmd.env(
+            "PATH",
+            std::env::join_paths(dirs).map_err(|e| format!("path_prepend: {e}"))?,
+        );
+    }
     if cfg.prices.is_none() {
         cmd.args(["--max-budget-usd", &format!("{:.2}", cfg.session_cap_usd)]);
     }

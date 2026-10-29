@@ -353,7 +353,7 @@ pub(crate) async fn snapshot_and_index(
 }
 
 #[derive(Deserialize)]
-struct RecordBody {
+pub(crate) struct RecordBody {
     kind: RecordKind,
     summary: String,
     body: Option<String>,
@@ -365,20 +365,28 @@ struct RecordBody {
     receipt: Option<String>,
 }
 
-async fn add_record(
-    State(st): State<AppState>,
-    Path(id): Path<Uuid>,
-    headers: HeaderMap,
-    Json(b): Json<RecordBody>,
-) -> ApiResult<Value> {
-    let _guard = st.lock_task(task_id(id)).await;
-    let task = st.store.get_task(task_id(id)).await?;
-    fence(&st, &task, &headers).await?;
+/// Everything `write_record` could refuse on that does not depend on the write itself, so a batch
+/// (inline records on `submit`) can be checked whole before any of it is written.
+pub(crate) async fn check_record(st: &AppState, b: &RecordBody) -> Result<()> {
+    let n = b.summary.chars().count();
+    if n > MAX_SUMMARY_CHARS {
+        return Err(AvError::SummaryTooLong(n));
+    }
+    if let Some(rc) = &b.receipt {
+        st.store.get_receipt(rc).await?;
+    }
+    if let Some(s) = b.supersedes {
+        st.store.get_record(s).await?;
+    }
+    Ok(())
+}
+
+/// Stores one record of `task`, remembering what the anchored code looked like so later packs can
+/// flag the claim when it changes. The caller holds `AppState::lock_task` and has run `fence`.
+pub(crate) async fn write_record(st: &AppState, task: &Task, b: RecordBody) -> Result<Record> {
     let anchors = b.anchors.unwrap_or_default();
-    // Remember what the anchored code looked like, so later packs can flag the claim when it changes.
     let hashes = st.packer.anchor_hashes(task.id, &anchors).await?;
-    let record = st
-        .store
+    st.store
         .add_record_with(
             NewRecord {
                 task_id: task.id,
@@ -393,8 +401,26 @@ async fn add_record(
             &hashes,
             b.receipt.as_deref(),
         )
-        .await?;
-    let receipt = match &b.receipt {
+        .await
+}
+
+async fn add_record(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(b): Json<RecordBody>,
+) -> ApiResult<Value> {
+    let _guard = st.lock_task(task_id(id)).await;
+    let task = st.store.get_task(task_id(id)).await?;
+    fence(&st, &task, &headers).await?;
+    // Clients without hooks never checkpoint: take the snapshot here, so the anchored code is
+    // hashed as it is now and not as it was at the last checkpoint.
+    if task.status == TaskStatus::Open {
+        snapshot_and_index(&st, &task).await?;
+    }
+    let receipt_arg = b.receipt.clone();
+    let record = write_record(&st, &task, b).await?;
+    let receipt = match &receipt_arg {
         Some(r) => st.store.get_receipt(r).await?["id"].clone(),
         None => Value::Null,
     };

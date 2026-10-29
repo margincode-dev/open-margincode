@@ -1,0 +1,14 @@
+diff --git a/ledger/invoices.py b/ledger/invoices.py
+index 94295ac..4ab096b 100644
+--- a/ledger/invoices.py
++++ b/ledger/invoices.py
+@@ -32,7 +32,8 @@ def invoice_subtotal(invoice):
+ 
+ 
+ def apply_discount(total, pct):
+-    # percentage discount on the whole invoice
++    # percentage discount on the whole invoice, never more than the invoice itself
++    pct = min(pct, Decimal(100))
+     return total * (Decimal(100) - pct) / Decimal(100)
+ 
+ 

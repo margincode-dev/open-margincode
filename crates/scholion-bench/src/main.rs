@@ -11,7 +11,7 @@ use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
 use scholion_bench::retrieval::{self, RetrievalArgs};
 use scholion_bench::runner::{Arm, Daemon, RunConfig};
-use scholion_bench::spec::{TaskSpec, check_spec, load_spec_with_root, spec_files};
+use scholion_bench::spec::{TaskSpec, check_spec, check_warnings, load_spec_with_root, spec_files};
 
 #[derive(Parser)]
 #[command(
@@ -75,10 +75,10 @@ struct SessionArgs {
     /// Wait this long for a new repo's embeddings before its session.
     #[arg(long, default_value_t = 1800)]
     index_wait_secs: u64,
-    /// Run the av arms on the hooks alone, without the av MCP server (the shipped Claude Code
-    /// integration).
+    /// Also give the av arms the av MCP server (default: hooks and CLI only, the shipped Claude
+    /// Code integration).
     #[arg(long)]
-    no_av_mcp: bool,
+    av_mcp: bool,
     /// `--code` for the session-start hook: `full` or `signatures` (default: the hook's own).
     #[arg(long, value_parser = ["full", "signatures"])]
     hook_code: Option<String>,
@@ -257,7 +257,7 @@ fn config(s: &SessionArgs) -> RunConfig {
         hook_budget: s.hook_budget,
         allow_no_semantic: s.allow_no_semantic,
         index_wait_secs: s.index_wait_secs,
-        av_mcp: !s.no_av_mcp,
+        av_mcp: s.av_mcp,
         jit_hooks: s.jit_hooks,
         prices: s.price_per_mtok,
         hook_code: s.hook_code.clone(),
@@ -425,7 +425,12 @@ fn main() -> ExitCode {
             let mut bad = 0;
             for s in &specs {
                 match check_spec(s) {
-                    Ok(()) => println!("{}: ok", s.name),
+                    Ok(()) => {
+                        println!("{}: ok", s.name);
+                        for w in check_warnings(s) {
+                            println!("{w}");
+                        }
+                    }
                     Err(e) => {
                         println!("{e}");
                         bad += 1;
@@ -590,5 +595,33 @@ fn main() -> ExitCode {
             eprintln!("scholion-bench: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_config(extra: &[&str]) -> RunConfig {
+        let mut args = vec![
+            "scholion-bench",
+            "run",
+            "tasks",
+            "--out",
+            "o",
+            "--budget-usd",
+            "1",
+        ];
+        args.extend_from_slice(extra);
+        match Cli::try_parse_from(args).unwrap().cmd {
+            Cmd::Run { session, .. } => config(&session),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn av_arms_run_without_mcp_unless_asked() {
+        assert!(!run_config(&[]).av_mcp);
+        assert!(run_config(&["--av-mcp"]).av_mcp);
     }
 }

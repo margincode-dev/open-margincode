@@ -1,0 +1,11 @@
+diff --git a/ledger/payments.py b/ledger/payments.py
+index 6459ce4..d73b09f 100644
+--- a/ledger/payments.py
++++ b/ledger/payments.py
+@@ -42,4 +42,6 @@ def refund_payment(gateway, payment, amount):
+     # a refund may be partial; the gateway rejects anything above what was captured
+     if amount <= Decimal(0):
+         raise PaymentError("nothing to refund")
++    if amount > payment.captured:
++        raise PaymentError("refund exceeds the captured amount")
+     return gateway.refund(payment.id, amount)

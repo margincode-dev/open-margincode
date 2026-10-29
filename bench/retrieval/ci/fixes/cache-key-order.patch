@@ -1,0 +1,28 @@
+diff --git a/client/src/cache.ts b/client/src/cache.ts
+index be4e84b..03d18ad 100644
+--- a/client/src/cache.ts
++++ b/client/src/cache.ts
+@@ -5,7 +5,9 @@ interface Entry {
+ }
+ 
+ export function cacheKey(method: string, url: string): string {
+-  return method.toUpperCase() + " " + url;
++  const u = new URL(url);
++  u.searchParams.sort();
++  return method.toUpperCase() + " " + u.toString();
+ }
+ 
+ export class ResponseCache {
+diff --git a/client/src/http.ts b/client/src/http.ts
+index 802d600..95e4150 100644
+--- a/client/src/http.ts
++++ b/client/src/http.ts
+@@ -7,7 +7,7 @@ export interface RequestOptions {
+ 
+ export function buildUrl(base: string, path: string, query: Record<string, string> = {}): string {
+   const url = new URL(path, base);
+-  for (const [k, v] of Object.entries(query)) {
++  for (const [k, v] of Object.entries(query).sort()) {
+     url.searchParams.set(k, v);
+   }
+   return url.toString();

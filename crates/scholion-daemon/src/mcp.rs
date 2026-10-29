@@ -46,10 +46,11 @@ pub(crate) struct McpSession {
 
 pub(crate) type Sessions = Arc<Mutex<HashMap<String, McpSession>>>;
 
-const INSTRUCTIONS: &str = "Scholion: context-first version control. Start with `start_task` (or \
-`claim_task` for a task handed to you), work in the workspace it names, call `checkpoint` after \
-edits, `record` decisions and dead ends as you go, `get_context` when you need more, then `submit` \
-or `handoff`. Call `record` with kind=attempt immediately when an approach fails, including why.";
+const INSTRUCTIONS: &str = "Scholion (av): context-first version control. `start_task` (or \
+`claim_task`), work in the workspace it names, `record` decisions and dead ends when they happen \
+(kind=attempt with why, right after an approach fails), then `submit` with any last records inline; \
+submit checkpoints for you. `get_context` gives more context on demand. Call `checkpoint` only to \
+refresh `get_context` mid-task.";
 
 fn tools() -> Value {
     let task_id = json!({"type": "string", "description": "Task id (default: the task this session started or claimed)."});
@@ -59,12 +60,16 @@ fn tools() -> Value {
     let anchors = json!({"type": "array", "description": "Code the record is about.", "items": {
         "type": "object", "required": ["path"],
         "properties": {"path": {"type": "string"}, "symbol": {"type": "string"}}}});
+    let record_item = json!({"type": "object", "required": ["kind", "summary"], "properties": {
+        "kind": {"type": "string", "enum": ["intent", "decision", "attempt", "note"]},
+        "summary": {"type": "string"}, "body": {"type": "string"}, "anchors": anchors,
+        "receipt": {"type": "string", "description": "The rcp:… id of the pack you worked from."}}});
     json!([
         {"name": "start_task", "description": "Start a task: creates its isolated workspace and returns the workspace path and a first context pack.",
          "inputSchema": {"type": "object", "required": ["repo", "title", "goal"], "properties": {
             "repo": {"type": "string"}, "title": {"type": "string"}, "goal": {"type": "string"},
             "budget": {"type": "integer", "description": "Token budget of the pack (default 4000)."}}}},
-        {"name": "checkpoint", "description": "Snapshot the workspace and refresh the code index. Call it after edits.",
+        {"name": "checkpoint", "description": "Snapshot the workspace and refresh the code index. Only needed to refresh `get_context` mid-task; `submit` checkpoints for you.",
          "inputSchema": {"type": "object", "properties": {"task_id": task_id}}},
         {"name": "record", "description": "Record a decision, attempt (dead end), note or intent, anchored to code. Call `record` with kind=attempt immediately when an approach fails, including why. Summary at most 200 characters.",
          "inputSchema": {"type": "object", "required": ["kind", "summary"], "properties": {
@@ -72,9 +77,10 @@ fn tools() -> Value {
             "summary": {"type": "string"}, "body": {"type": "string"}, "anchors": anchors,
             "receipt": {"type": "string", "description": "The rcp:… id of the pack you worked from."},
             "task_id": task_id}}},
-        {"name": "get_context", "description": "A token-budgeted context pack for the task: code, decisions, dead ends, conventions, other agents' live work. Items sent earlier in this session are referenced, not resent.",
+        {"name": "get_context", "description": "A token-budgeted context pack for the task (small by default; pass a larger budget for more): code, decisions, dead ends, conventions, other agents' live work. Items sent earlier in this session are referenced, not resent.",
          "inputSchema": {"type": "object", "properties": {
-            "budget": {"type": "integer"}, "focus": {"type": "string"}, "task_id": task_id}}},
+            "budget": {"type": "integer", "description": "Token budget (default 800)."},
+            "focus": {"type": "string"}, "task_id": task_id}}},
         {"name": "expand", "description": "Full text of an item id shown in a pack (rec:… or sym:…).",
          "inputSchema": {"type": "object", "required": ["item_id"], "properties": {
             "item_id": {"type": "string"}, "task_id": task_id}}},
@@ -92,8 +98,10 @@ fn tools() -> Value {
         {"name": "claim_task", "description": "Take over a handed-off task (or an open one whose lease expired); returns the workspace and the handoff bundle.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
             "task_id": {"type": "string"}, "budget": {"type": "integer"}}}},
-        {"name": "submit", "description": "Send the task to review. Needs changes and a recorded decision, attempt or note.",
-         "inputSchema": {"type": "object", "properties": {"task_id": task_id}}},
+        {"name": "submit", "description": "Send the task to review; checkpoints for you. Needs changes and a recorded decision, attempt or note. Pass the last ones as `records` (same fields as `record`) to record and submit in one call; if any is invalid nothing is written and the task stays open.",
+         "inputSchema": {"type": "object", "properties": {
+            "records": {"type": "array", "description": "Records to write before submitting.", "items": record_item},
+            "task_id": task_id}}},
         {"name": "review_task", "description": "The review bundle of a task: tests at its head, risks, a conventions checklist, changes and records.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
             "task_id": {"type": "string"}, "budget": {"type": "integer"}}}},
@@ -663,7 +671,7 @@ async fn run_tool(
                 "get_context" => {
                     let mut uri = format!(
                         "/v1/tasks/{t}/context?session={sess}&budget={}",
-                        args["budget"].as_u64().unwrap_or(4000)
+                        args["budget"].as_u64().unwrap_or(800)
                     );
                     if let Some(f) = str_arg(args, "focus") {
                         uri.push_str(&format!("&focus={}", enc(f)));
@@ -709,7 +717,9 @@ async fn run_tool(
                 "submit" => (
                     "POST",
                     format!("/v1/tasks/{t}/submit"),
-                    Some(json!({"agent": agent})),
+                    Some(json!({"agent": agent,
+                                "records": args.get("records").filter(|v| !v.is_null()).cloned()
+                                    .unwrap_or(json!([]))})),
                     generation,
                     pretty,
                 ),

@@ -28,7 +28,7 @@ single-commit tree:
 | arm | what the agent gets |
 |---|---|
 | `baseline` | a git checkout (one commit, no history) and nothing else |
-| `av_no_packs` | an av task workspace, av hooks and the av MCP tools, but every pack is just the Task section |
+| `av_no_packs` | an av task workspace, av hooks and the `av` CLI (the av MCP tools only with `--av-mcp`), but every pack is just the Task section |
 | `av` | the same with full context packs |
 
 The report leads with **cost and wall time per accepted task** (accepted = the task's hidden tests
@@ -52,9 +52,13 @@ export PATH=$PWD/target/release:$PATH        # scholion-bench and av (the hooks 
 
 ### 1. A Python env for the bench-repo tests
 
-All arms run the agent, `setup_cmd` and `verify_cmd` with the PATH you start `scholion-bench` with, so
-activate one venv that can run bench-repo's unit tests at every task's base commit (both the
-Chroma era and the Qdrant era):
+`setup_cmd` and `verify_cmd` run with the PATH you start `scholion-bench` with. The agent (`claude`)
+gets the same PATH plus any directories a task lists in `path_prepend` (put first, `~/` expanded;
+`check` warns about one that is missing); `path_prepend` does not apply to `setup_cmd` or
+`verify_cmd`. The tallyho and relay tasks use `~/bench-work/venv/bin` there so the agent can run
+pytest. Either put a venv on the PATH yourself or activate one that can run bench-repo's unit tests
+at every task's base commit (both the Chroma era and the Qdrant era), because `verify_cmd` needs it
+too:
 
 ```bash
 python3 -m venv ~/bench-work/venv && . ~/bench-work/venv/bin/activate
@@ -155,13 +159,13 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
 3. **Claude Code**: `claude -p "<goal>" --output-format stream-json --verbose` with an empty
    `CLAUDE_CONFIG_DIR` (your `~/.claude/.credentials.json` copied in), `--setting-sources project`,
    `--settings` and `--strict-mcp-config --mcp-config` files kept outside the workspace (empty for
-   the baseline; the av hooks and the av MCP server with `X-Av-Task` otherwise; `--no-av-mcp`
-   leaves the MCP server out, as the shipped Claude Code integration does, and `--hook-code
+   the baseline; the av hooks otherwise, plus the av MCP server with `X-Av-Task` only if you pass
+   `--av-mcp` (the default is hooks and CLI alone, as in the shipped Claude Code integration), and `--hook-code
    full|signatures` is passed to the session-start hook as `--code`; each `--hook-arg=X`, e.g.
    `--hook-arg=--no-map --hook-arg=--max-code=3`, is passed to it as well and named in the
    report header),
    `--permission-mode acceptEdits`, `--allowedTools Read,Edit,Write,MultiEdit,Glob,Grep,LS,Bash`
-   (plus `mcp__av` in the av arms), `--no-session-persistence`, `--max-budget-usd`, and a timeout
+   (plus `mcp__av` in the av arms with `--av-mcp`), `--no-session-persistence`, `--max-budget-usd`, and a timeout
    that kills the whole process group (`session_timeout_secs`, default 30 min). The goal text is
    the same in every arm.
 4. **Verify**: av arms checkpoint, and a run whose hooks never fired is `invalid`. Then the

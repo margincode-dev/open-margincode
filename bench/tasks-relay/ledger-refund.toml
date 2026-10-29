@@ -4,6 +4,7 @@ base_rev = "main"
 goal = """Accounting needs refunds booked. Add `Ledger.record_refund(on, order_id, quote)`, which books the refund of a paid order whose sale was booked with record_sale."""
 relevant_files = ["tallyho/ledger.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 30
 model = "deepseek-flash"
 session_timeout_secs = 900

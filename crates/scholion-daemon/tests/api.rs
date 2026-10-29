@@ -503,6 +503,41 @@ async fn knowledge_on_code_edited_later_is_flagged_after_checkpoint() {
     assert!(line.contains("(changed since recorded)"), "{line}");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn record_without_checkpoint_is_not_flagged_changed_after_submit() {
+    // MCP-only clients have no hook to checkpoint: the record itself must see the edit.
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/records", id(&t)),
+        Some(
+            json!({"kind": "decision", "summary": "hello shouts with a bang", "agent": "claude",
+                    "anchors": [{"path": "app/greeter.py", "symbol": "Greeter.hello"}]}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, ctx) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/context?budget=3000&session=after", id(&t)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{ctx}");
+    let md = ctx["markdown"].as_str().unwrap();
+    let line = md
+        .lines()
+        .find(|l| l.contains("hello shouts with a bang"))
+        .unwrap_or_else(|| panic!("{md}"));
+    assert!(!line.contains("changed since recorded"), "{line}");
+}
+
 // ---- Plan 2b Task 3: conventions over HTTP, required ones survive tiny budgets ----
 
 #[tokio::test(flavor = "multi_thread")]
@@ -616,6 +651,10 @@ async fn submit_refused_without_decision_or_note_and_names_the_symbols() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     let msg = body["error"].as_str().unwrap();
     assert!(msg.contains("record a decision"), "{msg}");
+    assert!(
+        msg.contains("av submit --record"),
+        "names the one-call form: {msg}"
+    );
     assert!(msg.contains("Greeter.wave"), "{msg}");
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(task["task"]["status"], "open");
@@ -651,6 +690,113 @@ async fn submit_ok_moves_to_in_review_and_lists_unrecorded_symbols() {
     // a second submit is an illegal transition
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+async fn submit_with(e: &Env, t: &Value, records: Value) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/submit", id(t)),
+        Some(json!({"agent": "claude", "records": records})),
+    )
+    .await
+}
+
+async fn task_records(e: &Env, t: &Value) -> Vec<Value> {
+    let (status, body) = call(&e.app, "GET", &format!("/v1/tasks/{}/records", id(t)), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["records"].as_array().unwrap().clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_inline_records_passes_the_gate() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([{"kind": "decision", "summary": "Greet by name",
+                "anchors": [{"path": "app/greeter.py"}]}]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "in_review");
+    assert_eq!(body["recorded"].as_array().unwrap().len(), 1, "{body}");
+    let recs = task_records(&e, &t).await;
+    let rec = recs
+        .iter()
+        .find(|r| r["summary"] == "Greet by name")
+        .unwrap_or_else(|| panic!("inline record not stored: {recs:?}"));
+    assert_eq!(rec["author_agent"], "claude");
+    assert_eq!(rec["id"], body["recorded"][0]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_an_invalid_inline_record_writes_nothing() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([
+            {"kind": "decision", "summary": "Greet by name"},
+            {"kind": "decision", "summary": "x".repeat(201)}
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+    let recs = task_records(&e, &t).await;
+    assert!(
+        !recs.iter().any(|r| r["kind"] == "decision"),
+        "no inline record may be written: {recs:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_a_malformed_inline_record_writes_nothing() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([
+            {"kind": "decision", "summary": "Greet by name"},
+            {"kind": "bogus", "summary": "nope"}
+        ]),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status} {body}");
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+    let recs = task_records(&e, &t).await;
+    assert!(!recs.iter().any(|r| r["kind"] == "decision"), "{recs:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_says_what_comes_next() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([{"kind": "note", "summary": "Greeting now shouts"}]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let next = body["next"].as_str().unwrap_or_default();
+    assert!(next.contains("av") && next.contains("review"), "{body}");
+    assert_eq!(
+        next,
+        "in review: a reviewer runs av review to approve or request changes; nothing else to do",
+        "{body}"
+    );
+    assert!(!next.contains("av next"), "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1015,6 +1161,10 @@ async fn handoff_requires_gate_and_moves_to_handed_off() {
             .unwrap()
             .contains("record a decision"),
         "{body}"
+    );
+    assert!(
+        !body["error"].as_str().unwrap().contains("av submit"),
+        "a handoff is not told to submit: {body}"
     );
     assert_eq!(task_json(&e, &t).await["task"]["status"], "open");
 
@@ -2935,4 +3085,87 @@ async fn submit_still_reports_the_same_unrecorded_symbols() {
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["unrecorded_symbols"], json!(["format_name"]), "{body}");
+}
+
+const GREETER_TEST: &str = "from greeter import Greeter\n\n\ndef test_greets():\n    assert Greeter().hello(\"ada\") == \"Ada\"\n";
+
+fn write_greeter_test(e: &Env, t: &Value) {
+    std::fs::create_dir_all(ws_dir(e, t).join("tests")).unwrap();
+    write_file(e, t, "tests/test_greeter.py", GREETER_TEST);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_leaves_out_test_functions() {
+    let e = env().await;
+    let t = start_task(&e, "Test the greeter").await;
+    write_greeter_test(&e, &t);
+    let (status, body) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let body = unrecorded(&e, &t).await;
+    assert_eq!(body["unrecorded_symbols"], json!([]), "{body}");
+    assert_eq!(
+        body["explained"], false,
+        "the submit gate is unchanged: {body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_names_real_code_but_not_its_tests() {
+    let e = env().await;
+    let t = start_task(&e, "Louder greeter and its test").await;
+    write_file(
+        &e,
+        &t,
+        "app/greeter.py",
+        "from util import format_name\n\nclass Greeter:\n    def hello(self, name):\n        return format_name(name) + \"!\"\n",
+    );
+    write_greeter_test(&e, &t);
+    let (status, body) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let body = unrecorded(&e, &t).await;
+    // the class counts as changed too (its range covers the edited method)
+    assert_eq!(
+        body["unrecorded_symbols"],
+        json!(["Greeter", "Greeter.hello"]),
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_leaves_out_rust_unit_tests_inside_a_source_file() {
+    let e = env().await;
+    let t = start_task(&e, "Rust sums").await;
+    std::fs::create_dir_all(ws_dir(&e, &t).join("src")).unwrap();
+    write_file(
+        &e,
+        &t,
+        "src/sum.rs",
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n}\n",
+    );
+    let (status, body) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let body = unrecorded(&e, &t).await;
+    assert_eq!(body["unrecorded_symbols"], json!(["add"]), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_report_leaves_out_rust_unit_tests_without_a_checkpoint() {
+    // the gate must read source at the head the submit just snapshotted, not the stale one
+    let e = env().await;
+    let t = start_task(&e, "Rust sums").await;
+    std::fs::create_dir_all(ws_dir(&e, &t).join("src")).unwrap();
+    write_file(
+        &e,
+        &t,
+        "src/sum.rs",
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n#[test]\nfn adds() {\n    assert_eq!(add(1, 2), 3);\n}\n",
+    );
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([{"kind": "note", "summary": "a note on nothing in particular"}]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["unrecorded_symbols"], json!(["add"]), "{body}");
 }

@@ -5,6 +5,7 @@ fix_rev = "fix-discounts"
 goal = """Stacked percentage discounts are added together, so two 50 % coupons make an order free. Make percentage discounts compound instead: each one is taken off what the previous percentage discounts left, in the order given. Fixed-amount discounts still come after all percentages and the result never goes below zero. The per-discount (code, amount off) list must keep the order the discounts were given in, and its amounts must add up exactly to the total reduction."""
 relevant_files = ["tallyho/pricing/discounts.py"]
 verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
 max_turns = 40
 model = "claude-haiku-5-5"
 session_timeout_secs = 900

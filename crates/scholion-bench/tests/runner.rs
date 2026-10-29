@@ -12,6 +12,7 @@ use tempfile::TempDir;
 /// from `--settings`, edits `calc.py` (unless FAKE_MODE=nofix) and prints a canned transcript.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 echo "$PWD" >> "$FAKE_MARKER"
+echo "$PATH" > "$FAKE_MARKER.path"
 settings=""; mcp=""
 while [ $# -gt 0 ]; do
   case "$1" in --settings) settings="$2"; shift;; --mcp-config) mcp="$2"; shift;; esac
@@ -464,6 +465,25 @@ fn the_notes_arm_also_gets_every_note_in_notes_md() {
 }
 
 #[test]
+fn the_cold_arm_gets_nothing_the_earlier_agent_learned() {
+    let _g = serial();
+    let f = relay_fixture("fix");
+    let o = run_session(&f.spec, Arm::Cold, 1, "r3", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let log = log_messages(&ws);
+    assert!(!log.contains("Swapping the operands"), "{log}");
+    assert_eq!(
+        git(&ws, &["rev-list", "--all", "--count"]),
+        "1",
+        "base only"
+    );
+    assert!(!ws.join("NOTES.md").exists());
+    assert!(!Arm::Cold.uses_av());
+    assert_eq!(Arm::parse("cold").unwrap(), Arm::Cold);
+}
+
+#[test]
 fn the_av_arm_gets_the_notes_as_an_earlier_tasks_anchored_records() {
     let _g = serial();
     let d = start_daemon(None);
@@ -541,4 +561,47 @@ fn priced_runs_do_not_pass_claudes_own_budget_cap() {
     run_session(&f.spec, Arm::Baseline, 1, "r5", &f.cfg).unwrap();
     let a = std::fs::read_to_string(&args).unwrap();
     assert!(!a.contains("--max-budget-usd"), "{a}");
+}
+
+/// `f` with its spec reloaded so it prepends `dirs` to the agent's PATH.
+fn with_path_prepend(mut f: Fixture, dirs: &[&Path]) -> Fixture {
+    let dir = TempDir::new().unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let list: Vec<String> = dirs
+        .iter()
+        .map(|d| format!("{:?}", d.display().to_string()))
+        .collect();
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        &format!("setup_cmd = \"\"\npath_prepend = [{}]\n", list.join(", ")),
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+    f
+}
+
+#[test]
+fn path_prepend_puts_dirs_first_on_the_agents_path() {
+    let _g = serial();
+    let (a, b) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    for arm in [Arm::Baseline, Arm::Cold] {
+        let f = with_path_prepend(fixture("fix"), &[a.path(), b.path()]);
+        let id = format!("pp-{}", arm.as_str());
+        let o = run_session(&f.spec, arm, 1, &id, &f.cfg).unwrap();
+        assert!(o.valid, "{o:?}");
+        let path = std::fs::read_to_string(format!("{}.path", f.marker.display())).unwrap();
+        let want = format!("{}:{}:", a.path().display(), b.path().display());
+        assert!(path.starts_with(&want), "{arm:?}: {path}");
+        let inherited = std::env::var("PATH").unwrap();
+        assert!(path.trim_end().ends_with(&inherited), "{arm:?}: {path}");
+    }
+}
+
+#[test]
+fn without_path_prepend_the_agents_path_is_inherited_unchanged() {
+    let _g = serial();
+    let f = fixture("fix");
+    run_session(&f.spec, Arm::Baseline, 1, "pp-none", &f.cfg).unwrap();
+    let path = std::fs::read_to_string(format!("{}.path", f.marker.display())).unwrap();
+    assert_eq!(path.trim_end(), std::env::var("PATH").unwrap());
 }

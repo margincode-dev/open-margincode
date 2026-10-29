@@ -1,0 +1,13 @@
+diff --git a/queue/src/worker.rs b/queue/src/worker.rs
+index 01382a2..5dbbb63 100644
+--- a/queue/src/worker.rs
++++ b/queue/src/worker.rs
+@@ -7,7 +7,7 @@ pub const MAX_ATTEMPTS: u32 = 8;
+ 
+ /// Delay before the next attempt: doubles each time, from a base of 200 ms.
+ pub fn backoff_delay(attempts: u32) -> Duration {
+-    let millis = 200u64 << attempts;
++    let millis = 200u64.saturating_mul(1u64 << attempts.min(16));
+     Duration::from_millis(millis)
+ }
+ 

@@ -114,8 +114,8 @@ pub fn is_test_path(path: &str) -> bool {
 }
 
 /// Test code: a test path, a `test_` function, a Rust `#[test]`-style attribute just above the
-/// symbol, or anything after the file's `#[cfg(test)]` (where Rust keeps its unit tests).
-/// `start_line` is 1-based; without the source only the path and name are checked.
+/// symbol, or anything inside an inline `#[cfg(test)] mod NAME { ... }` (where Rust keeps its
+/// unit tests). `start_line` is 1-based; without the source only the path and name are checked.
 pub fn is_test_code(path: &str, name: &str, start_line: u32, src: Option<&str>) -> bool {
     let leaf = name.rsplit('.').next().unwrap_or(name);
     if is_test_path(path) || leaf.starts_with("test_") {
@@ -124,19 +124,122 @@ pub fn is_test_code(path: &str, name: &str, start_line: u32, src: Option<&str>) 
     let Some(src) = src.filter(|_| path.ends_with(".rs")) else {
         return false;
     };
-    let before: Vec<&str> = src
-        .lines()
-        .take(start_line.saturating_sub(1) as usize)
-        .map(str::trim)
-        .collect();
-    if before.iter().any(|l| l.starts_with("#[cfg(test)]")) {
+    let lines: Vec<&str> = src.lines().map(str::trim).collect();
+    if in_cfg_test_module(&lines, start_line) {
         return true;
     }
-    before
+    lines
         .iter()
+        .take(start_line.saturating_sub(1) as usize)
         .rev()
         .take_while(|l| l.starts_with("#[") || l.starts_with("///") || l.is_empty())
         .any(|l| l.starts_with("#[") && l.contains("test") && !l.starts_with("#[cfg(not(test"))
+}
+
+/// Whether the 1-based `line` falls inside an inline `#[cfg(test)] mod NAME { ... }`. A
+/// `#[cfg(test)]` on a `mod NAME;` declaration, an import or anything else gates no block.
+fn in_cfg_test_module(lines: &[&str], line: u32) -> bool {
+    let at = line.saturating_sub(1) as usize;
+    let mut i = 0;
+    while i < lines.len() && i <= at {
+        if !lines[i].starts_with("#[cfg(test)]") {
+            i += 1;
+            continue;
+        }
+        // the item the attribute gates: the rest of this line, else the first line below that is
+        // neither another attribute nor blank
+        let rest = lines[i]["#[cfg(test)]".len()..].trim();
+        let mut item = i;
+        let head = if rest.is_empty() || rest.starts_with("#[") {
+            loop {
+                item += 1;
+                match lines.get(item) {
+                    Some(l) if l.is_empty() || l.starts_with("#[") => continue,
+                    other => break other.copied().unwrap_or(""),
+                }
+            }
+        } else {
+            rest
+        };
+        if !is_inline_mod(head) {
+            i += 1;
+            continue;
+        }
+        // brace-match from the module's `{` to its end (or the file's, if unbalanced)
+        let mut depth = 0i32;
+        let mut end = lines.len() - 1;
+        'scan: for (n, l) in lines.iter().enumerate().skip(item) {
+            for c in code_chars(l) {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = n;
+                            break 'scan;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if at <= end {
+            return true;
+        }
+        i = end + 1;
+    }
+    false
+}
+
+/// `mod NAME {` (any visibility), as opposed to `mod NAME;`.
+fn is_inline_mod(line: &str) -> bool {
+    let mut words = line.split_whitespace();
+    let mut w = words.next();
+    if w.is_some_and(|w| w == "pub" || w.starts_with("pub(")) {
+        w = words.next();
+    }
+    w == Some("mod") && line.contains('{')
+}
+
+/// The characters of a line that are code: string literals, char literals and `//` comments are
+/// dropped, so a brace inside them does not count.
+fn code_chars(line: &str) -> impl Iterator<Item = char> + '_ {
+    let mut chars = line.chars().peekable();
+    let mut in_str = false;
+    std::iter::from_fn(move || {
+        while let Some(c) = chars.next() {
+            if in_str {
+                match c {
+                    '\\' => {
+                        chars.next();
+                    }
+                    '"' => in_str = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match c {
+                '"' => in_str = true,
+                '/' if chars.peek() == Some(&'/') => return None,
+                '\'' => {
+                    // a char literal ('{', '\n') is skipped; a lifetime ('a) has no closing quote
+                    let mut look = chars.clone();
+                    let a = look.next();
+                    let closes = if a == Some('\\') {
+                        look.next();
+                        look.next() == Some('\'')
+                    } else {
+                        look.next() == Some('\'')
+                    };
+                    if closes {
+                        chars = look;
+                    }
+                }
+                _ => return Some(c),
+            }
+        }
+        None
+    })
 }
 
 #[cfg(test)]
@@ -189,6 +292,26 @@ mod tests {
         assert!(is_test_code("tests/a.rs", "anything", 1, None));
         assert!(!is_test_code("app/x.py", "latest_split", 1, None));
         assert!(!is_test_code("src/dir.rs", "add_parents", 1, None));
+    }
+
+    #[test]
+    fn only_an_inline_cfg_test_module_marks_what_is_inside_it() {
+        // `#[cfg(test)] mod tests;` lives in another file: the fn below is real code
+        let decl = "#[cfg(test)]\nmod tests;\n\npub fn real() {}\n";
+        assert!(!is_test_code("src/a.rs", "real", 4, Some(decl)));
+        // `#[cfg(test)] use x;` gates one import only
+        let import = "#[cfg(test)]\nuse std::fmt;\n\npub fn real() {}\n";
+        assert!(!is_test_code("src/a.rs", "real", 4, Some(import)));
+        // an inline module (attributes and blank lines between are fine) holds its own symbols,
+        // and code after its closing brace is real again
+        let inline = "pub fn before() {}\n\n#[cfg(test)]\n#[allow(dead_code)]\n\nmod tests {\n    fn t() {\n        let _ = \"}\";\n    }\n}\n\npub fn after() {}\n";
+        assert!(!is_test_code("src/a.rs", "before", 1, Some(inline)));
+        assert!(is_test_code("src/a.rs", "t", 7, Some(inline)));
+        assert!(!is_test_code("src/a.rs", "after", 12, Some(inline)));
+        // one-line form
+        let one = "#[cfg(test)] mod tests {\n    fn t() {}\n}\nfn after() {}\n";
+        assert!(is_test_code("src/a.rs", "t", 2, Some(one)));
+        assert!(!is_test_code("src/a.rs", "after", 4, Some(one)));
     }
 
     #[test]

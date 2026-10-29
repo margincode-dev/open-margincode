@@ -298,6 +298,7 @@ h3 { font: 600 18px/1.3 var(--sans); letter-spacing: -.01em; margin: 0; }
 /* evidence */
 .evidence { display: grid; gap: 16px; margin-top: 48px; grid-template-columns: 1fr; }
 @media (min-width: 980px) { .evidence { grid-template-columns: 1fr 1fr; } }
+.ev.wide { grid-column: 1 / -1; }
 .ev { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 26px; min-width: 0; }
 .ev h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ev h3 small { font: 400 13px/1 var(--mono); color: var(--faint); }
@@ -601,8 +602,8 @@ h1 .why { position: relative; display: inline-block; }
       <a class="btn" href="#quickstart">Quickstart</a>
       <a class="btn btn-ghost" href="#contribute">Help build it →</a>
     </div>
-    <div class="install" aria-label="Connect any MCP client">
-      <span class="dollar">$</span><code>claude mcp add --transport http av http://localhost:7420/mcp</code>
+    <div class="install" aria-label="Install the av CLI">
+      <span class="dollar">$</span><code>curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh</code>
     </div>
     <p class="etym">σχόλιον, <span style="font-style:normal">n.</span> a note written in the margin of a manuscript.</p>
 
@@ -625,7 +626,7 @@ h1 .why { position: relative; display: inline-block; }
 
     <div class="stats reveal">
       <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
-      <div class="stat"><b>24</b><span>MCP tools: any MCP-speaking agent can drive it</span></div>
+      <div class="stat"><b>−42%</b><span>cost per solved task when the last agent's lessons reach the next one (<a href="#evidence">E4</a>)</span></div>
       <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
       <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost (<a href="#evidence">benchmark</a>)</span></div>
     </div>
@@ -678,11 +679,12 @@ h1 .why { position: relative; display: inline-block; }
     --summary "tenacity: not installed" \
     --anchor shared/text.py:embed</pre></div>
       <div class="step reveal"><span class="badge">03 · pack</span><h3>Hand over context</h3><p>Any agent, any time: a pack that fits the budget, references what this session already saw, and flags stale claims.</p>
-<pre><span class="p">$ </span>av context --budget 4000
+<pre><span class="p">$ </span>av context        <span class="dim"># 800 tokens</span>
 <span class="p">$ </span>av handoff --done "retries" \
     --remaining "429 tests"</pre></div>
-      <div class="step reveal"><span class="badge">04 · land</span><h3>Submit, review, merge</h3><p><code>main</code> only moves through <code>merge</code>. Submits are refused without a recorded reason. Any merge can be reverted later.</p>
-<pre><span class="p">$ </span>av submit
+      <div class="step reveal"><span class="badge">04 · land</span><h3>Submit, review, merge</h3><p><code>main</code> only moves through <code>merge</code>. Submits are refused without a recorded reason; the reason can ride along in the same call. Any merge can be reverted later.</p>
+<pre><span class="p">$ </span>av submit --record \
+    "decision: honour Retry-After @ shared/text.py:embed"
 <span class="p">$ </span>av merge
 <span class="p">$ </span>av why shared/text.py:17</pre></div>
     </div>
@@ -732,7 +734,7 @@ h1 .why { position: relative; display: inline-block; }
         </ul>
       </div>
       <div class="terminal reveal">
-        <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>av context --budget 4000<span class="tag">rcp:5e21c0a7</span></div>
+        <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>av context --budget 2000<span class="tag">rcp:5e21c0a7</span></div>
 <pre><span class="h">## Task</span>
 # Add retry · add-retry · open
 Goal: retry embedder calls with backoff
@@ -764,7 +766,7 @@ Changed (1): shared/text.py
 - <span class="warn">⚠</span> live:batch-embed also touches shared/text.py
   (owner codex; "Batch embed requests")
 <span class="dim">---
-tokens: 1184/4000</span></pre>
+tokens: 1184/2000</span></pre>
       </div>
     </div>
 
@@ -854,13 +856,13 @@ tokens: 1184/4000</span></pre>
   <div class="wrap">
     <div class="sec-label">Plug in your agents</div>
     <h2>Works with the agents you already run.</h2>
-    <p class="sec-intro">Docker Compose brings up Postgres, Qdrant, an embedding server and the daemon on <code>127.0.0.1</code>. Then connect your agent one of three ways.</p>
+    <p class="sec-intro">Docker Compose brings up Postgres, Qdrant, an embedding server and the daemon on <code>127.0.0.1</code>. Then connect your agent one of three ways. Where an agent has hooks, use them: no tool schemas sit in its context, and it closes a task in one <code>av submit --record …</code> call.</p>
     <div class="ints">
-      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>Twenty-four tools over streamable HTTP. Each connection is its own ledger session and remembers its task and claim generation.</p>
+      <div class="int reveal"><span class="pill">Claude Code · recommended</span><h3>Hooks + CLI</h3><p><code>SessionStart</code> prints an 800-token pack; opening a file adds what other tasks recorded about it; edits are checkpointed; <code>Stop</code> asks once to record changes no record explains. Silent outside a task, never fails the agent.</p>
+        <div class="copy-block"><pre><code>integrations/claude-code/install.sh</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
+      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP. Each connection is its own ledger session and remembers its task and claim generation.</p>
         <div class="copy-block"><pre><code>claude mcp add --transport http \
   av http://localhost:7420/mcp</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
-      <div class="int reveal"><span class="pill">Claude Code</span><h3>Hooks</h3><p><code>SessionStart</code> prints an 800-token pack for the session's task; <code>PostToolUse</code> checkpoints edits. Silent outside a task, never fails the agent.</p>
-        <div class="copy-block"><pre><code>integrations/claude-code/install.sh</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
       <div class="int reveal"><span class="pill">anything else</span><h3>Generic wrapper</h3><p>Writes the pack to <code>$AV_CONTEXT_FILE</code>, runs your agent command, checkpoints afterwards.</p>
         <div class="copy-block"><pre><code>integrations/generic/av-wrap.sh \
   your-agent --task "…"</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
@@ -881,7 +883,7 @@ av task start --repo api --title "Add retry" \
 cd ~/ws/api/add-retry
 
 <span class="dim"># 3. let the agent work; it reads the pack, you read the why</span>
-av context --budget 4000
+av context                              <span class="dim"># 800 tokens</span>
 av submit &amp;&amp; av merge</pre>
       </div>
       <div>
@@ -929,6 +931,21 @@ av submit &amp;&amp; av merge</pre>
           <div><b>−2.3%</b><span>wall time</span><small>95% CI [−7.4, +3.3]</small></div>
         </div>
         <p style="font-size:13.5px">The first pilot cost 8% more than git. We found why (repeated goal, bodies paid for twice, cold-start retrieval), fixed it, and kept the before/after in <code>bench/results/2026-10-27-haiku</code>.</p>
+      </div>
+      <div class="ev wide reveal">
+        <h3>Knowledge relay (E4) <small>Claude Code · DeepSeek Flash · 10 tasks × 3 runs per arm</small></h3>
+        <p>An earlier agent learned something the next task needs: a decision, or a dead end. Does it reach the next agent, and what does that save? <code>cold</code> gets none of it; <code>notes</code> gets a NOTES.md; <code>av</code> gets anchored records through hooks.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>arm</th><th class="num">accepted</th><th class="num">cost / accepted</th><th class="num">wall / accepted</th></tr></thead>
+            <tbody>
+              <tr><td>cold</td><td class="num">18/30</td><td class="num">$0.022</td><td class="num">63 s</td></tr>
+              <tr><td>notes</td><td class="num">30/30</td><td class="num">$0.013</td><td class="num">36 s</td></tr>
+              <tr class="us"><td>av</td><td class="num">30/30</td><td class="num">$0.013</td><td class="num">38 s</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:13.5px">Recorded knowledge cuts cost per solved task by about 42%. But with ten notes, a plain NOTES.md delivers it just as well: av is only 1.8% cheaper. Our first run, with MCP and manual checkpoint calls, cost 22% more than notes; that is why av now runs on hooks and one-call close-out. Next: hundreds of notes, where reading them all should cost more than a pack. <code>bench/results/2026-10-29-relay-lean</code></p>
       </div>
     </div>
     <div class="honest reveal">
@@ -1072,7 +1089,7 @@ av submit &amp;&amp; av merge</pre>
     ['remaining: tests for the 429 path', ''],
     ['dead end: tenacity (not installed)', 'warn'],
     ['changes: shared/text.py (+9 −2)', 'dim'],
-    ['$ av context --budget 4000', '']
+    ['$ av context', '']
   ];
   function render(el, lines, n) {
     el.innerHTML = '';

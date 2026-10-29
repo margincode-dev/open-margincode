@@ -51,9 +51,9 @@
 export UID GID=$(id -g)
 docker compose -f deploy/docker-compose.yml up -d --build
 
-<span class="c"># Claude Code, or any other MCP client</span>
+<span class="c"># any MCP client (for Claude Code, the hooks below cost fewer tokens)</span>
 claude mcp add --transport http av http://localhost:7420/mcp</code></pre>
-  <p>The MCP server exposes the same operations as the HTTP API and the <code>av</code> CLI: start a task, record, get a context pack, hand off, claim, review and merge. For Claude Code there are also hooks that print a pack at session start and checkpoint after edits (<code>integrations/claude-code/install.sh</code>).</p>
+  <p>The MCP server exposes the same operations as the HTTP API and the <code>av</code> CLI: start a task, record, get a context pack, hand off, claim, review and merge. For Claude Code, the leaner setup is hooks plus the <code>av</code> CLI (<code>integrations/claude-code/install.sh</code>): a pack at session start, other tasks' records when a file is opened, checkpoints after edits, and no tool schemas in the agent's context. <code>get_context</code> returns 800 tokens unless asked for more, and <code>submit</code> takes the closing records in the same call.</p>
 
   <h2>What an agent sees</h2>
   <p>In a recorded run, a task that only edited <code>receipt.py</code> began using a constant from <code>pricing.py</code>. Its next pack included what other agents had recorded about pricing:</p>

@@ -1168,3 +1168,104 @@ fn hook_session_start_after_compaction_starts_a_new_session() {
     );
     assert!(pack.contains("## Task"), "{pack}");
 }
+
+fn av_stdin(d: &Daemon, cwd: &Path, args: &[&str], stdin: &str) -> Output {
+    use std::io::Write as _;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(cwd)
+        .env("AV_URL", &d.url)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_AGENT")
+        .env_remove("AV_TOKEN")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn hook_pre_read_adds_what_other_tasks_recorded_about_the_file() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Earlier try",
+            "--goal",
+            "Cache names",
+        ],
+    ));
+    let other = d.ws.join("demo/earlier-try");
+    ok(av(
+        &d,
+        &other,
+        &[
+            "record",
+            "--kind",
+            "attempt",
+            "--summary",
+            "tried caching hello; greetings went stale",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    let file = ws.join("app/greeter.py");
+    let input = serde_json::json!({
+        "hook_event_name": "PreToolUse", "tool_name": "Read",
+        "tool_input": {"file_path": file}, "cwd": ws,
+    })
+    .to_string();
+    let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
+    let v: serde_json::Value = serde_json::from_str(&ok(o)).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    let ctx = v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(ctx.contains("greetings went stale"), "{ctx}");
+    // once per session: the same read again adds nothing
+    let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
+    assert_eq!((ok(o).as_str()), "");
+    // a file nobody recorded anything about adds nothing either
+    let input =
+        serde_json::json!({"tool_input": {"file_path": ws.join("app/util.py")}}).to_string();
+    let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
+    assert_eq!((ok(o).as_str()), "");
+}
+
+#[test]
+fn hook_pre_read_is_silent_outside_a_task_and_when_the_daemon_is_down() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let input =
+        serde_json::json!({"tool_input": {"file_path": scratch.path().join("x.py")}}).to_string();
+    let o = av_stdin(&d, scratch.path(), &["hook", "pre-read"], &input);
+    assert!(o.status.success());
+    assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
+    drop(d);
+    let (_d, ws, _scratch) = started();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
+    let o = cmd
+        .current_dir(&ws)
+        .env("AV_URL", "http://127.0.0.1:1")
+        .args(["hook", "pre-read"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+}

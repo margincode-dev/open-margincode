@@ -2724,3 +2724,157 @@ async fn reindex_refreshes_mains_code_index_and_skips_unchanged_files() {
     let (_, body) = call(&e.app, "POST", "/v1/reindex", None).await;
     assert_eq!(body["code_files_reindexed"], 0, "all repos, same: {body}");
 }
+
+// ---- just-in-time records (handoff B6): what others recorded about the file an agent opens ----
+
+async fn record_on(e: &Env, t: &Value, kind: &str, summary: &str, path: &str) -> Value {
+    let (status, body) = post(
+        e,
+        t,
+        "records",
+        json!({"kind": kind, "summary": summary, "agent": "claude",
+               "anchors": [{"path": path}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+async fn records_at(e: &Env, t: &Value, path: &str, session: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "GET",
+        &format!(
+            "/v1/tasks/{}/records/at?path={path}&session={session}",
+            id(t)
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_at_a_path_are_other_tasks_records_anchored_there() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    record_on(
+        &e,
+        &a,
+        "attempt",
+        "tried caching format_name; names went stale",
+        "app/util.py",
+    )
+    .await;
+    record_on(
+        &e,
+        &a,
+        "decision",
+        "greeter keeps its own punctuation",
+        "app/greeter.py",
+    )
+    .await;
+    let b = start_task(&e, "Later work").await;
+    record_on(&e, &b, "note", "my own note on util", "app/util.py").await;
+
+    let body = records_at(&e, &b, "app/util.py", "jit-1").await;
+    let md = body["markdown"].as_str().unwrap();
+    assert!(md.contains("tried caching format_name"), "{md}");
+    assert!(md.contains("attempt"), "{md}");
+    assert!(!md.contains("greeter keeps"), "other path: {md}");
+    assert!(!md.contains("my own note"), "the task's own records: {md}");
+    assert!(md.contains("av"), "says how to see more: {md}");
+    assert_eq!(body["records"].as_array().unwrap().len(), 1, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_at_a_path_leave_out_superseded_records() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let old = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let (status, body) = post(
+        &e,
+        &a,
+        "records",
+        json!({"kind": "decision", "summary": "names are upper case now", "agent": "claude",
+               "anchors": [{"path": "app/util.py"}], "supersedes": old["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let b = start_task(&e, "Later work").await;
+    let md = records_at(&e, &b, "app/util.py", "jit-1").await["markdown"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(md.contains("upper case now"), "{md}");
+    assert!(!md.contains("stay lower case"), "{md}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_at_a_path_are_sent_once_per_session() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    record_on(
+        &e,
+        &a,
+        "attempt",
+        "tried caching format_name",
+        "app/util.py",
+    )
+    .await;
+    let b = start_task(&e, "Later work").await;
+    assert_ne!(
+        records_at(&e, &b, "app/util.py", "jit-1").await["markdown"],
+        ""
+    );
+    let again = records_at(&e, &b, "app/util.py", "jit-1").await;
+    assert_eq!(again["markdown"], "", "{again}");
+    assert_ne!(
+        records_at(&e, &b, "app/util.py", "jit-2").await["markdown"],
+        "",
+        "another session has not seen it"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_at_a_path_skip_what_a_pack_already_sent() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let (status, body) = post(
+        &e,
+        &a,
+        "records",
+        json!({"kind": "attempt", "summary": "tried caching format_name", "agent": "claude",
+               "anchors": [{"path": "app/util.py", "symbol": "format_name"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let b = start_task(&e, "Later work").await;
+    write_file(&e, &b, "app/util.py", UPPER);
+    let (status, body) = post(&e, &b, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, pack) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/context?budget=4000&session=jit-3", id(&b)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pack}");
+    assert!(
+        pack["markdown"].as_str().unwrap().contains("tried caching"),
+        "precondition: the pack carries it: {pack}"
+    );
+    let body = records_at(&e, &b, "app/util.py", "jit-3").await;
+    assert_eq!(body["markdown"], "", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn records_at_a_path_without_records_is_empty() {
+    let e = env().await;
+    let b = start_task(&e, "Later work").await;
+    let body = records_at(&e, &b, "app/util.py", "jit-1").await;
+    assert_eq!(body["markdown"], "");
+    assert_eq!(body["records"], json!([]));
+}

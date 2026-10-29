@@ -72,6 +72,18 @@ pub struct Expanded {
     pub session_expand_tokens: u64,
 }
 
+/// What others recorded about one file, for an agent about to open it (`records_at`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RecordsAt {
+    /// Empty when there is nothing new to say.
+    pub markdown: String,
+    /// `rec:` ids of the records in `markdown`.
+    pub records: Vec<String>,
+}
+
+/// Most tokens `records_at` returns: it rides along with a file read, so it stays a few lines.
+pub const RECORDS_AT_TOKENS: u32 = 400;
+
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
 pub const PACKER_VERSION: u32 = 4;
 
@@ -335,6 +347,73 @@ impl Packer {
             );
         }
         Ok(out)
+    }
+
+    /// The decisions, dead ends and notes other tasks anchored to `path`, newest kind-first, at
+    /// summary tier and at most `RECORDS_AT_TOKENS`. With `session`, records that session was
+    /// already sent (by a pack or an earlier call) are left out, and these are noted as sent.
+    pub async fn records_at(
+        &self,
+        task_id: TaskId,
+        path: &str,
+        session: Option<&str>,
+    ) -> Result<RecordsAt> {
+        let task = self.store.get_task(task_id).await?;
+        let mut recs = self
+            .store
+            .records_anchored_to(&task.repo, &[path.to_owned()], &[])
+            .await?;
+        recs.retain(|r| {
+            r.task_id != task.id
+                && !matches!(
+                    r.kind,
+                    scholion_core::RecordKind::Intent | scholion_core::RecordKind::Validation
+                )
+        });
+        recs.sort_by(|a, b| {
+            crate::score::kind_priority(b.kind)
+                .total_cmp(&crate::score::kind_priority(a.kind))
+                .then_with(|| b.created_at.cmp(&a.created_at))
+                .then_with(|| a.id.0.cmp(&b.id.0))
+        });
+        let sent = match session {
+            Some(s) => self.store.ledger_get(s).await?,
+            None => Default::default(),
+        };
+        let head = format!("**av: recorded about `{path}`** (by other tasks)");
+        let foot = "Full text: `av expand <id>`.";
+        let mut used = estimate_tokens(&format!("{head}\n{foot}"), AgentFamily::default());
+        let (mut lines, mut ids) = (vec![], vec![]);
+        for rec in &recs {
+            let (id, texts) = record_texts(rec, false, false);
+            // a handle (a clipped summary) does not count as sent
+            if sent
+                .get(&id)
+                .is_some_and(|t| *t as usize >= Tier::Summary as usize)
+            {
+                continue;
+            }
+            let text = &texts[Tier::Summary as usize];
+            let cost = estimate_tokens(text, AgentFamily::default());
+            if used + cost > RECORDS_AT_TOKENS {
+                break;
+            }
+            used += cost;
+            lines.push(text.clone());
+            ids.push(id);
+        }
+        if ids.is_empty() {
+            return Ok(RecordsAt::default());
+        }
+        if let Some(s) = session {
+            let note: Vec<(String, Tier)> =
+                ids.iter().map(|i| (i.clone(), Tier::Summary)).collect();
+            self.store.ledger_put(s, &note).await?;
+        }
+        Ok(RecordsAt {
+            markdown: format!("{head}\n{}\n{foot}", lines.join("\n")),
+            records: ids,
+        })
     }
 
     /// Full text of one item id shown in a pack: `rec:<hex>` or `sym:<n>`.

@@ -65,6 +65,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/repos/{name}/tree", get(tree))
         .route("/v1/repos/{name}/diff", get(diff))
         .route("/v1/tasks/{id}/records", post(add_record).get(list_records))
+        .route("/v1/tasks/{id}/records/at", get(records_at))
         .route("/v1/tasks/{id}/context", get(context))
         .route("/v1/tasks/{id}/items/{item_id}", get(expand))
         .route("/v1/receipts/{id}", get(get_receipt))
@@ -298,6 +299,26 @@ async fn list_records(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiRe
     let task = st.store.get_task(task_id(id)).await?;
     let records = st.store.task_records(task.id).await?;
     Ok(Json(json!({ "records": records })))
+}
+
+#[derive(Deserialize)]
+struct RecordsAtQuery {
+    path: String,
+    session: Option<String>,
+}
+
+/// What other tasks recorded about one file (handoff B6): for a hook to show an agent as it opens
+/// the file, so the why arrives next to the code instead of up front.
+async fn records_at(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<RecordsAtQuery>,
+) -> ApiResult<scholion_pack::RecordsAt> {
+    let session = q.session.as_deref().filter(|s| !s.trim().is_empty());
+    let path = q.path.trim().trim_start_matches("./");
+    Ok(Json(
+        st.packer.records_at(task_id(id), path, session).await?,
+    ))
 }
 
 async fn checkpoint(

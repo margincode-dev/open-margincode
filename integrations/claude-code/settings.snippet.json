@@ -3,6 +3,12 @@
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "__AV_HOOKS__/session-start.sh" }] }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|MultiEdit",
+        "hooks": [{ "type": "command", "command": "__AV_HOOKS__/pre-read.sh" }]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

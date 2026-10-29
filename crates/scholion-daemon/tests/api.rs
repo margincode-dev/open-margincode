@@ -2851,6 +2851,12 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         html.contains("/unrecorded"),
         "the task drawer shows what no record explains"
     );
+    // the pack preview starts at the budget agents get by default (`av context`, MCP)
+    assert!(
+        html.contains("[800, 2000, 4000, 8000]") && html.contains("selected: b === 800"),
+        "the preview defaults to the agents' 800-token budget"
+    );
+    assert!(!html.contains("|| 4000"), "no stale 4000 fallback");
 
     let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

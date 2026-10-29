@@ -457,7 +457,7 @@ function bodyEl(body) {
 
 function packControls(t) {
   const budget = h("select", { class: "ctl", "aria-label": "Token budget" },
-    [1000, 2000, 4000, 8000].map(b => h("option", { value: b, selected: b === 4000 }, `${b} tokens`)));
+    [800, 2000, 4000, 8000].map(b => h("option", { value: b, selected: b === 800 }, `${b} tokens`)));
   const out = () => document.getElementById("packOut");
   const run = async (btn, path, kind) => {
     btn.disabled = true;
@@ -481,7 +481,7 @@ function packControls(t) {
 }
 
 function packEl(p) {
-  const budget = p.budget_tokens || Number(document.querySelector("#sheet select")?.value) || 4000;
+  const budget = p.budget_tokens || Number(document.querySelector("#sheet select")?.value) || 800;
   const md = p.markdown || p.text || JSON.stringify(p, null, 2);
   const pct = Math.min(100, Math.round(100 * (p.tokens || 0) / budget));
   return h("div", { style: "margin-top:10px" },

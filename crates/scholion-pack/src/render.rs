@@ -165,6 +165,7 @@ pub(crate) fn skeleton_text() -> String {
                     source: None,
                     required: false,
                     group: None,
+                    order: None,
                 },
                 Tier::Handle,
             )

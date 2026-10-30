@@ -877,11 +877,12 @@ impl CodeIndex for PgIndex {
         }
         // Okapi BM25 (k1 = 1.2, b = 0.75, as E1's bm25_symbols): a term's count in the chunk is the
         // number of its positions, and a chunk's length is its number of distinct words (cheap,
-        // and the same measure for the average).
+        // and the same measure for the average). Ties go by position: ids follow indexing order.
         let rows: Vec<(i64, f64)> = sqlx::query_as(
             "SELECT c.symbol_id,
                     sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)))::float8 AS s
              FROM code_chunks c
+             JOIN symbols y ON y.id = c.symbol_id
              JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
                ON c.tsv @@ plainto_tsquery('simple', w.t)
              CROSS JOIN LATERAL (
@@ -889,8 +890,8 @@ impl CodeIndex for PgIndex {
                  FROM unnest(c.tsv) AS u WHERE u.lexeme = w.t
              ) AS tf
              WHERE c.repo = $1 AND c.scope = $2
-             GROUP BY c.symbol_id
-             ORDER BY s DESC, c.symbol_id
+             GROUP BY c.symbol_id, c.path, y.start_line
+             ORDER BY s DESC, c.path COLLATE \"C\", y.start_line, c.symbol_id
              LIMIT $5",
         )
         .bind(repo)

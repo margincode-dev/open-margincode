@@ -75,6 +75,9 @@ pub struct Item {
     pub required: bool,
     /// The share this item fills under in `allocate_with_shares`; `None` = its section's key.
     pub group: Option<String>,
+    /// Orders items of equal score (then the id does). `None` = the source position for code,
+    /// else the id. Ids are database sequence numbers or random, so they must not decide.
+    pub order: Option<String>,
 }
 
 impl Item {
@@ -100,6 +103,21 @@ impl Item {
     pub fn in_group(mut self, group: &str) -> Self {
         self.group = Some(group.to_owned());
         self
+    }
+
+    pub fn ordered(mut self, key: String) -> Self {
+        self.order = Some(key);
+        self
+    }
+
+    /// How this item sorts against another of equal score.
+    pub(crate) fn tie_key(&self) -> (std::borrow::Cow<'_, str>, &str) {
+        let key = match (&self.order, &self.source) {
+            (Some(k), _) => k.as_str().into(),
+            (None, Some((path, start, _))) => format!("{path}\0{start:010}").into(),
+            (None, None) => self.id.as_str().into(),
+        };
+        (key, &self.id)
     }
 
     fn group_key(&self) -> &str {
@@ -146,7 +164,7 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
             .item
             .score
             .total_cmp(&priced[a].item.score)
-            .then_with(|| priced[a].item.id.cmp(&priced[b].item.id))
+            .then_with(|| priced[a].item.tie_key().cmp(&priced[b].item.tie_key()))
     });
     let mut reserved: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut reserved_cost: u32 = 0;
@@ -176,7 +194,7 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
                 .item
                 .score
                 .total_cmp(&priced[a].item.score)
-                .then_with(|| priced[a].item.id.cmp(&priced[b].item.id))
+                .then_with(|| priced[a].item.tie_key().cmp(&priced[b].item.tie_key()))
         });
         let mut remaining = (budget as u64 * u64::from(*share) / 100) as u32 + carry;
 

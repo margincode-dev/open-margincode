@@ -74,7 +74,14 @@ fn item(id: String, section: Section, score: f32, texts: [String; 3]) -> Item {
         source: None,
         required: false,
         group: None,
+        order: None,
     }
+}
+
+/// A record item: equal scores put the newer record first (ids are random).
+fn rec_item(rec: &Record, id: String, section: Section, score: f32, texts: [String; 3]) -> Item {
+    let newer_first = i64::MAX - rec.created_at.timestamp_micros();
+    item(id, section, score, texts).ordered(format!("rec\0{newer_first:020}"))
 }
 
 pub(crate) fn lang_of(path: &str) -> &'static str {
@@ -311,7 +318,11 @@ async fn expand_best_hits(
         .filter(|i| i.section == Section::Code && parts.code_factor.get(&i.id) == Some(&1.0))
         .filter_map(|i| Some((i, SymbolId(i.id.strip_prefix("sym:")?.parse().ok()?))))
         .collect();
-    hits.sort_by(|(a, _), (b, _)| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    hits.sort_by(|(a, _), (b, _)| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.tie_key().cmp(&b.tie_key()))
+    });
     // A type's or a constant's neighbours are everything that uses it, so only functions and
     // methods stand in.
     let best: Vec<SymbolId> = hits.iter().take(limit).map(|(_, id)| *id).collect();
@@ -682,11 +693,12 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         let (id, texts) = record_texts(rec, stale, changed);
         let factor = record_factor(rec, task, changed);
         if rec.kind == RecordKind::Intent && rec.task_id == task.id {
-            items.push(item(id, Section::Task, 0.9, texts).because("task"));
+            items.push(rec_item(rec, id, Section::Task, 0.9, texts).because("task"));
         } else if rec.kind == RecordKind::Review && rec.task_id == task.id && owner_at_work {
             let full = texts[Tier::Full as usize].clone();
             items.push(
-                item(
+                rec_item(
+                    rec,
                     id,
                     Section::History,
                     PINNED_REVIEW_SCORE,
@@ -697,7 +709,8 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             );
         } else if rec.task_id != task.id && rec.anchors.iter().any(|a| conflicts.contains(&a.path))
         {
-            items.push(item(id, Section::Conflicts, 1.5, texts).because("conflict-record"));
+            items
+                .push(rec_item(rec, id, Section::Conflicts, 1.5, texts).because("conflict-record"));
         } else {
             let age_days = (now - rec.created_at).num_seconds() as f64 / 86_400.0;
             let reason = if rec.task_id == task.id {
@@ -706,7 +719,8 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
                 "anchored"
             };
             items.push(
-                item(
+                rec_item(
+                    rec,
                     id,
                     Section::History,
                     score::record_score(rec.kind, hops, age_days, on_seed, 0.0) * factor,
@@ -754,7 +768,9 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
                 continue;
             }
             let (id, texts) = record_texts(&rec, false, false);
-            items.push(item(id, Section::Conflicts, 1.5, texts).because("conflict-record"));
+            items.push(
+                rec_item(&rec, id, Section::Conflicts, 1.5, texts).because("conflict-record"),
+            );
         }
     }
 
@@ -1153,7 +1169,8 @@ async fn include_record(
     let factor = record_factor(rec, task, changed);
     if rec.kind == RecordKind::Intent && rec.task_id == task.id {
         parts.gathered.items.push(
-            item(
+            rec_item(
+                rec,
                 id,
                 Section::Task,
                 0.9 + score::W_SEM * score::clamp_sim(semantic),
@@ -1164,7 +1181,8 @@ async fn include_record(
     } else {
         let age_days = (Utc::now() - rec.created_at).num_seconds() as f64 / 86_400.0;
         parts.gathered.items.push(
-            item(
+            rec_item(
+                rec,
                 id,
                 Section::History,
                 score::record_score(rec.kind, hops, age_days, on_seed, semantic) * factor,

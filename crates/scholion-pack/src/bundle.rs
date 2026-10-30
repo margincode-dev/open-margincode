@@ -66,6 +66,7 @@ fn item(id: String, group: &str, score: f32, tiers: [String; 3]) -> Item {
         source: None,
         required: false,
         group: Some(group.to_owned()),
+        order: None,
     }
 }
 

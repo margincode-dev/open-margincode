@@ -59,6 +59,7 @@ mod tests {
             source: None,
             required: false,
             group: None,
+            order: None,
         }
     }
 

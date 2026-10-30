@@ -144,8 +144,10 @@ six public repositories (E1), the first pack names the files a fix touches best 
 (0.96–0.98), and since BM25 and rank fusion went in it also shows more of the changed symbols' 
 signatures than BM25 over symbols at 4k and 8k tokens (0.73 vs 0.64 at 4k; level at 2k). With Claude Haiku on a
 25-file Python project (E3, 160 sessions), av took about 12 % fewer turns and 14 % less wall time
-at equal cost (the cost interval contains zero). Not yet measured: larger repositories, merge
-fuzzing, and whether records carry knowledge to the next agent at scale. In a relay test (E4, 90 sessions on
+at equal cost (the cost interval contains zero). Merges are fuzzed (E2): about 1,700 random
+cases of concurrent edits, conflicts and reverts, each result checked against a line model and
+`git merge-tree`, lost no work and reported no false conflict or false clean merge. Not yet
+measured: larger repositories, and whether records carry knowledge to the next agent at scale. In a relay test (E4, 90 sessions on
 DeepSeek flash), the earlier agent's lessons cut cost per solved task by about 42 % (30/30 solved
 against 18/30 without them), and av delivered them at the same cost as a plain `NOTES.md`. Two
 eight-agent stress runs (cheap models, a small Python web app) merged every feature through

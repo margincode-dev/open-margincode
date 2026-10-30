@@ -17,6 +17,7 @@ fn item(id: &str, section: Section, score: f32, h: usize, s: usize, f: usize) ->
         source: None,
         required: false,
         group: None,
+        order: None,
     }
 }
 

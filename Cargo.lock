@@ -3818,6 +3818,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml_edit 0.22.27",
  "ureq",
  "uuid",
 ]
@@ -3843,6 +3844,7 @@ dependencies = [
  "chrono",
  "futures",
  "globset",
+ "postgresql_embedded",
  "scholion-core",
  "scholion-index",
  "scholion-pack",

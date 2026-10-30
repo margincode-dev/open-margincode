@@ -19,21 +19,24 @@ cost** ([benchmark](bench/results/2026-10-27-haiku/), including where it did not
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](docs/img/demo-replay.png)](https://openevaluations.si/demo)
 
-**Try it** (Docker; the first build compiles the daemon, so give it a few minutes):
+**Try it** (no Docker: the daemon runs its own Postgres; Linux and macOS):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+cd your-repo && av init                          # daemon up, this repo added, Claude Code wired
+av init --for codex --for gemini --for grok      # the same MCP server for other agents
+```
+
+Then watch your agents at `http://localhost:7420/ui`. The installer puts `scholion`, `av` and
+`scholion-daemon` into `~/.local/bin` from the
+[releases page](https://github.com/vinhqbui/scholion/releases). The full stack with semantic search
+(Docker; the first build compiles the daemon, so give it a few minutes):
 
 ```bash
 export UID GID=$(id -g) AV_IMPORT_ROOT=~/projects                # repos to import live here
 docker compose -f deploy/docker-compose.yml up -d --build      # daemon on 127.0.0.1:7420
 claude mcp add --transport http av http://localhost:7420/mcp   # or any MCP client
 av repo add myrepo /import/myrepo                              # path inside the container
-```
-
-Then watch your agents at `http://localhost:7420/ui`. Prebuilt `av` CLI binaries (Linux x86-64
-and arm64, macOS arm64) are on the [releases page](https://github.com/vinhqbui/scholion/releases),
-or install them into `~/.local/bin` with:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
 ```
 
 ## How this was built
@@ -268,6 +271,30 @@ database's locale.
 
 ## Run
 
+### Lite mode
+
+`av up` starts `scholion-daemon` in the background on `127.0.0.1` (port from `AV_URL`, default
+7420) and waits until it answers; `av down` stops it; `av init` calls `av up` when no daemon
+answers. With no `AV_DATABASE_URL`, the daemon runs its own user-space Postgres 16: release
+builds carry it inside the binary (feature `bundled-postgres`), source builds download it on first
+start. Postgres refuses to run as root. Semantic search is off unless you also set `AV_QDRANT_URL`
+and an embedder (below); packs then rank by structure and Postgres full-text.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log`, `daemon.pid` |
+| `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
+| `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
+| `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
+| `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
+| `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `scholion-daemon` that `av up` starts |
+
+`av init [--name NAME] [--for claude|codex|grok|gemini]...` adds the git repository of the current
+directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
+(default: Claude Code); see [Agent integrations](#agent-integrations).
+
+### Full stack (Docker)
+
 Prerequisites: Docker with Compose, and a Rust toolchain (for the host-side `scholion` binary).
 
 ```bash
@@ -307,6 +334,7 @@ Defaults (override with environment variables before `up`):
 | `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has a `qwen3-embedding` model. |
 | `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. The model tag comes from `ollama list` (`qwen3-embedding` by default). |
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
+| `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
@@ -423,6 +451,13 @@ opens with a warning naming the culprit merge.
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
   (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
+- **Codex, Grok Build, Gemini CLI**: `av init --for codex|grok|gemini` merges the MCP server into
+  `$CODEX_HOME/config.toml` (default `~/.codex`), `~/.grok/config.toml` or `~/.gemini/settings.json`,
+  keeps everything else in the file and the previous one as `*.bak`. With `AV_TOKEN` set, the file
+  only names the variable (Codex `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}` in a header),
+  never the token. These agents get no hooks: they call `start_task`/`claim_task` and `get_context`
+  themselves; the instructions to give them are in `integrations/<agent>/README.md`. All of them
+  share one memory, so a dead end Claude recorded is in the pack Codex gets.
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
   command and checkpoints.
 - **Maintenance**: `POST /v1/maintenance/prune` deletes the ledgers of sessions idle for 30 days and parse-cache

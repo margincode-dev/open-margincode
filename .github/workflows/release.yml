@@ -1,8 +1,8 @@
 name: release
 
-# Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`scholion` and its alias `av`) for
-# Linux and macOS and publish them, with SHA-256 sums, as a GitHub release. The daemon still runs
-# from deploy/docker-compose.yml.
+# Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`scholion` and its alias `av`) and
+# `scholion-daemon` for Linux and macOS and publish them, with SHA-256 sums, as a GitHub release.
+# The daemon carries its own Postgres (lite mode, `av up`); deploy/docker-compose.yml still works.
 
 on:
   push:
@@ -19,6 +19,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   TAG: ${{ inputs.tag || github.ref_name }}
+  # Lite mode's Postgres is compiled into scholion-daemon (feature bundled-postgres); keep the
+  # major in step with crates/scholion-daemon/src/embedded_pg.rs.
+  POSTGRESQL_VERSION: "^16"
+  # the bundling build script lists the Postgres releases through the GitHub API
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   build:
@@ -30,7 +35,7 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: macos-latest, target: aarch64-apple-darwin }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,7 +46,9 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release --locked -p scholion-cli --target ${{ matrix.target }}
+        run: >-
+          cargo build --release --locked --target ${{ matrix.target }}
+          -p scholion-cli -p scholion-daemon --features scholion-daemon/bundled-postgres
       - name: Package
         shell: bash
         run: |
@@ -49,8 +56,10 @@ jobs:
           ver="${TAG#release/}"; ver="v${ver#v}"
           name="scholion-${ver}-${{ matrix.target }}"
           mkdir "$name"
-          cp target/${{ matrix.target }}/release/scholion target/${{ matrix.target }}/release/av \
-             LICENSE README.md "$name/"
+          for bin in scholion av scholion-daemon; do
+            cp "target/${{ matrix.target }}/release/$bin" "$name/"
+          done
+          cp LICENSE README.md "$name/"
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - uses: actions/upload-artifact@v4

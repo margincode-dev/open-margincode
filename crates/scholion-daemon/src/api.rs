@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -25,11 +27,18 @@ pub(crate) const BUNDLE_BUDGET: u32 = 4000;
 const DEFAULT_CODE: CodeDetail = CodeDetail::Signatures;
 
 pub fn router(state: AppState) -> Router {
+    router_with(state, Router::new())
+}
+
+/// `router` plus `extra` routes, which sit behind the same token check as `/v1`. Their handlers
+/// take `State<AppState>` and find their own services with `AppState::extension`.
+pub fn router_with(state: AppState, extra: Router<AppState>) -> Router {
     // `/ui` is a static page with no data in it; what it shows comes from `/v1`, behind the token.
     let open = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ui", get(crate::ui::page));
     let api = routes()
+        .merge(extra)
         .route(
             "/mcp",
             post(crate::mcp::post)
@@ -51,6 +60,7 @@ pub fn router(state: AppState) -> Router {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/repos", post(add_repo))
+        .route("/v1/repos/{name}/import", get(get_import))
         .route("/v1/reindex", post(crate::reindex::reindex))
         .route("/v1/tasks", post(start_task).get(list_tasks))
         .route("/v1/tasks/{id}", get(get_task))
@@ -135,14 +145,115 @@ fn clip_chars(s: &str, max: usize) -> String {
 struct AddRepo {
     name: String,
     git_source: PathBuf,
+    /// `false`: answer `202` with the job at once, and the client polls
+    /// `GET /v1/repos/{name}/import`. Either way the import runs on its own task, so a client
+    /// that disconnects does not stop it.
+    #[serde(default = "yes")]
+    wait: bool,
 }
 
-async fn add_repo(State(st): State<AppState>, Json(req): Json<AddRepo>) -> ApiResult<Value> {
-    let main = st.vcs.init_repo(&req.name, &req.git_source).await?;
-    let stats = index_change(&st, &req.name, "main", &main).await?;
-    Ok(Json(
-        json!({ "name": req.name, "main_change": main, "indexed_files": stats.parsed + stats.cached }),
-    ))
+fn yes() -> bool {
+    true
+}
+
+/// Repo imports by name, running or finished since the daemon started.
+pub(crate) type Imports = Arc<Mutex<HashMap<String, ImportJob>>>;
+
+#[derive(Clone, Serialize)]
+pub(crate) struct ImportJob {
+    name: String,
+    /// `running`, `done` or `failed`.
+    state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    main_change: Option<ChangeId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    indexed_files: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    started_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finished_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+async fn add_repo(
+    State(st): State<AppState>,
+    Json(req): Json<AddRepo>,
+) -> std::result::Result<(axum::http::StatusCode, Json<ImportJob>), crate::error::ApiError> {
+    let job = ImportJob {
+        name: req.name.clone(),
+        state: "running",
+        main_change: None,
+        indexed_files: None,
+        error: None,
+        started_at: chrono::Utc::now(),
+        finished_at: None,
+    };
+    {
+        let mut jobs = st.imports.lock().unwrap_or_else(|e| e.into_inner());
+        if jobs.get(&req.name).is_some_and(|j| j.state == "running") {
+            return Err(AvError::IllegalState(format!(
+                "an import of {} is already running; poll GET /v1/repos/{}/import",
+                req.name, req.name
+            ))
+            .into());
+        }
+        jobs.insert(req.name.clone(), job.clone());
+    }
+    let run = {
+        let st = st.clone();
+        let (name, src) = (req.name.clone(), req.git_source.clone());
+        tokio::spawn(async move {
+            let done = import(&st, &name, &src).await;
+            let mut jobs = st.imports.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(job) = jobs.get_mut(&name) {
+                job.finished_at = Some(chrono::Utc::now());
+                match &done {
+                    Ok((main, files)) => {
+                        job.state = "done";
+                        job.main_change = Some(main.clone());
+                        job.indexed_files = Some(*files);
+                    }
+                    Err(e) => {
+                        job.state = "failed";
+                        job.error = Some(e.to_string());
+                    }
+                }
+            }
+            done
+        })
+    };
+    if !req.wait {
+        return Ok((axum::http::StatusCode::ACCEPTED, Json(job)));
+    }
+    match run.await {
+        Ok(Ok(_)) => Ok((
+            axum::http::StatusCode::OK,
+            Json(import_job(&st, &req.name)?),
+        )),
+        Ok(Err(e)) => Err(e.into()),
+        Err(e) => Err(AvError::Index(format!("import of {} stopped: {e}", req.name)).into()),
+    }
+}
+
+async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(ChangeId, usize)> {
+    let main = st.vcs.init_repo(name, src).await?;
+    let stats = index_change(st, name, "main", &main).await?;
+    Ok((main, stats.parsed + stats.cached))
+}
+
+fn import_job(st: &AppState, name: &str) -> Result<ImportJob> {
+    let jobs = st.imports.lock().unwrap_or_else(|e| e.into_inner());
+    jobs.get(name).cloned().ok_or_else(|| {
+        AvError::NotFound(format!(
+            "no import of {name} since the daemon started (a repo imported before still works)"
+        ))
+    })
+}
+
+/// The state of a repo's import: `running`, `done` (with `main_change` and `indexed_files`) or
+/// `failed` (with `error`; the half-made repo is gone, so the same name can be imported again).
+async fn get_import(State(st): State<AppState>, Path(name): Path<String>) -> ApiResult<ImportJob> {
+    Ok(Json(import_job(&st, &name)?))
 }
 
 #[derive(Deserialize)]
@@ -224,6 +335,12 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
 }
 
 async fn prepare_workspace(st: &AppState, task: &Task) -> Result<()> {
+    // wait for a turn instead of taking a pooled connection from every other request
+    let _turn = st
+        .starts
+        .acquire()
+        .await
+        .map_err(|e| AvError::Store(format!("start queue closed: {e}")))?;
     let info = st.vcs.create_workspace(&task.repo, &task.slug).await?;
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)

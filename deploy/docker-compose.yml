@@ -92,6 +92,7 @@ services:
       AV_EMBED_API_KEY: ${AV_EMBED_API_KEY:-}
       # Postgres pool size; every concurrent agent request holds a connection while it runs.
       AV_PG_MAX_CONNECTIONS: ${AV_PG_MAX_CONNECTIONS:-16}
+      AV_MAX_CONCURRENT_STARTS: ${AV_MAX_CONCURRENT_STARTS:-}
       AV_LEASE_SECS: ${AV_LEASE_SECS:-1800}
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
       AV_TOKEN: ${AV_TOKEN:-}

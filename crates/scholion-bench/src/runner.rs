@@ -436,6 +436,29 @@ impl Daemon {
         self.call(r, Some(body))
     }
 
+    /// Imports a repo and waits for it: the import runs as a job on the daemon, so no request
+    /// timeout limits how large the repo may be.
+    pub fn add_repo(&self, name: &str, git_source: &str) -> Result<Value> {
+        self.post(
+            "/v1/repos",
+            json!({"name": name, "git_source": git_source, "wait": false}),
+            None,
+        )?;
+        loop {
+            let job = self.get(&format!("/v1/repos/{name}/import"))?;
+            match job["state"].as_str() {
+                Some("running") => std::thread::sleep(Duration::from_secs(1)),
+                Some("done") => return Ok(job),
+                _ => {
+                    return Err(format!(
+                        "import of {name} failed: {}",
+                        job["error"].as_str().unwrap_or("no reason given")
+                    ));
+                }
+            }
+        }
+    }
+
     /// Up, and accepting our token: run this before anything is spent.
     pub fn preflight(&self) -> Result<()> {
         ureq::get(&format!("{}/healthz", self.url))
@@ -476,10 +499,9 @@ fn start_av_task(
     let src = cfg.import_dir.join(&name);
     scrubbed_copy(&spec.repo_path, &spec.base_rev, &src)?;
     relay_commits(&src, &spec.relay_notes)?;
-    daemon.post(
-        "/v1/repos",
-        json!({"name": name, "git_source": format!("{}/{name}", cfg.import_mount.trim_end_matches('/'))}),
-        None,
+    daemon.add_repo(
+        &name,
+        &format!("{}/{name}", cfg.import_mount.trim_end_matches('/')),
     )?;
     if !spec.relay_notes.is_empty() {
         seed_relay_records(spec, daemon, &name)?;

@@ -784,6 +784,15 @@ fn unreachable_server_exits_nonzero_with_clear_message() {
 }
 
 #[test]
+fn repo_add_reports_a_failed_import() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let o = av(&d, scratch.path(), &["repo", "add", "x", "/nowhere"]);
+    assert!(!o.status.success());
+    assert!(err(&o).contains("import of x failed"), "{}", err(&o));
+}
+
+#[test]
 fn missing_task_gives_actionable_error() {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();
@@ -1482,4 +1491,273 @@ fn hook_stop_is_silent_outside_a_task_and_when_the_daemon_is_down() {
     let o = av_with("http://127.0.0.1:1", &ws, &["hook", "stop"]);
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "");
+}
+
+/// `av` with extra environment (HOME, PATH, AV_HOME, ...) on top of `av_with`'s.
+fn av_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
+    cmd.current_dir(cwd)
+        .env("AV_URL", url)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_AGENT")
+        .env_remove("AV_TOKEN")
+        .env_remove("AV_DATABASE_URL")
+        .env_remove("AV_STORE_ROOT")
+        .env_remove("AV_WS_ROOT");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    cmd.args(args).output().unwrap()
+}
+
+fn write_script(path: &Path, text: &str) {
+    std::fs::write(path, text).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[test]
+fn init_adds_the_repo_and_wires_claude_code() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let log = home.path().join("claude.log");
+    // a fake `claude`: logs its arguments; `mcp get av` succeeds once `mcp add` ran
+    write_script(
+        &bin.path().join("claude"),
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> {log}\ncase \"$2\" in\n  get) [ -f {added} ] ;;\n  add) touch {added} ;;\nesac\n",
+            log = log.display(),
+            added = home.path().join("added").display()
+        ),
+    );
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("PATH", path.as_str()),
+    ];
+    let first = ok(av_env(&d.url, &d.src, &env, &["init", "--name", "demo"]));
+    assert!(first.contains("repo demo added from"), "{first}");
+    assert!(first.contains("MCP server `av`: added"), "{first}");
+    assert!(first.contains("av task start --repo demo"), "{first}");
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains(&format!(
+            "mcp add --transport http --scope user av {}/mcp",
+            d.url
+        )),
+        "{calls}"
+    );
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.path().join(".claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    for event in ["SessionStart", "PreToolUse", "PostToolUse", "Stop"] {
+        assert_eq!(
+            settings["hooks"][event].as_array().unwrap().len(),
+            1,
+            "{event}"
+        );
+    }
+
+    let again = ok(av_env(&d.url, &d.src, &env, &["init", "--name", "demo"]));
+    assert!(again.contains("repo demo already added"), "{again}");
+    assert!(again.contains("already configured"), "{again}");
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.path().join(".claude/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    // the repo works like one added with `av repo add`
+    ok(av(
+        &d,
+        d.src.as_path(),
+        &[
+            "task", "start", "--repo", "demo", "--title", "T", "--goal", "G",
+        ],
+    ));
+}
+
+#[test]
+fn init_wires_codex_grok_and_gemini_through_mcp() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap()), ("CODEX_HOME", "")];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &[
+            "init", "--name", "demo", "--for", "codex", "--for", "grok", "--for", "gemini",
+        ],
+    ));
+    for name in ["Codex", "Grok Build", "Gemini CLI"] {
+        assert!(out.contains(&format!("{name} MCP server `av`")), "{out}");
+    }
+    let mcp = format!("{}/mcp", d.url);
+    let codex = std::fs::read_to_string(home.path().join(".codex/config.toml")).unwrap();
+    assert!(
+        codex.contains(&format!("[mcp_servers.av]\nurl = \"{mcp}\"")),
+        "{codex}"
+    );
+    let grok = std::fs::read_to_string(home.path().join(".grok/config.toml")).unwrap();
+    assert!(grok.contains(&format!("url = \"{mcp}\"")), "{grok}");
+    let gemini: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.path().join(".gemini/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(gemini["mcpServers"]["av"]["httpUrl"], mcp.as_str());
+    // naming only other agents leaves Claude Code alone
+    assert!(!home.path().join(".claude").exists());
+}
+
+#[test]
+fn init_outside_a_git_repository_says_so() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let o = av_env(
+        &d.url,
+        home.path(),
+        &[
+            ("HOME", home.path().to_str().unwrap()),
+            (
+                "GIT_CEILING_DIRECTORIES",
+                home.path().parent().unwrap().to_str().unwrap(),
+            ),
+        ],
+        &["init", "--no-claude"],
+    );
+    assert!(!o.status.success());
+    assert!(err(&o).contains("inside a git repository"), "{}", err(&o));
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// A stand-in daemon: answers /healthz on AV_LISTEN, writes the env it got, exits on SIGTERM.
+const FAKE_DAEMON: &str = r#"#!/usr/bin/env python3
+import http.server, os, signal, sys
+host, port = os.environ["AV_LISTEN"].rsplit(":", 1)
+with open(os.environ["FAKE_ENV_OUT"], "w") as f:
+    for k in ("AV_HOME", "AV_STORE_ROOT", "AV_WS_ROOT", "AV_LISTEN"):
+        f.write(k + "=" + os.environ.get(k, "") + "\n")
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+    def log_message(self, *a):
+        pass
+srv = http.server.HTTPServer((host, int(port)), H)
+signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+print("fake daemon ready", flush=True)
+srv.serve_forever()
+"#;
+
+#[test]
+fn up_starts_a_background_daemon_and_down_stops_it() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        println!("skip: python3 not installed");
+        return;
+    }
+    let home = TempDir::new().unwrap();
+    let av_home = home.path().join("av-home");
+    let daemon = home.path().join("fake-daemon");
+    write_script(&daemon, FAKE_DAEMON);
+    let env_out = home.path().join("env.txt");
+    let url = format!("http://127.0.0.1:{}", free_port());
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("AV_HOME", av_home.to_str().unwrap()),
+        ("AV_DAEMON_BIN", daemon.to_str().unwrap()),
+        ("FAKE_ENV_OUT", env_out.to_str().unwrap()),
+    ];
+    let up = ok(av_env(&url, home.path(), &env, &["up"]));
+    assert!(up.contains(&format!("daemon running at {url}")), "{up}");
+    assert!(av_home.join("daemon.pid").exists());
+    let got = std::fs::read_to_string(&env_out).unwrap();
+    let port = url.rsplit(':').next().unwrap();
+    assert!(
+        got.contains(&format!("AV_LISTEN=127.0.0.1:{port}")),
+        "{got}"
+    );
+    assert!(
+        got.contains(&format!(
+            "AV_STORE_ROOT={}",
+            av_home.join("store").display()
+        )),
+        "{got}"
+    );
+    assert!(
+        got.contains(&format!("AV_WS_ROOT={}", home.path().join("ws").display())),
+        "{got}"
+    );
+    let log = std::fs::read_to_string(av_home.join("daemon.log")).unwrap();
+    assert!(log.contains("fake daemon ready"), "{log}");
+
+    let again = ok(av_env(&url, home.path(), &env, &["up"]));
+    assert!(again.contains("already running"), "{again}");
+
+    let down = ok(av_env(&url, home.path(), &env, &["down"]));
+    assert!(down.contains("daemon stopped"), "{down}");
+    assert!(!av_home.join("daemon.pid").exists());
+    let gone = av_env(&url, home.path(), &env, &["repo", "add", "x", "/nowhere"]);
+    assert!(err(&gone).contains("av up"), "{}", err(&gone));
+    let none = ok(av_env(&url, home.path(), &env, &["down"]));
+    assert!(none.contains("no daemon running"), "{none}");
+}
+
+#[test]
+fn up_reports_the_log_when_the_daemon_dies_at_start() {
+    let home = TempDir::new().unwrap();
+    let daemon = home.path().join("broken-daemon");
+    write_script(
+        &daemon,
+        "#!/bin/sh\necho 'AV_DATABASE_URL: boom' >&2\nexit 3\n",
+    );
+    let url = format!("http://127.0.0.1:{}", free_port());
+    let av_home = home.path().join("av-home");
+    let o = av_env(
+        &url,
+        home.path(),
+        &[
+            ("HOME", home.path().to_str().unwrap()),
+            ("AV_HOME", av_home.to_str().unwrap()),
+            ("AV_DAEMON_BIN", daemon.to_str().unwrap()),
+        ],
+        &["up"],
+    );
+    assert!(!o.status.success());
+    assert!(
+        err(&o).contains("exited") && err(&o).contains("boom"),
+        "{}",
+        err(&o)
+    );
+    assert!(!av_home.join("daemon.pid").exists());
+}
+
+#[test]
+fn up_refuses_a_remote_daemon_url() {
+    let home = TempDir::new().unwrap();
+    let o = av_env(
+        "http://av.invalid:7420",
+        home.path(),
+        &[("HOME", home.path().to_str().unwrap())],
+        &["up"],
+    );
+    assert!(!o.status.success());
+    assert!(err(&o).contains("this machine"), "{}", err(&o));
 }

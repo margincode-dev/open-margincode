@@ -20,6 +20,7 @@ serde.workspace = true
 serde_json.workspace = true
 ureq = { version = "2", features = ["json"] }
 uuid.workspace = true
+toml_edit = "0.22"
 
 [dev-dependencies]
 scholion-daemon = { path = "../scholion-daemon" }

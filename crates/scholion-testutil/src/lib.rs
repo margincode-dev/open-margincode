@@ -10,6 +10,8 @@ use sqlx::{Connection, PgConnection};
 pub struct TestDb {
     pub url: String,
     _server: Option<PostgreSQL>,
+    /// On a shared server: its URL and our database, dropped with us.
+    shared: Option<(String, String)>,
 }
 
 impl TestDb {
@@ -29,6 +31,7 @@ impl TestDb {
             return TestDb {
                 url: format!("{prefix}/{name}"),
                 _server: None,
+                shared: Some((base, name)),
             };
         }
         let mut pg = PostgreSQL::default();
@@ -42,7 +45,33 @@ impl TestDb {
         TestDb {
             url,
             _server: Some(pg),
+            shared: None,
         }
+    }
+}
+
+impl Drop for TestDb {
+    /// Drops the database on a shared server, so test runs do not fill its disk. On a thread of its
+    /// own: `drop` may run inside a runtime, which cannot block on another.
+    fn drop(&mut self) {
+        let Some((base, name)) = self.shared.take() else {
+            return;
+        };
+        let _ = std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            rt.block_on(async {
+                if let Ok(mut conn) = PgConnection::connect(&base).await {
+                    let drop = format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)");
+                    let _ = sqlx::query(&drop).execute(&mut conn).await;
+                }
+            });
+        })
+        .join();
     }
 }
 

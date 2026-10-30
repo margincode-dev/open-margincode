@@ -61,5 +61,10 @@ jobs:
           exit 1
       - name: Test
         # all crates even after a failure; the service Postgres sorts text en_US (not C), which
-        # catches orderings that depend on the database locale
-        run: cargo test --workspace --no-fail-fast
+        # catches orderings that depend on the database locale. The runner image's own Postgres 16
+        # binaries (when present) run lite mode's embedded-Postgres tests without a download.
+        run: |
+          if [ -x /usr/lib/postgresql/16/bin/pg_ctl ]; then
+            export AV_TEST_PG_INSTALL_DIR=/usr/lib/postgresql/16
+          fi
+          cargo test --workspace --no-fail-fast

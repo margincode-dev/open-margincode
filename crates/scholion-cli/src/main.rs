@@ -1,5 +1,7 @@
+mod agents;
 mod client;
 mod hook;
+mod local;
 mod runner;
 mod taskfile;
 
@@ -48,6 +50,25 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Start a daemon on this machine in the background (no Docker: it runs its own Postgres
+    /// unless AV_DATABASE_URL is set). Data in $AV_HOME (default ~/.scholion), workspaces in ~/ws.
+    Up,
+    /// Stop the daemon `av up` started.
+    Down,
+    /// Set up the git repository of this directory: start the daemon if needed, add the repo,
+    /// and install the Claude Code hooks and MCP server.
+    Init {
+        /// Repo name (default: the repository's directory name).
+        #[arg(long)]
+        name: Option<String>,
+        /// Agent CLI to wire to the daemon (repeatable): claude (hooks and MCP), codex, grok,
+        /// gemini (MCP). Default: claude.
+        #[arg(long = "for", value_enum)]
+        agents: Vec<agents::Agent>,
+        /// Leave Claude Code's settings alone (same as naming only other agents).
+        #[arg(long)]
+        no_claude: bool,
+    },
     /// Register a git repository (path as seen by the daemon).
     Repo {
         #[command(subcommand)]
@@ -686,16 +707,59 @@ fn print_notes(r: &Value) {
     }
 }
 
+/// Polls a repo import until it is done; a failed one is an error.
+pub(crate) fn wait_import(client: &Client, name: &str) -> Result<Value> {
+    loop {
+        let job = client.get(&format!("/v1/repos/{name}/import"), &[])?;
+        match job["state"].as_str() {
+            Some("running") => std::thread::sleep(std::time::Duration::from_secs(1)),
+            Some("done") => return Ok(job),
+            _ => {
+                return Err(CliError::Local(format!(
+                    "import of {name} failed: {}",
+                    job["error"].as_str().unwrap_or("no reason given")
+                )));
+            }
+        }
+    }
+}
+
 fn run(cli: Cli) -> Result<()> {
     let client = Client::new(&cli.url, cli.token.clone());
     match &cli.cmd {
+        Cmd::Up => local::up(&client, &cli.url)?,
+        Cmd::Down => local::down(&client, &cli.url)?,
+        Cmd::Init {
+            name,
+            agents,
+            no_claude,
+        } => {
+            let mut agents = if agents.is_empty() {
+                vec![agents::Agent::Claude]
+            } else {
+                agents.clone()
+            };
+            agents.dedup();
+            if *no_claude {
+                agents.retain(|a| *a != agents::Agent::Claude);
+            }
+            local::init(
+                &client,
+                &cli.url,
+                cli.token.as_deref(),
+                name.as_deref(),
+                &agents,
+            )?
+        }
         Cmd::Repo {
             cmd: RepoCmd::Add { name, git_source },
         } => {
-            let r = client.post(
+            // a large repo takes longer than any request timeout: start the import, then poll it
+            client.post(
                 "/v1/repos",
-                &json!({"name": name, "git_source": git_source}),
+                &json!({"name": name, "git_source": git_source, "wait": false}),
             )?;
+            let r = wait_import(&client, name)?;
             println!(
                 "repo {} added (main {}, {} files indexed)",
                 s(&r["name"]),

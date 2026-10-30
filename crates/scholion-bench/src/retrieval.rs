@@ -795,10 +795,9 @@ fn packs(
         .and_then(|n| n.to_str())
         .ok_or("bad src dir")?;
     if args.reuse_run.is_none() {
-        daemon.post(
-            "/v1/repos",
-            json!({"name": name, "git_source": format!("{}/{name}", args.import_mount.trim_end_matches('/'))}),
-            None,
+        daemon.add_repo(
+            name,
+            &format!("{}/{name}", args.import_mount.trim_end_matches('/')),
         )?;
     }
     let semantic = wait_semantic(daemon, name, args)?;

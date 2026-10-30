@@ -9,8 +9,8 @@ pub use std::sync::Arc;
 pub use axum::Router;
 use axum::body::Body;
 pub use axum::http::{Request, StatusCode};
-pub use scholion_daemon::{AppState, router};
-pub use scholion_index::PgIndex;
+pub use scholion_daemon::{AppState, router_with};
+pub use scholion_index::{CodeIndex, PgIndex};
 pub use scholion_store::PgStore;
 pub use scholion_testutil::TestDb;
 pub use scholion_vcs::JjVcs;
@@ -100,12 +100,37 @@ pub async fn env_with_vcs(
     wrap: impl FnOnce(Arc<dyn scholion_core::Vcs>) -> Arc<dyn scholion_core::Vcs>,
     tweak: impl FnOnce(AppState) -> AppState,
 ) -> Env {
+    env_full(wrap, |i| i, tweak, Router::new()).await
+}
+
+/// Like `env_with`, and `wrap` may put a test double around the real `PgIndex`.
+pub async fn env_with_index(
+    wrap: impl FnOnce(Arc<dyn CodeIndex>) -> Arc<dyn CodeIndex>,
+    tweak: impl FnOnce(AppState) -> AppState,
+) -> Env {
+    env_full(|v| v, wrap, tweak, Router::new()).await
+}
+
+/// Like `env_with`, with `extra` routes (`router_with`).
+pub async fn env_with_routes(
+    tweak: impl FnOnce(AppState) -> AppState,
+    extra: Router<AppState>,
+) -> Env {
+    env_full(|v| v, |i| i, tweak, extra).await
+}
+
+async fn env_full(
+    wrap: impl FnOnce(Arc<dyn scholion_core::Vcs>) -> Arc<dyn scholion_core::Vcs>,
+    wrap_index: impl FnOnce(Arc<dyn CodeIndex>) -> Arc<dyn CodeIndex>,
+    tweak: impl FnOnce(AppState) -> AppState,
+    extra: Router<AppState>,
+) -> Env {
     let db = TestDb::new().await;
     let src = fixture_git_repo();
     let store_dir = TempDir::new().unwrap();
     let ws = TempDir::new().unwrap();
     let store = Arc::new(PgStore::connect(&db.url).await.unwrap());
-    let index = Arc::new(PgIndex::new(store.pool().clone()));
+    let index = wrap_index(Arc::new(PgIndex::new(store.pool().clone())));
     let vcs = wrap(Arc::new(JjVcs::new(
         store_dir.path().to_path_buf(),
         ws.path().to_path_buf(),
@@ -119,7 +144,7 @@ pub async fn env_with_vcs(
     );
     let state = tweak(state);
     let token = state.token().map(str::to_owned);
-    let app = router(state);
+    let app = router_with(state, extra);
     let e = Env {
         _db: db,
         store,

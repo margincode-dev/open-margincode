@@ -714,6 +714,13 @@ pub(crate) async fn review(
         if let Some(problem) = check_problem(&st, &task, &head).await? {
             return Err(AvError::IllegalState(format!("cannot approve: {problem}")).into());
         }
+        let action = crate::Guarded::Approve {
+            task: &task,
+            reviewer: &b.reviewer,
+        };
+        if let Err(reason) = st.guard.check(action).await {
+            return Err(AvError::IllegalState(format!("cannot approve: {reason}")).into());
+        }
     }
     st.store
         .add_verdict(
@@ -818,6 +825,13 @@ pub(crate) async fn merge(
         return Ok(Json(
             record_merge(&st, &task, pre_merge, main, b.agent, true).await?,
         ));
+    }
+    let action = crate::Guarded::Merge {
+        task: &task,
+        agent: &b.agent,
+    };
+    if let Err(reason) = st.guard.check(action).await {
+        return Err(AvError::IllegalState(format!("cannot merge: {reason}")).into());
     }
     let message = format!(
         "{}\n\n{}\n\n{} ({})",

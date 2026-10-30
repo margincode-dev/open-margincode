@@ -6,7 +6,9 @@ mod backup;
 mod checks;
 mod derived;
 mod embed_choice;
+mod embedded_pg;
 mod error;
+mod ext;
 mod flow;
 mod indexing;
 mod mcp;
@@ -26,9 +28,11 @@ use scholion_pack::Packer;
 use scholion_semantic::{Embedder, SemanticSearch, VectorIndex};
 use scholion_store::PgStore;
 
-pub use api::router;
+pub use api::{router, router_with};
 pub use backup::{BACKUP_TICK, backoff, backup_tick, start_backups};
 pub use embed_choice::EmbedChoice;
+pub use embedded_pg::EmbeddedPg;
+pub use ext::{AllowAll, Guarded, MergeGuard};
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use wiring::{Config, build_state, embed_authorization};
 pub use worker::{DrainStats, OutboxWorker};
@@ -57,6 +61,16 @@ pub struct AppState {
     /// Open MCP sessions (`/mcp`), by `Mcp-Session-Id`.
     pub(crate) mcp: mcp::Sessions,
     task_locks: Arc<Mutex<HashMap<TaskId, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Asked before an approval and a merge; `AllowAll` unless an extension sets one.
+    pub(crate) guard: Arc<dyn MergeGuard>,
+    /// How many task starts copy an index at once; the others wait their turn. A copy holds a
+    /// pooled connection for its whole length, so without a limit a burst of starts takes every
+    /// connection and other requests fail with `pool timed out`.
+    pub(crate) starts: Arc<tokio::sync::Semaphore>,
+    /// Repo imports by name, running or finished since the daemon started.
+    pub(crate) imports: api::Imports,
+    extensions: ext::Extensions,
+    events: ext::EventFeed,
 }
 
 impl AppState {
@@ -69,6 +83,7 @@ impl AppState {
         ws_host_root: PathBuf,
     ) -> Self {
         let dyn_store: Arc<dyn IntentStore> = store.clone();
+        let starts = default_start_limit(store.pool().options().get_max_connections());
         let packer = Arc::new(Packer::new(vcs.clone(), dyn_store.clone(), index.clone()));
         Self {
             vcs,
@@ -86,7 +101,43 @@ impl AppState {
             token: None,
             mcp: Arc::default(),
             task_locks: Arc::default(),
+            guard: Arc::new(AllowAll),
+            starts: Arc::new(tokio::sync::Semaphore::new(starts)),
+            imports: Arc::default(),
+            extensions: ext::Extensions::default(),
+            events: ext::EventFeed::default(),
         }
+    }
+
+    /// At most `n` task starts copy an index at once (`AV_MAX_CONCURRENT_STARTS`).
+    pub fn with_start_limit(mut self, n: usize) -> Self {
+        self.starts = Arc::new(tokio::sync::Semaphore::new(n.max(1)));
+        self
+    }
+
+    /// Keeps an extension's service in the state, one per type; handlers added with
+    /// `router_with` get it back with `extension`.
+    pub fn with_extension<T: Send + Sync + 'static>(mut self, value: Arc<T>) -> Self {
+        self.extensions.insert(value);
+        self
+    }
+
+    /// The service of type `T` given to `with_extension`, if any.
+    pub fn extension<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.extensions.get()
+    }
+
+    /// Asks `guard` before every approval and merge, after the lifecycle rules pass.
+    pub fn with_merge_guard(mut self, guard: Arc<dyn MergeGuard>) -> Self {
+        self.guard = guard;
+        self
+    }
+
+    /// Lifecycle events (`GET /v1/events`, of every repo) committed from now on, in process.
+    pub async fn subscribe_events(
+        &self,
+    ) -> scholion_core::Result<tokio::sync::broadcast::Receiver<scholion_core::AvEvent>> {
+        self.events.subscribe(self.store.clone()).await
     }
 
     /// Serializes the workspace operations of one task (snapshot → re-index → store head), so a
@@ -174,4 +225,9 @@ impl AppState {
             Err(_) => p.to_path_buf(),
         }
     }
+}
+
+/// A quarter of the pool copies at once, so the rest serves every other request.
+pub(crate) fn default_start_limit(pool_size: u32) -> usize {
+    (pool_size as usize / 4).max(1)
 }

@@ -510,3 +510,168 @@ async fn racing_claims_have_one_winner_and_fence_the_old_owner() {
         );
     }
 }
+
+/// A `PgIndex` whose `clone_scope` is slow, and which counts how many run at once.
+struct SlowClone {
+    inner: Arc<dyn CodeIndex>,
+    running: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl CodeIndex for SlowClone {
+    async fn index_paths_at(
+        &self,
+        repo: &str,
+        scope: &str,
+        change: Option<&ChangeId>,
+        embed: bool,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> scholion_core::Result<scholion_index::IndexStats> {
+        self.inner
+            .index_paths_at(repo, scope, change, embed, files)
+            .await
+    }
+    async fn scope_change(
+        &self,
+        repo: &str,
+        scope: &str,
+    ) -> scholion_core::Result<Option<ChangeId>> {
+        self.inner.scope_change(repo, scope).await
+    }
+    async fn set_scope_change(
+        &self,
+        repo: &str,
+        scope: &str,
+        change: &ChangeId,
+    ) -> scholion_core::Result<()> {
+        self.inner.set_scope_change(repo, scope, change).await
+    }
+    async fn clone_scope(
+        &self,
+        repo: &str,
+        from: &str,
+        to: &str,
+        change: &ChangeId,
+    ) -> scholion_core::Result<bool> {
+        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let r = self.inner.clone_scope(repo, from, to, change).await;
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        r
+    }
+    async fn list_code_chunks(
+        &self,
+        repo: Option<&str>,
+    ) -> scholion_core::Result<Vec<scholion_index::CodeChunk>> {
+        self.inner.list_code_chunks(repo).await
+    }
+    async fn chunk_exists(&self, id: scholion_core::SymbolId) -> scholion_core::Result<bool> {
+        self.inner.chunk_exists(id).await
+    }
+    async fn remove_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        paths: &[String],
+    ) -> scholion_core::Result<()> {
+        self.inner.remove_paths(repo, scope, paths).await
+    }
+    async fn symbols_in(
+        &self,
+        repo: &str,
+        scope: &str,
+        path: &str,
+    ) -> scholion_core::Result<Vec<scholion_index::IndexedSymbol>> {
+        self.inner.symbols_in(repo, scope, path).await
+    }
+    async fn get_symbols(
+        &self,
+        ids: &[scholion_core::SymbolId],
+    ) -> scholion_core::Result<Vec<scholion_index::IndexedSymbol>> {
+        self.inner.get_symbols(ids).await
+    }
+    async fn search_symbols(
+        &self,
+        repo: &str,
+        scope: &str,
+        query: &str,
+        limit: usize,
+    ) -> scholion_core::Result<Vec<scholion_index::IndexedSymbol>> {
+        self.inner.search_symbols(repo, scope, query, limit).await
+    }
+    async fn resolve(
+        &self,
+        repo: &str,
+        scope: &str,
+        anchor: &scholion_core::Anchor,
+    ) -> scholion_core::Result<scholion_index::AnchorResolution> {
+        self.inner.resolve(repo, scope, anchor).await
+    }
+    async fn search_code_lexical(
+        &self,
+        repo: &str,
+        scope: &str,
+        terms: &[String],
+        limit: usize,
+    ) -> scholion_core::Result<Vec<(scholion_core::SymbolId, f32)>> {
+        self.inner
+            .search_code_lexical(repo, scope, terms, limit)
+            .await
+    }
+    async fn neighbors(
+        &self,
+        repo: &str,
+        scope: &str,
+        seeds: &[scholion_core::SymbolId],
+        hops: u8,
+    ) -> scholion_core::Result<Vec<(scholion_core::SymbolId, u8)>> {
+        self.inner.neighbors(repo, scope, seeds, hops).await
+    }
+    async fn in_degree(
+        &self,
+        ids: &[scholion_core::SymbolId],
+    ) -> scholion_core::Result<std::collections::HashMap<scholion_core::SymbolId, u32>> {
+        self.inner.in_degree(ids).await
+    }
+    async fn symbol_scope(
+        &self,
+        id: scholion_core::SymbolId,
+    ) -> scholion_core::Result<Option<(String, String)>> {
+        self.inner.symbol_scope(id).await
+    }
+    async fn drop_scope(&self, repo: &str, scope: &str) -> scholion_core::Result<()> {
+        self.inner.drop_scope(repo, scope).await
+    }
+    async fn prune_parse_cache(&self) -> scholion_core::Result<u64> {
+        self.inner.prune_parse_cache().await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
+    let slow: std::sync::Mutex<Option<Arc<SlowClone>>> = Default::default();
+    let e = env_with_index(
+        |inner| {
+            let s = Arc::new(SlowClone {
+                inner,
+                running: Default::default(),
+                most: Default::default(),
+            });
+            *slow.lock().unwrap() = Some(s.clone());
+            s
+        },
+        |s| s.with_start_limit(2),
+    )
+    .await;
+    let slow = slow.lock().unwrap().clone().unwrap();
+    let names: Vec<(String, String)> = (0..32)
+        .map(|i| (format!("burst {i}"), format!("agent-{i}")))
+        .collect();
+    let started = join_all(names.iter().map(|(t, a)| start_as(&e, t, a))).await;
+    assert_eq!(started.len(), 32);
+    let most = slow.most.load(Ordering::SeqCst);
+    assert!(most <= 2, "{most} index copies ran at once; the limit is 2");
+    assert!(most >= 1);
+}

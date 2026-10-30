@@ -16,7 +16,7 @@ impl fmt::Display for CliError {
         match self {
             CliError::Unreachable { url, detail } => write!(
                 f,
-                "cannot reach the Scholion daemon at {url} ({detail}). Is it running (`docker compose up -d`)? Set AV_URL to point elsewhere."
+                "cannot reach the Scholion daemon at {url} ({detail}). Start one with `av up` (or `docker compose up -d`), or set AV_URL to point elsewhere."
             ),
             CliError::Api { status, message } => write!(f, "{message} (HTTP {status})"),
             CliError::NoTask => write!(
@@ -87,6 +87,19 @@ impl Client {
             req = req.query(k, v);
         }
         self.finish(path, req.call())
+    }
+
+    /// `get` of a plain-text body (e.g. `/healthz`), with a short timeout.
+    pub fn get_text(&self, path: &str) -> Result<String> {
+        let req = self
+            .authorized(self.agent.get(&format!("{}{path}", self.base)))
+            .timeout(Duration::from_secs(2));
+        match req.call() {
+            Ok(resp) => resp
+                .into_string()
+                .map_err(|e| CliError::Local(format!("reading {path}: {e}"))),
+            other => self.finish(path, other).map(|_| String::new()),
+        }
     }
 
     /// `get` of a raw (non-JSON) body.

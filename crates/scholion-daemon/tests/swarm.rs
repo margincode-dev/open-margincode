@@ -511,17 +511,19 @@ async fn racing_claims_have_one_winner_and_fence_the_old_owner() {
     }
 }
 
-/// A `PgIndex` whose `clone_scope` is slow, and which counts how many run at once.
-struct SlowClone {
+/// A `CodeIndex` whose `ensure_overlay` is slow, and which counts how many run at once.
+/// Start used to clone the whole index; now it only opens an overlay — the start queue still
+/// serializes that work.
+struct SlowOverlay {
     inner: Arc<dyn CodeIndex>,
     running: std::sync::atomic::AtomicUsize,
     most: std::sync::atomic::AtomicUsize,
-    /// How long each copy takes.
+    /// How long each overlay open takes.
     delay: Duration,
 }
 
 #[async_trait]
-impl CodeIndex for SlowClone {
+impl CodeIndex for SlowOverlay {
     async fn index_paths_at(
         &self,
         repo: &str,
@@ -549,19 +551,63 @@ impl CodeIndex for SlowClone {
     ) -> scholion_core::Result<()> {
         self.inner.set_scope_change(repo, scope, change).await
     }
-    async fn clone_scope(
+    async fn ensure_overlay(
         &self,
         repo: &str,
-        from: &str,
-        to: &str,
-        change: &ChangeId,
-    ) -> scholion_core::Result<bool> {
+        scope: &str,
+        main_at: &ChangeId,
+    ) -> scholion_core::Result<()> {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most.fetch_max(now, Ordering::SeqCst);
         tokio::time::sleep(self.delay).await;
-        let r = self.inner.clone_scope(repo, from, to, change).await;
+        let r = self.inner.ensure_overlay(repo, scope, main_at).await;
         self.running.fetch_sub(1, Ordering::SeqCst);
         r
+    }
+    async fn overlay_main_at(
+        &self,
+        repo: &str,
+        scope: &str,
+    ) -> scholion_core::Result<Option<ChangeId>> {
+        self.inner.overlay_main_at(repo, scope).await
+    }
+    async fn set_overlay_main_at(
+        &self,
+        repo: &str,
+        scope: &str,
+        main_at: &ChangeId,
+    ) -> scholion_core::Result<()> {
+        self.inner.set_overlay_main_at(repo, scope, main_at).await
+    }
+    async fn overlay_paths(&self, repo: &str, scope: &str) -> scholion_core::Result<Vec<String>> {
+        self.inner.overlay_paths(repo, scope).await
+    }
+    async fn upsert_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> scholion_core::Result<scholion_index::IndexStats> {
+        self.inner.upsert_overlay_paths(repo, scope, files).await
+    }
+    async fn tombstone_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        paths: &[String],
+    ) -> scholion_core::Result<()> {
+        self.inner.tombstone_overlay_paths(repo, scope, paths).await
+    }
+    async fn clear_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        paths: &[String],
+    ) -> scholion_core::Result<()> {
+        self.inner.clear_overlay_paths(repo, scope, paths).await
+    }
+    async fn clear_overlay(&self, repo: &str, scope: &str) -> scholion_core::Result<()> {
+        self.inner.clear_overlay(repo, scope).await
     }
     async fn list_code_chunks(
         &self,
@@ -646,11 +692,11 @@ impl CodeIndex for SlowClone {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
-    let slow: std::sync::Mutex<Option<Arc<SlowClone>>> = Default::default();
+async fn a_burst_of_starts_queues_for_overlay_opens_and_all_succeed() {
+    let slow: std::sync::Mutex<Option<Arc<SlowOverlay>>> = Default::default();
     let e = env_with_index(
         |inner| {
-            let s = Arc::new(SlowClone {
+            let s = Arc::new(SlowOverlay {
                 inner,
                 running: Default::default(),
                 most: Default::default(),
@@ -669,7 +715,10 @@ async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
     let started = join_all(names.iter().map(|(t, a)| start_as(&e, t, a))).await;
     assert_eq!(started.len(), 32);
     let most = slow.most.load(Ordering::SeqCst);
-    assert!(most <= 2, "{most} index copies ran at once; the limit is 2");
+    assert!(
+        most <= 2,
+        "{most} overlay opens ran at once; the limit is 2"
+    );
     assert!(most >= 1);
 }
 
@@ -677,7 +726,7 @@ async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
 async fn a_start_whose_client_leaves_while_queued_leaves_no_task_behind() {
     let e = env_with_index(
         |inner| {
-            Arc::new(SlowClone {
+            Arc::new(SlowOverlay {
                 inner,
                 running: Default::default(),
                 most: Default::default(),

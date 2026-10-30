@@ -6,9 +6,8 @@
 //! tree, symbol ids replaced by `path:qname`.
 //!
 //! The overlay is written by hand here (task-scope rows for the paths whose content differs from
-//! main, tombstones for paths the task deleted, a `scope_overlays` row): the overlay writes are
-//! Plan 7 Task 4. Overlay reads are Task 3; until then `overlay_reads_match_a_full_index` fails
-//! and is ignored. Run it with `cargo test -p scholion-index --test overlay_equiv -- --ignored`.
+//! main, tombstones for paths the task deleted, a `scope_overlays` row). Production writes live in
+//! the daemon (`init_task_overlay` / `update_overlay_changed` / `replace_task_overlay`).
 //!
 //! CI runs a fixed seed. A long run: `PROPTEST_CASES=500 PROPTEST_RNG_SEED=<n> cargo test ...`.
 
@@ -224,12 +223,6 @@ async fn write_overlay(
     task: &Tree,
 ) {
     idx.drop_scope(repo, scope).await.unwrap();
-    sqlx::query("DELETE FROM scope_overlays WHERE repo = $1 AND scope = $2")
-        .bind(repo)
-        .bind(scope)
-        .execute(pool)
-        .await
-        .unwrap();
     let differ: Vec<String> = task
         .iter()
         .filter(|(p, t)| main.get(*p) != Some(t))
@@ -481,7 +474,6 @@ fn two_full_indexes_of_a_tree_read_the_same() {
 }
 
 #[test]
-#[ignore = "overlay reads are Plan 7 Task 3"]
 fn overlay_reads_match_a_full_index() {
     run(true, 16);
 }

@@ -35,6 +35,9 @@ async fn drop_scope_removes_symbols_but_not_parse_cache_entries() {
     idx.set_scope_change("demo", "task-1", &ChangeId("h".into()))
         .await
         .unwrap();
+    idx.ensure_overlay("demo", "task-1", &ChangeId("h".into()))
+        .await
+        .unwrap();
     let chunks: i64 = sqlx::query_scalar("SELECT count(*) FROM code_chunks WHERE scope = 'task-1'")
         .fetch_one(&pool)
         .await
@@ -45,7 +48,13 @@ async fn drop_scope_removes_symbols_but_not_parse_cache_entries() {
 
     idx.drop_scope("demo", "task-1").await.unwrap();
 
-    for table in ["symbols", "index_files", "code_chunks", "index_scopes"] {
+    for table in [
+        "symbols",
+        "index_files",
+        "code_chunks",
+        "index_scopes",
+        "scope_overlays",
+    ] {
         let n = count(
             &pool,
             &format!("SELECT count(*) FROM {table} WHERE scope = 'task-1'"),

@@ -159,7 +159,7 @@ The overlay does not fix this one, so it lands first, on its own branch.
   After each step, build the reference index of H with full indexing in a fresh scope. Assert
   equal results for `symbols_in`, `resolve`, `search_symbols`, `search_code_lexical`,
   `neighbors` (1 and 2 hops) and `in_degree`, ids mapped to `(path, qname)`.
-- [x] It fails until Task 3 lands, so it is `#[ignore]`d; Task 3 removes the `ignore`. The
+- [x] It failed until Task 3 landed (`#[ignore]`d); Task 3 removed the `ignore`. The
   overlay is written by hand in the test (rows for differing paths, tombstones, a
   `scope_overlays` row) until Task 4's writes exist. A second test runs the same comparison
   between two full indexes of one tree, checking the harness itself. Both assert that the cases
@@ -167,20 +167,20 @@ The overlay does not fix this one, so it lands first, on its own branch.
 
 ### Task 3: Overlay reads
 
-- [ ] The filter for symbols, `resolve` and `search_symbols`.
-- [ ] Lexical: N and df corrections, then the score query over the view. Ties stay by path and line.
-- [ ] References: the edge union in `neighbors` and `in_degree`.
-- [ ] `to_task_scope` through the view.
-- [ ] The differential test passes for the read side on hand-built overlays.
+- [x] The filter for symbols, `resolve` and `search_symbols`.
+- [x] Lexical: N and df corrections, then the score query over the view. Ties stay by path and line.
+- [x] References: the edge union in `neighbors` and `in_degree`.
+- [x] `to_task_scope` through the view.
+- [x] The differential test passes for the read side on hand-built overlays.
 
 ### Task 4: Overlay writes; remove `clone_scope` from start
 
-- [ ] start, checkpoint, reconcile, sync, merge and abandon as in "Writes".
-- [ ] `clone_scope` stays only behind `#[cfg(test)]` or in the test util, for the differential
+- [x] start, checkpoint, reconcile, sync, merge and abandon as in "Writes".
+- [x] `clone_scope` stays only behind `#[cfg(test)]` or in the test util, for the differential
   test's reference. Remove it from the daemon.
-- [ ] API tests: a task started, edited, synced, merged and abandoned leaves no rows; a task idle
+- [x] API tests: a task started, edited, synced, merged and abandoned leaves no rows; a task idle
   while `main` merges reconciles on its next read; a task that undoes its edit has an empty O.
-- [ ] Full differential test green; `cargo test --workspace` green; goldens unchanged.
+- [x] Full differential test green; `cargo test --workspace` green; goldens unchanged.
 
 ### Task 5: Measure
 

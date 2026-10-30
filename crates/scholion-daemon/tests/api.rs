@@ -816,10 +816,10 @@ async fn concurrent_submit_only_one_wins() {
     assert_eq!(oks, 1, "{a:?} {b:?}");
 }
 
-// ---- task start copies main's index ----
+// ---- Plan 7: task start opens an overlay, does not copy main ----
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_task_started_from_a_copy_has_the_same_index_as_a_fresh_one() {
+async fn start_opens_an_empty_overlay_without_reading_the_repo() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let reads = Arc::new(AtomicUsize::new(0));
     let counter = reads.clone();
@@ -833,73 +833,47 @@ async fn a_task_started_from_a_copy_has_the_same_index_as_a_fresh_one() {
         |s| s,
     )
     .await;
-    let pool = e.store.pool().clone();
 
     reads.store(0, Ordering::SeqCst);
-    let copied = start_task(&e, "copied").await;
+    let t = start_task(&e, "overlay start").await;
     assert_eq!(
         reads.load(Ordering::SeqCst),
         0,
-        "start_task re-read the repo"
+        "start must not re-read the repo"
+    );
+    let slug = t["task"]["slug"].as_str().unwrap();
+    assert!(overlay_row(&e, slug).await.is_some());
+    assert!(overlay_paths(&e, slug).await.is_empty());
+    // the start pack still sees main's symbols through the empty overlay
+    let md = t["pack"]["markdown"].as_str().unwrap();
+    assert!(
+        md.contains("Greeter") || md.contains("format_name") || md.contains("app/"),
+        "{md}"
     );
 
-    // without main's record the task falls back to indexing from the VCS
-    sqlx::query("DELETE FROM index_scopes WHERE scope = 'main'")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let fresh = start_task(&e, "fresh").await;
-    assert!(reads.load(Ordering::SeqCst) > 0);
-
-    let symbols = |scope: String| {
-        let pool = pool.clone();
-        async move {
-            sqlx::query_as::<_, (String, String, String, i32, i32, Vec<String>)>(
-                "SELECT path, qname, signature, start_line, end_line, refs FROM symbols
-                 WHERE repo = 'demo' AND scope = $1 ORDER BY id",
-            )
-            .bind(scope)
-            .fetch_all(&pool)
-            .await
-            .unwrap()
-        }
-    };
-    let edges = |scope: String| {
-        let pool = pool.clone();
-        async move {
-            sqlx::query_as::<_, (String, String, f32)>(
-                "SELECT s.qname, d.qname, r.weight FROM symbol_refs r
-                 JOIN symbols s ON s.id = r.src JOIN symbols d ON d.id = r.dst
-                 WHERE s.repo = 'demo' AND s.scope = $1 ORDER BY 1, 2",
-            )
-            .bind(scope)
-            .fetch_all(&pool)
-            .await
-            .unwrap()
-        }
-    };
-    let slug = |t: &Value| t["task"]["slug"].as_str().unwrap().to_owned();
-    let got = symbols(slug(&copied)).await;
-    assert!(!got.is_empty());
-    assert_eq!(got, symbols(slug(&fresh)).await);
-    assert_eq!(edges(slug(&copied)).await, edges(slug(&fresh)).await);
-
-    // and a checkpoint on the copy re-indexes only what changed
-    edit_greeter(&e, &copied);
+    edit_greeter(&e, &t);
+    let before = reads.load(Ordering::SeqCst);
     let (status, body) = call(
         &e.app,
         "POST",
-        &format!("/v1/tasks/{}/checkpoint", id(&copied)),
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
         Some(json!({})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let after: Vec<String> = symbols(slug(&copied))
-        .await
-        .into_iter()
-        .map(|r| r.1)
-        .collect();
-    assert!(after.contains(&"Greeter.wave".to_owned()), "{after:?}");
+    assert!(
+        reads.load(Ordering::SeqCst) > before,
+        "checkpoint reads the changed path"
+    );
+    assert_eq!(overlay_paths(&e, slug).await, vec!["app/greeter.py"]);
+    let qnames: Vec<String> = sqlx::query_scalar(
+        "SELECT qname FROM symbols WHERE repo = 'demo' AND scope = $1 ORDER BY qname",
+    )
+    .bind(slug)
+    .fetch_all(e.store.pool())
+    .await
+    .unwrap();
+    assert!(qnames.iter().any(|q| q == "Greeter.wave"), "{qnames:?}");
 }
 
 // ---- Plan 3 Tasks 4-5: validate, review, merge, sync, undo ----
@@ -1737,28 +1711,32 @@ async fn merge_and_abandon_drop_the_task_scope_and_undo_restores_it() {
     let e = env().await;
     let t = ready_to_merge(&e, "Upper names", UPPER).await;
     let slug = t["task"]["slug"].as_str().unwrap().to_owned();
-    assert!(scope_symbols(&e, &slug).await > 0);
+    assert!(scope_symbols(&e, &slug).await > 0, "overlay holds the edit");
+    assert!(overlay_row(&e, &slug).await.is_some());
     let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(scope_symbols(&e, &slug).await, 0, "merged: scope dropped");
+    assert_eq!(scope_symbols(&e, &slug).await, 0, "merged: overlay dropped");
+    assert!(overlay_row(&e, &slug).await.is_none());
     assert!(scope_symbols(&e, "main").await > 0, "main untouched");
     let (status, body) = post(&e, &t, "undo", json!({"agent": "merger"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(
         scope_symbols(&e, &slug).await > 0,
-        "back in review: scope re-indexed"
+        "back in review: overlay rebuilt for the task's diff"
     );
+    assert!(overlay_row(&e, &slug).await.is_some());
 
     let a = start_task(&e, "Give up").await;
     let gone = a["task"]["slug"].as_str().unwrap().to_owned();
-    assert!(scope_symbols(&e, &gone).await > 0);
+    assert!(overlay_row(&e, &gone).await.is_some());
+    assert_eq!(scope_symbols(&e, &gone).await, 0, "start: O empty");
     let (status, body) = post(&e, &a, "abandon", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(
-        scope_symbols(&e, &gone).await,
-        0,
-        "abandoned: scope dropped"
+    assert!(
+        overlay_row(&e, &gone).await.is_none(),
+        "abandoned: overlay dropped"
     );
+    assert_eq!(scope_symbols(&e, &gone).await, 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1791,9 +1769,9 @@ async fn expand_rejects_items_from_another_repo() {
     )
     .await;
     let rec_id = format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8]);
+    // Task scopes are overlays: symbols live on main. Take a main symbol of the other repo.
     let their_sym: i64 =
-        sqlx::query_scalar("SELECT min(id) FROM symbols WHERE repo = 'other' AND scope = $1")
-            .bind(theirs["task"]["slug"].as_str().unwrap())
+        sqlx::query_scalar("SELECT min(id) FROM symbols WHERE repo = 'other' AND scope = 'main'")
             .fetch_one(e.store.pool())
             .await
             .unwrap();
@@ -3457,4 +3435,255 @@ async fn a_client_that_disconnects_does_not_stop_its_import() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+// ---- Plan 7 Task 4: overlay writes ----
+
+async fn overlay_paths(e: &Env, slug: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT path FROM index_files WHERE repo = 'demo' AND scope = $1 ORDER BY path",
+    )
+    .bind(slug)
+    .fetch_all(e.store.pool())
+    .await
+    .unwrap()
+}
+
+async fn overlay_row(e: &Env, slug: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT main_at FROM scope_overlays WHERE repo = 'demo' AND scope = $1")
+        .bind(slug)
+        .fetch_optional(e.store.pool())
+        .await
+        .unwrap()
+}
+
+async fn task_symbol_count(e: &Env, slug: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM symbols WHERE repo = 'demo' AND scope = $1")
+        .bind(slug)
+        .fetch_one(e.store.pool())
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_leaves_empty_overlay_and_no_cloned_symbols() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    let slug = t["task"]["slug"].as_str().unwrap();
+    assert!(overlay_row(&e, slug).await.is_some(), "scope_overlays row");
+    assert!(
+        overlay_paths(&e, slug).await.is_empty(),
+        "O empty when B = T"
+    );
+    assert_eq!(task_symbol_count(&e, slug).await, 0, "no clone_scope");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn checkpoint_puts_edits_in_overlay_and_undo_clears_them() {
+    let e = env().await;
+    let t = start_task(&e, "Improve greeting").await;
+    let slug = t["task"]["slug"].as_str().unwrap().to_owned();
+    edit_greeter(&e, &t);
+    let (status, cp) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    assert_eq!(overlay_paths(&e, &slug).await, vec!["app/greeter.py"]);
+    assert!(task_symbol_count(&e, &slug).await > 0);
+
+    // restore to main's content: path leaves O
+    let original = std::fs::read_to_string(e.src_path.join("app/greeter.py")).unwrap();
+    std::fs::write(ws_dir(&e, &t).join("app/greeter.py"), original).unwrap();
+    let (status, cp) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    assert!(
+        overlay_paths(&e, &slug).await.is_empty(),
+        "undo leaves empty O: {:?}",
+        overlay_paths(&e, &slug).await
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_task_reconciles_when_main_merges_before_next_read() {
+    let e = env().await;
+    let idle = start_task(&e, "Idle reader").await;
+    let idle_slug = idle["task"]["slug"].as_str().unwrap().to_owned();
+    assert!(overlay_paths(&e, &idle_slug).await.is_empty());
+
+    let editor = ready_to_merge(&e, "Upper names", UPPER).await;
+    let (status, body) = post(&e, &editor, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // before a read, idle O is still empty (reconcile is lazy)
+    assert!(overlay_paths(&e, &idle_slug).await.is_empty());
+
+    let (status, pack) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/context?budget=800&session=idle-1", id(&idle)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pack}");
+    let paths = overlay_paths(&e, &idle_slug).await;
+    assert_eq!(
+        paths,
+        vec!["app/util.py"],
+        "reconcile masks main's merge with H's old content"
+    );
+    // pack still serves format_name from the overlay (old title()), not main's upper()
+    let md = pack["markdown"].as_str().unwrap();
+    assert!(md.contains("format_name") || md.contains("util"), "{md}");
+}
+
+/// Bundle (and start pack) must reconcile under `lock_task` before reading the task view —
+/// same lazy path as context, not only GET …/context.
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_task_reconciles_before_bundle_read() {
+    let e = env().await;
+    let idle = start_task(&e, "Idle bundler").await;
+    let idle_slug = idle["task"]["slug"].as_str().unwrap().to_owned();
+
+    let editor = ready_to_merge(&e, "Upper names", UPPER).await;
+    let (status, body) = post(&e, &editor, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(overlay_paths(&e, &idle_slug).await.is_empty());
+
+    let (status, bundle) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/bundle?kind=pr&budget=2000", id(&idle)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        overlay_paths(&e, &idle_slug).await,
+        vec!["app/util.py"],
+        "bundle reconciles before in_degree / changed_symbols on the task view"
+    );
+}
+
+/// Start's pack must re-reconcile under `lock_task` after overlay init, so a main merge in the
+/// gap between init_task_overlay and pack build is not missed.
+#[tokio::test(flavor = "multi_thread")]
+async fn start_pack_reconciles_when_main_moves_after_overlay_init() {
+    use scholion_daemon::StartPackPause;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let pause = Arc::new(StartPackPause {
+        ready: tokio::sync::Notify::new(),
+        proceed: tokio::sync::Notify::new(),
+        armed: AtomicBool::new(false),
+    });
+    let pause_for_env = pause.clone();
+    let e = env_with(move |s| s.with_extension(pause_for_env)).await;
+
+    // setup without pausing (armed = false)
+    let editor = ready_to_merge(&e, "Upper names", UPPER).await;
+
+    pause.armed.store(true, Ordering::SeqCst);
+    let ready = pause.ready.notified();
+    let start = tokio::spawn({
+        let app = e.app.clone();
+        async move {
+            call(
+                &app,
+                "POST",
+                "/v1/tasks",
+                Some(json!({
+                    "repo": "demo",
+                    "title": "Started during merge",
+                    "goal": "Make hello louder",
+                    "agent": "claude",
+                    "session": "start-race",
+                })),
+            )
+            .await
+        }
+    });
+    ready.await;
+    let (status, body) = post(&e, &editor, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    pause.proceed.notify_waiters();
+
+    let (status, started) = start.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let slug = started["task"]["slug"].as_str().unwrap();
+    assert_eq!(
+        overlay_paths(&e, slug).await,
+        vec!["app/util.py"],
+        "start pack reconciles after main moved between overlay init and pack"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sync_rebuilds_overlay_as_diff_against_trunk() {
+    let e = env().await;
+    let first = ready_to_merge(&e, "Upper names", UPPER).await;
+    let second = start_task(&e, "Also touch greeter").await;
+    let slug = second["task"]["slug"].as_str().unwrap().to_owned();
+    edit_greeter(&e, &second);
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&second)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(overlay_paths(&e, &slug).await, vec!["app/greeter.py"]);
+
+    let (status, body) = post(&e, &first, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // sync onto trunk: O is only the task's remaining edit (greeter), not util
+    let (status, body) = post(&e, &second, "sync", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        overlay_paths(&e, &slug).await,
+        vec!["app/greeter.py"],
+        "sync replaces O with changed(T, H')"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn merge_and_abandon_drop_overlay_rows() {
+    let e = env().await;
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    let slug = t["task"]["slug"].as_str().unwrap().to_owned();
+    assert!(!overlay_paths(&e, &slug).await.is_empty());
+    assert!(overlay_row(&e, &slug).await.is_some());
+
+    let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(overlay_paths(&e, &slug).await.is_empty());
+    assert!(overlay_row(&e, &slug).await.is_none());
+    assert_eq!(task_symbol_count(&e, &slug).await, 0);
+
+    let abandoned = start_task(&e, "Abandon me").await;
+    let a_slug = abandoned["task"]["slug"].as_str().unwrap().to_owned();
+    edit_greeter(&e, &abandoned);
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&abandoned)),
+        Some(json!({})),
+    )
+    .await;
+    assert!(!overlay_paths(&e, &a_slug).await.is_empty());
+    let (status, body) = post(&e, &abandoned, "abandon", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(overlay_paths(&e, &a_slug).await.is_empty());
+    assert!(overlay_row(&e, &a_slug).await.is_none());
 }

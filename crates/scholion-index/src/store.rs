@@ -66,8 +66,9 @@ pub enum AnchorResolution {
     Stale,
 }
 
-/// What a read sees: one scope of a repo. A task's view will also see `main` through the task's
-/// overlay (Plan 7); until then it is the scope alone.
+/// What a read sees: one scope of a repo. When `scope_overlays` has a row for the task, the view
+/// is `main` plus the task's overlay (masked paths come from the overlay, the rest from `main`);
+/// otherwise it is the scope alone.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ScopeView {
     pub repo: String,
@@ -116,17 +117,31 @@ pub trait CodeIndex: Send + Sync {
     /// `remove_paths` on the scope clears it; whoever completes an index of one change records it.
     async fn scope_change(&self, repo: &str, scope: &str) -> Result<Option<ChangeId>>;
     async fn set_scope_change(&self, repo: &str, scope: &str, change: &ChangeId) -> Result<()>;
-    /// Copies the index of `from` into the empty scope `to` (new symbol ids, edges remapped,
-    /// chunks and file hashes copied; nothing enqueued for embedding) when `from` is recorded at
-    /// `change`, and records `to` at `change`. `Ok(false)`: `from` is not at `change` and nothing
-    /// was written. `to` already holding an index is `Invalid`.
-    async fn clone_scope(
+    /// Inserts `scope_overlays(repo, scope, main_at)` when missing. Does not touch overlay paths.
+    async fn ensure_overlay(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()>;
+    /// The `main_at` recorded for this overlay, if any.
+    async fn overlay_main_at(&self, repo: &str, scope: &str) -> Result<Option<ChangeId>>;
+    async fn set_overlay_main_at(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()>;
+    /// Paths currently in the overlay (including tombstones).
+    async fn overlay_paths(&self, repo: &str, scope: &str) -> Result<Vec<String>>;
+    /// Indexes `files` into the overlay: no embedding, no stored edges, clears any tombstone.
+    async fn upsert_overlay_paths(
         &self,
         repo: &str,
-        from: &str,
-        to: &str,
-        change: &ChangeId,
-    ) -> Result<bool>;
+        scope: &str,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<IndexStats>;
+    /// Marks paths deleted in the task tree: tombstone file rows, no symbols.
+    async fn tombstone_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        paths: &[String],
+    ) -> Result<()>;
+    /// Removes paths from the overlay entirely (task content matches `main`).
+    async fn clear_overlay_paths(&self, repo: &str, scope: &str, paths: &[String]) -> Result<()>;
+    /// Removes every overlay path row; keeps the `scope_overlays` row.
+    async fn clear_overlay(&self, repo: &str, scope: &str) -> Result<()>;
     async fn list_code_chunks(&self, repo: Option<&str>) -> Result<Vec<CodeChunk>>;
     async fn chunk_exists(&self, symbol_id: SymbolId) -> Result<bool>;
     async fn remove_paths(&self, repo: &str, scope: &str, paths: &[String]) -> Result<()>;
@@ -165,8 +180,9 @@ pub trait CodeIndex: Send + Sync {
     -> Result<HashMap<SymbolId, u32>>;
     /// The (repo, scope) a symbol belongs to, if it exists.
     async fn symbol_scope(&self, id: SymbolId) -> Result<Option<(String, String)>>;
-    /// Removes a whole scope (symbols, edges, chunks, file hashes, its recorded change) and
-    /// enqueues a vector delete per code chunk. The parse cache stays (`prune_parse_cache`).
+    /// Removes a whole scope (symbols, edges, chunks, file hashes, its overlay row and recorded
+    /// change) and enqueues a vector delete per code chunk. The parse cache stays
+    /// (`prune_parse_cache`).
     async fn drop_scope(&self, repo: &str, scope: &str) -> Result<()>;
     /// Deletes parse-cache entries whose content no scope holds any more; returns how many.
     async fn prune_parse_cache(&self) -> Result<u64>;
@@ -180,6 +196,366 @@ pub struct PgIndex {
 impl PgIndex {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Paths the overlay hides from `main`. `None` means no overlay row (or the scope is `main`):
+    /// callers keep today's scope-only SQL. `Some` (even empty) means the view is `main ∪ overlay`.
+    async fn overlay_mask(&self, view: &ScopeView) -> Result<Option<Vec<String>>> {
+        let (repo, scope) = view.parts();
+        if scope == "main" {
+            return Ok(None);
+        }
+        let has: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM scope_overlays WHERE repo = $1 AND scope = $2)",
+        )
+        .bind(repo)
+        .bind(scope)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(ierr)?;
+        if !has {
+            return Ok(None);
+        }
+        sqlx::query_scalar("SELECT path FROM index_files WHERE repo = $1 AND scope = $2")
+            .bind(repo)
+            .bind(scope)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)
+            .map(Some)
+    }
+
+    /// Test/reference helper: copies `from`'s full index into empty `to` (new symbol ids, edges
+    /// remapped, chunks and file hashes copied; nothing enqueued). Used by the differential
+    /// harness and `tests/clone.rs`. Production start uses overlays instead.
+    pub async fn clone_scope(
+        &self,
+        repo: &str,
+        from: &str,
+        to: &str,
+        change: &ChangeId,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await.map_err(ierr)?;
+        // every statement below sees the same version of `from`, even while it is being written
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await
+            .map_err(ierr)?;
+        let at: Option<String> =
+            sqlx::query_scalar("SELECT change_id FROM index_scopes WHERE repo = $1 AND scope = $2")
+                .bind(repo)
+                .bind(from)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(ierr)?;
+        if at.as_deref() != Some(change.0.as_str()) {
+            return Ok(false);
+        }
+        let occupied: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM index_files WHERE repo = $1 AND scope = $2)
+                 OR EXISTS (SELECT 1 FROM symbols WHERE repo = $1 AND scope = $2)",
+        )
+        .bind(repo)
+        .bind(to)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(ierr)?;
+        if occupied {
+            return Err(AvError::Invalid(format!(
+                "index scope {to} of {repo} already has an index"
+            )));
+        }
+        let task_id = task_id_for_scope(&mut tx, repo, to).await?;
+        // `(path, qname)` is unique per scope, so it maps each source symbol to its copy.
+        let statements = [
+            // source id order, so relative ids (and tie-breaks that use them) match a fresh index
+            "INSERT INTO symbols (repo, scope, path, qname, name, kind, signature, start_line,
+                                  end_line, refs)
+             SELECT repo, $3, path, qname, name, kind, signature, start_line, end_line, refs
+             FROM symbols WHERE repo = $1 AND scope = $2 ORDER BY id",
+            "INSERT INTO symbol_refs (src, dst, weight)
+             SELECT ns.id, nd.id, r.weight FROM symbol_refs r
+             JOIN symbols os ON os.id = r.src
+             JOIN symbols od ON od.id = r.dst
+             JOIN symbols ns ON ns.repo = $1 AND ns.scope = $3
+                            AND ns.path = os.path AND ns.qname = os.qname
+             JOIN symbols nd ON nd.repo = $1 AND nd.scope = $3
+                            AND nd.path = od.path AND nd.qname = od.qname
+             WHERE os.repo = $1 AND os.scope = $2",
+            "INSERT INTO code_chunks (symbol_id, repo, scope, path, task_id, change_id, text)
+             SELECT ns.id, c.repo, $3, c.path, $4, $5, c.text FROM code_chunks c
+             JOIN symbols os ON os.id = c.symbol_id
+             JOIN symbols ns ON ns.repo = $1 AND ns.scope = $3
+                            AND ns.path = os.path AND ns.qname = os.qname
+             WHERE os.repo = $1 AND os.scope = $2",
+            "INSERT INTO index_files (repo, scope, path, content_hash)
+             SELECT repo, $3, path, content_hash FROM index_files
+             WHERE repo = $1 AND scope = $2",
+            "INSERT INTO index_scopes (repo, scope, change_id) VALUES ($1, $3, $5)
+             ON CONFLICT (repo, scope) DO UPDATE SET change_id = EXCLUDED.change_id",
+        ];
+        for sql in statements {
+            // the same five parameters for each (a typed parameter a statement ignores is fine)
+            sqlx::query(sql)
+                .bind(repo)
+                .bind(from)
+                .bind(to)
+                .bind(task_id.map(|id| id.0))
+                .bind(&change.0)
+                .execute(&mut *tx)
+                .await
+                .map_err(ierr)?;
+        }
+        tx.commit().await.map_err(ierr)?;
+        Ok(true)
+    }
+
+    /// Indexes `files` into `(repo, scope)`. When `write_edges` is false (overlay writes), stored
+    /// `symbol_refs` are skipped — view neighbors compute edges 2 and 3 at read time.
+    async fn index_paths_inner(
+        &self,
+        repo: &str,
+        scope: &str,
+        change: Option<&ChangeId>,
+        embed: bool,
+        write_edges: bool,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<IndexStats> {
+        // A fixed number of statements per call, however many files and symbols: starting a task
+        // indexed the whole repo into its scope, so per-symbol round trips dominated.
+        let mut stats = IndexStats::default();
+        let mut tx = self.pool.begin().await.map_err(ierr)?;
+        forget_scope_change(&mut tx, repo, scope).await?;
+        let task_id = task_id_for_scope(&mut tx, repo, scope).await?;
+
+        // input order is kept (it decides symbol ids); a repeated path keeps its last content
+        let mut order: Vec<(String, Vec<u8>)> = Vec::with_capacity(files.len());
+        let mut pos: HashMap<String, usize> = HashMap::new();
+        for (path, bytes) in files {
+            if is_ignored(&path) {
+                stats.skipped += 1;
+            } else if let Some(&i) = pos.get(&path) {
+                order[i].1 = bytes;
+            } else {
+                pos.insert(path.clone(), order.len());
+                order.push((path, bytes));
+            }
+        }
+        let all_paths: Vec<&str> = order.iter().map(|(p, _)| p.as_str()).collect();
+        let existing: HashMap<String, String> = sqlx::query_as(
+            "SELECT path, content_hash FROM index_files
+             WHERE repo = $1 AND scope = $2 AND path = ANY($3) AND NOT deleted",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(&all_paths)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(ierr)?
+        .into_iter()
+        .collect();
+        let mut changed = vec![];
+        for (path, bytes) in order {
+            let (hash, key) = cache_key(&path, &bytes);
+            if existing.get(&path) == Some(&hash) {
+                stats.unchanged += 1;
+            } else {
+                changed.push((path, bytes, hash, key));
+            }
+        }
+        let keys: Vec<&str> = changed.iter().map(|(_, _, _, k)| k.as_str()).collect();
+        let mut cache: HashMap<String, Vec<Symbol>> =
+            sqlx::query_as::<_, (String, Json<Vec<Symbol>>)>(
+                "SELECT cache_key, symbols FROM parse_cache WHERE cache_key = ANY($1)",
+            )
+            .bind(&keys)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(ierr)?
+            .into_iter()
+            .map(|(k, Json(syms))| (k, syms))
+            .collect();
+
+        let mut new_cache: Vec<(String, serde_json::Value)> = vec![];
+        let mut parsed: Vec<(String, Vec<u8>, String, Vec<Symbol>)> = vec![];
+        for (path, bytes, hash, key) in changed {
+            let mut symbols = match cache.get(&key) {
+                Some(syms) => {
+                    stats.cached += 1;
+                    syms.clone()
+                }
+                None => match extract(&path, &bytes) {
+                    Ok(syms) => {
+                        stats.parsed += 1;
+                        new_cache.push((
+                            key.clone(),
+                            serde_json::to_value(&syms)
+                                .map_err(|e| AvError::Index(e.to_string()))?,
+                        ));
+                        cache.insert(key, syms.clone());
+                        syms
+                    }
+                    Err(_) => {
+                        stats.failed += 1; // the file keeps its previous symbols
+                        continue;
+                    }
+                },
+            };
+            for s in &mut symbols {
+                s.path = path.clone();
+            }
+            parsed.push((path, bytes, hash, symbols));
+        }
+        if !new_cache.is_empty() {
+            let (k, v): (Vec<String>, Vec<serde_json::Value>) = new_cache.into_iter().unzip();
+            sqlx::query(
+                "INSERT INTO parse_cache (cache_key, symbols)
+                 SELECT * FROM unnest($1::text[], $2::jsonb[]) ON CONFLICT DO NOTHING",
+            )
+            .bind(k)
+            .bind(v)
+            .execute(&mut *tx)
+            .await
+            .map_err(ierr)?;
+        }
+        if parsed.is_empty() {
+            tx.commit().await.map_err(ierr)?;
+            return Ok(stats);
+        }
+
+        let paths: Vec<&str> = parsed.iter().map(|(p, ..)| p.as_str()).collect();
+        let old: Vec<(i64, String, String)> = sqlx::query_as(
+            "DELETE FROM symbols WHERE repo = $1 AND scope = $2 AND path = ANY($3)
+             RETURNING id, name, path",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(&paths)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(ierr)?;
+        let mut touched_names: BTreeSet<String> = BTreeSet::new();
+        let mut outbox: Vec<NewOutbox> = vec![];
+        for (id, name, path) in old {
+            touched_names.insert(name);
+            // Deletes are enqueued even when embed is false, so a later embed cannot leave orphans.
+            let ctx = ChunkCtx {
+                repo,
+                task_id,
+                change,
+                path: &path,
+            };
+            outbox.push(symbol_outbox(&ctx, OutboxOp::Delete, id, None));
+        }
+
+        let syms: Vec<(&str, &Symbol)> = parsed
+            .iter()
+            .flat_map(|(p, _, _, ss)| ss.iter().map(move |s| (p.as_str(), s)))
+            .collect();
+        let last = |q: &str| q.rsplit('.').next().unwrap_or(q).to_owned();
+        let inserted: Vec<(i64, String, String)> = sqlx::query_as(
+            "INSERT INTO symbols (repo, scope, path, qname, name, kind, signature, start_line, end_line, refs)
+             SELECT $1, $2, u.path, u.qname, u.name, u.kind, u.signature, u.start_line, u.end_line,
+                    ARRAY(SELECT jsonb_array_elements_text(u.refs))
+             FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[],
+                         $9::int[], $10::jsonb[])
+                  WITH ORDINALITY AS u(path, qname, name, kind, signature, start_line, end_line,
+                                       refs, ord)
+             ORDER BY u.ord
+             ON CONFLICT (repo, scope, path, qname) DO NOTHING
+             RETURNING id, path, qname",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(syms.iter().map(|(p, _)| *p).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| s.qname.as_str()).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| last(&s.qname)).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| s.kind.as_str()).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| s.signature.as_str()).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| s.start_line as i32).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| s.end_line as i32).collect::<Vec<_>>())
+        .bind(syms.iter().map(|(_, s)| serde_json::json!(s.refs)).collect::<Vec<_>>())
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(ierr)?;
+
+        // A repeated qname in one file keeps its first symbol, as the per-row insert did.
+        let mut first: HashMap<(&str, &str), (&Symbol, &[u8])> = HashMap::new();
+        for (p, bytes, _, ss) in &parsed {
+            for s in ss {
+                first
+                    .entry((p.as_str(), s.qname.as_str()))
+                    .or_insert((s, bytes));
+            }
+        }
+        let mut rebuild: BTreeSet<i64> = BTreeSet::new();
+        let (mut chunk_ids, mut chunk_paths, mut chunk_texts) = (vec![], vec![], vec![]);
+        for (id, path, qname) in &inserted {
+            let (s, bytes) = first[&(path.as_str(), qname.as_str())];
+            rebuild.insert(*id);
+            touched_names.insert(last(qname));
+            let text = chunk_text(path, s, bytes);
+            if embed {
+                let ctx = ChunkCtx {
+                    repo,
+                    task_id,
+                    change,
+                    path,
+                };
+                outbox.push(symbol_outbox(
+                    &ctx,
+                    OutboxOp::Upsert,
+                    *id,
+                    Some(text.clone()),
+                ));
+            }
+            chunk_ids.push(*id);
+            chunk_paths.push(path.as_str());
+            chunk_texts.push(text);
+        }
+        sqlx::query(
+            "INSERT INTO code_chunks (symbol_id, repo, scope, path, task_id, change_id, text)
+             SELECT u.id, $1, $2, u.path, $3, $4, u.text
+             FROM unnest($5::bigint[], $6::text[], $7::text[]) AS u(id, path, text)",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(task_id.map(|id| id.0))
+        .bind(change.map(|c| c.0.clone()))
+        .bind(&chunk_ids)
+        .bind(&chunk_paths)
+        .bind(&chunk_texts)
+        .execute(&mut *tx)
+        .await
+        .map_err(ierr)?;
+        scholion_store::PgStore::enqueue_many(&mut *tx, &outbox)
+            .await
+            .map_err(|e| AvError::Index(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO index_files (repo, scope, path, content_hash, deleted)
+             SELECT $1, $2, u.path, u.hash, false FROM unnest($3::text[], $4::text[]) AS u(path, hash)
+             ON CONFLICT (repo, scope, path) DO UPDATE
+             SET content_hash = EXCLUDED.content_hash, deleted = false",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(&paths)
+        .bind(
+            parsed
+                .iter()
+                .map(|(_, _, h, _)| h.as_str())
+                .collect::<Vec<_>>(),
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(ierr)?;
+
+        if write_edges {
+            rebuild.extend(dependents_of(&mut tx, repo, scope, &touched_names).await?);
+            rebuild_edges(&mut tx, &rebuild.into_iter().collect::<Vec<_>>()).await?;
+        }
+        tx.commit().await.map_err(ierr)?;
+        Ok(stats)
     }
 }
 
@@ -388,238 +764,8 @@ impl CodeIndex for PgIndex {
         embed: bool,
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<IndexStats> {
-        // A fixed number of statements per call, however many files and symbols: starting a task
-        // indexes the whole repo into its scope, so per-symbol round trips dominated.
-        let mut stats = IndexStats::default();
-        let mut tx = self.pool.begin().await.map_err(ierr)?;
-        forget_scope_change(&mut tx, repo, scope).await?;
-        let task_id = task_id_for_scope(&mut tx, repo, scope).await?;
-
-        // input order is kept (it decides symbol ids); a repeated path keeps its last content
-        let mut order: Vec<(String, Vec<u8>)> = Vec::with_capacity(files.len());
-        let mut pos: HashMap<String, usize> = HashMap::new();
-        for (path, bytes) in files {
-            if is_ignored(&path) {
-                stats.skipped += 1;
-            } else if let Some(&i) = pos.get(&path) {
-                order[i].1 = bytes;
-            } else {
-                pos.insert(path.clone(), order.len());
-                order.push((path, bytes));
-            }
-        }
-        let all_paths: Vec<&str> = order.iter().map(|(p, _)| p.as_str()).collect();
-        let existing: HashMap<String, String> = sqlx::query_as(
-            "SELECT path, content_hash FROM index_files
-             WHERE repo = $1 AND scope = $2 AND path = ANY($3)",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(&all_paths)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(ierr)?
-        .into_iter()
-        .collect();
-        let mut changed = vec![];
-        for (path, bytes) in order {
-            let (hash, key) = cache_key(&path, &bytes);
-            if existing.get(&path) == Some(&hash) {
-                stats.unchanged += 1;
-            } else {
-                changed.push((path, bytes, hash, key));
-            }
-        }
-        let keys: Vec<&str> = changed.iter().map(|(_, _, _, k)| k.as_str()).collect();
-        let mut cache: HashMap<String, Vec<Symbol>> =
-            sqlx::query_as::<_, (String, Json<Vec<Symbol>>)>(
-                "SELECT cache_key, symbols FROM parse_cache WHERE cache_key = ANY($1)",
-            )
-            .bind(&keys)
-            .fetch_all(&mut *tx)
+        self.index_paths_inner(repo, scope, change, embed, true, files)
             .await
-            .map_err(ierr)?
-            .into_iter()
-            .map(|(k, Json(syms))| (k, syms))
-            .collect();
-
-        let mut new_cache: Vec<(String, serde_json::Value)> = vec![];
-        let mut parsed: Vec<(String, Vec<u8>, String, Vec<Symbol>)> = vec![];
-        for (path, bytes, hash, key) in changed {
-            let mut symbols = match cache.get(&key) {
-                Some(syms) => {
-                    stats.cached += 1;
-                    syms.clone()
-                }
-                None => match extract(&path, &bytes) {
-                    Ok(syms) => {
-                        stats.parsed += 1;
-                        new_cache.push((
-                            key.clone(),
-                            serde_json::to_value(&syms)
-                                .map_err(|e| AvError::Index(e.to_string()))?,
-                        ));
-                        cache.insert(key, syms.clone());
-                        syms
-                    }
-                    Err(_) => {
-                        stats.failed += 1; // the file keeps its previous symbols
-                        continue;
-                    }
-                },
-            };
-            for s in &mut symbols {
-                s.path = path.clone();
-            }
-            parsed.push((path, bytes, hash, symbols));
-        }
-        if !new_cache.is_empty() {
-            let (k, v): (Vec<String>, Vec<serde_json::Value>) = new_cache.into_iter().unzip();
-            sqlx::query(
-                "INSERT INTO parse_cache (cache_key, symbols)
-                 SELECT * FROM unnest($1::text[], $2::jsonb[]) ON CONFLICT DO NOTHING",
-            )
-            .bind(k)
-            .bind(v)
-            .execute(&mut *tx)
-            .await
-            .map_err(ierr)?;
-        }
-        if parsed.is_empty() {
-            tx.commit().await.map_err(ierr)?;
-            return Ok(stats);
-        }
-
-        let paths: Vec<&str> = parsed.iter().map(|(p, ..)| p.as_str()).collect();
-        let old: Vec<(i64, String, String)> = sqlx::query_as(
-            "DELETE FROM symbols WHERE repo = $1 AND scope = $2 AND path = ANY($3)
-             RETURNING id, name, path",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(&paths)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(ierr)?;
-        let mut touched_names: BTreeSet<String> = BTreeSet::new();
-        let mut outbox: Vec<NewOutbox> = vec![];
-        for (id, name, path) in old {
-            touched_names.insert(name);
-            // Deletes are enqueued even when embed is false, so a later embed cannot leave orphans.
-            let ctx = ChunkCtx {
-                repo,
-                task_id,
-                change,
-                path: &path,
-            };
-            outbox.push(symbol_outbox(&ctx, OutboxOp::Delete, id, None));
-        }
-
-        let syms: Vec<(&str, &Symbol)> = parsed
-            .iter()
-            .flat_map(|(p, _, _, ss)| ss.iter().map(move |s| (p.as_str(), s)))
-            .collect();
-        let last = |q: &str| q.rsplit('.').next().unwrap_or(q).to_owned();
-        let inserted: Vec<(i64, String, String)> = sqlx::query_as(
-            "INSERT INTO symbols (repo, scope, path, qname, name, kind, signature, start_line, end_line, refs)
-             SELECT $1, $2, u.path, u.qname, u.name, u.kind, u.signature, u.start_line, u.end_line,
-                    ARRAY(SELECT jsonb_array_elements_text(u.refs))
-             FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int[],
-                         $9::int[], $10::jsonb[])
-                  WITH ORDINALITY AS u(path, qname, name, kind, signature, start_line, end_line,
-                                       refs, ord)
-             ORDER BY u.ord
-             ON CONFLICT (repo, scope, path, qname) DO NOTHING
-             RETURNING id, path, qname",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(syms.iter().map(|(p, _)| *p).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| s.qname.as_str()).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| last(&s.qname)).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| s.kind.as_str()).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| s.signature.as_str()).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| s.start_line as i32).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| s.end_line as i32).collect::<Vec<_>>())
-        .bind(syms.iter().map(|(_, s)| serde_json::json!(s.refs)).collect::<Vec<_>>())
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(ierr)?;
-
-        // A repeated qname in one file keeps its first symbol, as the per-row insert did.
-        let mut first: HashMap<(&str, &str), (&Symbol, &[u8])> = HashMap::new();
-        for (p, bytes, _, ss) in &parsed {
-            for s in ss {
-                first
-                    .entry((p.as_str(), s.qname.as_str()))
-                    .or_insert((s, bytes));
-            }
-        }
-        let mut rebuild: BTreeSet<i64> = BTreeSet::new();
-        let (mut chunk_ids, mut chunk_paths, mut chunk_texts) = (vec![], vec![], vec![]);
-        for (id, path, qname) in &inserted {
-            let (s, bytes) = first[&(path.as_str(), qname.as_str())];
-            rebuild.insert(*id);
-            touched_names.insert(last(qname));
-            let text = chunk_text(path, s, bytes);
-            if embed {
-                let ctx = ChunkCtx {
-                    repo,
-                    task_id,
-                    change,
-                    path,
-                };
-                outbox.push(symbol_outbox(
-                    &ctx,
-                    OutboxOp::Upsert,
-                    *id,
-                    Some(text.clone()),
-                ));
-            }
-            chunk_ids.push(*id);
-            chunk_paths.push(path.as_str());
-            chunk_texts.push(text);
-        }
-        sqlx::query(
-            "INSERT INTO code_chunks (symbol_id, repo, scope, path, task_id, change_id, text)
-             SELECT u.id, $1, $2, u.path, $3, $4, u.text
-             FROM unnest($5::bigint[], $6::text[], $7::text[]) AS u(id, path, text)",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(task_id.map(|id| id.0))
-        .bind(change.map(|c| c.0.clone()))
-        .bind(&chunk_ids)
-        .bind(&chunk_paths)
-        .bind(&chunk_texts)
-        .execute(&mut *tx)
-        .await
-        .map_err(ierr)?;
-        scholion_store::PgStore::enqueue_many(&mut *tx, &outbox)
-            .await
-            .map_err(|e| AvError::Index(e.to_string()))?;
-        sqlx::query(
-            "INSERT INTO index_files (repo, scope, path, content_hash)
-             SELECT $1, $2, u.path, u.hash FROM unnest($3::text[], $4::text[]) AS u(path, hash)
-             ON CONFLICT (repo, scope, path) DO UPDATE SET content_hash = EXCLUDED.content_hash",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(&paths)
-        .bind(
-            parsed
-                .iter()
-                .map(|(_, _, h, _)| h.as_str())
-                .collect::<Vec<_>>(),
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(ierr)?;
-
-        rebuild.extend(dependents_of(&mut tx, repo, scope, &touched_names).await?);
-        rebuild_edges(&mut tx, &rebuild.into_iter().collect::<Vec<_>>()).await?;
-        tx.commit().await.map_err(ierr)?;
-        Ok(stats)
     }
 
     async fn scope_change(&self, repo: &str, scope: &str) -> Result<Option<ChangeId>> {
@@ -647,86 +793,132 @@ impl CodeIndex for PgIndex {
         Ok(())
     }
 
-    async fn clone_scope(
-        &self,
-        repo: &str,
-        from: &str,
-        to: &str,
-        change: &ChangeId,
-    ) -> Result<bool> {
-        let mut tx = self.pool.begin().await.map_err(ierr)?;
-        // every statement below sees the same version of `from`, even while it is being written
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *tx)
-            .await
-            .map_err(ierr)?;
-        let at: Option<String> =
-            sqlx::query_scalar("SELECT change_id FROM index_scopes WHERE repo = $1 AND scope = $2")
-                .bind(repo)
-                .bind(from)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(ierr)?;
-        if at.as_deref() != Some(change.0.as_str()) {
-            return Ok(false);
+    async fn ensure_overlay(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()> {
+        if scope == "main" {
+            return Err(AvError::Invalid("main never has an overlay".into()));
         }
-        let occupied: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM index_files WHERE repo = $1 AND scope = $2)
-                 OR EXISTS (SELECT 1 FROM symbols WHERE repo = $1 AND scope = $2)",
+        sqlx::query(
+            "INSERT INTO scope_overlays (repo, scope, main_at) VALUES ($1, $2, $3)
+             ON CONFLICT (repo, scope) DO NOTHING",
         )
         .bind(repo)
-        .bind(to)
-        .fetch_one(&mut *tx)
+        .bind(scope)
+        .bind(&main_at.0)
+        .execute(&self.pool)
         .await
         .map_err(ierr)?;
-        if occupied {
-            return Err(AvError::Invalid(format!(
-                "index scope {to} of {repo} already has an index"
-            )));
-        }
-        let task_id = task_id_for_scope(&mut tx, repo, to).await?;
-        // `(path, qname)` is unique per scope, so it maps each source symbol to its copy.
-        let statements = [
-            // source id order, so relative ids (and tie-breaks that use them) match a fresh index
-            "INSERT INTO symbols (repo, scope, path, qname, name, kind, signature, start_line,
-                                  end_line, refs)
-             SELECT repo, $3, path, qname, name, kind, signature, start_line, end_line, refs
-             FROM symbols WHERE repo = $1 AND scope = $2 ORDER BY id",
-            "INSERT INTO symbol_refs (src, dst, weight)
-             SELECT ns.id, nd.id, r.weight FROM symbol_refs r
-             JOIN symbols os ON os.id = r.src
-             JOIN symbols od ON od.id = r.dst
-             JOIN symbols ns ON ns.repo = $1 AND ns.scope = $3
-                            AND ns.path = os.path AND ns.qname = os.qname
-             JOIN symbols nd ON nd.repo = $1 AND nd.scope = $3
-                            AND nd.path = od.path AND nd.qname = od.qname
-             WHERE os.repo = $1 AND os.scope = $2",
-            "INSERT INTO code_chunks (symbol_id, repo, scope, path, task_id, change_id, text)
-             SELECT ns.id, c.repo, $3, c.path, $4, $5, c.text FROM code_chunks c
-             JOIN symbols os ON os.id = c.symbol_id
-             JOIN symbols ns ON ns.repo = $1 AND ns.scope = $3
-                            AND ns.path = os.path AND ns.qname = os.qname
-             WHERE os.repo = $1 AND os.scope = $2",
-            "INSERT INTO index_files (repo, scope, path, content_hash)
-             SELECT repo, $3, path, content_hash FROM index_files
-             WHERE repo = $1 AND scope = $2",
-            "INSERT INTO index_scopes (repo, scope, change_id) VALUES ($1, $3, $5)
-             ON CONFLICT (repo, scope) DO UPDATE SET change_id = EXCLUDED.change_id",
-        ];
-        for sql in statements {
-            // the same five parameters for each (a typed parameter a statement ignores is fine)
-            sqlx::query(sql)
+        Ok(())
+    }
+
+    async fn overlay_main_at(&self, repo: &str, scope: &str) -> Result<Option<ChangeId>> {
+        let at: Option<String> =
+            sqlx::query_scalar("SELECT main_at FROM scope_overlays WHERE repo = $1 AND scope = $2")
                 .bind(repo)
-                .bind(from)
-                .bind(to)
-                .bind(task_id.map(|id| id.0))
-                .bind(&change.0)
-                .execute(&mut *tx)
+                .bind(scope)
+                .fetch_optional(&self.pool)
                 .await
                 .map_err(ierr)?;
+        Ok(at.map(ChangeId))
+    }
+
+    async fn set_overlay_main_at(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()> {
+        let n =
+            sqlx::query("UPDATE scope_overlays SET main_at = $3 WHERE repo = $1 AND scope = $2")
+                .bind(repo)
+                .bind(scope)
+                .bind(&main_at.0)
+                .execute(&self.pool)
+                .await
+                .map_err(ierr)?
+                .rows_affected();
+        if n == 0 {
+            return Err(AvError::Invalid(format!("no overlay for {repo}/{scope}")));
         }
-        tx.commit().await.map_err(ierr)?;
-        Ok(true)
+        Ok(())
+    }
+
+    async fn overlay_paths(&self, repo: &str, scope: &str) -> Result<Vec<String>> {
+        sqlx::query_scalar(
+            "SELECT path FROM index_files WHERE repo = $1 AND scope = $2 ORDER BY path",
+        )
+        .bind(repo)
+        .bind(scope)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(ierr)
+    }
+
+    async fn upsert_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<IndexStats> {
+        self.index_paths_inner(repo, scope, None, false, false, files)
+            .await
+    }
+
+    async fn tombstone_overlay_paths(
+        &self,
+        repo: &str,
+        scope: &str,
+        paths: &[String],
+    ) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self.pool.begin().await.map_err(ierr)?;
+        forget_scope_change(&mut tx, repo, scope).await?;
+        let task_id = task_id_for_scope(&mut tx, repo, scope).await?;
+        let removed = sqlx::query(
+            "DELETE FROM symbols WHERE repo = $1 AND scope = $2 AND path = ANY($3) RETURNING id, path",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(paths)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(ierr)?;
+        for r in &removed {
+            let id: i64 = r.try_get("id").map_err(ierr)?;
+            let path: String = r.try_get("path").map_err(ierr)?;
+            let ctx = ChunkCtx {
+                repo,
+                task_id,
+                change: None,
+                path: &path,
+            };
+            enqueue_symbol(&mut tx, &ctx, OutboxOp::Delete, id, None).await?;
+        }
+        sqlx::query(
+            "INSERT INTO index_files (repo, scope, path, content_hash, deleted)
+             SELECT $1, $2, p, '', true FROM unnest($3::text[]) AS p
+             ON CONFLICT (repo, scope, path) DO UPDATE
+             SET content_hash = '', deleted = true",
+        )
+        .bind(repo)
+        .bind(scope)
+        .bind(paths)
+        .execute(&mut *tx)
+        .await
+        .map_err(ierr)?;
+        tx.commit().await.map_err(ierr)
+    }
+
+    async fn clear_overlay_paths(&self, repo: &str, scope: &str, paths: &[String]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        // Same as remove_paths: drop symbols and file rows so the path leaves O.
+        self.remove_paths(repo, scope, paths).await
+    }
+
+    async fn clear_overlay(&self, repo: &str, scope: &str) -> Result<()> {
+        let paths = self.overlay_paths(repo, scope).await?;
+        if !paths.is_empty() {
+            self.remove_paths(repo, scope, &paths).await?;
+        }
+        Ok(())
     }
 
     async fn list_code_chunks(&self, repo: Option<&str>) -> Result<Vec<CodeChunk>> {
@@ -805,15 +997,35 @@ impl CodeIndex for PgIndex {
 
     async fn symbols_in(&self, view: &ScopeView, path: &str) -> Result<Vec<IndexedSymbol>> {
         let (repo, scope) = view.parts();
-        let rows = sqlx::query(&format!(
-            "SELECT {SYMBOL_COLS} FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 ORDER BY start_line, id"
-        ))
-        .bind(repo)
-        .bind(scope)
-        .bind(path)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        let rows = match self.overlay_mask(view).await? {
+            None => {
+                sqlx::query(&format!(
+                    "SELECT {SYMBOL_COLS} FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 ORDER BY start_line, id"
+                ))
+                .bind(repo)
+                .bind(scope)
+                .bind(path)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+            Some(masked) => {
+                sqlx::query(&format!(
+                    "SELECT {SYMBOL_COLS} FROM symbols
+                     WHERE repo = $1 AND path = $3 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($4)))
+                     )
+                     ORDER BY start_line, id"
+                ))
+                .bind(repo)
+                .bind(scope)
+                .bind(path)
+                .bind(&masked)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+        };
         rows.iter().map(symbol_from_row).collect()
     }
 
@@ -840,20 +1052,44 @@ impl CodeIndex for PgIndex {
             return Ok(vec![]);
         }
         // position() is a literal substring test, so '%' and '_' in the query need no escaping.
-        let rows = sqlx::query(&format!(
-            "SELECT {SYMBOL_COLS} FROM symbols
-             WHERE repo = $1 AND scope = $2
-               AND (position(lower($3) in lower(qname)) > 0 OR position(lower($3) in lower(path)) > 0)
-             ORDER BY (lower(qname) = lower($3)) DESC, path COLLATE \"C\", start_line, id
-             LIMIT $4"
-        ))
-        .bind(repo)
-        .bind(scope)
-        .bind(query.trim())
-        .bind(limit as i64)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        let q = query.trim();
+        let rows = match self.overlay_mask(view).await? {
+            None => {
+                sqlx::query(&format!(
+                    "SELECT {SYMBOL_COLS} FROM symbols
+                     WHERE repo = $1 AND scope = $2
+                       AND (position(lower($3) in lower(qname)) > 0 OR position(lower($3) in lower(path)) > 0)
+                     ORDER BY (lower(qname) = lower($3)) DESC, path COLLATE \"C\", start_line, id
+                     LIMIT $4"
+                ))
+                .bind(repo)
+                .bind(scope)
+                .bind(q)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+            Some(masked) => {
+                sqlx::query(&format!(
+                    "SELECT {SYMBOL_COLS} FROM symbols
+                     WHERE repo = $1 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($4)))
+                     )
+                       AND (position(lower($3) in lower(qname)) > 0 OR position(lower($3) in lower(path)) > 0)
+                     ORDER BY (lower(qname) = lower($3)) DESC, path COLLATE \"C\", start_line, id
+                     LIMIT $5"
+                ))
+                .bind(repo)
+                .bind(scope)
+                .bind(q)
+                .bind(&masked)
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+        };
         rows.iter().map(symbol_from_row).collect()
     }
 
@@ -867,30 +1103,93 @@ impl CodeIndex for PgIndex {
         if terms.is_empty() || limit == 0 {
             return Ok(vec![]);
         }
-        let (n, avgdl): (i64, Option<f64>) = sqlx::query_as(
-            "SELECT count(*), avg(length(tsv))::float8 FROM code_chunks WHERE repo = $1 AND scope = $2",
-        )
-        .bind(repo)
-        .bind(scope)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(ierr)?;
-        let avgdl = avgdl.unwrap_or(1.0).max(1.0);
+        let mask = self.overlay_mask(view).await?;
+        let (n, avgdl) = match &mask {
+            None => {
+                let (n, avgdl): (i64, Option<f64>) = sqlx::query_as(
+                    "SELECT count(*), avg(length(tsv))::float8 FROM code_chunks WHERE repo = $1 AND scope = $2",
+                )
+                .bind(repo)
+                .bind(scope)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(ierr)?;
+                (n, avgdl.unwrap_or(1.0).max(1.0))
+            }
+            // N and avgdl: main's totals, minus masked paths, plus the overlay (small queries over O).
+            Some(masked) => {
+                let (n_main, sum_main): (i64, f64) = sqlx::query_as(
+                    "SELECT count(*), coalesce(sum(length(tsv)), 0)::float8
+                     FROM code_chunks WHERE repo = $1 AND scope = 'main'",
+                )
+                .bind(repo)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(ierr)?;
+                let (n_mask, sum_mask): (i64, f64) = sqlx::query_as(
+                    "SELECT count(*), coalesce(sum(length(tsv)), 0)::float8
+                     FROM code_chunks WHERE repo = $1 AND scope = 'main' AND path = ANY($2)",
+                )
+                .bind(repo)
+                .bind(masked)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(ierr)?;
+                let (n_over, sum_over): (i64, f64) = sqlx::query_as(
+                    "SELECT count(*), coalesce(sum(length(tsv)), 0)::float8
+                     FROM code_chunks WHERE repo = $1 AND scope = $2",
+                )
+                .bind(repo)
+                .bind(scope)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(ierr)?;
+                let n = n_main - n_mask + n_over;
+                let avgdl = if n > 0 {
+                    ((sum_main - sum_mask + sum_over) / n as f64).max(1.0)
+                } else {
+                    1.0
+                };
+                (n, avgdl)
+            }
+        };
         if n == 0 {
             return Ok(vec![]);
         }
-        let dfs: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT t, count(c.symbol_id) FROM unnest($3::text[]) AS t
-             LEFT JOIN code_chunks c ON c.repo = $1 AND c.scope = $2
-                                    AND c.tsv @@ plainto_tsquery('simple', t)
-             GROUP BY t",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(terms)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        let dfs: Vec<(String, i64)> = match &mask {
+            None => sqlx::query_as(
+                "SELECT t, count(c.symbol_id) FROM unnest($3::text[]) AS t
+                     LEFT JOIN code_chunks c ON c.repo = $1 AND c.scope = $2
+                                            AND c.tsv @@ plainto_tsquery('simple', t)
+                     GROUP BY t",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(terms)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+            Some(masked) => sqlx::query_as(
+                "SELECT t,
+                        (SELECT count(*) FROM code_chunks c
+                         WHERE c.repo = $1 AND c.scope = 'main'
+                           AND c.tsv @@ plainto_tsquery('simple', t))
+                      - (SELECT count(*) FROM code_chunks c
+                         WHERE c.repo = $1 AND c.scope = 'main' AND c.path = ANY($3)
+                           AND c.tsv @@ plainto_tsquery('simple', t))
+                      + (SELECT count(*) FROM code_chunks c
+                         WHERE c.repo = $1 AND c.scope = $2
+                           AND c.tsv @@ plainto_tsquery('simple', t))
+                 FROM unnest($4::text[]) AS t",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(masked)
+            .bind(terms)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+        };
         let (mut words, mut idfs) = (vec![], vec![]);
         for (t, df) in dfs.into_iter().filter(|(_, df)| *df > 0) {
             let (n, df) = (n as f64, df as f64);
@@ -902,32 +1201,64 @@ impl CodeIndex for PgIndex {
         }
         // Okapi BM25 (k1 = 1.2, b = 0.75, as E1's bm25_symbols): a term's count in the chunk is the
         // number of its positions, and a chunk's length is its number of distinct words (cheap,
-        // and the same measure for the average). Ties go by position: ids follow indexing order.
-        let rows: Vec<(i64, f64)> = sqlx::query_as(
-            "SELECT c.symbol_id,
-                    sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)))::float8 AS s
-             FROM code_chunks c
-             JOIN symbols y ON y.id = c.symbol_id
-             JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
-               ON c.tsv @@ plainto_tsquery('simple', w.t)
-             CROSS JOIN LATERAL (
-                 SELECT coalesce(sum(coalesce(array_length(u.positions, 1), 1)), 1)::float8 AS n
-                 FROM unnest(c.tsv) AS u WHERE u.lexeme = w.t
-             ) AS tf
-             WHERE c.repo = $1 AND c.scope = $2
-             GROUP BY c.symbol_id, c.path, y.start_line
-             ORDER BY s DESC, c.path COLLATE \"C\", y.start_line, c.symbol_id
-             LIMIT $5",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(&words)
-        .bind(&idfs)
-        .bind(limit as i64)
-        .bind(avgdl)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        // and the same measure for the average). Ties go by path, line, then id.
+        let rows: Vec<(i64, f64)> = match &mask {
+            None => {
+                sqlx::query_as(
+                    "SELECT c.symbol_id,
+                            sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)))::float8 AS s
+                     FROM code_chunks c
+                     JOIN symbols y ON y.id = c.symbol_id
+                     JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
+                       ON c.tsv @@ plainto_tsquery('simple', w.t)
+                     CROSS JOIN LATERAL (
+                         SELECT coalesce(sum(coalesce(array_length(u.positions, 1), 1)), 1)::float8 AS n
+                         FROM unnest(c.tsv) AS u WHERE u.lexeme = w.t
+                     ) AS tf
+                     WHERE c.repo = $1 AND c.scope = $2
+                     GROUP BY c.symbol_id, c.path, y.start_line
+                     ORDER BY s DESC, c.path COLLATE \"C\", y.start_line, c.symbol_id
+                     LIMIT $5",
+                )
+                .bind(repo)
+                .bind(scope)
+                .bind(&words)
+                .bind(&idfs)
+                .bind(limit as i64)
+                .bind(avgdl)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+            Some(masked) => sqlx::query_as(
+                "SELECT c.symbol_id,
+                        sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $7)))::float8 AS s
+                 FROM code_chunks c
+                 JOIN symbols y ON y.id = c.symbol_id
+                 JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
+                   ON c.tsv @@ plainto_tsquery('simple', w.t)
+                 CROSS JOIN LATERAL (
+                     SELECT coalesce(sum(coalesce(array_length(u.positions, 1), 1)), 1)::float8 AS n
+                     FROM unnest(c.tsv) AS u WHERE u.lexeme = w.t
+                 ) AS tf
+                 WHERE c.repo = $1 AND (
+                     c.scope = $2 OR (c.scope = 'main' AND NOT (c.path = ANY($6)))
+                 )
+                 GROUP BY c.symbol_id, c.path, y.start_line
+                 ORDER BY s DESC, c.path COLLATE \"C\", y.start_line, c.symbol_id
+                 LIMIT $5",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(&words)
+            .bind(&idfs)
+            .bind(limit as i64)
+            .bind(masked)
+            .bind(avgdl)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+        };
         Ok(rows
             .into_iter()
             .map(|(id, s)| (SymbolId(id), s as f32))
@@ -936,30 +1267,68 @@ impl CodeIndex for PgIndex {
 
     async fn resolve(&self, view: &ScopeView, anchor: &Anchor) -> Result<AnchorResolution> {
         let (repo, scope) = view.parts();
+        let mask = self.overlay_mask(view).await?;
         if let Some(q) = &anchor.symbol {
-            let hit: Option<(i64,)> =
-                sqlx::query_as("SELECT id FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 AND qname = $4")
+            let hit: Option<(i64,)> = match &mask {
+                None => {
+                    sqlx::query_as(
+                        "SELECT id FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 AND qname = $4",
+                    )
                     .bind(repo)
                     .bind(scope)
                     .bind(&anchor.path)
                     .bind(q)
                     .fetch_optional(&self.pool)
                     .await
-                    .map_err(ierr)?;
+                    .map_err(ierr)?
+                }
+                Some(masked) => sqlx::query_as(
+                    "SELECT id FROM symbols
+                     WHERE repo = $1 AND path = $3 AND qname = $4 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($5)))
+                     )",
+                )
+                .bind(repo)
+                .bind(scope)
+                .bind(&anchor.path)
+                .bind(q)
+                .bind(masked)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(ierr)?,
+            };
             if let Some((id,)) = hit {
                 return Ok(AnchorResolution::Symbol(SymbolId(id)));
             }
         }
-        let file: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM index_files WHERE repo = $1 AND scope = $2 AND path = $3",
-        )
-        .bind(repo)
-        .bind(scope)
-        .bind(&anchor.path)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(ierr)?;
-        Ok(match file {
+        // PathOnly only when a non-deleted file row is in the view; a tombstone means the path is
+        // gone in H → Stale.
+        let alive: Option<(i32,)> = match &mask {
+            None => sqlx::query_as(
+                "SELECT 1 FROM index_files
+                     WHERE repo = $1 AND scope = $2 AND path = $3 AND NOT deleted",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(&anchor.path)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(ierr)?,
+            Some(masked) => sqlx::query_as(
+                "SELECT 1 FROM index_files
+                 WHERE repo = $1 AND path = $3 AND NOT deleted AND (
+                     scope = $2 OR (scope = 'main' AND NOT (path = ANY($4)))
+                 )",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(&anchor.path)
+            .bind(masked)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(ierr)?,
+        };
+        Ok(match alive {
             Some(_) => AnchorResolution::PathOnly(anchor.path.clone()),
             None => AnchorResolution::Stale,
         })
@@ -967,7 +1336,7 @@ impl CodeIndex for PgIndex {
 
     async fn neighbors(
         &self,
-        _view: &ScopeView,
+        view: &ScopeView,
         seeds: &[SymbolId],
         hops: u8,
     ) -> Result<Vec<(SymbolId, u8)>> {
@@ -976,22 +1345,78 @@ impl CodeIndex for PgIndex {
         }
         let seed_ids: Vec<i64> = seeds.iter().map(|s| s.0).collect();
         let limit = hops.min(MAX_HOPS) as i32;
-        // Edges only ever connect symbols of the same (repo, scope), so seeds' scope is preserved.
-        let rows = sqlx::query(
-            "WITH RECURSIVE walk(id, hops) AS (
-                 SELECT unnest($1::bigint[]), 0
-               UNION
-                 SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
-                 FROM walk w JOIN symbol_refs e ON (e.src = w.id OR e.dst = w.id)
-                 WHERE w.hops < $2
-             )
-             SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($1)) GROUP BY id ORDER BY MIN(hops), id",
-        )
-        .bind(&seed_ids)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        let (repo, scope) = view.parts();
+        let rows = match self.overlay_mask(view).await? {
+            None => {
+                // Edges only ever connect symbols of the same (repo, scope).
+                sqlx::query(
+                    "WITH RECURSIVE walk(id, hops) AS (
+                         SELECT unnest($1::bigint[]), 0
+                       UNION
+                         SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
+                         FROM walk w JOIN symbol_refs e ON (e.src = w.id OR e.dst = w.id)
+                         WHERE w.hops < $2
+                     )
+                     SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($1))
+                     GROUP BY id ORDER BY MIN(hops), id",
+                )
+                .bind(&seed_ids)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+            }
+            // View edges: (1) main→main stored refs with both ends unmasked; (2) out-edges of
+            // overlay symbols via their refs[]; (3) in-edges onto overlay symbols via view refs.
+            // Stored task-scope symbol_refs are ignored (Task 4 stops writing them).
+            Some(masked) => sqlx::query(
+                "WITH RECURSIVE
+                 view_syms AS (
+                     SELECT id, name, refs, path, scope FROM symbols
+                     WHERE repo = $1 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($3)))
+                     )
+                 ),
+                 overlay_syms AS (
+                     SELECT id, name, refs FROM view_syms WHERE scope = $2
+                 ),
+                 edges AS (
+                     SELECT e.src, e.dst
+                     FROM symbol_refs e
+                     JOIN symbols s ON s.id = e.src
+                     JOIN symbols d ON d.id = e.dst
+                     WHERE s.repo = $1 AND d.repo = $1
+                       AND s.scope = 'main' AND d.scope = 'main'
+                       AND NOT (s.path = ANY($3)) AND NOT (d.path = ANY($3))
+                     UNION
+                     SELECT o.id, v.id
+                     FROM overlay_syms o
+                     CROSS JOIN LATERAL unnest(o.refs) AS r(name)
+                     JOIN view_syms v ON v.name = r.name AND v.id <> o.id
+                     UNION
+                     SELECT v.id, o.id
+                     FROM overlay_syms o
+                     JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id
+                 ),
+                 walk(id, hops) AS (
+                     SELECT unnest($4::bigint[]), 0
+                   UNION
+                     SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
+                     FROM walk w JOIN edges e ON (e.src = w.id OR e.dst = w.id)
+                     WHERE w.hops < $5
+                 )
+                 SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($4))
+                 GROUP BY id ORDER BY MIN(hops), id",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(&masked)
+            .bind(&seed_ids)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+        };
         rows.iter()
             .map(|r| {
                 Ok((
@@ -1038,7 +1463,7 @@ impl CodeIndex for PgIndex {
             .await
             .map_err(|e| AvError::Index(e.to_string()))?;
         // edges and chunks go with their symbols (ON DELETE CASCADE)
-        for table in ["symbols", "index_files"] {
+        for table in ["symbols", "index_files", "scope_overlays"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE repo = $1 AND scope = $2"
             ))
@@ -1065,20 +1490,61 @@ impl CodeIndex for PgIndex {
 
     async fn in_degree(
         &self,
-        _view: &ScopeView,
+        view: &ScopeView,
         ids: &[SymbolId],
     ) -> Result<HashMap<SymbolId, u32>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
         let ids: Vec<i64> = ids.iter().map(|s| s.0).collect();
-        let rows: Vec<(i64, i64)> = sqlx::query_as(
-            "SELECT dst, count(*) FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst",
-        )
-        .bind(&ids)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ierr)?;
+        let (repo, scope) = view.parts();
+        let rows: Vec<(i64, i64)> = match self.overlay_mask(view).await? {
+            None => sqlx::query_as(
+                "SELECT dst, count(*) FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst",
+            )
+            .bind(&ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+            Some(masked) => sqlx::query_as(
+                "WITH
+                 view_syms AS (
+                     SELECT id, name, refs, path, scope FROM symbols
+                     WHERE repo = $1 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($3)))
+                     )
+                 ),
+                 overlay_syms AS (
+                     SELECT id, name, refs FROM view_syms WHERE scope = $2
+                 ),
+                 edges AS (
+                     SELECT e.src, e.dst
+                     FROM symbol_refs e
+                     JOIN symbols s ON s.id = e.src
+                     JOIN symbols d ON d.id = e.dst
+                     WHERE s.repo = $1 AND d.repo = $1
+                       AND s.scope = 'main' AND d.scope = 'main'
+                       AND NOT (s.path = ANY($3)) AND NOT (d.path = ANY($3))
+                     UNION
+                     SELECT o.id, v.id
+                     FROM overlay_syms o
+                     CROSS JOIN LATERAL unnest(o.refs) AS r(name)
+                     JOIN view_syms v ON v.name = r.name AND v.id <> o.id
+                     UNION
+                     SELECT v.id, o.id
+                     FROM overlay_syms o
+                     JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id
+                 )
+                 SELECT dst, count(*) FROM edges WHERE dst = ANY($4) GROUP BY dst",
+            )
+            .bind(repo)
+            .bind(scope)
+            .bind(&masked)
+            .bind(&ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?,
+        };
         Ok(rows
             .into_iter()
             .map(|(id, n)| (SymbolId(id), n as u32))

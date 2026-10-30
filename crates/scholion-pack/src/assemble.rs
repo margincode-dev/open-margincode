@@ -1091,9 +1091,9 @@ async fn merge_hits(
     Ok(())
 }
 
-/// Code hits from `main` carry `main`'s symbol ids, but a task's pack works in the task's own scope.
-/// Map each such hit to the task-scope symbol with the same path and qname, so one function never
-/// appears twice under two ids; drop the hit when the task no longer has that symbol.
+/// Code hits from `main` carry `main`'s symbol ids. Map each through the task's view: an unmasked
+/// path keeps the main symbol (same id in the view); a masked path maps to the overlay symbol of
+/// the same qname, or the hit is dropped when the overlay has no such symbol (tombstone / rename).
 async fn to_task_scope(
     d: &Deps<'_>,
     task: &Task,
@@ -1117,6 +1117,7 @@ async fn to_task_scope(
         .into_iter()
         .map(|s| (s.id, s))
         .collect();
+    let view = ScopeView::new(&task.repo, &task.slug);
     let mut by_path: HashMap<String, HashMap<String, SymbolId>> = HashMap::new();
     let mut out = Vec::with_capacity(hits.len());
     for mut hit in hits {
@@ -1129,10 +1130,7 @@ async fn to_task_scope(
         };
         let path = &main.symbol.path;
         if !by_path.contains_key(path) {
-            let syms = d
-                .index
-                .symbols_in(&ScopeView::new(&task.repo, &task.slug), path)
-                .await?;
+            let syms = d.index.symbols_in(&view, path).await?;
             by_path.insert(
                 path.clone(),
                 syms.into_iter().map(|s| (s.symbol.qname, s.id)).collect(),

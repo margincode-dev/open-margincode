@@ -25,10 +25,9 @@ No request failed: no `pool timed out` in the daemon log, where the earlier run 
 - **The queue moves the limit, it does not remove it.** At 100 agents the last start would wait
   about 100 / 4 × 13 s ≈ 20 minutes. The bench client (and the CLI) give up on a request after
   600 s (300 s for the CLI), so that run would lose starts again, this time to client timeouts.
-  Writing this up found that such a start, given up while queued, left an open task with no
-  workspace behind; the start-queue-cancel change fixes that (the wait now comes before anything
-  is written). It was not run. The real fix is to stop
-  copying: Plan 7's overlay index, where a start writes nothing to the index.
+  It was not run. The real fix is to stop copying: Plan 7's overlay index, where a start writes
+  nothing to the index. (Writing this up found that a start given up while queued left an open
+  task with no workspace behind; #27 fixes that: the wait now comes before anything is written.)
 - Lowering each start's cost is the only lever left for Community; raising the limit (more
   concurrent copies) brings back the contention E2 measured (copies slow each other down) and the
   pool exhaustion.

@@ -1,0 +1,381 @@
+{
+  "repo": "tokio",
+  "files": 890,
+  "code_files": 814,
+  "indexed_files": 814,
+  "import_s": 58.239130378,
+  "latency": {
+    "checkpoint": {
+      "n": 20,
+      "p50_ms": 3266.758502,
+      "p95_ms": 13501.697686,
+      "max_ms": 15455.425072
+    },
+    "checkpoint_again": {
+      "n": 20,
+      "p50_ms": 2827.426509,
+      "p95_ms": 11029.25983,
+      "max_ms": 12929.478344
+    },
+    "context": {
+      "n": 60,
+      "p50_ms": 94.051777,
+      "p95_ms": 172.73241000000002,
+      "max_ms": 496.862925
+    },
+    "start": {
+      "n": 20,
+      "p50_ms": 13458.145884,
+      "p95_ms": 14118.524485,
+      "max_ms": 14435.24089
+    },
+    "why": {
+      "n": 20,
+      "p50_ms": 3.358549,
+      "p95_ms": 6.803878999999999,
+      "max_ms": 7.002604
+    },
+    "why_cached": {
+      "n": 20,
+      "p50_ms": 1.6572900000000002,
+      "p95_ms": 3.0485249999999997,
+      "max_ms": 3.0939219999999996
+    }
+  },
+  "levels": [
+    {
+      "agents": 1,
+      "merged": 1,
+      "wall_s": 15.31394391,
+      "merges_per_s": 0.06529996491282695,
+      "ops": {
+        "checkpoint": {
+          "n": 1,
+          "p50_ms": 9.059641000000001,
+          "p95_ms": 9.059641000000001,
+          "max_ms": 9.059641000000001
+        },
+        "context": {
+          "n": 1,
+          "p50_ms": 70.10560000000001,
+          "p95_ms": 70.10560000000001,
+          "max_ms": 70.10560000000001
+        },
+        "merge": {
+          "n": 1,
+          "p50_ms": 1163.9044059999999,
+          "p95_ms": 1163.9044059999999,
+          "max_ms": 1163.9044059999999
+        },
+        "record": {
+          "n": 1,
+          "p50_ms": 21.200364999999998,
+          "p95_ms": 21.200364999999998,
+          "max_ms": 21.200364999999998
+        },
+        "review": {
+          "n": 1,
+          "p50_ms": 5.362654,
+          "p95_ms": 5.362654,
+          "max_ms": 5.362654
+        },
+        "start": {
+          "n": 1,
+          "p50_ms": 14019.889669,
+          "p95_ms": 14019.889669,
+          "max_ms": 14019.889669
+        },
+        "submit": {
+          "n": 1,
+          "p50_ms": 14.894088,
+          "p95_ms": 14.894088,
+          "max_ms": 14.894088
+        },
+        "validate": {
+          "n": 1,
+          "p50_ms": 9.184642,
+          "p95_ms": 9.184642,
+          "max_ms": 9.184642
+        }
+      },
+      "errors": []
+    },
+    {
+      "agents": 8,
+      "merged": 8,
+      "wall_s": 127.376191908,
+      "merges_per_s": 0.06280608550283996,
+      "ops": {
+        "checkpoint": {
+          "n": 8,
+          "p50_ms": 8.853067,
+          "p95_ms": 36.177738,
+          "max_ms": 36.177738
+        },
+        "context": {
+          "n": 8,
+          "p50_ms": 125.30876199999999,
+          "p95_ms": 292.753637,
+          "max_ms": 292.753637
+        },
+        "merge": {
+          "n": 8,
+          "p50_ms": 5813.315029,
+          "p95_ms": 11797.267861,
+          "max_ms": 11797.267861
+        },
+        "record": {
+          "n": 8,
+          "p50_ms": 54.641613,
+          "p95_ms": 199.850166,
+          "max_ms": 199.850166
+        },
+        "review": {
+          "n": 8,
+          "p50_ms": 6.911,
+          "p95_ms": 35.092833,
+          "max_ms": 35.092833
+        },
+        "start": {
+          "n": 8,
+          "p50_ms": 113499.567574,
+          "p95_ms": 118859.162463,
+          "max_ms": 118859.162463
+        },
+        "submit": {
+          "n": 8,
+          "p50_ms": 18.626599000000002,
+          "p95_ms": 46.927545,
+          "max_ms": 46.927545
+        },
+        "validate": {
+          "n": 8,
+          "p50_ms": 13.560049,
+          "p95_ms": 43.580453,
+          "max_ms": 43.580453
+        }
+      },
+      "errors": []
+    },
+    {
+      "agents": 32,
+      "merged": 16,
+      "wall_s": 299.648952737,
+      "merges_per_s": 0.053395814848861155,
+      "ops": {
+        "checkpoint": {
+          "n": 16,
+          "p50_ms": 19.532407000000003,
+          "p95_ms": 48.532163000000004,
+          "max_ms": 48.532163000000004
+        },
+        "context": {
+          "n": 16,
+          "p50_ms": 432.216759,
+          "p95_ms": 661.550801,
+          "max_ms": 661.550801
+        },
+        "merge": {
+          "n": 16,
+          "p50_ms": 20442.192173,
+          "p95_ms": 28757.430383,
+          "max_ms": 28757.430383
+        },
+        "record": {
+          "n": 16,
+          "p50_ms": 71.299228,
+          "p95_ms": 135.888299,
+          "max_ms": 135.888299
+        },
+        "review": {
+          "n": 16,
+          "p50_ms": 14.110453,
+          "p95_ms": 43.707131000000004,
+          "max_ms": 43.707131000000004
+        },
+        "start": {
+          "n": 16,
+          "p50_ms": 265095.81120899995,
+          "p95_ms": 270637.774744,
+          "max_ms": 270637.774744
+        },
+        "submit": {
+          "n": 16,
+          "p50_ms": 29.081564,
+          "p95_ms": 82.96729599999999,
+          "max_ms": 82.96729599999999
+        },
+        "validate": {
+          "n": 16,
+          "p50_ms": 18.247363,
+          "p95_ms": 71.912911,
+          "max_ms": 71.912911
+        }
+      },
+      "errors": [
+        "agent 26: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 15: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 25: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 20: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 30: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 31: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 23: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 24: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 22: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 29: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 16: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 1: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 28: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 8: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 7: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 18: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}"
+      ]
+    },
+    {
+      "agents": 100,
+      "merged": 17,
+      "wall_s": 328.995461319,
+      "merges_per_s": 0.051672445363969595,
+      "ops": {
+        "checkpoint": {
+          "n": 17,
+          "p50_ms": 30.277179,
+          "p95_ms": 76.23728100000001,
+          "max_ms": 76.23728100000001
+        },
+        "context": {
+          "n": 17,
+          "p50_ms": 447.56013900000005,
+          "p95_ms": 1199.636912,
+          "max_ms": 1199.636912
+        },
+        "merge": {
+          "n": 17,
+          "p50_ms": 27734.042032,
+          "p95_ms": 42542.006513,
+          "max_ms": 42542.006513
+        },
+        "record": {
+          "n": 17,
+          "p50_ms": 81.462623,
+          "p95_ms": 403.449366,
+          "max_ms": 403.449366
+        },
+        "review": {
+          "n": 17,
+          "p50_ms": 18.429589999999997,
+          "p95_ms": 56.410402,
+          "max_ms": 56.410402
+        },
+        "start": {
+          "n": 17,
+          "p50_ms": 271188.145435,
+          "p95_ms": 302631.98865200003,
+          "max_ms": 302631.98865200003
+        },
+        "submit": {
+          "n": 17,
+          "p50_ms": 39.690503,
+          "p95_ms": 246.888888,
+          "max_ms": 246.888888
+        },
+        "validate": {
+          "n": 17,
+          "p50_ms": 33.777671000000005,
+          "p95_ms": 208.791979,
+          "max_ms": 208.791979
+        }
+      },
+      "errors": [
+        "agent 89: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 57: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 25: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 75: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 32: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 76: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 37: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 74: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 68: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 93: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 54: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 66: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 69: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 55: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 85: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 96: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 98: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 94: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 5: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 70: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 14: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 73: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 58: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 60: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 67: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 71: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 61: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 59: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 79: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 62: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 65: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 63: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 64: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 72: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 81: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 36: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 42: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 3: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 77: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 6: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 82: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 20: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 51: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 83: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 80: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 86: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 90: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 97: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 30: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 95: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 91: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 78: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 92: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 84: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 99: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 38: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 43: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 12: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 52: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 87: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 45: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 49: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 53: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 88: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 24: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 41: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 4: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 39: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 11: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 7: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 29: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 31: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 44: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 33: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 27: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 47: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 50: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 46: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 19: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 26: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 1: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 13: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}",
+        "agent 8: start: daemon answered 500: {\"error\":\"index error: pool timed out while waiting for an open connection\"}"
+      ]
+    }
+  ],
+  "daemon_rss_kb": 527140,
+  "daemon_peak_rss_kb": 589300,
+  "database_mb": 11220.12404537201,
+  "workspaces": 161,
+  "workspaces_mb": 1406.6328125
+}

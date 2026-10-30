@@ -1,0 +1,122 @@
+{
+  "repo": "django",
+  "files": 7094,
+  "code_files": 2939,
+  "indexed_files": 2939,
+  "import_s": 128.707048375,
+  "latency": {
+    "checkpoint": {
+      "n": 3,
+      "p50_ms": 205.040828,
+      "p95_ms": 6892.601772,
+      "max_ms": 6892.601772
+    },
+    "checkpoint_again": {
+      "n": 3,
+      "p50_ms": 181.64742999999999,
+      "p95_ms": 6361.034275999999,
+      "max_ms": 6361.034275999999
+    },
+    "context": {
+      "n": 9,
+      "p50_ms": 267.829105,
+      "p95_ms": 316.84714,
+      "max_ms": 316.84714
+    },
+    "start": {
+      "n": 3,
+      "p50_ms": 24455.132681,
+      "p95_ms": 24977.040557,
+      "max_ms": 24977.040557
+    },
+    "why": {
+      "n": 3,
+      "p50_ms": 3.629725,
+      "p95_ms": 4.441238,
+      "max_ms": 4.441238
+    },
+    "why_cached": {
+      "n": 3,
+      "p50_ms": 1.651335,
+      "p95_ms": 1.786824,
+      "max_ms": 1.786824
+    }
+  },
+  "levels": [
+    {
+      "agents": 1,
+      "merged": 1,
+      "wall_s": 28.231920512,
+      "merges_per_s": 0.0354208988217769,
+      "ops": {
+        "checkpoint": {
+          "n": 1,
+          "p50_ms": 26.932184000000003,
+          "p95_ms": 26.932184000000003,
+          "max_ms": 26.932184000000003
+        },
+        "context": {
+          "n": 1,
+          "p50_ms": 160.852516,
+          "p95_ms": 160.852516,
+          "max_ms": 160.852516
+        },
+        "merge": {
+          "n": 1,
+          "p50_ms": 2654.922957,
+          "p95_ms": 2654.922957,
+          "max_ms": 2654.922957
+        },
+        "record": {
+          "n": 1,
+          "p50_ms": 93.922358,
+          "p95_ms": 93.922358,
+          "max_ms": 93.922358
+        },
+        "review": {
+          "n": 1,
+          "p50_ms": 4.997075,
+          "p95_ms": 4.997075,
+          "max_ms": 4.997075
+        },
+        "start": {
+          "n": 1,
+          "p50_ms": 25220.451853,
+          "p95_ms": 25220.451853,
+          "max_ms": 25220.451853
+        },
+        "submit": {
+          "n": 1,
+          "p50_ms": 40.383669,
+          "p95_ms": 40.383669,
+          "max_ms": 40.383669
+        },
+        "validate": {
+          "n": 1,
+          "p50_ms": 29.091979000000002,
+          "p95_ms": 29.091979000000002,
+          "max_ms": 29.091979000000002
+        }
+      },
+      "errors": []
+    },
+    {
+      "agents": 4,
+      "merged": 0,
+      "wall_s": 612.586204494,
+      "merges_per_s": 0.0,
+      "ops": {},
+      "errors": [
+        "agent 1: start: daemon at http://127.0.0.1:7431 unreachable: http://127.0.0.1:7431/v1/tasks: Network Error: Network Error: Error encountered in a header: timed out reading response",
+        "agent 0: start: daemon at http://127.0.0.1:7431 unreachable: http://127.0.0.1:7431/v1/tasks: Network Error: Network Error: Error encountered in the status line: timed out reading response",
+        "agent 3: start: daemon at http://127.0.0.1:7431 unreachable: http://127.0.0.1:7431/v1/tasks: Network Error: Network Error: Error encountered in the status line: timed out reading response",
+        "agent 2: start: daemon at http://127.0.0.1:7431 unreachable: http://127.0.0.1:7431/v1/tasks: Network Error: Network Error: Error encountered in the status line: timed out reading response"
+      ]
+    }
+  ],
+  "daemon_rss_kb": 281564,
+  "daemon_peak_rss_kb": 281564,
+  "database_mb": 2259.3115453720093,
+  "workspaces": 8,
+  "workspaces_mb": 587.3046875
+}

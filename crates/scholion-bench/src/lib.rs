@@ -12,6 +12,7 @@ pub mod orchestrate;
 pub mod report;
 pub mod retrieval;
 pub mod runner;
+pub mod scale;
 pub mod spec;
 pub mod stats;
 

@@ -11,6 +11,7 @@ use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
 use scholion_bench::retrieval::{self, RetrievalArgs};
 use scholion_bench::runner::{Arm, Daemon, RunConfig};
+use scholion_bench::scale::{self, ScaleArgs};
 use scholion_bench::spec::{TaskSpec, check_spec, check_warnings, load_spec_with_root, spec_files};
 
 #[derive(Parser)]
@@ -175,6 +176,41 @@ enum Cmd {
         /// into the same daemon: measures a new packer without importing and embedding again.
         #[arg(long)]
         reuse_run: Option<String>,
+    },
+    /// Scale and latency (Plan 6, E2): import one repo into a bench daemon, time packs,
+    /// checkpoints and `why`, then run whole tasks with many agents at once. No agent, no money.
+    Scale {
+        /// The clone to import.
+        repo: PathBuf,
+        /// Its name in the daemon [default: the directory name].
+        #[arg(long)]
+        name: Option<String>,
+        /// The clone's path as the daemon sees it [default: REPO].
+        #[arg(long)]
+        git_source: Option<String>,
+        /// The daemon (a bench daemon, never your real one).
+        #[arg(long, env = "AV_BENCH_URL")]
+        url: String,
+        #[arg(long, env = "AV_TOKEN", hide_env_values = true)]
+        token: Option<String>,
+        /// Results directory (scale.json, report.md).
+        #[arg(long)]
+        out: PathBuf,
+        /// Agents at once, one run per value.
+        #[arg(long, value_delimiter = ',', default_value = "1,8,32,100")]
+        agents: Vec<usize>,
+        /// Tasks for the one-at-a-time latencies.
+        #[arg(long, default_value_t = 20)]
+        samples: usize,
+        /// Context packs per latency task.
+        #[arg(long, default_value_t = 3)]
+        reps: usize,
+        /// The daemon's process id, to read its memory.
+        #[arg(long)]
+        daemon_pid: Option<u32>,
+        /// The daemon's database, to read its size with psql.
+        #[arg(long)]
+        database_url: Option<String>,
     },
     /// Mine retrieval tasks from a repo's history (small commits to non-test source files).
     Mine {
@@ -532,6 +568,40 @@ fn main() -> ExitCode {
                 reuse_run,
             };
             retrieval::run(&tasks, daemon.as_ref(), &args)?;
+            println!("report: {}", args.out.join("report.md").display());
+            Ok(0)
+        })(),
+        Cmd::Scale {
+            repo,
+            name,
+            git_source,
+            url,
+            token,
+            out,
+            agents,
+            samples,
+            reps,
+            daemon_pid,
+            database_url,
+        } => (|| {
+            let repo = expand(&repo);
+            let daemon = Daemon::new(&url, token.as_deref());
+            daemon.preflight()?;
+            let args = ScaleArgs {
+                name: name.unwrap_or_else(|| {
+                    repo.file_name()
+                        .map_or("repo".into(), |n| n.to_string_lossy().into_owned())
+                }),
+                git_source: git_source.unwrap_or_else(|| repo.display().to_string()),
+                repo,
+                out: expand(&out),
+                agents,
+                samples,
+                reps,
+                daemon_pid,
+                database_url,
+            };
+            scale::run(&daemon, &args)?;
             println!("report: {}", args.out.join("report.md").display());
             Ok(0)
         })(),

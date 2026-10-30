@@ -220,10 +220,12 @@ pub fn scrubbed_copy(repo: &Path, rev: &str, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// E4: each relay note becomes an empty commit by the earlier agent on top of the base, its
-/// summary the subject and its body the message, so `git log` carries what that agent learned.
+/// E4: each non-noise relay note becomes an empty commit by the earlier agent on top of the
+/// base, its summary the subject and its body the message, so `git log` carries what that
+/// agent learned. Noise notes (E4-at-scale filler) skip this: they still land in `NOTES.md`
+/// and as av records.
 pub fn relay_commits(dest: &Path, notes: &[RelayNote]) -> Result<()> {
-    for n in notes {
+    for n in notes.iter().filter(|n| !n.noise) {
         let mut args = vec![
             "-c",
             "user.name=agent-a",

@@ -464,6 +464,63 @@ fn the_notes_arm_also_gets_every_note_in_notes_md() {
     assert_eq!(Arm::parse("notes").unwrap(), Arm::Notes);
 }
 
+const RELAY_NOTES_WITH_NOISE: &str = r#"
+[[note]]
+pair = "calc-add"
+kind = "attempt"
+path = "calc.py"
+symbol = "add"
+summary = "Swapping the operands of the subtraction does not fix add(): b - a is still a subtraction."
+body = "Tried it first; the sign flips but the sum is still wrong."
+
+[[note]]
+pair = "noise-0001"
+kind = "note"
+path = "other.py"
+symbol = "helper"
+summary = "helper is not thread-safe; each worker needs its own instance."
+body = "Documented after a flake under pytest-xdist."
+noise = true
+"#;
+
+#[test]
+fn noise_notes_fill_notes_md_but_skip_git_commits() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES_WITH_NOISE).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+    assert_eq!(f.spec.relay_notes.len(), 2);
+    assert!(f.spec.relay_notes.iter().any(|n| n.noise));
+
+    let o = run_session(&f.spec, Arm::Notes, 1, "rn", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let notes = std::fs::read_to_string(ws.join("NOTES.md")).unwrap();
+    assert!(notes.contains("Swapping the operands"), "{notes}");
+    assert!(
+        notes.contains("not thread-safe"),
+        "noise in NOTES.md: {notes}"
+    );
+    let log = log_messages(&ws);
+    assert!(log.contains("Swapping the operands"), "{log}");
+    assert!(
+        !log.contains("not thread-safe"),
+        "noise must not be its own commit: {log}"
+    );
+    assert_eq!(
+        git(&ws, &["rev-list", "--all", "--count"]),
+        "3",
+        "base + signal commit + NOTES.md commit (no noise commit)"
+    );
+}
+
 #[test]
 fn the_cold_arm_gets_nothing_the_earlier_agent_learned() {
     let _g = serial();

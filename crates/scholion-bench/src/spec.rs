@@ -92,7 +92,7 @@ pub struct DeadEnd {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelayNote {
-    /// The task that needs it.
+    /// The task that needs it. Noise notes use a pair no task selects (e.g. `noise-0042`).
     pub pair: String,
     /// A record kind: `attempt` (a dead end) or `decision`.
     pub kind: String,
@@ -104,6 +104,11 @@ pub struct RelayNote {
     pub summary: String,
     #[serde(default)]
     pub body: String,
+    /// Irrelevant filler for E4-at-scale: still written into `NOTES.md` and seeded as av
+    /// records, but not as its own empty git commit (so setup stays cheap and the baseline
+    /// `git log` channel is unchanged).
+    #[serde(default)]
+    pub noise: bool,
 }
 
 #[derive(Deserialize)]

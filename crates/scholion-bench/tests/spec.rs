@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use scholion_bench::spec::{check_spec, check_warnings, load_spec};
+use std::path::Path;
 use tempfile::TempDir;
 
 fn write_spec(dir: &TempDir, text: &str) -> std::path::PathBuf {
@@ -257,5 +258,28 @@ fn check_warns_about_a_missing_path_prepend_dir_but_does_not_fail() {
     assert!(
         text.contains("path_prepend") && text.contains(&missing.display().to_string()),
         "{text}"
+    );
+}
+
+#[test]
+fn e4_scale_pool_has_ten_signal_notes_and_hundreds_of_noise() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/tasks-relay-scale");
+    let s = load_spec(&root.join("quote-split.toml")).unwrap();
+    assert_eq!(s.relay_notes.len(), 300, "10 signal + 290 noise");
+    let signal: Vec<_> = s.relay_notes.iter().filter(|n| !n.noise).collect();
+    let noise: Vec<_> = s.relay_notes.iter().filter(|n| n.noise).collect();
+    assert_eq!(signal.len(), 10);
+    assert_eq!(noise.len(), 290);
+    assert!(
+        signal.iter().any(|n| n.pair == "quote-split"),
+        "this task's lesson is in the pool"
+    );
+    assert!(
+        noise.iter().all(|n| n.pair.starts_with("noise-")),
+        "noise pairs are reserved names"
+    );
+    assert!(
+        signal.iter().all(|n| n.summary.chars().count() <= 200)
+            && noise.iter().all(|n| n.summary.chars().count() <= 200)
     );
 }

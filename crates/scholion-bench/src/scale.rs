@@ -399,11 +399,8 @@ pub fn run(d: &Daemon, a: &ScaleArgs) -> Result<ScaleReport> {
         code.len()
     );
     let t = Instant::now();
-    let imported = d.post(
-        "/v1/repos",
-        json!({"name": a.name, "git_source": a.git_source}),
-        None,
-    )?;
+    // a job the daemon runs on its own: no request timeout limits the repo's size
+    let imported = d.add_repo(&a.name, &a.git_source)?;
     let import_s = t.elapsed().as_secs_f64();
     let indexed_files = imported["indexed_files"].as_u64().unwrap_or(0);
     eprintln!("{}: imported in {import_s:.1} s", a.name);

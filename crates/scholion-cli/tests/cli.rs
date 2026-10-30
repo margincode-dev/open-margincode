@@ -1761,3 +1761,155 @@ fn up_refuses_a_remote_daemon_url() {
     assert!(!o.status.success());
     assert!(err(&o).contains("this machine"), "{}", err(&o));
 }
+
+/// What an agent CLI does with the config `av init --for` wrote: find the `av` server's URL and
+/// headers the way that CLI documents it, expanding `${AV_TOKEN}` (or Codex's
+/// `bearer_token_env_var`) from the environment.
+fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, String)>) {
+    let expand = |v: &str| v.replace("${AV_TOKEN}", token);
+    match agent {
+        "codex" | "grok" => {
+            let dir = if agent == "codex" { ".codex" } else { ".grok" };
+            let text = std::fs::read_to_string(home.join(dir).join("config.toml")).unwrap();
+            let doc: toml_edit::DocumentMut = text.parse().unwrap();
+            let av = &doc["mcp_servers"]["av"];
+            let url = av["url"].as_str().unwrap().to_owned();
+            let mut headers = vec![];
+            if let Some(var) = av.get("bearer_token_env_var").and_then(|v| v.as_str()) {
+                assert_eq!(var, "AV_TOKEN");
+                headers.push(("Authorization".into(), format!("Bearer {token}")));
+            }
+            if let Some(h) = av.get("headers").and_then(|h| h.as_inline_table()) {
+                for (k, v) in h.iter() {
+                    headers.push((k.to_owned(), expand(v.as_str().unwrap())));
+                }
+            }
+            (url, headers)
+        }
+        "gemini" => {
+            let v: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(home.join(".gemini/settings.json")).unwrap(),
+            )
+            .unwrap();
+            let av = &v["mcpServers"]["av"];
+            let headers = av["headers"]
+                .as_object()
+                .map(|h| {
+                    h.iter()
+                        .map(|(k, v)| (k.clone(), expand(v.as_str().unwrap())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (av["httpUrl"].as_str().unwrap().to_owned(), headers)
+        }
+        other => panic!("no reader for {other}"),
+    }
+}
+
+/// A minimal MCP client over streamable HTTP, as the agent CLIs speak it.
+struct McpClient {
+    url: String,
+    headers: Vec<(String, String)>,
+    session: Option<String>,
+}
+
+impl McpClient {
+    fn send(&mut self, msg: serde_json::Value) -> serde_json::Value {
+        let mut req = ureq::post(&self.url)
+            .set("accept", "application/json, text/event-stream")
+            .set("content-type", "application/json");
+        for (k, v) in &self.headers {
+            req = req.set(k, v);
+        }
+        if let Some(s) = &self.session {
+            req = req.set("mcp-session-id", s);
+        }
+        let resp = req.send_string(&msg.to_string()).unwrap();
+        if let Some(s) = resp.header("mcp-session-id") {
+            self.session = Some(s.to_owned());
+        }
+        let text = resp.into_string().unwrap();
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null)
+    }
+
+    fn tool(&mut self, name: &str, args: serde_json::Value) -> String {
+        let r = self.send(
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": name, "arguments": args}}),
+        );
+        assert_eq!(r["result"]["isError"], false, "{name}: {r}");
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    }
+}
+
+#[test]
+fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
+    let d = start_daemon_with(Some("sekrit"));
+    let home = TempDir::new().unwrap();
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("CODEX_HOME", ""),
+        ("AV_TOKEN", "sekrit"),
+    ];
+    ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &[
+            "init", "--name", "demo", "--for", "codex", "--for", "grok", "--for", "gemini",
+        ],
+    ));
+    for agent in ["codex", "grok", "gemini"] {
+        let (url, headers) = mcp_endpoint(agent, home.path(), "sekrit");
+        assert_eq!(url, format!("{}/mcp", d.url), "{agent}");
+        // without the header the daemon refuses: the config, not luck, carries the token
+        let denied = ureq::post(&url)
+            .set("content-type", "application/json")
+            .send_string("{}");
+        assert!(
+            matches!(denied, Err(ureq::Error::Status(401, _))),
+            "{agent}"
+        );
+        let mut c = McpClient {
+            url,
+            headers,
+            session: None,
+        };
+        let init = c.send(
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                       "clientInfo": {"name": agent, "version": "1"}}}),
+        );
+        assert!(
+            init["result"]["capabilities"]["tools"].is_object(),
+            "{agent}: {init}"
+        );
+        c.send(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+        let started = c.tool(
+            "start_task",
+            serde_json::json!({"repo": "demo", "title": format!("{agent} task"),
+                               "goal": "Make hello louder"}),
+        );
+        let ws = started
+            .lines()
+            .find_map(|l| l.strip_prefix("workspace: "))
+            .unwrap_or_else(|| panic!("{agent}: no workspace line in {started}"));
+        // the agent edits its workspace, as it would with its own file tools
+        std::fs::write(
+            Path::new(ws.trim()).join("app/greeter.py"),
+            format!("# {agent}\nclass Greeter:\n    def hello(self):\n        return 'HELLO'\n"),
+        )
+        .unwrap();
+        c.tool(
+            "record",
+            serde_json::json!({"kind": "note", "summary": format!("{agent} was here"),
+                               "anchors": [{"path": "app/greeter.py"}]}),
+        );
+        c.tool("checkpoint", serde_json::json!({}));
+        let submitted = c.tool("submit", serde_json::json!({}));
+        assert!(submitted.contains("in_review"), "{agent}: {submitted}");
+    }
+}

@@ -458,6 +458,13 @@ opens with a warning naming the culprit merge.
   never the token. These agents get no hooks: they call `start_task`/`claim_task` and `get_context`
   themselves; the instructions to give them are in `integrations/<agent>/README.md`. All of them
   share one memory, so a dead end Claude recorded is in the pack Codex gets.
+- **Across vendors**: `scripts/relay-demo.sh` shows one memory shared by different agents. Claude
+  Code tries the obvious fix on a small repo, records why it failed and hands off; Codex claims the
+  task, and its first pack leads with that dead end (`--first`/`--second` pick other agents;
+  `--scripted` runs it with `av` commands in place of the agents, for free). The contract test
+  `agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/scholion-cli/tests/cli.rs`)
+  reads each config `av init --for` wrote, the way that CLI does, and drives the MCP server through
+  it with the token taken from the environment.
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
   command and checkpoints.
 - **Maintenance**: `POST /v1/maintenance/prune` deletes the ledgers of sessions idle for 30 days and parse-cache

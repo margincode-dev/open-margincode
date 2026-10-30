@@ -1,5 +1,5 @@
 use scholion_core::ChangeId;
-use scholion_index::{CodeIndex, PgIndex};
+use scholion_index::{CodeIndex, PgIndex, ScopeView};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 use sqlx::PgPool;
@@ -54,7 +54,11 @@ async fn drop_scope_removes_symbols_but_not_parse_cache_entries() {
         assert_eq!(n, 0, "{table}");
     }
     assert!(
-        idx.symbols_in("demo", "main", "a.py").await.unwrap().len() == 1,
+        idx.symbols_in(&ScopeView::new("demo", "main"), "a.py")
+            .await
+            .unwrap()
+            .len()
+            == 1,
         "main untouched"
     );
     assert_eq!(
@@ -93,7 +97,11 @@ async fn symbol_scope_names_the_repo_and_scope_of_a_symbol() {
     idx.index_paths("demo", "task-1", vec![f("a.py", "def a():\n    pass\n")])
         .await
         .unwrap();
-    let id = idx.symbols_in("demo", "task-1", "a.py").await.unwrap()[0].id;
+    let id = idx
+        .symbols_in(&ScopeView::new("demo", "task-1"), "a.py")
+        .await
+        .unwrap()[0]
+        .id;
     assert_eq!(
         idx.symbol_scope(id).await.unwrap(),
         Some(("demo".to_owned(), "task-1".to_owned()))

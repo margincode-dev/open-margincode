@@ -4,7 +4,7 @@ use scholion_core::{
     AgentFamily, AvError, IntentStore, NewReceipt, PackMode, ReceiptItem, Result, Semantic, TaskId,
     Tier, Vcs,
 };
-use scholion_index::CodeIndex;
+use scholion_index::{CodeIndex, ScopeView};
 use serde::{Deserialize, Serialize};
 
 use crate::assemble::{Deps, code_block, excerpt, gather, record_texts};
@@ -253,7 +253,10 @@ impl Packer {
             let ids: Vec<scholion_core::SymbolId> = symbols.iter().map(|s| s.id).collect();
             Some(ReviewInputs {
                 conventions: self.store.conventions_for(&task.repo, &changed).await?,
-                in_degree: self.index.in_degree(&ids).await?,
+                in_degree: self
+                    .index
+                    .in_degree(&ScopeView::new(&task.repo, &task.slug), &ids)
+                    .await?,
             })
         } else {
             None

@@ -87,6 +87,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0020_constants.sql",
         "eb90ab46cf77ea193401f0ee43fe69c1e18ebe08c962f8ea63f59c73c077b80f",
     ),
+    (
+        "0021_overlay.sql",
+        "891098c74d7f8fc6871a1b3346f112353a01ef444f565e15ff53c1b9931271a6",
+    ),
 ];
 
 #[test]

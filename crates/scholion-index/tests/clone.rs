@@ -1,7 +1,7 @@
 //! Copying a scope's index inside Postgres (task start) instead of re-indexing from the VCS.
 
 use scholion_core::*;
-use scholion_index::{CodeIndex, PgIndex};
+use scholion_index::{CodeIndex, PgIndex, ScopeView};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 use sqlx::PgPool;
@@ -132,9 +132,15 @@ async fn clone_scope_copies_symbols_edges_and_chunks_under_new_ids() {
         .unwrap();
     assert_eq!(stats.unchanged, 2, "{stats:?}");
     // the copy resolves and walks like the original
-    let t1 = idx.symbols_in("demo", "t1", "app/a.py").await.unwrap();
+    let t1 = idx
+        .symbols_in(&ScopeView::new("demo", "t1"), "app/a.py")
+        .await
+        .unwrap();
     let hello = t1.iter().find(|s| s.symbol.qname == "hello").unwrap().id;
-    let near = idx.neighbors("demo", "t1", &[hello], 1).await.unwrap();
+    let near = idx
+        .neighbors(&ScopeView::new("demo", "t1"), &[hello], 1)
+        .await
+        .unwrap();
     assert_eq!(near.len(), 2, "{near:?}"); // greet (callee) and Greeter.wave (caller)
 
     // never into a scope that already has an index

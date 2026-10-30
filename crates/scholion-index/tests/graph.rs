@@ -1,5 +1,5 @@
 use scholion_core::{Anchor, SymbolId};
-use scholion_index::{AnchorResolution, CodeIndex, PgIndex};
+use scholion_index::{AnchorResolution, CodeIndex, PgIndex, ScopeView};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 use sqlx::PgPool;
@@ -15,7 +15,10 @@ fn f(path: &str, src: &str) -> (String, Vec<u8>) {
 }
 
 async fn sym(idx: &PgIndex, scope: &str, path: &str, qname: &str) -> SymbolId {
-    let syms = idx.symbols_in("demo", scope, path).await.unwrap();
+    let syms = idx
+        .symbols_in(&ScopeView::new("demo", scope), path)
+        .await
+        .unwrap();
     syms.iter()
         .find(|s| s.symbol.qname == qname)
         .unwrap_or_else(|| panic!("{path}:{qname} not indexed"))
@@ -66,19 +69,31 @@ async fn neighbors_two_hops_both_directions() {
         sym(&idx, "main", "c.py", "c").await,
     );
     assert_eq!(
-        sorted(idx.neighbors("demo", "main", &[b], 1).await.unwrap()),
+        sorted(
+            idx.neighbors(&ScopeView::new("demo", "main"), &[b], 1)
+                .await
+                .unwrap()
+        ),
         vec![(a.0.min(c.0), 1), (a.0.max(c.0), 1)]
     );
     assert_eq!(
-        sorted(idx.neighbors("demo", "main", &[a], 2).await.unwrap()),
+        sorted(
+            idx.neighbors(&ScopeView::new("demo", "main"), &[a], 2)
+                .await
+                .unwrap()
+        ),
         vec![(b.0, 1), (c.0, 2)]
     );
     assert_eq!(
-        sorted(idx.neighbors("demo", "main", &[a], 1).await.unwrap()),
+        sorted(
+            idx.neighbors(&ScopeView::new("demo", "main"), &[a], 1)
+                .await
+                .unwrap()
+        ),
         vec![(b.0, 1)]
     );
     assert!(
-        idx.neighbors("demo", "main", &[], 2)
+        idx.neighbors(&ScopeView::new("demo", "main"), &[], 2)
             .await
             .unwrap()
             .is_empty()
@@ -129,7 +144,11 @@ async fn edges_follow_cross_file_changes() {
         .unwrap();
     let b = sym(&idx, "main", "b.py", "b").await;
     assert_eq!(
-        sorted(idx.neighbors("demo", "main", &[a], 1).await.unwrap()),
+        sorted(
+            idx.neighbors(&ScopeView::new("demo", "main"), &[a], 1)
+                .await
+                .unwrap()
+        ),
         vec![(b.0, 1)]
     );
     idx.remove_paths("demo", "main", &["b.py".into()])
@@ -137,7 +156,7 @@ async fn edges_follow_cross_file_changes() {
         .unwrap();
     assert_eq!(edge_count(pool).await, 0);
     assert!(
-        idx.symbols_in("demo", "main", "b.py")
+        idx.symbols_in(&ScopeView::new("demo", "main"), "b.py")
             .await
             .unwrap()
             .is_empty()
@@ -155,14 +174,18 @@ async fn resolve_returns_stale_when_symbol_removed_and_path_gone() {
         symbol: Some("f".into()),
     };
     assert!(matches!(
-        idx.resolve("demo", "main", &anchor).await.unwrap(),
+        idx.resolve(&ScopeView::new("demo", "main"), &anchor)
+            .await
+            .unwrap(),
         AnchorResolution::Symbol(_)
     ));
     idx.remove_paths("demo", "main", &["a.py".into()])
         .await
         .unwrap();
     assert_eq!(
-        idx.resolve("demo", "main", &anchor).await.unwrap(),
+        idx.resolve(&ScopeView::new("demo", "main"), &anchor)
+            .await
+            .unwrap(),
         AnchorResolution::Stale
     );
 }
@@ -189,15 +212,21 @@ async fn resolve_returns_pathonly_when_symbol_renamed_but_path_exists() {
         symbol: None,
     };
     assert_eq!(
-        idx.resolve("demo", "main", &old).await.unwrap(),
+        idx.resolve(&ScopeView::new("demo", "main"), &old)
+            .await
+            .unwrap(),
         AnchorResolution::PathOnly("a.py".into())
     );
     assert!(matches!(
-        idx.resolve("demo", "main", &new).await.unwrap(),
+        idx.resolve(&ScopeView::new("demo", "main"), &new)
+            .await
+            .unwrap(),
         AnchorResolution::Symbol(_)
     ));
     assert_eq!(
-        idx.resolve("demo", "main", &file).await.unwrap(),
+        idx.resolve(&ScopeView::new("demo", "main"), &file)
+            .await
+            .unwrap(),
         AnchorResolution::PathOnly("a.py".into())
     );
 }
@@ -215,11 +244,19 @@ async fn scopes_are_isolated() {
         s.into_iter().map(|x| x.symbol.qname).collect::<Vec<_>>()
     };
     assert_eq!(
-        names(idx.symbols_in("demo", "main", "a.py").await.unwrap()),
+        names(
+            idx.symbols_in(&ScopeView::new("demo", "main"), "a.py")
+                .await
+                .unwrap()
+        ),
         vec!["f"]
     );
     assert_eq!(
-        names(idx.symbols_in("demo", "task-1", "a.py").await.unwrap()),
+        names(
+            idx.symbols_in(&ScopeView::new("demo", "task-1"), "a.py")
+                .await
+                .unwrap()
+        ),
         vec!["g"]
     );
 }
@@ -242,13 +279,13 @@ async fn ignored_dirs_never_indexed() {
         .unwrap();
     assert_eq!((stats.parsed, stats.skipped), (1, 3));
     assert!(
-        idx.symbols_in("demo", "main", "node_modules/x.py")
+        idx.symbols_in(&ScopeView::new("demo", "main"), "node_modules/x.py")
             .await
             .unwrap()
             .is_empty()
     );
     assert_eq!(
-        idx.symbols_in("demo", "main", "pkg/ok.py")
+        idx.symbols_in(&ScopeView::new("demo", "main"), "pkg/ok.py")
             .await
             .unwrap()
             .len(),
@@ -273,7 +310,10 @@ async fn unparseable_file_does_not_abort_the_batch() {
         .await
         .unwrap();
     assert_eq!(
-        idx.symbols_in("demo", "main", "ok.py").await.unwrap().len(),
+        idx.symbols_in(&ScopeView::new("demo", "main"), "ok.py")
+            .await
+            .unwrap()
+            .len(),
         1
     );
     assert_eq!(stats.failed, 0);
@@ -326,7 +366,7 @@ async fn search_symbols_matches_qname_and_path_substring_case_insensitively() {
     };
     assert_eq!(
         names(
-            idx.search_symbols("demo", "main", "PASSWORD", 10)
+            idx.search_symbols(&ScopeView::new("demo", "main"), "PASSWORD", 10)
                 .await
                 .unwrap()
         ),
@@ -334,34 +374,34 @@ async fn search_symbols_matches_qname_and_path_substring_case_insensitively() {
     );
     assert_eq!(
         names(
-            idx.search_symbols("demo", "main", "auth/", 10)
+            idx.search_symbols(&ScopeView::new("demo", "main"), "auth/", 10)
                 .await
                 .unwrap()
         ),
         vec!["verify_password"]
     );
     assert_eq!(
-        idx.search_symbols("demo", "main", "password", 1)
+        idx.search_symbols(&ScopeView::new("demo", "main"), "password", 1)
             .await
             .unwrap()
             .len(),
         1
     );
     assert!(
-        idx.search_symbols("demo", "main", "100%_never", 10)
+        idx.search_symbols(&ScopeView::new("demo", "main"), "100%_never", 10)
             .await
             .unwrap()
             .is_empty(),
         "wildcards are literal"
     );
     assert!(
-        idx.search_symbols("demo", "other-scope", "password", 10)
+        idx.search_symbols(&ScopeView::new("demo", "other-scope"), "password", 10)
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
-        idx.search_symbols("demo", "main", "", 10)
+        idx.search_symbols(&ScopeView::new("demo", "main"), "", 10)
             .await
             .unwrap()
             .is_empty()
@@ -384,7 +424,10 @@ async fn in_degree_counts_the_symbols_that_reference_each_one() {
     idx.index_paths("demo", "main", files).await.unwrap();
     let core = sym(&idx, "main", "core.py", "core").await;
     let lonely = sym(&idx, "main", "core.py", "lonely").await;
-    let deg = idx.in_degree(&[core, lonely]).await.unwrap();
+    let deg = idx
+        .in_degree(&ScopeView::main("demo"), &[core, lonely])
+        .await
+        .unwrap();
     assert_eq!(deg.get(&core), Some(&6));
     assert_eq!(deg.get(&lonely).copied().unwrap_or(0), 0);
 }

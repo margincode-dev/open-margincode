@@ -66,6 +66,31 @@ pub enum AnchorResolution {
     Stale,
 }
 
+/// What a read sees: one scope of a repo. A task's view will also see `main` through the task's
+/// overlay (Plan 7); until then it is the scope alone.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ScopeView {
+    pub repo: String,
+    pub scope: String,
+}
+
+impl ScopeView {
+    pub fn new(repo: &str, scope: &str) -> Self {
+        Self {
+            repo: repo.to_owned(),
+            scope: scope.to_owned(),
+        }
+    }
+
+    pub fn main(repo: &str) -> Self {
+        Self::new(repo, "main")
+    }
+
+    fn parts(&self) -> (&str, &str) {
+        (&self.repo, &self.scope)
+    }
+}
+
 #[async_trait]
 pub trait CodeIndex: Send + Sync {
     /// Indexes `files` (path, bytes) into `(repo, scope)`; unchanged content is not re-parsed.
@@ -105,24 +130,22 @@ pub trait CodeIndex: Send + Sync {
     async fn list_code_chunks(&self, repo: Option<&str>) -> Result<Vec<CodeChunk>>;
     async fn chunk_exists(&self, symbol_id: SymbolId) -> Result<bool>;
     async fn remove_paths(&self, repo: &str, scope: &str, paths: &[String]) -> Result<()>;
-    async fn symbols_in(&self, repo: &str, scope: &str, path: &str) -> Result<Vec<IndexedSymbol>>;
+    async fn symbols_in(&self, view: &ScopeView, path: &str) -> Result<Vec<IndexedSymbol>>;
     async fn get_symbols(&self, ids: &[SymbolId]) -> Result<Vec<IndexedSymbol>>;
     /// Case-insensitive literal substring match on qname or path; exact qname matches first.
     async fn search_symbols(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &ScopeView,
         query: &str,
         limit: usize,
     ) -> Result<Vec<IndexedSymbol>>;
-    async fn resolve(&self, repo: &str, scope: &str, anchor: &Anchor) -> Result<AnchorResolution>;
+    async fn resolve(&self, view: &ScopeView, anchor: &Anchor) -> Result<AnchorResolution>;
     /// Code chunks of a scope ranked by full-text match against `terms` (lowercase words), each
     /// term weighted by its rarity in the scope (BM25's IDF), best first. Works without the
     /// semantic layer. The default finds nothing.
     async fn search_code_lexical(
         &self,
-        _repo: &str,
-        _scope: &str,
+        _view: &ScopeView,
         _terms: &[String],
         _limit: usize,
     ) -> Result<Vec<(SymbolId, f32)>> {
@@ -132,13 +155,14 @@ pub trait CodeIndex: Send + Sync {
     /// each with its minimum hop distance. Seeds are excluded.
     async fn neighbors(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &ScopeView,
         seeds: &[SymbolId],
         hops: u8,
     ) -> Result<Vec<(SymbolId, u8)>>;
-    /// Per symbol, how many symbols reference it; symbols nothing references are absent.
-    async fn in_degree(&self, ids: &[SymbolId]) -> Result<HashMap<SymbolId, u32>>;
+    /// Per symbol, how many symbols of the view reference it; symbols nothing references are
+    /// absent.
+    async fn in_degree(&self, view: &ScopeView, ids: &[SymbolId])
+    -> Result<HashMap<SymbolId, u32>>;
     /// The (repo, scope) a symbol belongs to, if it exists.
     async fn symbol_scope(&self, id: SymbolId) -> Result<Option<(String, String)>>;
     /// Removes a whole scope (symbols, edges, chunks, file hashes, its recorded change) and
@@ -779,7 +803,8 @@ impl CodeIndex for PgIndex {
         tx.commit().await.map_err(ierr)
     }
 
-    async fn symbols_in(&self, repo: &str, scope: &str, path: &str) -> Result<Vec<IndexedSymbol>> {
+    async fn symbols_in(&self, view: &ScopeView, path: &str) -> Result<Vec<IndexedSymbol>> {
+        let (repo, scope) = view.parts();
         let rows = sqlx::query(&format!(
             "SELECT {SYMBOL_COLS} FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 ORDER BY start_line, id"
         ))
@@ -806,11 +831,11 @@ impl CodeIndex for PgIndex {
 
     async fn search_symbols(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &ScopeView,
         query: &str,
         limit: usize,
     ) -> Result<Vec<IndexedSymbol>> {
+        let (repo, scope) = view.parts();
         if query.trim().is_empty() {
             return Ok(vec![]);
         }
@@ -834,11 +859,11 @@ impl CodeIndex for PgIndex {
 
     async fn search_code_lexical(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &ScopeView,
         terms: &[String],
         limit: usize,
     ) -> Result<Vec<(SymbolId, f32)>> {
+        let (repo, scope) = view.parts();
         if terms.is_empty() || limit == 0 {
             return Ok(vec![]);
         }
@@ -909,7 +934,8 @@ impl CodeIndex for PgIndex {
             .collect())
     }
 
-    async fn resolve(&self, repo: &str, scope: &str, anchor: &Anchor) -> Result<AnchorResolution> {
+    async fn resolve(&self, view: &ScopeView, anchor: &Anchor) -> Result<AnchorResolution> {
+        let (repo, scope) = view.parts();
         if let Some(q) = &anchor.symbol {
             let hit: Option<(i64,)> =
                 sqlx::query_as("SELECT id FROM symbols WHERE repo = $1 AND scope = $2 AND path = $3 AND qname = $4")
@@ -941,8 +967,7 @@ impl CodeIndex for PgIndex {
 
     async fn neighbors(
         &self,
-        _repo: &str,
-        _scope: &str,
+        _view: &ScopeView,
         seeds: &[SymbolId],
         hops: u8,
     ) -> Result<Vec<(SymbolId, u8)>> {
@@ -1038,7 +1063,11 @@ impl CodeIndex for PgIndex {
         Ok(done.rows_affected())
     }
 
-    async fn in_degree(&self, ids: &[SymbolId]) -> Result<HashMap<SymbolId, u32>> {
+    async fn in_degree(
+        &self,
+        _view: &ScopeView,
+        ids: &[SymbolId],
+    ) -> Result<HashMap<SymbolId, u32>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }

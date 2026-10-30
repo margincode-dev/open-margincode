@@ -1,7 +1,7 @@
 //! Lexical code search (Plan 6): goal words find code chunks without the semantic layer.
 
 use scholion_core::SymbolId;
-use scholion_index::{CodeIndex, PgIndex};
+use scholion_index::{CodeIndex, PgIndex, ScopeView};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 
@@ -59,7 +59,7 @@ fn terms(t: &[&str]) -> Vec<String> {
 async fn snake_case_parts_find_their_symbol() {
     let (_db, idx) = setup().await;
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["readable"]), 10)
+        .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&["readable"]), 10)
         .await
         .unwrap();
     assert_eq!(
@@ -74,7 +74,7 @@ async fn camel_case_parts_and_whole_words_both_match() {
     let (_db, idx) = setup().await;
     for t in ["url", "readurl"] {
         let hits = idx
-            .search_code_lexical("demo", "main", &terms(&[t]), 10)
+            .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&[t]), 10)
             .await
             .unwrap();
         assert_eq!(qnames(&idx, &hits).await, vec!["readUrl"], "{t}");
@@ -86,7 +86,11 @@ async fn rare_terms_outweigh_common_ones() {
     let (_db, idx) = setup().await;
     // "name" is in almost every chunk; "human" in one.
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["name", "human"]), 10)
+        .search_code_lexical(
+            &ScopeView::new("demo", "main"),
+            &terms(&["name", "human"]),
+            10,
+        )
         .await
         .unwrap();
     let q = qnames(&idx, &hits).await;
@@ -104,13 +108,13 @@ async fn no_terms_or_no_match_or_other_scope_is_empty() {
         ("task-1", terms(&["human"])),
     ] {
         let hits = idx
-            .search_code_lexical("demo", scope, &t, 10)
+            .search_code_lexical(&ScopeView::new("demo", scope), &t, 10)
             .await
             .unwrap();
         assert!(hits.is_empty(), "{scope} {t:?}: {hits:?}");
     }
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["name"]), 2)
+        .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&["name"]), 2)
         .await
         .unwrap();
     assert_eq!(hits.len(), 2, "limit");
@@ -146,7 +150,7 @@ async fn short_chunks_beat_long_ones_with_the_same_term() {
     ])
     .await;
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["retry"]), 10)
+        .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&["retry"]), 10)
         .await
         .unwrap();
     assert_eq!(
@@ -170,7 +174,11 @@ async fn repeating_one_term_does_not_beat_matching_two() {
     ])
     .await;
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["cache", "expire"]), 10)
+        .search_code_lexical(
+            &ScopeView::new("demo", "main"),
+            &terms(&["cache", "expire"]),
+            10,
+        )
         .await
         .unwrap();
     assert_eq!(qnames(&idx, &hits).await[0], "both", "{hits:?}");
@@ -185,7 +193,7 @@ async fn equal_scores_keep_symbol_order() {
     .await;
     for _ in 0..3 {
         let hits = idx
-            .search_code_lexical("demo", "main", &terms(&["token"]), 10)
+            .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&["token"]), 10)
             .await
             .unwrap();
         assert_eq!(hits.len(), 2);
@@ -212,7 +220,7 @@ async fn using_a_term_often_beats_mentioning_it_once() {
     ])
     .await;
     let hits = idx
-        .search_code_lexical("demo", "main", &terms(&["parent"]), 10)
+        .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&["parent"]), 10)
         .await
         .unwrap();
     assert_eq!(qnames(&idx, &hits).await, vec!["often", "once"], "{hits:?}");

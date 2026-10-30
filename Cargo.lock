@@ -3871,6 +3871,7 @@ name = "scholion-index"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "proptest",
  "scholion-core",
  "scholion-store",
  "scholion-testutil",

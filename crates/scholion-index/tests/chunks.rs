@@ -1,5 +1,5 @@
 use scholion_core::*;
-use scholion_index::{CodeIndex, MAX_FILE_BYTES, PgIndex};
+use scholion_index::{CodeIndex, MAX_FILE_BYTES, PgIndex, ScopeView};
 use scholion_store::PgStore;
 use scholion_testutil::TestDb;
 use sqlx::PgPool;
@@ -106,14 +106,20 @@ async fn rewriting_a_file_enqueues_delete_then_upsert() {
     idx.index_paths("demo", "main", vec![f("a.py", "def old():\n    pass\n")])
         .await
         .unwrap();
-    let old = idx.symbols_in("demo", "main", "a.py").await.unwrap();
+    let old = idx
+        .symbols_in(&ScopeView::new("demo", "main"), "a.py")
+        .await
+        .unwrap();
     assert_eq!(old.len(), 1);
     let old_id = old[0].id.0.to_string();
 
     idx.index_paths("demo", "main", vec![f("a.py", "def new():\n    pass\n")])
         .await
         .unwrap();
-    let new = idx.symbols_in("demo", "main", "a.py").await.unwrap();
+    let new = idx
+        .symbols_in(&ScopeView::new("demo", "main"), "a.py")
+        .await
+        .unwrap();
     assert_eq!(new.len(), 1);
     let new_id = new[0].id.0.to_string();
     assert_ne!(old_id, new_id);
@@ -129,7 +135,10 @@ async fn remove_paths_enqueues_deletes() {
     idx.index_paths("demo", "main", vec![f("a.py", "def gone():\n    pass\n")])
         .await
         .unwrap();
-    let id = idx.symbols_in("demo", "main", "a.py").await.unwrap()[0]
+    let id = idx
+        .symbols_in(&ScopeView::new("demo", "main"), "a.py")
+        .await
+        .unwrap()[0]
         .id
         .0
         .to_string();

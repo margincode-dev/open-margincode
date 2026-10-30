@@ -6,7 +6,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use futures::future::join_all;
 use scholion_core::*;
-use scholion_index::{AnchorResolution, CodeIndex, IndexedSymbol};
+use scholion_index::{AnchorResolution, CodeIndex, IndexedSymbol, ScopeView};
 
 use crate::budget::{Item, Section};
 use crate::lexical;
@@ -169,7 +169,10 @@ pub(crate) async fn changed_symbols(
     let has_both = !task.base_change.0.is_empty() && !task.head_change.0.is_empty();
     let mut out = vec![];
     for path in changed {
-        let syms = d.index.symbols_in(&task.repo, &task.slug, path).await?;
+        let syms = d
+            .index
+            .symbols_in(&ScopeView::new(&task.repo, &task.slug), path)
+            .await?;
         if syms.is_empty() {
             continue;
         }
@@ -284,10 +287,10 @@ pub(crate) async fn gather(
         .into_iter()
         .take(lexical::MAX_TERMS)
         .collect();
+    let view = ScopeView::new(&task.repo, &task.slug);
     let (search_out, lexical_out, structural) = tokio::join!(
         tokio::time::timeout(score::SEMANTIC_TIMEOUT, search),
-        d.index
-            .search_code_lexical(&task.repo, &task.slug, &terms, limit),
+        d.index.search_code_lexical(&view, &terms, limit),
         gather_structural(d, task, focus),
     );
     let mut parts = structural?;
@@ -348,7 +351,10 @@ async fn expand_best_hits(
     if seeds.is_empty() {
         return Ok(());
     }
-    let mut near = d.index.neighbors(&task.repo, &task.slug, &seeds, 1).await?;
+    let mut near = d
+        .index
+        .neighbors(&ScopeView::new(&task.repo, &task.slug), &seeds, 1)
+        .await?;
     near.retain(|(id, _)| {
         let key = format!("sym:{}", id.0);
         !parts.gathered.items.iter().any(|i| i.id == key)
@@ -478,7 +484,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         for query in lexical::symbol_queries(&ident) {
             for s in d
                 .index
-                .search_symbols(repo, scope, query, FOCUS_LIMIT)
+                .search_symbols(&ScopeView::new(repo, scope), query, FOCUS_LIMIT)
                 .await?
             {
                 if lexical::names_symbol_at(&ident, &s.symbol.qname, &s.symbol.path)
@@ -498,7 +504,11 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         }
     }
     if let Some(q) = focus {
-        for s in d.index.search_symbols(repo, scope, q, FOCUS_LIMIT).await? {
+        for s in d
+            .index
+            .search_symbols(&ScopeView::new(repo, scope), q, FOCUS_LIMIT)
+            .await?
+        {
             if !seeds.iter().any(|x| x.id == s.id) {
                 seeds.push(s);
             }
@@ -507,7 +517,10 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     let seed_ids: Vec<SymbolId> = seeds.iter().map(|s| s.id).collect();
     let seed_set: HashSet<SymbolId> = seed_ids.iter().copied().collect();
 
-    let mut neighbor_hops = d.index.neighbors(repo, scope, &seed_ids, 2).await?;
+    let mut neighbor_hops = d
+        .index
+        .neighbors(&ScopeView::new(repo, scope), &seed_ids, 2)
+        .await?;
     neighbor_hops.sort_by_key(|(id, h)| (*h, id.0));
     neighbor_hops.truncate(MAX_NEIGHBORS);
     let neighbor_ids: Vec<SymbolId> = neighbor_hops.iter().map(|(id, _)| *id).collect();
@@ -858,11 +871,12 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
 
     // ---- Map: skeletons of seed / neighbor files, plus the repo layout ----
     let map_paths: BTreeSet<&String> = seed_paths.iter().chain(neighbor_paths.iter()).collect();
-    let skeletons = join_all(
-        map_paths
-            .iter()
-            .map(|p| async move { (p.to_string(), d.index.symbols_in(repo, scope, p).await) }),
-    )
+    let skeletons = join_all(map_paths.iter().map(|p| async move {
+        (
+            p.to_string(),
+            d.index.symbols_in(&ScopeView::new(repo, scope), p).await,
+        )
+    }))
     .await;
     let mut skeleton_paths: BTreeSet<String> = BTreeSet::new();
     for (path, res) in skeletons {
@@ -1115,7 +1129,10 @@ async fn to_task_scope(
         };
         let path = &main.symbol.path;
         if !by_path.contains_key(path) {
-            let syms = d.index.symbols_in(&task.repo, &task.slug, path).await?;
+            let syms = d
+                .index
+                .symbols_in(&ScopeView::new(&task.repo, &task.slug), path)
+                .await?;
             by_path.insert(
                 path.clone(),
                 syms.into_iter().map(|s| (s.symbol.qname, s.id)).collect(),
@@ -1311,7 +1328,11 @@ impl AnchorCtx<'_> {
                     FAR_HOPS
                 }
             };
-            match self.index.resolve(self.repo, self.scope, a).await? {
+            match self
+                .index
+                .resolve(&ScopeView::new(self.repo, self.scope), a)
+                .await?
+            {
                 AnchorResolution::Symbol(id) => {
                     on_seed |= self.seed_set.contains(&id);
                     best = best.min(self.hops_by_sym.get(&id).copied().unwrap_or(FAR_HOPS));
@@ -1350,7 +1371,9 @@ pub(crate) async fn anchor_hash(
     let hashed = match &a.symbol {
         None => bytes,
         Some(_) => {
-            let AnchorResolution::Symbol(id) = index.resolve(repo, scope, a).await.ok()? else {
+            let AnchorResolution::Symbol(id) =
+                index.resolve(&ScopeView::new(repo, scope), a).await.ok()?
+            else {
                 return None;
             };
             let sym = index.get_symbols(&[id]).await.ok()?.into_iter().next()?;

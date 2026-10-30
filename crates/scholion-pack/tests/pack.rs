@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use common::*;
 use scholion_core::*;
-use scholion_index::CodeIndex;
+use scholion_index::{CodeIndex, ScopeView};
 use scholion_pack::{CodeDetail, PackRequest, Packer, estimate_tokens};
 
 /// Scripted `Semantic`. `calls` counts `search` invocations.
@@ -935,7 +935,7 @@ async fn warm_build_under_300ms() {
     assert!(took.as_millis() < 300, "warm build took {took:?}");
     let _ = fx
         .index
-        .symbols_in("demo", &fx.task.slug, "app/greeter.py")
+        .symbols_in(&ScopeView::new("demo", &fx.task.slug), "app/greeter.py")
         .await
         .unwrap();
 }
@@ -968,7 +968,7 @@ async fn main_scope_code_hits_resolve_to_the_task_scope_symbol() {
         let index = fx.index.clone();
         async move {
             index
-                .search_symbols("demo", "main", q, 5)
+                .search_symbols(&ScopeView::new("demo", "main"), q, 5)
                 .await
                 .unwrap()
                 .into_iter()
@@ -979,7 +979,7 @@ async fn main_scope_code_hits_resolve_to_the_task_scope_symbol() {
     let (hello, zebra) = (main_sym("Greeter.hello").await, main_sym("zebra").await);
     let task_zebra = fx
         .index
-        .search_symbols("demo", &fx.task.slug, "zebra", 5)
+        .search_symbols(&ScopeView::new("demo", &fx.task.slug), "zebra", 5)
         .await
         .unwrap()
         .into_iter()

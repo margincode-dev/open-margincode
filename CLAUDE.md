@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Scholion: context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic, token-budgeted context pack hands any agent what it needs. The CLI is `scholion` with the alias `av` (same program); env vars keep the `AV_` prefix. Design: `docs/superpowers/specs/2026-10-18-agentvcs-design.md`. Implementation plans: `docs/superpowers/plans/` (Plans 1–5 are done; Plan 6, evaluation, is in progress). The spec and older plans use the earlier name `agentvcs` and crates `av-*`. The plan files' checkboxes and some signatures lag the code; when they disagree, the code wins.
+Scholion: context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic, token-budgeted context pack hands any agent what it needs. The CLI is `scholion` with the alias `av` (same program); env vars keep the `AV_` prefix. Design: `docs/superpowers/specs/2026-10-18-agentvcs-design.md`. Implementation plans: `docs/superpowers/plans/` (Plans 1–5 are done; Plan 6, evaluation, is in progress; Plan 7, overlay index scopes, is planned). The spec and older plans use the earlier name `agentvcs` and crates `av-*`. The plan files' checkboxes and some signatures lag the code; when they disagree, the code wins.
 
 ## Commands
 

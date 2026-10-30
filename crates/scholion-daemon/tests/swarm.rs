@@ -580,11 +580,10 @@ impl CodeIndex for SlowClone {
     }
     async fn symbols_in(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &scholion_index::ScopeView,
         path: &str,
     ) -> scholion_core::Result<Vec<scholion_index::IndexedSymbol>> {
-        self.inner.symbols_in(repo, scope, path).await
+        self.inner.symbols_in(view, path).await
     }
     async fn get_symbols(
         &self,
@@ -594,46 +593,41 @@ impl CodeIndex for SlowClone {
     }
     async fn search_symbols(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &scholion_index::ScopeView,
         query: &str,
         limit: usize,
     ) -> scholion_core::Result<Vec<scholion_index::IndexedSymbol>> {
-        self.inner.search_symbols(repo, scope, query, limit).await
+        self.inner.search_symbols(view, query, limit).await
     }
     async fn resolve(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &scholion_index::ScopeView,
         anchor: &scholion_core::Anchor,
     ) -> scholion_core::Result<scholion_index::AnchorResolution> {
-        self.inner.resolve(repo, scope, anchor).await
+        self.inner.resolve(view, anchor).await
     }
     async fn search_code_lexical(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &scholion_index::ScopeView,
         terms: &[String],
         limit: usize,
     ) -> scholion_core::Result<Vec<(scholion_core::SymbolId, f32)>> {
-        self.inner
-            .search_code_lexical(repo, scope, terms, limit)
-            .await
+        self.inner.search_code_lexical(view, terms, limit).await
     }
     async fn neighbors(
         &self,
-        repo: &str,
-        scope: &str,
+        view: &scholion_index::ScopeView,
         seeds: &[scholion_core::SymbolId],
         hops: u8,
     ) -> scholion_core::Result<Vec<(scholion_core::SymbolId, u8)>> {
-        self.inner.neighbors(repo, scope, seeds, hops).await
+        self.inner.neighbors(view, seeds, hops).await
     }
     async fn in_degree(
         &self,
+        view: &scholion_index::ScopeView,
         ids: &[scholion_core::SymbolId],
     ) -> scholion_core::Result<std::collections::HashMap<scholion_core::SymbolId, u32>> {
-        self.inner.in_degree(ids).await
+        self.inner.in_degree(view, ids).await
     }
     async fn symbol_scope(
         &self,

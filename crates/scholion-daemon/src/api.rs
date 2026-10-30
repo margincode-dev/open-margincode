@@ -275,48 +275,32 @@ struct Started {
 }
 
 async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> ApiResult<Started> {
-    let task = st
-        .store
-        .create_task(NewTask {
-            repo: req.repo.clone(),
-            title: req.title,
-            goal: req.goal.clone(),
-            owner_agent: req.agent.clone(),
+    // Wait for a turn before anything is written: a client that gives up while queued leaves
+    // nothing behind. Then the task is made on a task of its own, so a client that leaves during
+    // the copy cannot stop it half done (an open task with no workspace or intent).
+    let turn = st
+        .starts
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| AvError::Store(format!("start queue closed: {e}")))?;
+    let made = {
+        let st = st.clone();
+        let (repo, title, goal, agent) = (
+            req.repo.clone(),
+            req.title.clone(),
+            req.goal.clone(),
+            req.agent.clone(),
+        );
+        let pack_mode = req.pack_mode;
+        tokio::spawn(async move {
+            let _turn = turn;
+            create_started(&st, repo, title, goal, agent, pack_mode).await
         })
-        .await?;
-    if req.pack_mode != PackMode::Full {
-        st.store.set_pack_mode(task.id, req.pack_mode).await?;
-    }
-    match prepare_workspace(&st, &task).await {
-        Ok(()) => {}
-        Err(e) => {
-            // do not leave an open task without a workspace behind
-            let _ = st.store.set_status(task.id, TaskStatus::Abandoned).await;
-            return Err(e.into());
-        }
-    }
-    let summary = clip_chars(req.goal.lines().next().unwrap_or("").trim(), 200);
-    // the body only carries what the summary does not
-    let body = if req.goal.trim() == summary {
-        String::new()
-    } else {
-        req.goal
     };
-    st.store
-        .add_record(NewRecord {
-            task_id: task.id,
-            kind: RecordKind::Intent,
-            summary,
-            body,
-            change_id: None,
-            supersedes: None,
-            author_agent: req.agent,
-            anchors: vec![],
-        })
-        .await?;
-    st.store
-        .renew_lease(task.id, task.generation, st.lease_secs)
-        .await?;
+    let task = made
+        .await
+        .map_err(|e| AvError::Store(format!("task start stopped: {e}")))??;
     let task = st.store.get_task(task.id).await?;
     let pack = st
         .packer
@@ -334,13 +318,58 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
     Ok(Json(Started { task, pack }))
 }
 
+/// Creates the task, its workspace and index scope, its intent record and its lease. A failure
+/// abandons the task, so no open task is left without a workspace.
+async fn create_started(
+    st: &AppState,
+    repo: String,
+    title: String,
+    goal: String,
+    agent: String,
+    pack_mode: PackMode,
+) -> Result<Task> {
+    let task = st
+        .store
+        .create_task(NewTask {
+            repo,
+            title,
+            goal: goal.clone(),
+            owner_agent: agent.clone(),
+        })
+        .await?;
+    if pack_mode != PackMode::Full {
+        st.store.set_pack_mode(task.id, pack_mode).await?;
+    }
+    if let Err(e) = prepare_workspace(st, &task).await {
+        let _ = st.store.set_status(task.id, TaskStatus::Abandoned).await;
+        return Err(e);
+    }
+    let summary = clip_chars(goal.lines().next().unwrap_or("").trim(), 200);
+    // the body only carries what the summary does not
+    let body = if goal.trim() == summary {
+        String::new()
+    } else {
+        goal
+    };
+    st.store
+        .add_record(NewRecord {
+            task_id: task.id,
+            kind: RecordKind::Intent,
+            summary,
+            body,
+            change_id: None,
+            supersedes: None,
+            author_agent: agent,
+            anchors: vec![],
+        })
+        .await?;
+    st.store
+        .renew_lease(task.id, task.generation, st.lease_secs)
+        .await?;
+    Ok(task)
+}
+
 async fn prepare_workspace(st: &AppState, task: &Task) -> Result<()> {
-    // wait for a turn instead of taking a pooled connection from every other request
-    let _turn = st
-        .starts
-        .acquire()
-        .await
-        .map_err(|e| AvError::Store(format!("start queue closed: {e}")))?;
     let info = st.vcs.create_workspace(&task.repo, &task.slug).await?;
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)

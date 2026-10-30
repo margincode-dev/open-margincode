@@ -516,6 +516,8 @@ struct SlowClone {
     inner: Arc<dyn CodeIndex>,
     running: std::sync::atomic::AtomicUsize,
     most: std::sync::atomic::AtomicUsize,
+    /// How long each copy takes.
+    delay: Duration,
 }
 
 #[async_trait]
@@ -556,7 +558,7 @@ impl CodeIndex for SlowClone {
     ) -> scholion_core::Result<bool> {
         let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
         self.most.fetch_max(now, Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(self.delay).await;
         let r = self.inner.clone_scope(repo, from, to, change).await;
         self.running.fetch_sub(1, Ordering::SeqCst);
         r
@@ -652,6 +654,7 @@ async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
                 inner,
                 running: Default::default(),
                 most: Default::default(),
+                delay: Duration::from_millis(50),
             });
             *slow.lock().unwrap() = Some(s.clone());
             s
@@ -668,4 +671,48 @@ async fn a_burst_of_starts_queues_for_index_copies_and_all_succeed() {
     let most = slow.most.load(Ordering::SeqCst);
     assert!(most <= 2, "{most} index copies ran at once; the limit is 2");
     assert!(most >= 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_whose_client_leaves_while_queued_leaves_no_task_behind() {
+    let e = env_with_index(
+        |inner| {
+            Arc::new(SlowClone {
+                inner,
+                running: Default::default(),
+                most: Default::default(),
+                delay: Duration::from_secs(2),
+            })
+        },
+        |s| s.with_start_limit(1),
+    )
+    .await;
+    let start = |title: &'static str| {
+        let app = e.app.clone();
+        tokio::spawn(async move {
+            call(
+                &app,
+                "POST",
+                "/v1/tasks",
+                Some(json!({"repo": "demo", "title": title, "goal": "g",
+                            "agent": title, "session": title})),
+            )
+            .await
+        })
+    };
+    let first = start("first");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let second = start("second"); // waits for the first one's turn
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    second.abort(); // its client gives up while it is queued
+    let (status, body) = first.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, tasks) = call(&e.app, "GET", "/v1/tasks?repo=demo", None).await;
+    let titles: Vec<&str> = tasks["tasks"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{tasks}"))
+        .iter()
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["first"], "{tasks}");
 }

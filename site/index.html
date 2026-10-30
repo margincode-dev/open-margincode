@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scholion · version control for coding agents</title>
-<meta name="description" content="Scholion is open-source, context-first version control that makes coding agents more productive: decisions and dead ends kept next to the code, isolated tasks, and a deterministic context pack that gives any agent what it needs without blowing up its context window or token budget.">
+<meta name="description" content="Scholion is open-source, context-first version control for coding agents: decisions and dead ends kept next to the code, isolated tasks, and a deterministic context pack that gives any agent what it needs without blowing up its context window or token budget.">
 <link rel="canonical" href="https://openevaluations.si/">
 <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://openevaluations.si/">
 <meta property="og:title" content="Scholion: Git remembers what changed. Scholion remembers why.">
-<meta property="og:description" content="Open-source version control that makes coding agents more productive: the right context, anchored to code, always within the token budget.">
+<meta property="og:description" content="Open-source version control for coding agents: the right context, anchored to code, always within the token budget.">
 <meta property="og:image" content="https://openevaluations.si/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -592,7 +592,7 @@ h1 .why { position: relative; display: inline-block; }
   <div class="wrap">
     <span class="eyebrow"><b>open source · MIT</b> Version control for the age of coding agents</span>
     <h1>Git remembers what changed. Scholion remembers <em class="why">why<svg class="scribble" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 13 C 45 5, 90 4, 128 9 S 190 17, 217 6"/></svg></em>.</h1>
-    <p class="lede">Scholion makes coding agents <strong>more productive</strong>. Instead of re-reading the tree and rediscovering what was already tried, decided and rejected, every agent starts from <strong>the context that matters</strong>: decisions and dead ends anchored to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the context window or the token budget</strong>.</p>
+    <p class="lede">Scholion gives coding agents <strong>a memory of why</strong>. Instead of re-reading the tree and rediscovering what was already tried, decided and rejected, every agent starts from <strong>the context that matters</strong>: decisions and dead ends anchored to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the context window or the token budget</strong>.</p>
     <div class="cta">
       <a class="btn btn-primary btn-ring" href="https://github.com/vinhqbui/scholion" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>
@@ -626,7 +626,7 @@ h1 .why { position: relative; display: inline-block; }
 
     <div class="stats reveal">
       <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
-      <div class="stat"><b>−42%</b><span>cost per solved task when the last agent's lessons reach the next one (<a href="#evidence">E4</a>)</span></div>
+      <div class="stat"><b>800</b><span>tokens in the default pack: signatures, not bodies the agent reads anyway</span></div>
       <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
       <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost (<a href="#evidence">benchmark</a>)</span></div>
     </div>
@@ -728,7 +728,7 @@ h1 .why { position: relative; display: inline-block; }
         <ul class="checks">
           <li><div><b>A hard ceiling.</b> <span>A pack never exceeds its budget, and the session ledger refers back to what an agent already saw instead of resending it. Context grows in relevance, not in length, even across a long session.</span></div></li>
           <li><div><b>Deterministic.</b> <span>Same state, same pack, regardless of database locale. Golden-file tested.</span></div></li>
-          <li><div><b>Progressive tiers.</b> <span>Each item shows at the richest tier that fits; <code>av expand &lt;id&gt;</code> pulls the rest on demand.</span><div class="tiers"><code>handle</code><code>summary</code><code>full</code></div></div></li>
+          <li><div><b>Signatures first.</b> <span>Agents read a file before editing it, so code arrives as path, lines and signature. A larger budget upgrades items to richer tiers; <code>av expand &lt;id&gt;</code> fetches one in full.</span><div class="tiers"><code>handle</code><code>summary</code><code>full</code></div></div></li>
           <li><div><b>Graceful degradation.</b> <span>If Qdrant or the embedder is down, packs still return from structure and Postgres full-text, marked <code>degraded: semantic</code>.</span></div></li>
           <li><div><b>Live-work aware.</b> <span>Warns when another task is touching the same files, and opens with a warning when main is red.</span></div></li>
         </ul>
@@ -783,7 +783,7 @@ tokens: 1184/2000</span></pre>
       <div class="sim-ticks"><span>300</span><span>1,200</span><span>2,400</span><span>3,600</span></div>
       <div class="sim-meter" id="simMeter" aria-hidden="true"></div>
       <div class="sim-rows" id="simRows" aria-live="polite"></div>
-      <p class="sim-foot">Tiers: <b>handle</b> is a one-line id, <b>summary</b> a signature or record summary, <b>full</b> the body. Anything left out is one <code>av expand &lt;id&gt;</code> away.</p>
+      <p class="sim-foot">Tiers: <b>handle</b> is a one-line id, <b>summary</b> a signature or record summary, <b>full</b> the body. Agent packs default to signatures; <code>av expand &lt;id&gt;</code> fetches one item in full.</p>
     </div>
   </div>
 </section>
@@ -890,7 +890,7 @@ av submit &amp;&amp; av merge</pre>
         <h3 style="font:italic 400 28px/1.2 var(--serif)">Ideas borrowed in the open</h3>
         <p class="sec-intro" style="font-size:16px">Part of the design follows Anthropic's public article <a href="https://www.anthropic.com/research/redesigning-source-control" rel="noopener">Redesigning source control</a>: a server that owns history, a read API complete enough that jobs need no checkout, no global merge queue (merge, test after, bisect and revert), approvals that survive mechanical rebases, and push instead of polling.</p>
         <div class="tools" aria-label="Some of the MCP tools">
-          <code>start_task</code><code>checkpoint</code><code>record</code><code>get_context</code><code>expand</code><code>read_symbol</code><code>search_history</code><code>handoff</code><code>claim_task</code><code>submit</code><code>review_task</code><code>merge</code><code>undo</code><code>validate</code><code>why</code><code>read_file</code><code>diff</code><code>log</code><code>…</code>
+          <code>start_task</code><code>record</code><code>get_context</code><code>expand</code><code>read_symbol</code><code>search_history</code><code>handoff</code><code>claim_task</code><code>submit</code><code>review_task</code><code>merge</code><code>undo</code><code>validate</code><code>why</code><code>read_file</code><code>diff</code><code>log</code><code>…</code>
         </div>
       </div>
     </div>
@@ -910,16 +910,16 @@ av submit &amp;&amp; av merge</pre>
         <p>Can a method show an agent the code a real fix touched? Commits from click, httpx, ripgrep, fd, ky and hono; every method cut to the same budget.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>method</th><th class="num">gold files w/ code</th><th class="num">gold paths named</th><th class="num">tokens used</th></tr></thead>
+            <thead><tr><th>method</th><th class="num">gold files w/ code</th><th class="num">gold signatures</th><th class="num">gold paths named</th><th class="num">tokens used</th></tr></thead>
             <tbody>
-              <tr class="us"><td>av pack</td><td class="num">0.91</td><td class="num">0.98</td><td class="num">3,221</td></tr>
-              <tr><td>BM25 over symbols</td><td class="num">0.89</td><td class="num">0.89</td><td class="num">3,994</td></tr>
-              <tr><td>repo map</td><td class="num">0.68</td><td class="num">0.69</td><td class="num">3,990</td></tr>
-              <tr><td>BM25 over files</td><td class="num">0.44</td><td class="num">0.44</td><td class="num">3,964</td></tr>
+              <tr class="us"><td>av pack</td><td class="num">0.86</td><td class="num">0.73</td><td class="num">0.96</td><td class="num">3,579</td></tr>
+              <tr><td>BM25 over symbols</td><td class="num">0.89</td><td class="num">0.64</td><td class="num">0.92</td><td class="num">3,994</td></tr>
+              <tr><td>repo map</td><td class="num">0.65</td><td class="num">0.67</td><td class="num">0.67</td><td class="num">3,990</td></tr>
+              <tr><td>BM25 over files</td><td class="num">0.44</td><td class="num">0.26</td><td class="num">0.44</td><td class="num">3,964</td></tr>
             </tbody>
           </table>
         </div>
-        <p style="font-size:13.5px">Semantic layer on. BM25 over symbols still beats the pack on symbol bodies; see <code>bench/retrieval/results</code>.</p>
+        <p style="font-size:13.5px">Semantic layer on. The pack names more gold paths and signatures in fewer tokens; BM25 over symbols shows code for more gold files and more symbol bodies. At 800 tokens, the budget agents get, BM25 over symbols is clearly ahead (code for 0.76 of gold files vs 0.51): the pack names the right files but spends the budget on the task and the map. <code>bench/retrieval/results/2026-10-29-budget-800</code></p>
       </div>
       <div class="ev reveal">
         <h3>End-to-end agents <small>Claude Code · Haiku · 40 sessions per arm</small></h3>
@@ -945,7 +945,7 @@ av submit &amp;&amp; av merge</pre>
             </tbody>
           </table>
         </div>
-        <p style="font-size:13.5px">Recorded knowledge cuts cost per solved task by about 42%. But with ten notes, a plain NOTES.md delivers it just as well: av is only 1.8% cheaper. Our first run, with MCP and manual checkpoint calls, cost 22% more than notes; that is why av now runs on hooks and one-call close-out. Next: hundreds of notes, where reading them all should cost more than a pack. <code>bench/results/2026-10-29-relay-lean</code></p>
+        <p style="font-size:13.5px"><b>Recorded knowledge</b> cuts cost per solved task by about 42%, however it is delivered. With ten notes, a plain NOTES.md delivers it just as well: av is only 1.8% cheaper. Our first run, with MCP and manual checkpoint calls, cost 22% more than notes; that is why av now runs on hooks and one-call close-out. Next: hundreds of notes, where reading them all should cost more than a pack. <code>bench/results/2026-10-29-relay-lean</code></p>
       </div>
     </div>
     <div class="honest reveal">

@@ -1,6 +1,6 @@
 # Scholion
 
-> Open-source, context-first version control that makes coding agents more productive. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
+> Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
 
 Mission: agents shouldn't start from zero. Scholion is the home where coding agents build together and never forget: parallel workspaces, a shared memory of decisions and dead ends, and handoffs that just work. Contributors welcome.
 
@@ -43,9 +43,9 @@ av submit --record "decision: honour Retry-After @ shared/text.py:embed"   # rec
 
 ## Evidence (reproducible, in the repo)
 
-- Retrieval E1, 42 tasks from 6 public repos, 4000-token budget: the pack shows code for 0.91 of the gold files (BM25 over symbols 0.89, repo map 0.68, BM25 over files 0.44). `bench/retrieval/`
+- Retrieval E1, 42 tasks from 6 public repos, 4000-token budget: the pack shows code for 0.86 of the gold files (BM25 over symbols 0.89, repo map 0.65, BM25 over files 0.44) and the signatures of 0.73 of the gold symbols (BM25 over symbols 0.64), in 3,579 tokens. At 800 tokens, the agents' default, BM25 over symbols is ahead: code for 0.76 of gold files vs the pack's 0.51 (`bench/retrieval/results/2026-10-29-budget-800/`). `bench/retrieval/results/2026-10-28-packer-rrf/`
 - Claude Code + Haiku, 40 sessions per arm, small Python repo: turns −12.9% at unchanged cost (±0.0%); input tokens +5.9% vs plain git. `bench/results/2026-10-27-haiku/`
-- Knowledge relay E4, Claude Code + DeepSeek Flash, 10 tasks x 3 runs per arm: with an earlier agent's lessons, cost per solved task falls ~42% and acceptance rises from 18/30 (cold) to 30/30. With 10 notes a plain NOTES.md delivers them as well as av (av -1.8%). `bench/results/2026-10-29-relay-lean/`
+- Knowledge relay E4, Claude Code + DeepSeek Flash, 10 tasks x 3 runs per arm: with an earlier agent's lessons, cost per solved task falls ~42% (from the lessons, not from av: notes get the same) and acceptance rises from 18/30 (cold) to 30/30. With 10 notes a plain NOTES.md delivers them as well as av (av -1.8%). `bench/results/2026-10-29-relay-lean/`
 - Not yet shown: the productivity gain on large codebases. The 20k-line Rust task set is unmeasured.
 
 ## Contribute

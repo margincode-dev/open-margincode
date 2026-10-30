@@ -14,8 +14,17 @@ The project website: a static page, no build step. Everything is in this folder.
 | `og.png` | 1200×630 link preview. |
 | `favicon.svg`, `robots.txt`, `sitemap.xml` | The usual. |
 
-Numbers on the page come from `bench/` (E1 retrieval at a 4000-token budget, and the 2026-10-27
-Haiku runs). When the benchmarks change, update `index.html` and `llms.txt` together.
+Numbers on the page come from these result directories, and only these:
+
+| Section | Source |
+|---|---|
+| Retrieval (E1), 4000-token rows | `bench/retrieval/results/2026-10-28-packer-rrf/report.md` |
+| Retrieval (E1), 800-token caption | `bench/retrieval/results/2026-10-29-budget-800/report.md` (on PR #21's branch until it merges) |
+| End-to-end agents (Haiku) | `bench/results/2026-10-27-haiku/` (the `04-final-shipped-*` runs) |
+| Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md` |
+
+When a newer run replaces one, change this table, `index.html` and `llms.txt` in the same commit.
+A hero stat must be something av does that a plain file of notes does not.
 
 ## The replay demo
 

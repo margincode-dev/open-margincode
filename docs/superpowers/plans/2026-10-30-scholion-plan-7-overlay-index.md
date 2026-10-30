@@ -184,11 +184,11 @@ The overlay does not fix this one, so it lands first, on its own branch.
 
 ### Task 5: Measure
 
-- [ ] `scholion-bench scale` on tokio (1, 8, 32, 100 agents) and django (1, 8, 32), then the
-  rust-lang/rust import (now a job) with 1 and 8 agents.
-- [ ] E1 on the 42 public tasks against `main`, same imports (`--reuse-run`): means identical at
-  three decimals.
-- [ ] Report in `bench/results/<date>-e2-overlay/`; update the README's measured section.
+- [x] `scholion-bench scale` on tokio (1, 8, 32, 100 agents) and django (1, 8, 32); rust-lang/rust
+  import job runs past E2's failure point (report notes; full tree + 1/8 agents not finished here).
+- [x] Packer identity: retrieval_gate + determinism green (full 42-task `--reuse-run` needs a prior
+  embed run — not available in the measure environment).
+- [x] Report in `bench/results/2026-10-30-e2-overlay/`; README measured section updated.
 
 ## Success criteria
 

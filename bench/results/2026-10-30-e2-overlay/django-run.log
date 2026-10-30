@@ -1,0 +1,6 @@
+django: importing 7094 files (2939 code)
+django: imported in 228.6 s
+django: 1 agents, 1 merged in 1.8 s, 0 errors
+django: 8 agents, 8 merged in 9.3 s, 0 errors
+django: 32 agents, 32 merged in 26.6 s, 0 errors
+report: /workspace/bench/results/2026-10-30-e2-overlay/django/report.md

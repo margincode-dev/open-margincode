@@ -1,0 +1,31 @@
+   Compiling scholion-index v0.1.0 (/workspace/crates/scholion-index)
+   Compiling scholion-bench v0.1.0 (/workspace/crates/scholion-bench)
+   Compiling scholion-pack v0.1.0 (/workspace/crates/scholion-pack)
+   Compiling scholion-daemon v0.1.0 (/workspace/crates/scholion-daemon)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.53s
+     Running tests/retrieval_gate.rs (target/debug/deps/retrieval_gate-682ca26503fad96f)
+
+running 1 test
+discount-cap: 1 gold files, 1 gold symbols
+refund-over-captured: 1 gold files, 1 gold symbols
+aging-due-today: 1 gold files, 1 gold symbols
+requeue-attempts: 1 gold files, 1 gold symbols
+backoff-overflow: 1 gold files, 1 gold symbols
+percentile-rank: 1 gold files, 1 gold symbols
+retry-after-date: 1 gold files, 1 gold symbols
+cache-key-order: 2 gold files, 2 gold symbols
+token-skew: 1 gold files, 1 gold symbols
+pack files_named at 300: 1.000 (floor 0.97)
+pack files_code at 300: 0.444 (floor 0.41)
+pack symbols_sig at 300: 0.333 (floor 0.30)
+pack files_named at 450: 1.000 (floor 0.97)
+pack files_code at 450: 0.833 (floor 0.80)
+pack symbols_sig at 450: 0.556 (floor 0.52)
+pack files_named at 600: 1.000 (floor 0.97)
+pack files_code at 600: 1.000 (floor 0.97)
+pack symbols_sig at 600: 0.833 (floor 0.80)
+
+test the_pack_keeps_its_retrieval_scores_on_the_fixture_repo ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.12s
+

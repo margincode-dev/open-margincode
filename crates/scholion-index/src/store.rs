@@ -1346,30 +1346,35 @@ impl CodeIndex for PgIndex {
         let seed_ids: Vec<i64> = seeds.iter().map(|s| s.0).collect();
         let limit = hops.min(MAX_HOPS) as i32;
         let (repo, scope) = view.parts();
-        let rows = match self.overlay_mask(view).await? {
-            None => {
-                // Edges only ever connect symbols of the same (repo, scope).
-                sqlx::query(
-                    "WITH RECURSIVE walk(id, hops) AS (
-                         SELECT unnest($1::bigint[]), 0
-                       UNION
-                         SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
-                         FROM walk w JOIN symbol_refs e ON (e.src = w.id OR e.dst = w.id)
-                         WHERE w.hops < $2
-                     )
-                     SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($1))
-                     GROUP BY id ORDER BY MIN(hops), id",
-                )
-                .bind(&seed_ids)
-                .bind(limit)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(ierr)?
-            }
+        let mask = self.overlay_mask(view).await?;
+        // Empty O: view equals main; seeds are main ids. Use the plain walk so packs stay fast.
+        let plain = match &mask {
+            None => true,
+            Some(m) => m.is_empty(),
+        };
+        let rows = if plain {
+            sqlx::query(
+                "WITH RECURSIVE walk(id, hops) AS (
+                     SELECT unnest($1::bigint[]), 0
+                   UNION
+                     SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
+                     FROM walk w JOIN symbol_refs e ON (e.src = w.id OR e.dst = w.id)
+                     WHERE w.hops < $2
+                 )
+                 SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($1))
+                 GROUP BY id ORDER BY MIN(hops), id",
+            )
+            .bind(&seed_ids)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?
+        } else {
             // View edges: (1) main→main stored refs with both ends unmasked; (2) out-edges of
             // overlay symbols via their refs[]; (3) in-edges onto overlay symbols via view refs.
             // Stored task-scope symbol_refs are ignored (Task 4 stops writing them).
-            Some(masked) => sqlx::query(
+            let masked = mask.as_ref().expect("non-plain has a mask");
+            sqlx::query(
                 "WITH RECURSIVE
                  view_syms AS (
                      SELECT id, name, refs, path, scope FROM symbols
@@ -1410,12 +1415,12 @@ impl CodeIndex for PgIndex {
             )
             .bind(repo)
             .bind(scope)
-            .bind(&masked)
+            .bind(masked)
             .bind(&seed_ids)
             .bind(limit)
             .fetch_all(&self.pool)
             .await
-            .map_err(ierr)?,
+            .map_err(ierr)?
         };
         rows.iter()
             .map(|r| {
@@ -1498,15 +1503,20 @@ impl CodeIndex for PgIndex {
         }
         let ids: Vec<i64> = ids.iter().map(|s| s.0).collect();
         let (repo, scope) = view.parts();
-        let rows: Vec<(i64, i64)> = match self.overlay_mask(view).await? {
-            None => sqlx::query_as(
-                "SELECT dst, count(*) FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst",
-            )
-            .bind(&ids)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(ierr)?,
-            Some(masked) => sqlx::query_as(
+        let mask = self.overlay_mask(view).await?;
+        let plain = match &mask {
+            None => true,
+            Some(m) => m.is_empty(),
+        };
+        let rows: Vec<(i64, i64)> = if plain {
+            sqlx::query_as("SELECT dst, count(*) FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst")
+                .bind(&ids)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(ierr)?
+        } else {
+            let masked = mask.as_ref().expect("non-plain has a mask");
+            sqlx::query_as(
                 "WITH
                  view_syms AS (
                      SELECT id, name, refs, path, scope FROM symbols
@@ -1539,11 +1549,11 @@ impl CodeIndex for PgIndex {
             )
             .bind(repo)
             .bind(scope)
-            .bind(&masked)
+            .bind(masked)
             .bind(&ids)
             .fetch_all(&self.pool)
             .await
-            .map_err(ierr)?,
+            .map_err(ierr)?
         };
         Ok(rows
             .into_iter()

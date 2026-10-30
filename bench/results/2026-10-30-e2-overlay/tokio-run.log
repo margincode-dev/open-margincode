@@ -1,0 +1,7 @@
+tokio: importing 890 files (814 code)
+tokio: imported in 104.2 s
+tokio: 1 agents, 1 merged in 0.6 s, 0 errors
+tokio: 8 agents, 8 merged in 2.2 s, 0 errors
+tokio: 32 agents, 32 merged in 6.9 s, 0 errors
+tokio: 100 agents, 100 merged in 27.4 s, 0 errors
+report: /workspace/bench/results/2026-10-30-e2-overlay/tokio/report.md

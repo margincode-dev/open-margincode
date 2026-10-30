@@ -160,6 +160,20 @@ fn spread(files: &[String], n: usize) -> Vec<String> {
         .collect()
 }
 
+/// Prefer files with at least one non-empty line so `why?line=1` does not 404 on empty
+/// `__init__.py` stubs (django has many).
+fn with_content(repo: &Path, files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|p| {
+            std::fs::read_to_string(repo.join(p))
+                .ok()
+                .is_some_and(|t| t.lines().any(|l| !l.trim().is_empty()))
+        })
+        .cloned()
+        .collect()
+}
+
 /// The comment marker for a source file's language.
 fn comment(path: &str) -> &'static str {
     if path.ends_with(".py") { "#" } else { "//" }
@@ -405,7 +419,8 @@ pub fn run(d: &Daemon, a: &ScaleArgs) -> Result<ScaleReport> {
     let indexed_files = imported["indexed_files"].as_u64().unwrap_or(0);
     eprintln!("{}: imported in {import_s:.1} s", a.name);
 
-    let samples = spread(&code, a.samples);
+    let for_why = with_content(&a.repo, &code);
+    let samples = spread(if for_why.is_empty() { &code } else { &for_why }, a.samples);
     let (latency, ws_root) = latency(d, a, &samples)?;
     let mut levels = vec![];
     for &n in &a.agents {

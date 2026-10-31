@@ -4,6 +4,7 @@ mod hook;
 mod local;
 mod runner;
 mod taskfile;
+mod watch;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -209,6 +210,13 @@ enum Cmd {
         questions: String,
         #[arg(long, default_value_t = 4000)]
         budget: u32,
+        /// Tags the next agent must have, comma separated (e.g. image); `av next` offers the task
+        /// only to agents that have them.
+        #[arg(long, value_delimiter = ',')]
+        needs: Vec<String>,
+        /// Pin the task to this agent for its reserve window.
+        #[arg(long)]
+        prefer: Option<String>,
     },
     /// Commands for agent hooks; they never fail (exit 0) and are silent outside a task.
     Hook {
@@ -295,6 +303,101 @@ enum Cmd {
         #[arg(long, default_value_t = 4000)]
         budget: u32,
     },
+    /// Agent profiles: what each agent is good at and what it costs (used by `next`).
+    Agent {
+        #[command(subcommand)]
+        cmd: AgentCmd,
+    },
+    /// Post a task to the backlog. An agent that fits it takes it with `av next`.
+    Post {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        goal: String,
+        /// Tags the agent must have, comma separated (e.g. image,ui).
+        #[arg(long, value_delimiter = ',')]
+        needs: Vec<String>,
+        /// Pin the item to this agent for its reserve window.
+        #[arg(long)]
+        prefer: Option<String>,
+        /// Higher is taken first.
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
+        /// Seconds only the best-fitting agent may take it (default 600); then any agent that can.
+        #[arg(long)]
+        reserve: Option<i64>,
+    },
+    /// List the backlog, or drop an item.
+    #[command(args_conflicts_with_subcommands = true)]
+    Backlog {
+        #[command(subcommand)]
+        cmd: Option<BacklogCmd>,
+        #[arg(long)]
+        repo: Option<String>,
+        /// queued, taken or dropped.
+        #[arg(long)]
+        state: Option<String>,
+    },
+    /// Take the next task that fits --agent: a backlog item (a new workspace and a pack) or a
+    /// handed-off task that names tags the agent has (the handoff bundle).
+    Next {
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long, default_value_t = 800)]
+        budget: u32,
+        /// With nothing to take, wait up to this many seconds for something (the daemon caps it).
+        #[arg(long)]
+        wait: Option<u64>,
+    },
+    /// Run an agent command whenever work fits --agent: looks every --every seconds without taking
+    /// anything, then runs the command (with AV_AGENT and AV_URL set) and waits for it. The command
+    /// takes the work itself, e.g. `av watch --agent grok -- grok -p "take your next av task"`.
+    Watch {
+        #[arg(long)]
+        repo: Option<String>,
+        /// Seconds between looks (and after a run).
+        #[arg(long, default_value_t = 15)]
+        every: u64,
+        /// Stop after this many runs.
+        #[arg(long)]
+        max_runs: Option<u32>,
+        /// Look once, run at most once, then exit.
+        #[arg(long)]
+        once: bool,
+        /// The agent command, after `--`.
+        #[arg(last = true, required = true)]
+        cmd: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCmd {
+    /// Set (replace) the profile of an agent.
+    Set {
+        name: String,
+        /// Tags it is best at, comma separated.
+        #[arg(long, value_delimiter = ',')]
+        best: Vec<String>,
+        /// Tags it can do, comma separated.
+        #[arg(long, value_delimiter = ',')]
+        can: Vec<String>,
+        /// 1 is the cheapest.
+        #[arg(long, default_value_t = 5)]
+        cost: i32,
+        /// Another name the agent introduces itself with (repeatable).
+        #[arg(long = "alias")]
+        aliases: Vec<String>,
+    },
+    /// List the profiles, cheapest first.
+    List,
+}
+
+#[derive(Subcommand)]
+enum BacklogCmd {
+    /// Withdraw a queued item.
+    Drop { id: String },
 }
 
 #[derive(Subcommand)]
@@ -356,6 +459,8 @@ enum ConventionCmd {
 
 #[derive(Subcommand)]
 enum RepoCmd {
+    /// List the imported repos and the commit each one's main points at.
+    List,
     Add {
         name: String,
         git_source: String,
@@ -679,6 +784,41 @@ fn repo_for(cli: &Cli, client: &Client, repo: &Option<String>) -> Result<String>
     let (task, _) = resolve_task(cli)?;
     let r = client.get(&format!("/v1/tasks/{task}"), &[])?;
     Ok(s(&r["task"]["repo"]).to_owned())
+}
+
+/// `muse  cost 1  best a,b  can c  aliases x,y` (empty parts left out).
+fn agent_line(a: &Value) -> String {
+    let list = |k: &str| {
+        a[k].as_array()
+            .map(|v| {
+                v.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .unwrap_or_default()
+    };
+    let mut line = format!("{}  cost {}", s(&a["name"]), a["cost_rank"]);
+    for (label, key) in [("best", "best"), ("can", "can"), ("aliases", "aliases")] {
+        let v = list(key);
+        if !v.is_empty() {
+            line.push_str(&format!("  {label} {v}"));
+        }
+    }
+    line
+}
+
+/// ` · needs image,ui`, or nothing for an untagged item.
+fn tags_suffix(needs: &Value) -> String {
+    let tags: Vec<&str> = needs
+        .as_array()
+        .map(|v| v.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if tags.is_empty() {
+        String::new()
+    } else {
+        format!(" · needs {}", tags.join(","))
+    }
 }
 
 fn s(v: &Value) -> &str {
@@ -1340,12 +1480,15 @@ fn run(cli: Cli) -> Result<()> {
             broken,
             questions,
             budget,
+            needs,
+            prefer,
         } => {
             let (task, _) = resolve_task(&cli)?;
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/handoff"),
                 &json!({"agent": cli.agent, "done": done, "remaining": remaining,
-                        "broken": broken, "questions": questions, "budget": budget}),
+                        "broken": broken, "questions": questions, "budget": budget,
+                        "needs": needs, "prefer": prefer}),
                 generation_for(&cli, &task),
             )?;
             println!(
@@ -1546,6 +1689,198 @@ fn run(cli: Cli) -> Result<()> {
             println!("session: {session}");
             println!("generation: {}\n", r["generation"]);
             println!("{}", s(&r["bundle"]["markdown"]));
+        }
+        Cmd::Agent {
+            cmd:
+                AgentCmd::Set {
+                    name,
+                    best,
+                    can,
+                    cost,
+                    aliases,
+                },
+        } => {
+            let r = client.put(
+                &format!("/v1/agents/{name}"),
+                &json!({"best": best, "can": can, "cost_rank": cost, "aliases": aliases}),
+            )?;
+            println!("{}", agent_line(&r["agent"]));
+        }
+        Cmd::Repo { cmd: RepoCmd::List } => {
+            let r = client.get("/v1/repos", &[])?;
+            let repos = r.as_array().cloned().unwrap_or_default();
+            if repos.is_empty() {
+                println!("no repos (av repo add NAME PATH)");
+            }
+            for repo in &repos {
+                let main: String = s(&repo["main_change"]).chars().take(12).collect();
+                let main = if main.is_empty() { "?".into() } else { main };
+                match repo["git_source"].as_str() {
+                    Some(src) => println!("{}  main {main}  from {src}", s(&repo["name"])),
+                    None => println!("{}  main {main}", s(&repo["name"])),
+                }
+            }
+        }
+        Cmd::Agent {
+            cmd: AgentCmd::List,
+        } => {
+            let r = client.get("/v1/agents", &[])?;
+            let agents = r["agents"].as_array().cloned().unwrap_or_default();
+            if agents.is_empty() {
+                println!("no profiles yet: av agent set NAME --best TAGS --can TAGS --cost N");
+            }
+            for a in &agents {
+                println!("{}", agent_line(a));
+            }
+        }
+        Cmd::Post {
+            repo,
+            title,
+            goal,
+            needs,
+            prefer,
+            priority,
+            reserve,
+        } => {
+            let r = client.post(
+                "/v1/backlog",
+                &json!({"repo": repo, "title": title, "goal": goal, "needs": needs,
+                        "prefer": prefer, "priority": priority, "reserve_secs": reserve,
+                        "posted_by": cli.agent}),
+            )?;
+            println!(
+                "posted {} · {}{}",
+                s(&r["id"]),
+                s(&r["title"]),
+                tags_suffix(&r["needs"])
+            );
+        }
+        Cmd::Backlog {
+            cmd: Some(BacklogCmd::Drop { id }),
+            ..
+        } => {
+            client.delete(&format!("/v1/backlog/{id}"))?;
+            println!("dropped {id}");
+        }
+        Cmd::Backlog {
+            cmd: None,
+            repo,
+            state,
+        } => {
+            let mut query: Vec<(&str, &str)> = vec![];
+            if let Some(r) = &repo {
+                query.push(("repo", r));
+            }
+            if let Some(st) = &state {
+                query.push(("state", st));
+            }
+            let r = client.get("/v1/backlog", &query)?;
+            let items = r["items"].as_array().cloned().unwrap_or_default();
+            if items.is_empty() {
+                println!("the backlog is empty");
+            }
+            for i in &items {
+                let taken = i["taken_by"]
+                    .as_str()
+                    .map(|a| format!(" · taken by {a}"))
+                    .unwrap_or_default();
+                println!(
+                    "{}  {}  {}  p{}  {}{}{}",
+                    s(&i["id"]),
+                    s(&i["state"]),
+                    s(&i["repo"]),
+                    i["priority"],
+                    s(&i["title"]),
+                    tags_suffix(&i["needs"]),
+                    taken
+                );
+            }
+        }
+        Cmd::Watch {
+            repo,
+            every,
+            max_runs,
+            once,
+            cmd,
+        } => watch::run(
+            &client,
+            &watch::Watch {
+                agent: &cli.agent,
+                url: &cli.url,
+                repo: repo.as_deref(),
+                every: std::time::Duration::from_secs((*every).max(1)),
+                max_runs: *max_runs,
+                once: *once,
+                cmd,
+            },
+        )?,
+        Cmd::Next { repo, budget, wait } => {
+            let session = cli
+                .session
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let r = client.post(
+                "/v1/backlog/next",
+                &json!({"repo": repo, "agent": cli.agent, "session": session, "budget": budget,
+                        "wait_secs": wait}),
+            )?;
+            if r["task"].is_null() {
+                println!(
+                    "No task is waiting for you ({} queued for other agents or still reserved).",
+                    r["queued"]
+                );
+                return Ok(());
+            }
+            let task = &r["task"];
+            if r["from"] == "review" {
+                // someone else's task: nothing is written here; review it by id
+                println!(
+                    "review: task {} ({}/{}), owner: {}",
+                    s(&task["id"]),
+                    s(&task["repo"]),
+                    s(&task["slug"]),
+                    s(&task["owner_agent"])
+                );
+                println!("workspace: {}", s(&task["workspace_path"]));
+                println!("{}", s(&r["next"]));
+                return Ok(());
+            }
+            // a claimed or resumed task comes with its handoff bundle
+            let handoff = r["from"] == "handoff" || r["from"] == "abandoned";
+            let workspace = PathBuf::from(s(&task["workspace_path"]));
+            // a claim starts a fresh session; the owner name is the profile's, not an alias
+            let session = if handoff {
+                s(&r["session"]).to_owned()
+            } else {
+                session
+            };
+            let generation = if handoff {
+                r["generation"].as_i64()
+            } else {
+                task["generation"].as_i64()
+            };
+            write_taskfile(
+                &workspace,
+                &TaskFile {
+                    task: s(&task["id"]).to_owned(),
+                    session: session.clone(),
+                    generation,
+                    agent: Some(s(&task["owner_agent"]).to_owned()),
+                    last_checkpoint_ms: None,
+                    nudged_session: None,
+                },
+            );
+            println!("workspace: {}", workspace.display());
+            println!("task: {} ({})", s(&task["id"]), s(&task["slug"]));
+            println!("session: {session}");
+            if handoff {
+                println!("generation: {}\n", r["generation"]);
+                println!("{}", s(&r["bundle"]["markdown"]));
+            } else {
+                println!();
+                println!("{}", s(&r["pack"]["markdown"]));
+                print_receipt(&r["pack"]);
+            }
         }
         Cmd::Expand { id } => {
             let (task, session) = resolve_task(&cli)?;

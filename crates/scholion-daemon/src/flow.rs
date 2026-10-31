@@ -716,7 +716,7 @@ pub(crate) async fn review(
             }
             None => {
                 return Err(AvError::IllegalState(format!(
-                    "cannot approve: tests not run at head {} (the owner runs `av validate -- <cmd>`)",
+                    "cannot approve: tests not run at head {} (run them in the workspace, then `av validate -- <cmd>`)",
                     short(&head.0)
                 ))
                 .into());
@@ -1083,6 +1083,11 @@ pub(crate) struct HandoffBody {
     state: HandoffState,
     budget: Option<u32>,
     family: Option<AgentFamily>,
+    /// Tags the next agent must have (`next` offers the task only to agents that can do them).
+    #[serde(default)]
+    needs: Vec<String>,
+    /// An agent pinned to the task for its reserve window.
+    prefer: Option<String>,
 }
 
 /// Snapshots, checks the record gate on the records that already exist, then stores the state as a
@@ -1094,6 +1099,18 @@ pub(crate) async fn handoff(
     headers: HeaderMap,
     Json(b): Json<HandoffBody>,
 ) -> ApiResult<Value> {
+    // bad tags are refused before anything changes
+    let needs: Vec<String> = b
+        .needs
+        .iter()
+        .map(|t| scholion_core::routing::clean_tag(t))
+        .collect::<Result<_>>()?;
+    let prefer = b
+        .prefer
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned);
     let _guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     fence(&st, &task, &headers).await?;
@@ -1145,6 +1162,10 @@ pub(crate) async fn handoff(
             },
         )
         .await?;
+    // always, so the handoff's time is known (the start of its reserve window in `next`)
+    st.store
+        .set_handoff_needs(task.id, &needs, prefer.as_deref())
+        .await?;
     // snapshot_and_index already reconciled; re-check in case main moved during the handoff write.
     let task = st.store.get_task(task.id).await?;
     reconcile_task_overlay(&st, &task).await?;
@@ -1179,30 +1200,85 @@ pub(crate) async fn claim(
     Path(id): Path<Uuid>,
     Json(b): Json<ClaimBody>,
 ) -> ApiResult<Value> {
-    if b.agent.trim().is_empty() {
-        return Err(AvError::Invalid("agent must not be empty".into()).into());
+    Ok(Json(
+        claim_as(&st, TaskId(id), &b.agent, b.budget, b.family).await?,
+    ))
+}
+
+/// `claim` without the HTTP wrapper, for `next` (Plan 8).
+pub(crate) async fn claim_as(
+    st: &AppState,
+    id: TaskId,
+    agent: &str,
+    budget: Option<u32>,
+    family: Option<AgentFamily>,
+) -> Result<Value> {
+    if agent.trim().is_empty() {
+        return Err(AvError::Invalid("agent must not be empty".into()));
     }
     // no fenced write of the previous owner can run between its check and this claim
-    let _guard = st.lock_task(TaskId(id)).await;
-    let task = st
-        .store
-        .claim_task(TaskId(id), &b.agent, st.lease_secs)
-        .await?;
-    reconcile_task_overlay(&st, &task).await?;
+    let _guard = st.lock_task(id).await;
+    let task = st.store.claim_task(id, agent, st.lease_secs).await?;
+    reconcile_task_overlay(st, &task).await?;
     let bundle = st
         .packer
         .handoff_bundle(BundleRequest {
             task_id: task.id,
-            budget_tokens: b.budget.unwrap_or(BUNDLE_BUDGET),
-            family: b.family.unwrap_or_default(),
+            budget_tokens: budget.unwrap_or(BUNDLE_BUDGET),
+            family: family.unwrap_or_default(),
         })
         .await?;
-    Ok(Json(json!({
+    Ok(json!({
         "generation": task.generation,
         "session": Uuid::new_v4().to_string(),
         "task": task,
         "bundle": bundle,
-    })))
+    }))
+}
+
+/// The owner of an open task whose lease ran out takes it back (after a restart, say): the lease
+/// is renewed under the same generation and the answer looks like `claim_as`'s.
+pub(crate) async fn resume_as(
+    st: &AppState,
+    id: TaskId,
+    agent: &str,
+    budget: Option<u32>,
+    family: Option<AgentFamily>,
+) -> Result<Value> {
+    let _guard = st.lock_task(id).await;
+    let task = st.store.get_task(id).await?;
+    if task.owner_agent != agent || task.status != TaskStatus::Open {
+        return Err(AvError::IllegalState(format!(
+            "task {} is not an open task of {agent}",
+            task.slug
+        )));
+    }
+    if !st
+        .store
+        .renew_lease(task.id, task.generation, st.lease_secs)
+        .await?
+    {
+        return Err(AvError::IllegalState(format!(
+            "task {} was claimed meanwhile",
+            task.slug
+        )));
+    }
+    let task = st.store.get_task(id).await?;
+    reconcile_task_overlay(st, &task).await?;
+    let bundle = st
+        .packer
+        .handoff_bundle(BundleRequest {
+            task_id: task.id,
+            budget_tokens: budget.unwrap_or(BUNDLE_BUDGET),
+            family: family.unwrap_or_default(),
+        })
+        .await?;
+    Ok(json!({
+        "generation": task.generation,
+        "session": Uuid::new_v4().to_string(),
+        "task": task,
+        "bundle": bundle,
+    }))
 }
 
 fn short(hex: &str) -> &str {

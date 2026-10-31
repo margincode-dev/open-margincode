@@ -125,8 +125,11 @@ fn goal_item(task: &Task) -> Item {
         task.status.as_str()
     );
     let first = task.goal.lines().next().unwrap_or("").trim();
+    // An agent that runs `git status` in the workspace sees nothing: av snapshots the edits into
+    // commits. Say so, or a reviewer concludes the task changed nothing (seen in the Plan 8 run).
     let meta = format!(
-        "Owner: {}\nWorkspace: {}",
+        "Owner: {}\nWorkspace: {}\n(edits there are snapshotted into commits, so git status \
+         shows nothing; the changes are listed below)",
         task.owner_agent,
         task.workspace_path.display()
     );
@@ -327,7 +330,10 @@ fn tests_item(task: &Task, records: &[Record]) -> Item {
             }
         }
         None => {
-            format!("Tests: not run at this head ({head}); the owner runs `av validate -- <cmd>`")
+            format!(
+                "Tests: not run at this head ({head}); run them in the workspace, then av validate \
+                 -- <cmd>"
+            )
         }
     };
     let mut it = item(

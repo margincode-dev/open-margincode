@@ -765,3 +765,289 @@ async fn a_start_whose_client_leaves_while_queued_leaves_no_task_behind() {
         .collect();
     assert_eq!(titles, ["first"], "{tasks}");
 }
+
+// ---- Plan 8 Task 6: five agents with different profiles pull one mixed backlog
+
+async fn set_profile(e: &Env, name: &str, best: &[&str], can: &[&str], cost: i32) {
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/agents/{name}"),
+        Some(json!({"best": best, "can": can, "cost_rank": cost})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// The example set from the design, plus a fifth agent that cannot do code or images.
+async fn five_profiles(e: &Env) {
+    set_profile(e, "grok", &["image"], &["ui"], 2).await;
+    set_profile(e, "claude", &["code", "tests"], &["docs", "ui"], 4).await;
+    set_profile(e, "muse", &[], &["code", "docs"], 1).await;
+    set_profile(e, "codex", &["math"], &["code"], 3).await;
+    set_profile(e, "gemini", &[], &["docs", "ui"], 3).await;
+}
+
+async fn post_items(e: &Env, tag: &str, n: usize, reserve: i64) {
+    for i in 0..n {
+        let needs: Vec<&str> = if tag.is_empty() { vec![] } else { vec![tag] };
+        let (status, body) = post(
+            e,
+            "/v1/backlog",
+            json!({"repo": "demo", "title": format!("{} item {i}", if tag.is_empty() { "untagged" } else { tag }),
+                   "goal": "Extend the greeter", "needs": needs, "reserve_secs": reserve}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+}
+
+/// An agent that keeps pulling until `next` has nothing for it; returns the titles it got.
+async fn pull_all(e: &Env, agent: &str) -> Vec<String> {
+    let mut got = Vec::new();
+    loop {
+        let (status, body) = post(
+            e,
+            "/v1/backlog/next",
+            json!({"agent": agent, "session": format!("sess-{agent}")}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{agent}: {body}");
+        if body["task"].is_null() {
+            return got;
+        }
+        assert_eq!(body["task"]["owner_agent"], agent, "{body}");
+        got.push(body["task"]["title"].as_str().unwrap().to_owned());
+    }
+}
+
+fn count(titles: &[String], prefix: &str) -> usize {
+    titles.iter().filter(|t| t.starts_with(prefix)).count()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn five_agents_pull_a_mixed_backlog_and_each_item_goes_to_its_best_agent() {
+    let e = env().await;
+    five_profiles(&e).await;
+    // 5 image + 5 code + 4 math + 3 docs + 3 untagged = 20, all inside their reserve window
+    post_items(&e, "image", 5, 600).await;
+    post_items(&e, "code", 5, 600).await;
+    post_items(&e, "math", 4, 600).await;
+    post_items(&e, "docs", 3, 600).await;
+    post_items(&e, "", 3, 600).await;
+
+    let agents = ["grok", "claude", "muse", "codex", "gemini"];
+    let started = Instant::now();
+    let got: Vec<Vec<String>> = join_all(agents.iter().map(|a| pull_all(&e, a))).await;
+    eprintln!("20 items pulled by 5 agents in {:?}", started.elapsed());
+
+    let by = |name: &str| &got[agents.iter().position(|a| *a == name).unwrap()];
+    // every item went to the agent it ranks first on
+    assert_eq!(by("grok").len(), 5);
+    assert_eq!(count(by("grok"), "image"), 5);
+    assert_eq!(by("claude").len(), 5);
+    assert_eq!(count(by("claude"), "code"), 5);
+    assert_eq!(by("codex").len(), 4);
+    assert_eq!(count(by("codex"), "math"), 4);
+    // muse is the cheapest: docs and untagged work
+    assert_eq!(by("muse").len(), 6);
+    assert_eq!(count(by("muse"), "docs") + count(by("muse"), "untagged"), 6);
+    // gemini is ranked first on nothing, so inside the reserve windows it gets nothing
+    assert!(by("gemini").is_empty(), "{:?}", by("gemini"));
+
+    // each item was taken exactly once, and every taken item has its own task
+    let (_, list) = call(&e.app, "GET", "/v1/backlog?state=taken", None).await;
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 20);
+    let mut tasks: Vec<&str> = items
+        .iter()
+        .map(|i| i["task_id"].as_str().unwrap())
+        .collect();
+    tasks.sort();
+    tasks.dedup();
+    assert_eq!(tasks.len(), 20, "two items share a task");
+    let (_, queued) = call(&e.app, "GET", "/v1/backlog?state=queued", None).await;
+    assert!(queued["items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn when_the_best_agent_stops_pulling_the_others_finish_the_work() {
+    let e = env().await;
+    five_profiles(&e).await;
+    // claude's quota is out: it never pulls. The reserve window has passed (reserve 0), so any
+    // agent that can do code takes the code items; grok and gemini cannot, and image items stay.
+    post_items(&e, "code", 6, 0).await;
+    post_items(&e, "image", 2, 0).await;
+
+    let agents = ["muse", "codex", "gemini"]; // not grok, not claude
+    let got: Vec<Vec<String>> = join_all(agents.iter().map(|a| pull_all(&e, a))).await;
+    let total: usize = got.iter().map(Vec::len).sum();
+    assert_eq!(total, 6, "{got:?}");
+    assert!(
+        got[0].len() + got[1].len() == 6,
+        "muse and codex share the code items"
+    );
+    assert!(got[2].is_empty(), "gemini cannot do code");
+    let (_, queued) = call(&e.app, "GET", "/v1/backlog?state=queued", None).await;
+    let left: Vec<&str> = queued["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(left.len(), 2, "{left:?}");
+    assert!(left.iter().all(|t| t.starts_with("image")));
+
+    // grok comes back and finishes the images
+    assert_eq!(pull_all(&e, "grok").await.len(), 2);
+}
+
+// ---- Plan 9 Task 9: agents that only loop on `next` take a backlog all the way to merged
+
+/// What one looping agent saw: the tasks it worked on, the ones it reviewed (with their owners),
+/// and how many times it called `next`.
+#[derive(Debug, Default)]
+struct LoopRun {
+    worked: Vec<String>,
+    reviewed: Vec<(String, String)>,
+    calls: usize,
+}
+
+/// An agent that does only what `next` returns, as the agent instructions say: review, merge,
+/// take a handoff, or work a new task. It stops after `idle` empty waits in a row. When
+/// `hand_off` is set, it hands off the first task it starts, with no tags, instead of finishing.
+async fn loop_agent(e: &Env, agent: &str, idle: usize, hand_off: bool) -> LoopRun {
+    let mut run = LoopRun::default();
+    let mut empty = 0;
+    let mut handed = !hand_off;
+    while empty < idle {
+        run.calls += 1;
+        let (status, body) = post(
+            e,
+            "/v1/backlog/next",
+            json!({"agent": agent, "session": format!("sess-{agent}"), "wait_secs": 1}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{agent}: {body}");
+        if body["task"].is_null() {
+            empty += 1;
+            continue;
+        }
+        empty = 0;
+        let tid = body["task"]["id"].as_str().unwrap().to_owned();
+        let task_op = |op: &str| format!("/v1/tasks/{tid}/{op}");
+        if body["from"] == "review" {
+            let owner = body["task"]["owner_agent"].as_str().unwrap().to_owned();
+            assert_ne!(owner, agent, "{agent} was offered its own review: {body}");
+            if body["approved"] == false {
+                let (s, b) = post(
+                    e,
+                    &task_op("validate"),
+                    json!({"agent": agent, "command": "pytest", "exit_code": 0}),
+                )
+                .await;
+                assert_eq!(s, StatusCode::OK, "{b}");
+                let (s, b) = post(
+                    e,
+                    &task_op("review"),
+                    json!({"reviewer": agent, "verdict": "approve"}),
+                )
+                .await;
+                assert_eq!(s, StatusCode::OK, "{b}");
+            }
+            let (s, b) = post(e, &task_op("merge"), json!({"agent": agent})).await;
+            assert_eq!(s, StatusCode::OK, "{agent} merging {tid}: {b}");
+            run.reviewed.push((tid, owner));
+            continue;
+        }
+        // new work, a handoff or an abandoned task: each task writes its own file, so merges
+        // never conflict
+        assert_eq!(body["task"]["owner_agent"], agent, "{body}");
+        let slug = body["task"]["slug"].as_str().unwrap().to_owned();
+        let module = slug.replace('-', "_");
+        std::fs::write(
+            ws_dir(e, &body).join(format!("app/{module}.py")),
+            format!("def {module}():\n    return {:?}\n", agent),
+        )
+        .unwrap();
+        let (s, b) = post(
+            e,
+            &task_op("records"),
+            json!({"kind": "note", "summary": format!("{agent} wrote app/{module}.py"),
+                   "agent": agent, "anchors": [{"path": format!("app/{module}.py")}]}),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        if !handed {
+            handed = true;
+            let (s, b) = post(
+                e,
+                &task_op("handoff"),
+                json!({"agent": agent, "done": "a first draft", "remaining": "finish it",
+                       "broken": "", "questions": ""}),
+            )
+            .await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+            continue;
+        }
+        let (s, b) = post(e, &task_op("submit"), json!({"agent": agent})).await;
+        assert_eq!(s, StatusCode::OK, "{agent} submitting {tid}: {b}");
+        run.worked.push(tid);
+    }
+    run
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn swarm_loop_runs_backlog_to_merged() {
+    let e = env().await;
+    set_profile(&e, "claude", &["code", "tests"], &["docs", "ui"], 4).await;
+    set_profile(&e, "grok", &["image"], &["ui", "docs"], 2).await;
+    post_items(&e, "code", 2, 600).await;
+    post_items(&e, "image", 1, 600).await;
+    post_items(&e, "", 1, 600).await;
+
+    let started = Instant::now();
+    let (claude, grok) = futures::join!(
+        loop_agent(&e, "claude", 4, true),
+        loop_agent(&e, "grok", 4, false)
+    );
+    eprintln!(
+        "loop: {:?}\nclaude {claude:?}\ngrok {grok:?}",
+        started.elapsed()
+    );
+
+    // every backlog item became a task, and every task was merged
+    let (_, list) = call(&e.app, "GET", "/v1/backlog?state=taken", None).await;
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 4, "{list}");
+    for item in items {
+        let tid = item["task_id"].as_str().unwrap();
+        let (_, t) = call(&e.app, "GET", &format!("/v1/tasks/{tid}"), None).await;
+        assert_eq!(t["task"]["status"], "merged", "{t}");
+    }
+    // claude handed its first code task off untagged: grok finished it
+    assert_eq!(claude.worked.len(), 1, "{claude:?}");
+    assert_eq!(grok.worked.len(), 3, "{grok:?}");
+    // each submitted task was reviewed exactly once, never by its owner
+    let mut reviewed: Vec<&str> = claude
+        .reviewed
+        .iter()
+        .chain(&grok.reviewed)
+        .map(|(t, _)| t.as_str())
+        .collect();
+    reviewed.sort();
+    let mut worked: Vec<&str> = claude
+        .worked
+        .iter()
+        .chain(&grok.worked)
+        .map(String::as_str)
+        .collect();
+    worked.sort();
+    assert_eq!(reviewed, worked);
+    assert!(claude.reviewed.iter().all(|(_, o)| o == "grok"));
+    assert!(grok.reviewed.iter().all(|(_, o)| o == "claude"));
+    assert!(
+        claude.calls <= 25 && grok.calls <= 25,
+        "{claude:?} {grok:?}"
+    );
+}

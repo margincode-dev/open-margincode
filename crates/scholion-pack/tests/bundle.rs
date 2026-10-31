@@ -216,6 +216,25 @@ async fn bundle_matches_golden_for_fixture_task() {
     assert_eq!(got, want);
 }
 
+/// Plan 9: an agent that reads `git status` in a workspace sees nothing (av snapshots edits into
+/// commits), so both bundles say so under the workspace path.
+#[tokio::test]
+async fn bundles_say_a_workspace_shows_no_git_changes() {
+    let fx = handed_off().await;
+    let note = "(edits there are snapshotted into commits, so git status shows nothing; \
+                the changes are listed below)";
+    let h = fx
+        .packer
+        .handoff_bundle(breq(&fx.task, 2000))
+        .await
+        .unwrap();
+    let p = fx.packer.pr_bundle(breq(&fx.task, 2000)).await.unwrap();
+    for md in [&h.markdown, &p.markdown] {
+        let ws = pos(md, "Workspace: ");
+        assert!(md[ws..].lines().nth(1) == Some(note), "{md}");
+    }
+}
+
 #[tokio::test]
 async fn pr_bundle_lists_conventions_checklist_and_risks() {
     let fx = handed_off().await;
@@ -275,6 +294,13 @@ async fn pr_bundle_reports_test_status_at_the_current_head() {
     let b = fx.packer.pr_bundle(breq(&fx.task, 2000)).await.unwrap();
     assert!(
         b.markdown.contains("Tests: not run at this head"),
+        "{}",
+        b.markdown
+    );
+    // whoever reads the bundle (a reviewer, too) may run the tests and attest them
+    assert!(
+        b.markdown
+            .contains("); run them in the workspace, then av validate -- <cmd>"),
         "{}",
         b.markdown
     );

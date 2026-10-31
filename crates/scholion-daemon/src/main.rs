@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use scholion_daemon::{
     BACKUP_TICK, Config, EmbedChoice, EmbeddedPg, backup_tick, build_state, router, start_backups,
-    worker_tick,
+    sync_repos, worker_tick,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -39,6 +39,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let state = build_state(&cfg, &database_url).await?;
+    // repos imported before the `repos` table existed: list them too (never fatal)
+    match sync_repos(&state).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(added = n, "repos table: added repos found on disk"),
+        Err(e) => tracing::warn!(error = %e, "repos table: could not sync with the store on disk"),
+    }
     match &cfg.embed {
         Some(EmbedChoice::Ollama { model, base_url }) => {
             tracing::info!(%model, %base_url, "embedder: ollama");

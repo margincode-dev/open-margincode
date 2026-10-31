@@ -62,6 +62,9 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; pa
 aside.feed { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
   max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 66px; }
 aside.feed h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+aside.feed h2.gap { margin-top: 14px; }
+.bl { padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.bl .w { color: var(--faint); font-size: 11.5px; }
 .ev { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line);
   font-size: 12.5px; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; }
 .ev:hover { background: var(--panel-2); }
@@ -134,8 +137,10 @@ dialog input { width: 100%; margin: 10px 0; }
 <div id="banner" class="banner" hidden></div>
 <main>
   <section class="board" id="board" aria-label="Tasks by status"></section>
-  <aside class="feed" aria-label="Activity">
-    <h2>Activity</h2>
+  <aside class="feed" aria-label="Backlog and activity">
+    <h2>Backlog</h2>
+    <div id="backlog"><div class="empty">Nothing waiting.</div></div>
+    <h2 class="gap">Activity</h2>
     <div id="feed"><div class="empty">No events yet.</div></div>
   </aside>
 </main>
@@ -244,17 +249,43 @@ function banner(msg) {
 // ---- data ----
 
 async function loadTasks() {
-  const all = await api("/v1/tasks?limit=500");
-  const repos = [...new Set(all.tasks.map(t => t.repo))].sort();
+  // every imported repo, not only those with tasks: a repo with only a queued backlog shows too
+  const [all, known] = await Promise.all([api("/v1/tasks?limit=500"), api("/v1/repos").catch(() => [])]);
+  const repos = [...new Set([...known.map(r => r.name), ...all.tasks.map(t => t.repo)])].sort();
   const sel = document.getElementById("repo");
   const want = S.repo || store(true, "av_repo") || repos[0] || null;
-  sel.replaceChildren(...(repos.length ? repos : ["(no tasks yet)"]).map(r => h("option", { value: r }, r)));
+  sel.replaceChildren(...(repos.length ? repos : ["(no repos yet)"]).map(r => h("option", { value: r }, r)));
   S.repo = repos.includes(want) ? want : (repos[0] || null);
   if (S.repo) sel.value = S.repo;
   S.tasks = all.tasks.filter(t => t.repo === S.repo);
   S.byId = new Map(all.tasks.map(t => [t.id, t]));
   renderBoard();
   loadHealth();
+  loadBacklog().catch(() => {}); // a failing panel must not hide the board
+}
+
+// Tasks waiting for an agent: what they need, the agent each is reserved for first, and who took
+// the latest ones. The ranking is the daemon's (`best_agent`), not computed here.
+async function loadBacklog() {
+  const box = document.getElementById("backlog");
+  if (!S.repo) { box.replaceChildren(h("div", { class: "empty" }, "Nothing waiting.")); return; }
+  const q = encodeURIComponent(S.repo);
+  const [queued, taken] = await Promise.all([
+    api(`/v1/backlog?repo=${q}&state=queued`), api(`/v1/backlog?repo=${q}&state=taken`)]);
+  const rows = [
+    ...queued.items.map(i => h("div", { class: "bl" },
+      h("div", {}, i.title),
+      h("div", { class: "w" }, [
+        i.needs.length ? "needs " + i.needs.join(",") : "any agent",
+        i.best_agent ? "→ " + i.best_agent : "no agent can do it",
+        ago(i.created_at)].join(" · ")))),
+    ...taken.items.slice(-5).reverse().map(i => h("button", {
+      class: "ev", type: "button", onclick: () => i.task_id && openTask(i.task_id) },
+      h("span", { class: "k k-claim" }, "taken"),
+      h("span", {}, h("div", {}, i.title),
+        h("div", { class: "w" }, [i.taken_by, ago(i.taken_at)].filter(Boolean).join(" · "))))),
+  ];
+  fill(box, rows.length ? rows : [h("div", { class: "empty" }, "Nothing waiting.")]);
 }
 
 async function loadHealth() {

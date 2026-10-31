@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use scholion_core::IntentStore as _;
+use scholion_core::Vcs as _;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn post_tasks_returns_workspace_pack_and_host_path() {
@@ -2826,6 +2827,10 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
     assert!(html.contains("<title>"), "{html}");
     assert!(html.contains("/v1/tasks"), "the page reads the task list");
     assert!(
+        html.contains("/v1/backlog"),
+        "the page shows the backlog and who each item is reserved for"
+    );
+    assert!(
         html.contains("/unrecorded"),
         "the task drawer shows what no record explains"
     );
@@ -3686,4 +3691,59 @@ async fn merge_and_abandon_drop_overlay_rows() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(overlay_paths(&e, &a_slug).await.is_empty());
     assert!(overlay_row(&e, &a_slug).await.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repos_lists_every_imported_repo_with_its_main_change() {
+    let e = env().await;
+    let (status, body) = call(&e.app, "GET", "/v1/repos", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let repos = body.as_array().expect("an array");
+    assert_eq!(repos.len(), 1, "{body}");
+    assert_eq!(repos[0]["name"], "demo");
+    let (_, import) = call(&e.app, "GET", "/v1/repos/demo/import", None).await;
+    assert_eq!(repos[0]["main_change"], import["main_change"], "{body}");
+    // the import recorded the repo in Postgres, with its source
+    let rows = e.store.list_repos().await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "demo");
+    assert_eq!(
+        rows[0].git_source.as_deref(),
+        Some(e.src_path.canonicalize().unwrap().to_str().unwrap())
+    );
+    assert!(repos[0]["added_at"].is_string(), "{body}");
+}
+
+/// A repo imported before the `repos` table existed is only on disk; the daemon adds its row at
+/// start-up (`sync_repos`), so it is listed too.
+#[tokio::test(flavor = "multi_thread")]
+async fn sync_repos_backfills_repos_that_are_only_on_disk() {
+    let db = scholion_testutil::TestDb::new().await;
+    let store = std::sync::Arc::new(scholion_store::PgStore::connect(&db.url).await.unwrap());
+    let src = common::fixture_git_repo();
+    let (store_dir, ws) = (
+        tempfile::TempDir::new().unwrap(),
+        tempfile::TempDir::new().unwrap(),
+    );
+    let vcs = std::sync::Arc::new(scholion_vcs::JjVcs::new(
+        store_dir.path().to_path_buf(),
+        ws.path().to_path_buf(),
+    ));
+    vcs.init_repo("old", src.path()).await.unwrap();
+    let state = scholion_daemon::AppState::new(
+        vcs,
+        store.clone(),
+        std::sync::Arc::new(scholion_index::PgIndex::new(store.pool().clone())),
+        ws.path().to_path_buf(),
+        ws.path().to_path_buf(),
+    );
+    assert_eq!(scholion_daemon::sync_repos(&state).await.unwrap(), 1);
+    assert_eq!(
+        scholion_daemon::sync_repos(&state).await.unwrap(),
+        0,
+        "only once"
+    );
+    let rows = store.list_repos().await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "old");
 }

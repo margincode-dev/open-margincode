@@ -171,6 +171,14 @@ impl PackMode {
     }
 }
 
+/// A row of the `repos` table. `git_source` is `None` for a repo imported before the table existed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RepoEntry {
+    pub name: String,
+    pub git_source: Option<String>,
+    pub added_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// `base_change` / `workspace_path` are empty until `IntentStore::set_workspace`:
 /// the workspace needs the slug the store generates.
 #[derive(Debug, Clone, Serialize, Deserialize)]

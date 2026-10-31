@@ -62,7 +62,7 @@ pub fn router_with(state: AppState, extra: Router<AppState>) -> Router {
 /// in-process after `/mcp` itself passed it.
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
-        .route("/v1/repos", post(add_repo))
+        .route("/v1/repos", get(list_repos).post(add_repo))
         .route("/v1/repos/{name}/import", get(get_import))
         .route("/v1/reindex", post(crate::reindex::reindex))
         .route("/v1/tasks", post(start_task).get(list_tasks))
@@ -117,6 +117,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route("/v1/maintenance/prune", post(prune))
         .route("/v1/repos/{name}/outbox", get(outbox))
+        .merge(crate::routing_api::routes())
 }
 
 /// Sessions idle this long lose their ledger in `prune`.
@@ -176,6 +177,44 @@ pub(crate) struct ImportJob {
     started_at: chrono::DateTime<chrono::Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     finished_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Serialize)]
+struct RepoInfo {
+    #[serde(flatten)]
+    entry: scholion_core::RepoEntry,
+    main_change: Option<String>,
+}
+
+/// Every imported repo (the `repos` table), with the commit its trunk points at (null if that
+/// cannot be read, e.g. the repo's files were removed from the store).
+async fn list_repos(State(st): State<AppState>) -> ApiResult<Vec<RepoInfo>> {
+    let mut out = Vec::new();
+    for entry in st.store.list_repos().await? {
+        let main_change = st.vcs.trunk(&entry.name).await.ok().map(|c| c.0);
+        out.push(RepoInfo { entry, main_change });
+    }
+    Ok(Json(out))
+}
+
+/// Adds a `repos` row for each repo in the VCS store that has none (repos imported before the
+/// table existed). Returns how many it added. The daemon runs it at start-up.
+pub async fn sync_repos(st: &AppState) -> Result<usize> {
+    let known: std::collections::HashSet<String> = st
+        .store
+        .list_repos()
+        .await?
+        .into_iter()
+        .map(|r| r.name)
+        .collect();
+    let mut added = 0;
+    for name in st.vcs.list_repos().await? {
+        if !known.contains(&name) {
+            st.store.register_repo(&name, None).await?;
+            added += 1;
+        }
+    }
+    Ok(added)
 }
 
 async fn add_repo(
@@ -240,6 +279,11 @@ async fn add_repo(
 
 async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(ChangeId, usize)> {
     let main = st.vcs.init_repo(name, src).await?;
+    // the path as imported: init_repo has checked it is an existing directory
+    let source = src.canonicalize().ok();
+    st.store
+        .register_repo(name, source.as_deref().and_then(|p| p.to_str()))
+        .await?;
     let stats = index_change(st, name, "main", &main).await?;
     Ok((main, stats.parsed + stats.cached))
 }
@@ -318,18 +362,27 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
         pause.ready.notify_waiters();
         pause.proceed.notified().await;
     }
-    let pack_req = PackRequest {
-        task_id: task.id,
-        budget_tokens: req.budget.unwrap_or(DEFAULT_BUDGET),
+    let pack_req = first_pack_request(task.id, req.budget, req.session);
+    let (task, pack) = pack_for_task(&st, task.id, pack_req).await?;
+    Ok(Json(Started { task, pack }))
+}
+
+/// The first pack of a started task: small, signatures only, with the repo map.
+pub(crate) fn first_pack_request(
+    task_id: TaskId,
+    budget: Option<u32>,
+    session: String,
+) -> PackRequest {
+    PackRequest {
+        task_id,
+        budget_tokens: budget.unwrap_or(DEFAULT_BUDGET),
         focus: None,
-        session: Some(req.session),
+        session: Some(session),
         family: AgentFamily::default(),
         code: DEFAULT_CODE,
         map: true,
         max_code: None,
-    };
-    let (task, pack) = pack_for_task(&st, task.id, pack_req).await?;
-    Ok(Json(Started { task, pack }))
+    }
 }
 
 /// Reconcile under `lock_task`, then build a pack. If main advanced during the pack, reconcile
@@ -355,7 +408,7 @@ pub(crate) async fn pack_for_task(
 
 /// Creates the task, its workspace and index scope, its intent record and its lease. A failure
 /// abandons the task, so no open task is left without a workspace.
-async fn create_started(
+pub(crate) async fn create_started(
     st: &AppState,
     repo: String,
     title: String,

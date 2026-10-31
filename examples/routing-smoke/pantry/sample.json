@@ -1,0 +1,8 @@
+[
+  {"name": "rice", "category": "grains", "quantity": 2, "expires": "2027-03-01"},
+  {"name": "milk", "category": "dairy", "quantity": 1, "expires": "2026-11-03"},
+  {"name": "yogurt", "category": "dairy", "quantity": 4, "expires": "2026-11-06"},
+  {"name": "beans", "category": "canned", "quantity": 6, "expires": "2028-01-15"},
+  {"name": "spinach", "category": "produce", "quantity": 1, "expires": "2026-11-02"},
+  {"name": "apples", "category": "produce", "quantity": 5, "expires": "2026-11-12"}
+]

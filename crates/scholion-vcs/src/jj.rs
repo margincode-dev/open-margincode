@@ -764,6 +764,26 @@ impl Vcs for JjVcs {
         self.read(repo, move |i| i.read_files(&name, &c, &p)).await
     }
 
+    async fn list_repos(&self) -> Result<Vec<String>> {
+        let root = self.inner.store_root.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut names = Vec::new();
+            for entry in std::fs::read_dir(&root).map_err(verr)? {
+                let entry = entry.map_err(verr)?;
+                // a repo is a directory with a jj repo in its default workspace
+                if entry.path().join("main/.jj/repo").is_dir()
+                    && let Some(n) = entry.file_name().to_str()
+                {
+                    names.push(n.to_owned());
+                }
+            }
+            names.sort();
+            Ok(names)
+        })
+        .await
+        .map_err(verr)?
+    }
+
     async fn trunk(&self, repo: &str) -> Result<ChangeId> {
         let name = repo.to_owned();
         self.run(repo, move |i| i.trunk(&name)).await

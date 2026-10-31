@@ -3,6 +3,7 @@
 Goal: Make hello louder
 Owner: claude
 Workspace: /ws/demo/improve-greeting
+(edits there are snapshotted into commits, so git status shows nothing; the changes are listed below)
 
 ## State
 Remaining: make goodbye louder too

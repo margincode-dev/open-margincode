@@ -275,3 +275,13 @@ async fn failed_init_leaves_nothing_behind_so_a_retry_works() {
         "retry with a real repository works"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_repos_names_every_imported_repo_sorted() {
+    let e = env().await;
+    let other = fixture_git_repo();
+    e.vcs.init_repo("alpha", other.path()).await.unwrap();
+    // a stray directory in the store is not a repo
+    std::fs::create_dir_all(e._store.path().join("stray")).unwrap();
+    assert_eq!(e.vcs.list_repos().await.unwrap(), vec!["alpha", "demo"]);
+}

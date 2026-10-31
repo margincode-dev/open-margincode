@@ -37,6 +37,13 @@ pub trait Vcs: Send + Sync {
         Ok(out)
     }
 
+    /// The names of the imported repos, sorted.
+    async fn list_repos(&self) -> Result<Vec<String>> {
+        Err(AvError::Vcs(
+            "list_repos is not supported by this Vcs".into(),
+        ))
+    }
+
     /// The commit the trunk bookmark points at.
     async fn trunk(&self, _repo: &str) -> Result<ChangeId> {
         Err(AvError::Vcs("trunk is not supported by this Vcs".into()))
@@ -185,6 +192,8 @@ pub trait IntentStore: Send + Sync {
     /// Generates a unique slug from the title (`fix-login`, `fix-login-2`, ...).
     async fn create_task(&self, t: NewTask) -> Result<Task>;
     async fn get_task(&self, id: TaskId) -> Result<Task>;
+    /// Every task with this slug, in any repo and any status, by repo.
+    async fn tasks_with_slug(&self, slug: &str) -> Result<Vec<Task>>;
     /// The task of `repo` with this slug.
     async fn task_by_slug(&self, repo: &str, slug: &str) -> Result<Task>;
     /// Also sets head = base.
@@ -208,6 +217,54 @@ pub trait IntentStore: Send + Sync {
     /// Extends the lease to `lease_secs` from now if `generation` is still the task's; returns
     /// whether it was.
     async fn renew_lease(&self, id: TaskId, generation: i64, lease_secs: u64) -> Result<bool>;
+    /// Records an imported repo. A second call never replaces a known `git_source`; it only
+    /// fills in a missing one. A blank name is `Invalid`.
+    async fn register_repo(&self, name: &str, git_source: Option<&str>) -> Result<()>;
+    /// Every recorded repo, by name.
+    async fn list_repos(&self) -> Result<Vec<crate::types::RepoEntry>>;
+
+    // --- Plan 8: routing. Profiles, the backlog and the tags a handoff carries.
+    /// Inserts or replaces the profile of `p.name`. Tags are stored lowercase; blank ones and a
+    /// blank name are `Invalid`.
+    async fn put_profile(&self, p: &crate::routing::Profile) -> Result<()>;
+    /// Cheapest first, then by name.
+    async fn list_profiles(&self) -> Result<Vec<crate::routing::Profile>>;
+    async fn post_backlog(
+        &self,
+        item: crate::routing::NewBacklogItem,
+    ) -> Result<crate::routing::BacklogEntry>;
+    /// Oldest first.
+    async fn list_backlog(
+        &self,
+        repo: Option<&str>,
+        state: Option<crate::routing::BacklogState>,
+    ) -> Result<Vec<crate::routing::BacklogEntry>>;
+    /// Withdraws a queued item. `NotFound` for an unknown id, `IllegalState` unless it is queued.
+    async fn drop_backlog(&self, id: uuid::Uuid) -> Result<()>;
+    /// Marks a queued item taken by `agent`; of racing callers exactly one gets `true`.
+    async fn take_backlog(&self, id: uuid::Uuid, agent: &str) -> Result<bool>;
+    /// Puts a taken item back in the queue, if no task was made for it yet.
+    async fn untake_backlog(&self, id: uuid::Uuid) -> Result<()>;
+    /// Names the task made for a taken item.
+    async fn link_backlog_task(&self, id: uuid::Uuid, task: TaskId) -> Result<()>;
+    /// Tags the next agent of a handed-off task must have. `IllegalState` unless it is handed off.
+    async fn set_handoff_needs(
+        &self,
+        id: TaskId,
+        needs: &[String],
+        prefer: Option<&str>,
+    ) -> Result<()>;
+    /// Every handed-off task (of `repo`, or all), with the tags and preferred agent it may carry,
+    /// oldest handoff first. `since` is the handoff time (the epoch for a handoff made before it
+    /// was recorded). A claim clears the tags.
+    async fn handed_off_tasks(&self, repo: Option<&str>) -> Result<Vec<crate::routing::HandedOff>>;
+    /// Open tasks whose owner went quiet (of `repo`, or all): the lease expired, or there never
+    /// was one and the task is older than `lease_secs`. Oldest first.
+    async fn abandoned_tasks(
+        &self,
+        repo: Option<&str>,
+        lease_secs: u64,
+    ) -> Result<Vec<crate::routing::Stale>>;
     async fn set_workspace(&self, id: TaskId, path: &Path, base: &ChangeId) -> Result<()>;
     async fn set_pack_mode(&self, id: TaskId, mode: PackMode) -> Result<()>;
     async fn set_head(&self, id: TaskId, head: &ChangeId, touched: &[String]) -> Result<()>;

@@ -1913,3 +1913,391 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         assert!(submitted.contains("in_review"), "{agent}: {submitted}");
     }
 }
+
+// ---- Plan 8 Task 7: agent profiles, the backlog and `av next`
+
+fn daemon_with_repo() -> (Daemon, TempDir) {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    (d, scratch)
+}
+
+#[test]
+fn agent_set_and_list_show_the_profiles_cheapest_first() {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "agent",
+            "set",
+            "claude",
+            "--best",
+            "code,tests",
+            "--can",
+            "docs",
+            "--cost",
+            "4",
+        ],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "agent",
+            "set",
+            "muse",
+            "--can",
+            "code,docs",
+            "--cost",
+            "1",
+            "--alias",
+            "muse-code",
+            "--alias",
+            "muse-cli",
+        ],
+    ));
+    let list = ok(av(&d, scratch.path(), &["agent", "list"]));
+    let lines: Vec<&str> = list.lines().collect();
+    assert!(lines[0].starts_with("muse"), "{list}");
+    assert!(lines[0].contains("cost 1"), "{list}");
+    assert!(lines[0].contains("can code,docs"), "{list}");
+    assert!(lines[0].contains("aliases muse-code,muse-cli"), "{list}");
+    assert!(lines[1].starts_with("claude"), "{list}");
+    assert!(lines[1].contains("best code,tests"), "{list}");
+}
+
+#[test]
+fn post_backlog_and_drop() {
+    let (d, scratch) = daemon_with_repo();
+    let posted = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "draw the logo",
+            "--goal",
+            "A logo",
+            "--needs",
+            "image",
+            "--priority",
+            "2",
+        ],
+    ));
+    let id = posted
+        .split_whitespace()
+        .find(|w| w.len() == 36 && w.matches('-').count() == 4)
+        .unwrap_or_else(|| panic!("no id in {posted}"))
+        .to_owned();
+    let list = ok(av(&d, scratch.path(), &["backlog"]));
+    assert!(list.contains("draw the logo"), "{list}");
+    assert!(list.contains("queued"), "{list}");
+    assert!(list.contains("needs image"), "{list}");
+
+    ok(av(&d, scratch.path(), &["backlog", "drop", &id]));
+    assert!(
+        !ok(av(&d, scratch.path(), &["backlog", "--state", "queued"])).contains("draw the logo")
+    );
+    assert!(
+        ok(av(&d, scratch.path(), &["backlog", "--state", "dropped"])).contains("draw the logo")
+    );
+}
+
+#[test]
+fn next_starts_the_task_writes_the_task_file_and_prints_the_pack() {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "muse", "--can", "code", "--cost", "1"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+            "--reserve",
+            "0",
+        ],
+    ));
+    let got = ok(av_as(&d, scratch.path(), "muse", &["next"]));
+    let ws = d.ws.join("demo/improve-greeting");
+    assert!(
+        got.starts_with(&format!("workspace: {}", ws.display())),
+        "{got}"
+    );
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["agent"], "muse", "{file}");
+    assert_eq!(file["generation"], 1, "{file}");
+    // the task file is enough for the next commands
+    let status = ok(av_as(&d, &ws, "muse", &["status"]));
+    assert!(status.contains("owner muse"), "{status}");
+}
+
+#[test]
+fn next_with_nothing_for_the_agent_says_so_and_exits_zero() {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "muse", "--can", "code", "--cost", "1"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "t",
+            "--goal",
+            "g",
+            "--needs",
+            "image",
+            "--reserve",
+            "0",
+        ],
+    ));
+    let got = ok(av_as(&d, scratch.path(), "muse", &["next"]));
+    assert!(got.contains("No task is waiting for you"), "{got}");
+    assert!(got.contains("1 queued"), "{got}");
+}
+
+#[test]
+fn a_handoff_with_needs_is_taken_by_next_as_the_agent_that_fits() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "agent",
+            "set",
+            "grok",
+            "--best",
+            "image",
+            "--cost",
+            "2",
+            "--alias",
+            "grok-shell-av",
+        ],
+    ));
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name + \"!\"\n",
+    )
+    .unwrap();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout in hello",
+            "--anchor",
+            "app/greeter.py:Greeter.hello",
+        ],
+    ));
+    let handed = ok(av(
+        &d,
+        &ws,
+        &[
+            "handoff",
+            "--done",
+            "hello shouts",
+            "--remaining",
+            "draw the logo",
+            "--needs",
+            "image",
+        ],
+    ));
+    assert!(handed.contains("handed_off"), "{handed}");
+
+    // the alias resolves to the profile, so the task is owned by `grok`
+    let got = ok(av_as(&d, scratch.path(), "grok-shell-av", &["next"]));
+    assert!(got.contains("generation: 2"), "{got}");
+    assert!(got.contains("Remaining: draw the logo"), "{got}");
+    let status = ok(av_as(&d, &ws, "grok", &["status"]));
+    assert!(status.contains("owner grok · generation 2"), "{status}");
+}
+
+#[test]
+fn repo_list_names_the_imported_repos() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    assert!(
+        out(&av(&d, scratch.path(), &["repo", "list"])).contains("no repos"),
+        "an empty daemon says so"
+    );
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    let listed = ok(av(&d, scratch.path(), &["repo", "list"]));
+    assert!(listed.starts_with("demo "), "{listed}");
+}
+
+#[test]
+fn next_offers_another_agents_task_for_review_and_writes_no_task_file() {
+    let (d, scratch) = daemon_with_repo();
+    // the default agent starts and submits a task; grok, asking next, is offered its review
+    let started = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+        ],
+    ));
+    let ws = d.ws.join("demo/improve-greeting");
+    assert!(started.contains("improve-greeting"), "{started}");
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name + \"!\"\n",
+    )
+    .unwrap();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout in hello",
+            "--anchor",
+            "app/greeter.py:Greeter.hello",
+        ],
+    ));
+    ok(av(&d, &ws, &["submit"]));
+    let other = TempDir::new().unwrap();
+    let got = ok(av_as(&d, other.path(), "grok", &["next", "--wait", "1"]));
+    assert!(got.starts_with("review: task "), "{got}");
+    assert!(
+        got.contains("(demo/improve-greeting), owner: agent"),
+        "{got}"
+    );
+    assert!(got.contains("Review it: review_task"), "{got}");
+    assert!(!other.path().join(".av-task").exists());
+}
+
+// ---- Plan 9 Task 8: av watch ----
+
+/// A daemon with claude (code) and grok (image) profiles and one image item queued.
+fn image_item_queued() -> (Daemon, TempDir) {
+    let (d, scratch) = daemon_with_repo();
+    for (name, best) in [("claude", "code"), ("grok", "image")] {
+        ok(av(
+            &d,
+            scratch.path(),
+            &["agent", "set", name, "--best", best, "--cost", "2"],
+        ));
+    }
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Draw the logo",
+            "--goal",
+            "A flat logo",
+            "--needs",
+            "image",
+            "--reserve",
+            "0",
+        ],
+    ));
+    (d, scratch)
+}
+
+#[test]
+fn watch_runs_the_command_only_when_work_fits() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    let got = ok(av_as(
+        &d,
+        dir.path(),
+        "claude",
+        &["watch", "--once", "--", "sh", "-c", "touch ran"],
+    ));
+    assert!(
+        !dir.path().join("ran").exists(),
+        "nothing fits claude: {got}"
+    );
+    let got = ok(av_as(
+        &d,
+        dir.path(),
+        "grok",
+        &["watch", "--once", "--", "sh", "-c", "touch ran"],
+    ));
+    assert!(dir.path().join("ran").exists(), "{got}");
+    assert!(got.contains("watch: backlog demo/Draw the logo"), "{got}");
+    // the peek took nothing: the item is still queued for grok's agent to take
+    let queued = ok(av(&d, dir.path(), &["backlog", "--state", "queued"]));
+    assert!(queued.contains("Draw the logo"), "{queued}");
+}
+
+#[test]
+fn watch_passes_the_agent_name_and_daemon_url() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    ok(av_as(
+        &d,
+        dir.path(),
+        "grok",
+        &[
+            "watch",
+            "--once",
+            "--",
+            "sh",
+            "-c",
+            "echo $AV_AGENT $AV_URL > who",
+        ],
+    ));
+    let who = std::fs::read_to_string(dir.path().join("who")).unwrap();
+    assert_eq!(who.trim(), format!("grok {}", d.url));
+}
+
+#[test]
+fn watch_stops_after_max_runs_and_backs_off_on_failure() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    let started = std::time::Instant::now();
+    let o = av_as(
+        &d,
+        dir.path(),
+        "grok",
+        &["watch", "--every", "1", "--max-runs", "2", "--", "false"],
+    );
+    assert!(o.status.success(), "max-runs is a normal end: {}", err(&o));
+    assert_eq!(err(&o).matches("failed").count(), 2, "{}", err(&o));
+    // after the first failure it waited twice the interval
+    assert!(started.elapsed() >= std::time::Duration::from_secs(2));
+}

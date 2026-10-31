@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use globset::Glob;
+use scholion_core::routing::{self, BacklogEntry, BacklogState};
 use scholion_core::*;
 use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
@@ -51,6 +52,59 @@ fn task_from_row(r: &PgRow) -> Result<Task> {
             _ => PackMode::Full,
         },
     })
+}
+
+const BACKLOG_COLS: &str = "id, repo, title, goal, needs, prefer, priority, reserve_secs, \
+                            created_at, state, task_id, taken_by, taken_at, posted_by";
+
+fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
+    let state: String = r.try_get("state").map_err(serr)?;
+    Ok(BacklogEntry {
+        item: routing::BacklogItem {
+            id: r.try_get("id").map_err(serr)?,
+            repo: r.try_get("repo").map_err(serr)?,
+            title: r.try_get("title").map_err(serr)?,
+            goal: r.try_get("goal").map_err(serr)?,
+            needs: r.try_get("needs").map_err(serr)?,
+            prefer: r.try_get("prefer").map_err(serr)?,
+            priority: r.try_get("priority").map_err(serr)?,
+            reserve_secs: r.try_get("reserve_secs").map_err(serr)?,
+            created_at: r.try_get("created_at").map_err(serr)?,
+        },
+        state: state.parse()?,
+        task_id: r
+            .try_get::<Option<Uuid>, _>("task_id")
+            .map_err(serr)?
+            .map(TaskId),
+        taken_by: r.try_get("taken_by").map_err(serr)?,
+        taken_at: r.try_get("taken_at").map_err(serr)?,
+        posted_by: r.try_get("posted_by").map_err(serr)?,
+    })
+}
+
+fn clean_tags(tags: &[String]) -> Result<Vec<String>> {
+    tags.iter().map(|t| routing::clean_tag(t)).collect()
+}
+
+fn non_blank(what: &str, v: &str) -> Result<String> {
+    let v = v.trim();
+    if v.is_empty() {
+        return Err(AvError::Invalid(format!("{what} must not be blank")));
+    }
+    Ok(v.to_owned())
+}
+
+/// `NotFound` for a missing backlog row, else `IllegalState` with `why`.
+async fn backlog_refusal(pool: &PgPool, id: Uuid, why: &str) -> AvError {
+    match sqlx::query_scalar::<_, String>("SELECT state FROM backlog WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    {
+        Ok(Some(state)) => AvError::IllegalState(format!("backlog item {id} is {state}: {why}")),
+        Ok(None) => AvError::NotFound(format!("backlog item {id}")),
+        Err(e) => serr(e),
+    }
 }
 
 const TASK_COLS: &str = "id, repo, slug, title, goal, status, owner_agent, base_change, head_change, \
@@ -512,6 +566,17 @@ impl IntentStore for PgStore {
         task_from_row(&row)
     }
 
+    async fn tasks_with_slug(&self, slug: &str) -> Result<Vec<Task>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS} FROM tasks WHERE slug = $1 ORDER BY repo, id"
+        ))
+        .bind(slug)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter().map(task_from_row).collect()
+    }
+
     async fn set_status(&self, id: TaskId, status: TaskStatus) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(serr)?;
         let row = sqlx::query("UPDATE tasks SET status = $2 WHERE id = $1 RETURNING repo")
@@ -567,7 +632,8 @@ impl IntentStore for PgStore {
         let row = sqlx::query(&format!(
             "UPDATE tasks
              SET status = 'open', owner_agent = $2, generation = generation + 1,
-                 lease_expires = now() + make_interval(secs => $3)
+                 lease_expires = now() + make_interval(secs => $3),
+                 needs = '{{}}', prefer = NULL, needs_set_at = NULL
              WHERE id = $1 AND owner_agent <> $2
                AND (status = 'handed_off'
                     OR (status = 'open' AND (lease_expires IS NULL OR lease_expires < now())))
@@ -645,6 +711,283 @@ impl IntentStore for PgStore {
             return Err(AvError::NotFound(format!("task {id}")));
         }
         Ok(())
+    }
+
+    async fn put_profile(&self, p: &routing::Profile) -> Result<()> {
+        let name = non_blank("an agent name", &p.name)?;
+        let (best, can) = (clean_tags(&p.best)?, clean_tags(&p.can)?);
+        let aliases: Vec<String> = p
+            .aliases
+            .iter()
+            .map(|a| non_blank("an alias", a))
+            .collect::<Result<_>>()?;
+        sqlx::query(
+            "INSERT INTO agent_profiles (name, best, can, cost_rank, aliases)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (name) DO UPDATE
+             SET best = $2, can = $3, cost_rank = $4, aliases = $5",
+        )
+        .bind(name)
+        .bind(best)
+        .bind(can)
+        .bind(p.cost_rank)
+        .bind(aliases)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?;
+        Ok(())
+    }
+
+    async fn register_repo(&self, name: &str, git_source: Option<&str>) -> Result<()> {
+        let name = non_blank("repo", name)?;
+        sqlx::query(
+            "INSERT INTO repos (name, git_source) VALUES ($1, $2)
+             ON CONFLICT (name) DO UPDATE SET git_source = COALESCE(repos.git_source, $2)",
+        )
+        .bind(name)
+        .bind(git_source)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?;
+        Ok(())
+    }
+
+    async fn list_repos(&self) -> Result<Vec<RepoEntry>> {
+        let rows = sqlx::query("SELECT name, git_source, added_at FROM repos ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(RepoEntry {
+                    name: r.try_get("name").map_err(serr)?,
+                    git_source: r.try_get("git_source").map_err(serr)?,
+                    added_at: r.try_get("added_at").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn list_profiles(&self) -> Result<Vec<routing::Profile>> {
+        let rows = sqlx::query(
+            "SELECT name, best, can, cost_rank, aliases FROM agent_profiles
+             ORDER BY cost_rank, name",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(routing::Profile {
+                    name: r.try_get("name").map_err(serr)?,
+                    best: r.try_get("best").map_err(serr)?,
+                    can: r.try_get("can").map_err(serr)?,
+                    cost_rank: r.try_get("cost_rank").map_err(serr)?,
+                    aliases: r.try_get("aliases").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn post_backlog(&self, item: routing::NewBacklogItem) -> Result<BacklogEntry> {
+        let (repo, title, goal) = (
+            non_blank("repo", &item.repo)?,
+            non_blank("title", &item.title)?,
+            non_blank("goal", &item.goal)?,
+        );
+        let needs = clean_tags(&item.needs)?;
+        let prefer = item
+            .prefer
+            .as_deref()
+            .map(|p| non_blank("prefer", p))
+            .transpose()?;
+        if item.reserve_secs < 0 {
+            return Err(AvError::Invalid("reserve_secs must not be negative".into()));
+        }
+        let row = sqlx::query(&format!(
+            "INSERT INTO backlog (id, repo, title, goal, needs, prefer, priority, reserve_secs,
+                                  posted_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING {BACKLOG_COLS}"
+        ))
+        .bind(Uuid::new_v4())
+        .bind(repo)
+        .bind(title)
+        .bind(goal)
+        .bind(needs)
+        .bind(prefer)
+        .bind(item.priority)
+        .bind(item.reserve_secs)
+        .bind(item.posted_by)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(serr)?;
+        backlog_from_row(&row)
+    }
+
+    async fn list_backlog(
+        &self,
+        repo: Option<&str>,
+        state: Option<BacklogState>,
+    ) -> Result<Vec<BacklogEntry>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {BACKLOG_COLS} FROM backlog
+             WHERE ($1::text IS NULL OR repo = $1) AND ($2::text IS NULL OR state = $2)
+             ORDER BY created_at, id"
+        ))
+        .bind(repo)
+        .bind(state.map(BacklogState::as_str))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter().map(backlog_from_row).collect()
+    }
+
+    async fn drop_backlog(&self, id: Uuid) -> Result<()> {
+        let n =
+            sqlx::query("UPDATE backlog SET state = 'dropped' WHERE id = $1 AND state = 'queued'")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(serr)?
+                .rows_affected();
+        if n == 0 {
+            return Err(backlog_refusal(&self.pool, id, "only a queued item can be dropped").await);
+        }
+        Ok(())
+    }
+
+    async fn take_backlog(&self, id: Uuid, agent: &str) -> Result<bool> {
+        let n = sqlx::query(
+            "UPDATE backlog SET state = 'taken', taken_by = $2, taken_at = now()
+             WHERE id = $1 AND state = 'queued'",
+        )
+        .bind(id)
+        .bind(agent)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?
+        .rows_affected();
+        Ok(n == 1)
+    }
+
+    async fn untake_backlog(&self, id: Uuid) -> Result<()> {
+        let n = sqlx::query(
+            "UPDATE backlog SET state = 'queued', taken_by = NULL, taken_at = NULL
+             WHERE id = $1 AND state = 'taken' AND task_id IS NULL",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?
+        .rows_affected();
+        if n == 0 {
+            return Err(backlog_refusal(
+                &self.pool,
+                id,
+                "only a taken item without a task can be requeued",
+            )
+            .await);
+        }
+        Ok(())
+    }
+
+    async fn link_backlog_task(&self, id: Uuid, task: TaskId) -> Result<()> {
+        let n = sqlx::query("UPDATE backlog SET task_id = $2 WHERE id = $1 AND state = 'taken'")
+            .bind(id)
+            .bind(task.0)
+            .execute(&self.pool)
+            .await
+            .map_err(serr)?
+            .rows_affected();
+        if n == 0 {
+            return Err(backlog_refusal(&self.pool, id, "only a taken item can get a task").await);
+        }
+        Ok(())
+    }
+
+    async fn set_handoff_needs(
+        &self,
+        id: TaskId,
+        needs: &[String],
+        prefer: Option<&str>,
+    ) -> Result<()> {
+        let needs = clean_tags(needs)?;
+        let prefer = prefer.map(|p| non_blank("prefer", p)).transpose()?;
+        let n = sqlx::query(
+            "UPDATE tasks SET needs = $2, prefer = $3, needs_set_at = now()
+             WHERE id = $1 AND status = 'handed_off'",
+        )
+        .bind(id.0)
+        .bind(needs)
+        .bind(prefer)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?
+        .rows_affected();
+        if n == 0 {
+            let t = self.get_task(id).await?;
+            return Err(AvError::IllegalState(format!(
+                "task {} is {}; only a handed-off task can name what its next agent needs",
+                t.slug,
+                t.status.as_str()
+            )));
+        }
+        Ok(())
+    }
+
+    async fn handed_off_tasks(&self, repo: Option<&str>) -> Result<Vec<routing::HandedOff>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS}, needs, prefer,
+                    COALESCE(needs_set_at, 'epoch'::timestamptz) AS needs_set_at
+             FROM tasks
+             WHERE status = 'handed_off' AND ($1::text IS NULL OR repo = $1)
+             ORDER BY needs_set_at, id"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(routing::HandedOff {
+                    task: task_from_row(r)?,
+                    needs: r.try_get("needs").map_err(serr)?,
+                    prefer: r.try_get("prefer").map_err(serr)?,
+                    since: r.try_get("needs_set_at").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+
+    async fn abandoned_tasks(
+        &self,
+        repo: Option<&str>,
+        lease_secs: u64,
+    ) -> Result<Vec<routing::Stale>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS}, since FROM (
+                SELECT *, COALESCE(lease_expires,
+                                   created_at + make_interval(secs => $2)) AS since
+                FROM tasks
+                WHERE status = 'open' AND ($1::text IS NULL OR repo = $1)
+             ) t
+             WHERE since < now()
+             ORDER BY since, id"
+        ))
+        .bind(repo)
+        .bind(lease_secs as f64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(routing::Stale {
+                    task: task_from_row(r)?,
+                    since: r.try_get("since").map_err(serr)?,
+                })
+            })
+            .collect()
     }
 
     async fn set_workspace(&self, id: TaskId, path: &Path, base: &ChangeId) -> Result<()> {

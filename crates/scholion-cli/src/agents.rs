@@ -71,11 +71,14 @@ pub fn install_grok(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     edit_toml(path, |doc| {
         let mut server = toml_edit::Table::new();
         server["url"] = toml_edit::value(mcp_url);
+        // Grok sends `grok-shell-av` as its client name; the header names it for routing (checked
+        // against Grok Build 1.0.70, bench/results/2026-10-31-routing-grok/conformance.md).
+        let mut headers = toml_edit::InlineTable::new();
         if token {
-            let mut headers = toml_edit::InlineTable::new();
             headers.insert("Authorization", "Bearer ${AV_TOKEN}".into());
-            server["headers"] = toml_edit::value(headers);
         }
+        headers.insert("X-Av-Agent", "grok".into());
+        server["headers"] = toml_edit::value(headers);
         mcp_servers(doc)?.insert(SERVER, toml_edit::Item::Table(server));
         Ok(())
     })
@@ -84,9 +87,9 @@ pub fn install_grok(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
 /// Gemini CLI: `mcpServers.av.httpUrl` (streamable HTTP); it expands `${AV_TOKEN}` in headers.
 pub fn install_gemini(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     edit_json(path, |settings| {
-        let mut server = json!({ "httpUrl": mcp_url });
+        let mut server = json!({ "httpUrl": mcp_url, "headers": { "X-Av-Agent": "gemini" } });
         if token {
-            server["headers"] = json!({ "Authorization": "Bearer ${AV_TOKEN}" });
+            server["headers"]["Authorization"] = json!("Bearer ${AV_TOKEN}");
         }
         let servers = settings
             .as_object_mut()
@@ -234,8 +237,37 @@ mod tests {
         let v: Value = serde_json::from_str(&read(&path)).unwrap();
         assert_eq!(v["theme"], "dark");
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
-        assert_eq!(v["mcpServers"]["av"], json!({ "httpUrl": URL }));
+        assert_eq!(
+            v["mcpServers"]["av"],
+            json!({ "httpUrl": URL, "headers": { "X-Av-Agent": "gemini" } })
+        );
         assert!(dir.path().join("settings.json.bak").exists());
+    }
+
+    #[test]
+    fn grok_names_itself_in_a_static_header_with_or_without_a_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for token in [false, true] {
+            install_grok(&path, URL, token).unwrap();
+            let doc: toml_edit::DocumentMut = read(&path).parse().unwrap();
+            let headers = &doc["mcp_servers"]["av"]["headers"];
+            assert_eq!(headers["X-Av-Agent"].as_str(), Some("grok"));
+            assert_eq!(headers.get("Authorization").is_some(), token);
+        }
+    }
+
+    #[test]
+    fn gemini_names_itself_in_a_header_with_or_without_a_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        for token in [false, true] {
+            install_gemini(&path, URL, token).unwrap();
+            let v: Value = serde_json::from_str(&read(&path)).unwrap();
+            let headers = &v["mcpServers"]["av"]["headers"];
+            assert_eq!(headers["X-Av-Agent"], "gemini");
+            assert_eq!(headers.get("Authorization").is_some(), token);
+        }
     }
 
     #[test]

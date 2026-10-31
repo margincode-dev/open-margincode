@@ -50,7 +50,9 @@ const INSTRUCTIONS: &str = "Scholion (av): context-first version control. `start
 `claim_task`), work in the workspace it names, `record` decisions and dead ends when they happen \
 (kind=attempt with why, right after an approach fails), then `submit` with any last records inline; \
 submit checkpoints for you. `get_context` gives more context on demand. Call `checkpoint` only to \
-refresh `get_context` mid-task.";
+refresh `get_context` mid-task. Workspace edits are snapshotted into commits, so `git status` shows \
+nothing. `start_task` with no title or goal gives your next job; to review: `review_task`, run its \
+tests in its workspace, `validate`, `post_review`, then `merge` if approved.";
 
 fn tools() -> Value {
     let task_id = json!({"type": "string", "description": "Task id (default: the task this session started or claimed)."});
@@ -65,10 +67,11 @@ fn tools() -> Value {
         "summary": {"type": "string"}, "body": {"type": "string"}, "anchors": anchors,
         "receipt": {"type": "string", "description": "The rcp:… id of the pack you worked from."}}});
     json!([
-        {"name": "start_task", "description": "Start a task: creates its isolated workspace and returns the workspace path and a first context pack.",
-         "inputSchema": {"type": "object", "required": ["repo", "title", "goal"], "properties": {
+        {"name": "start_task", "description": "Start a task: creates its isolated workspace and returns the workspace path and a first context pack. Omit title and goal for your next job: a review or merge of others' work, a handoff, else a backlog task that fits you. wait: seconds to wait for one.",
+         "inputSchema": {"type": "object", "required": [], "properties": {
             "repo": {"type": "string"}, "title": {"type": "string"}, "goal": {"type": "string"},
-            "budget": {"type": "integer", "description": "Token budget of the pack (default 800)."}}}},
+            "budget": {"type": "integer", "description": "Token budget of the pack (default 800)."},
+            "wait": {"type": "integer"}}}},
         {"name": "checkpoint", "description": "Snapshot the workspace and refresh the code index. Only needed to refresh `get_context` mid-task; `submit` checkpoints for you.",
          "inputSchema": {"type": "object", "properties": {"task_id": task_id}}},
         {"name": "record", "description": "Record a decision, attempt (dead end), note or intent, anchored to code. Call `record` with kind=attempt immediately when an approach fails, including why. Summary at most 200 characters.",
@@ -95,7 +98,8 @@ fn tools() -> Value {
         {"name": "handoff", "description": "Hand the task to another agent: what is done, what remains, what is broken, open questions. Needs a recorded decision, attempt or note.",
          "inputSchema": {"type": "object", "required": ["done", "remaining"], "properties": {
             "done": {"type": "string"}, "remaining": {"type": "string"},
-            "broken": {"type": "string"}, "questions": {"type": "string"}, "task_id": task_id}}},
+            "broken": {"type": "string"}, "questions": {"type": "string"}, "task_id": task_id,
+            "needs": {"type": "array", "items": {"type": "string"}, "description": "Tags the next agent must have, e.g. [\"image\"]."}}}},
         {"name": "claim_task", "description": "Take over a handed-off task (or an open one whose lease expired); returns the workspace and the handoff bundle.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
             "task_id": {"type": "string"}, "budget": {"type": "integer"}}}},
@@ -213,7 +217,20 @@ fn check_args(schema: &Value, args: &Value) -> Result<(), RpcError> {
                 "argument `{key}` must be one of {allowed:?}"
             )));
         }
-        if kind == "array" {
+        if kind == "array"
+            && let Some(item_kind) = prop["items"]["type"].as_str()
+            && item_kind != "object"
+            && let Some(bad) = v
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|i| !json_type_ok(item_kind, i))
+        {
+            return Err(invalid(format!(
+                "`{key}` must be a list of {item_kind}s, got {bad}"
+            )));
+        }
+        if kind == "array" && prop["items"]["type"] == "object" {
             for item in v.as_array().into_iter().flatten() {
                 check_args(&prop["items"], item)
                     .map_err(|e| invalid(format!("in `{key}`: {}", e.message)))?;
@@ -303,6 +320,40 @@ fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args[key].as_str().filter(|s| !s.is_empty())
 }
 
+/// The id of the task `given` names: an id as is, else `repo/slug`, else a slug in any repo (an
+/// error that lists the matches when it is in several).
+async fn task_ref(st: &AppState, given: &str) -> Result<String, RpcError> {
+    let given = given.trim();
+    if Uuid::parse_str(given).is_ok() {
+        return Ok(given.to_owned());
+    }
+    let found = match given.split_once('/') {
+        Some((repo, slug)) => match st.store.task_by_slug(repo, slug).await {
+            Ok(t) => vec![t],
+            Err(scholion_core::AvError::NotFound(_)) => vec![],
+            Err(e) => return Err(invalid(e.to_string())),
+        },
+        None => st
+            .store
+            .tasks_with_slug(given)
+            .await
+            .map_err(|e| invalid(e.to_string()))?,
+    };
+    match found.as_slice() {
+        [t] => Ok(t.id.to_string()),
+        [] => Err(invalid(format!(
+            "no task {given:?}: pass a task id, a slug or repo/slug"
+        ))),
+        many => Err(invalid(format!(
+            "{given:?} names several tasks; pass one of: {}",
+            many.iter()
+                .map(|t| format!("{}/{}", t.repo, t.slug))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
 fn session(st: &AppState, sid: &str) -> Option<McpSession> {
     st.mcp
         .lock()
@@ -372,25 +423,77 @@ async fn run_tool(
 ) -> Result<Result<String, String>, RpcError> {
     let agent = s.agent.as_str();
     let (method, uri, body, generation, render): Call = match name {
-        "start_task" => (
+        // With no title and goal: the next backlog task that fits this agent (Plan 8).
+        "start_task" if args["title"].is_null() && args["goal"].is_null() => (
             "POST",
-            "/v1/tasks".into(),
-            Some(
-                json!({"repo": args["repo"], "title": args["title"], "goal": args["goal"],
-                            "agent": agent, "session": sid, "budget": args["budget"]}),
-            ),
+            "/v1/backlog/next".into(),
+            Some(json!({"repo": args["repo"], "agent": agent, "session": sid,
+                        "budget": args["budget"], "wait_secs": args["wait"]})),
             None,
             |r| {
+                if r["task"].is_null() {
+                    return format!(
+                        "No task is waiting for you ({} queued for other agents or still \
+                         reserved). Call start_task again with wait (seconds) to wait for one, \
+                         start your own with repo, title and goal, or ask the user.",
+                        r["queued"]
+                    );
+                }
+                if r["from"] == "review" {
+                    return format!(
+                        "review: task {} ({}/{}), owner: {}\nworkspace: {}\n{}",
+                        r["task"]["id"].as_str().unwrap_or_default(),
+                        r["task"]["repo"].as_str().unwrap_or_default(),
+                        r["task"]["slug"].as_str().unwrap_or_default(),
+                        r["task"]["owner_agent"].as_str().unwrap_or_default(),
+                        r["task"]["workspace_path"].as_str().unwrap_or_default(),
+                        r["next"].as_str().unwrap_or_default()
+                    );
+                }
+                let md = if r["from"] == "handoff" || r["from"] == "abandoned" {
+                    &r["bundle"]["markdown"]
+                } else {
+                    &r["pack"]["markdown"]
+                };
                 format!(
                     "workspace: {}\ntask: {} ({})\ngeneration: {}\n\n{}",
                     r["task"]["workspace_path"].as_str().unwrap_or_default(),
                     r["task"]["id"].as_str().unwrap_or_default(),
                     r["task"]["slug"].as_str().unwrap_or_default(),
                     r["task"]["generation"],
-                    r["pack"]["markdown"].as_str().unwrap_or_default()
+                    md.as_str().unwrap_or_default()
                 )
             },
         ),
+        "start_task" => {
+            for key in ["repo", "title", "goal"] {
+                if str_arg(args, key).is_none() {
+                    return Err(invalid(format!(
+                        "start_task needs `{key}` (repo, title and goal), or none of title and \
+                         goal to take the next backlog task"
+                    )));
+                }
+            }
+            (
+                "POST",
+                "/v1/tasks".into(),
+                Some(
+                    json!({"repo": args["repo"], "title": args["title"], "goal": args["goal"],
+                                "agent": agent, "session": sid, "budget": args["budget"]}),
+                ),
+                None,
+                |r| {
+                    format!(
+                        "workspace: {}\ntask: {} ({})\ngeneration: {}\n\n{}",
+                        r["task"]["workspace_path"].as_str().unwrap_or_default(),
+                        r["task"]["id"].as_str().unwrap_or_default(),
+                        r["task"]["slug"].as_str().unwrap_or_default(),
+                        r["task"]["generation"],
+                        r["pack"]["markdown"].as_str().unwrap_or_default()
+                    )
+                },
+            )
+        }
         "claim_task" => (
             "POST",
             format!(
@@ -707,7 +810,9 @@ async fn run_tool(
                     Some(
                         json!({"agent": agent, "done": args["done"], "remaining": args["remaining"],
                                     "broken": args.get("broken").cloned().unwrap_or(json!("")),
-                                    "questions": args.get("questions").cloned().unwrap_or(json!(""))}),
+                                    "questions": args.get("questions").cloned().unwrap_or(json!("")),
+                                    "needs": args.get("needs").filter(|v| !v.is_null()).cloned()
+                                        .unwrap_or(json!([]))}),
                     ),
                     generation,
                     |r| {
@@ -795,12 +900,15 @@ async fn run_tool(
     let (status, out) = inner(st, method, &uri, body, generation).await;
     if status.is_success() {
         match name {
-            "start_task" => remember(
-                st,
-                sid,
-                out["task"]["id"].as_str().unwrap_or_default(),
-                out["task"]["generation"].as_i64(),
-            ),
+            "start_task" => {
+                // `{"task": null}`: nothing was waiting, so there is nothing to remember; a
+                // review is someone else's task, so it is not this session's either
+                if let Some(id) = out["task"]["id"].as_str()
+                    && out["from"] != "review"
+                {
+                    remember(st, sid, id, out["task"]["generation"].as_i64());
+                }
+            }
             "claim_task" => remember(
                 st,
                 sid,
@@ -848,6 +956,11 @@ async fn call_tool(
     };
     check_args(&tool["inputSchema"], &args)?;
     check_sizes(&args)?;
+    // a task may be named by its slug (or repo/slug): from here on it is its id
+    let mut args = args;
+    if let Some(given) = args["task_id"].as_str() {
+        args["task_id"] = json!(task_ref(st, given).await?);
+    }
     let (text, is_error) = match run_tool(st, sid, s, name, &args).await? {
         Ok(text) => (text, false),
         Err(text) => (text, true),
@@ -890,6 +1003,14 @@ async fn initialize(
         .filter(|a| !a.is_empty())
         .unwrap_or("mcp")
         .to_owned();
+    // A profile may list the names a client introduces itself with (`av agent set --alias`), so
+    // routing, task ownership and fencing all use one name for the agent.
+    let agent = match st.store.list_profiles().await {
+        Ok(profiles) => scholion_core::routing::resolve(&profiles, &agent)
+            .map(|p| p.name.clone())
+            .unwrap_or(agent),
+        Err(_) => agent,
+    };
     let sid = Uuid::new_v4().to_string();
     {
         let mut map = st.mcp.lock().unwrap_or_else(|e| e.into_inner());

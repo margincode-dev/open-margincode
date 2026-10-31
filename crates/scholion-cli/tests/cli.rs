@@ -1597,9 +1597,10 @@ fn init_wires_codex_grok_and_gemini_through_mcp() {
         &env,
         &[
             "init", "--name", "demo", "--for", "codex", "--for", "grok", "--for", "gemini",
+            "--for", "cursor",
         ],
     ));
-    for name in ["Codex", "Grok Build", "Gemini CLI"] {
+    for name in ["Codex", "Grok Build", "Gemini CLI", "Cursor Agent"] {
         assert!(out.contains(&format!("{name} MCP server `av`")), "{out}");
     }
     let mcp = format!("{}/mcp", d.url);
@@ -1615,6 +1616,15 @@ fn init_wires_codex_grok_and_gemini_through_mcp() {
     )
     .unwrap();
     assert_eq!(gemini["mcpServers"]["av"]["httpUrl"], mcp.as_str());
+    let cursor: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.path().join(".cursor/mcp.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cursor["mcpServers"]["av"]["url"], mcp.as_str());
+    assert_eq!(
+        cursor["mcpServers"]["av"]["headers"]["X-Av-Agent"],
+        "cursor"
+    );
     // naming only other agents leaves Claude Code alone
     assert!(!home.path().join(".claude").exists());
 }
@@ -1766,7 +1776,10 @@ fn up_refuses_a_remote_daemon_url() {
 /// headers the way that CLI documents it, expanding `${AV_TOKEN}` (or Codex's
 /// `bearer_token_env_var`) from the environment.
 fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, String)>) {
-    let expand = |v: &str| v.replace("${AV_TOKEN}", token);
+    let expand = |v: &str| {
+        v.replace("${AV_TOKEN}", token)
+            .replace("${env:AV_TOKEN}", token)
+    };
     match agent {
         "codex" | "grok" => {
             let dir = if agent == "codex" { ".codex" } else { ".grok" };
@@ -1786,11 +1799,14 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
             }
             (url, headers)
         }
-        "gemini" => {
-            let v: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(home.join(".gemini/settings.json")).unwrap(),
-            )
-            .unwrap();
+        "gemini" | "cursor" => {
+            let file = if agent == "gemini" {
+                ".gemini/settings.json"
+            } else {
+                ".cursor/mcp.json"
+            };
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(home.join(file)).unwrap()).unwrap();
             let av = &v["mcpServers"]["av"];
             let headers = av["headers"]
                 .as_object()
@@ -1800,7 +1816,12 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
                         .collect()
                 })
                 .unwrap_or_default();
-            (av["httpUrl"].as_str().unwrap().to_owned(), headers)
+            let url = if agent == "gemini" {
+                &av["httpUrl"]
+            } else {
+                &av["url"]
+            };
+            (url.as_str().unwrap().to_owned(), headers)
         }
         other => panic!("no reader for {other}"),
     }
@@ -1860,9 +1881,10 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         &env,
         &[
             "init", "--name", "demo", "--for", "codex", "--for", "grok", "--for", "gemini",
+            "--for", "cursor",
         ],
     ));
-    for agent in ["codex", "grok", "gemini"] {
+    for agent in ["codex", "grok", "gemini", "cursor"] {
         let (url, headers) = mcp_endpoint(agent, home.path(), "sekrit");
         assert_eq!(url, format!("{}/mcp", d.url), "{agent}");
         // without the header the daemon refuses: the config, not luck, carries the token

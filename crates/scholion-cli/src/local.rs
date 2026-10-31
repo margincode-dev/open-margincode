@@ -310,6 +310,7 @@ pub fn init(
             Agent::Codex => agents::install_codex(&path, &mcp_url, token.is_some())?,
             Agent::Grok => agents::install_grok(&path, &mcp_url, token.is_some())?,
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
+            Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
         }
         if agent != Agent::Claude {
             println!(
@@ -330,7 +331,7 @@ pub fn init(
          \n\
          Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
          av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \
-         cd <the workspace it prints> && claude   (or codex, grok, gemini)\n\
+         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent)\n\
          Dashboard: {}/ui",
         url.trim_end_matches('/')
     );

@@ -24,7 +24,7 @@ cost** ([benchmark](bench/results/2026-10-27-haiku/), including where it did not
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
 cd your-repo && av init                          # daemon up, this repo added, Claude Code wired
-av init --for codex --for gemini --for grok      # the same MCP server for other agents
+av init --for codex --for gemini --for grok --for cursor   # the same MCP server for other agents
 ```
 
 Then watch your agents at `http://localhost:7420/ui`. The installer puts `scholion`, `av` and
@@ -289,7 +289,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
 | `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `scholion-daemon` that `av up` starts |
 
-`av init [--name NAME] [--for claude|codex|grok|gemini]...` adds the git repository of the current
+`av init [--name NAME] [--for claude|codex|grok|gemini|cursor]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
 (default: Claude Code); see [Agent integrations](#agent-integrations).
 
@@ -491,10 +491,11 @@ opens with a warning naming the culprit merge.
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
   (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
-- **Codex, Grok Build, Gemini CLI**: `av init --for codex|grok|gemini` merges the MCP server into
-  `$CODEX_HOME/config.toml` (default `~/.codex`), `~/.grok/config.toml` or `~/.gemini/settings.json`,
-  keeps everything else in the file and the previous one as `*.bak`. With `AV_TOKEN` set, the file
-  only names the variable (Codex `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}` in a header),
+- **Codex, Grok Build, Gemini CLI, Cursor Agent**: `av init --for codex|grok|gemini|cursor` merges the
+  MCP server into `$CODEX_HOME/config.toml` (default `~/.codex`), `~/.grok/config.toml`,
+  `~/.gemini/settings.json` or `~/.cursor/mcp.json`, keeps everything else in the file and the
+  previous one as `*.bak`. With `AV_TOKEN` set, the file only names the variable (Codex
+  `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}`, Cursor `${env:AV_TOKEN}` in a header),
   never the token. These agents get no hooks: they call `start_task`/`claim_task` and `get_context`
   themselves; the instructions to give them are in `integrations/<agent>/README.md`. All of them
   share one memory, so a dead end Claude recorded is in the pack Codex gets.

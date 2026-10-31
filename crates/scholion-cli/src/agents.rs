@@ -1,5 +1,5 @@
 //! `av init --for NAME`: wires an agent CLI to the daemon's MCP server (`/mcp`). Claude Code
-//! also gets hooks (`local::install_claude_hooks`); Codex, Grok Build and Gemini CLI get the MCP
+//! also gets hooks (`local::install_claude_hooks`); Codex, Grok Build, Gemini CLI and Cursor Agent get the MCP
 //! server only, and their agent calls `start_task` and `context` itself (or runs under
 //! `integrations/generic/av-wrap.sh`). Each writer merges into the CLI's own config file, keeps
 //! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
@@ -23,6 +23,8 @@ pub enum Agent {
     Grok,
     /// Google Gemini CLI: MCP in ~/.gemini/settings.json.
     Gemini,
+    /// Cursor Agent CLI (`cursor-agent`): MCP in ~/.cursor/mcp.json, shared with the Cursor editor.
+    Cursor,
 }
 
 impl Agent {
@@ -32,6 +34,7 @@ impl Agent {
             Agent::Codex => "Codex",
             Agent::Grok => "Grok Build",
             Agent::Gemini => "Gemini CLI",
+            Agent::Cursor => "Cursor Agent",
         }
     }
 
@@ -44,6 +47,7 @@ impl Agent {
                 .join("config.toml"),
             Agent::Grok => home.join(".grok/config.toml"),
             Agent::Gemini => home.join(".gemini/settings.json"),
+            Agent::Cursor => home.join(".cursor/mcp.json"),
         }
     }
 }
@@ -86,11 +90,26 @@ pub fn install_grok(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
 
 /// Gemini CLI: `mcpServers.av.httpUrl` (streamable HTTP); it expands `${AV_TOKEN}` in headers.
 pub fn install_gemini(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
+    let mut server = json!({ "httpUrl": mcp_url, "headers": { "X-Av-Agent": "gemini" } });
+    if token {
+        server["headers"]["Authorization"] = json!("Bearer ${AV_TOKEN}");
+    }
+    put_mcp_server(path, server)
+}
+
+/// Cursor Agent: `mcpServers.av.url` (streamable HTTP) in `~/.cursor/mcp.json`; Cursor expands
+/// `${env:AV_TOKEN}` in headers (cursor.com/docs/mcp, checked 2026-10-31 for CLI 2026.10.22).
+pub fn install_cursor(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
+    let mut server = json!({ "url": mcp_url, "headers": { "X-Av-Agent": "cursor" } });
+    if token {
+        server["headers"]["Authorization"] = json!("Bearer ${env:AV_TOKEN}");
+    }
+    put_mcp_server(path, server)
+}
+
+/// Sets `mcpServers.av` in a JSON config file to `server`, keeping everything else.
+fn put_mcp_server(path: &Path, server: Value) -> Result<()> {
     edit_json(path, |settings| {
-        let mut server = json!({ "httpUrl": mcp_url, "headers": { "X-Av-Agent": "gemini" } });
-        if token {
-            server["headers"]["Authorization"] = json!("Bearer ${AV_TOKEN}");
-        }
         let servers = settings
             .as_object_mut()
             .expect("checked by edit_json")
@@ -271,6 +290,38 @@ mod tests {
     }
 
     #[test]
+    fn cursor_merges_into_mcp_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"other":{"command":"x"},"av":{"url":"http://old/mcp"}}}"#,
+        )
+        .unwrap();
+        install_cursor(&path, URL, false).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(v["mcpServers"]["other"]["command"], "x");
+        assert_eq!(
+            v["mcpServers"]["av"],
+            json!({ "url": URL, "headers": { "X-Av-Agent": "cursor" } })
+        );
+        assert!(dir.path().join("mcp.json.bak").exists());
+    }
+
+    /// Cursor interpolates `${env:NAME}` in headers (cursor.com/docs/mcp), so the file never holds
+    /// the token.
+    #[test]
+    fn cursor_reads_the_token_from_the_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        install_cursor(&path, URL, true).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        let headers = &v["mcpServers"]["av"]["headers"];
+        assert_eq!(headers["Authorization"], "Bearer ${env:AV_TOKEN}");
+        assert_eq!(headers["X-Av-Agent"], "cursor");
+    }
+
+    #[test]
     fn broken_config_files_are_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let toml = dir.path().join("config.toml");
@@ -280,6 +331,7 @@ mod tests {
         let json = dir.path().join("settings.json");
         std::fs::write(&json, "{ nope").unwrap();
         assert!(install_gemini(&json, URL, false).is_err());
+        assert!(install_cursor(&json, URL, false).is_err());
         assert_eq!(read(&json), "{ nope");
     }
 
@@ -301,6 +353,10 @@ mod tests {
         assert_eq!(
             Agent::Grok.config_path(home, None),
             Path::new("/h/.grok/config.toml")
+        );
+        assert_eq!(
+            Agent::Cursor.config_path(home, None),
+            Path::new("/h/.cursor/mcp.json")
         );
     }
 }

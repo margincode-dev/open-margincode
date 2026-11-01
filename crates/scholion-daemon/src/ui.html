@@ -60,10 +60,11 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; pa
 .card .m { color: var(--muted); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
 .empty { color: var(--faint); font-size: 12px; padding: 6px 2px; }
 aside.feed { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px;
-  max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 66px; }
+  max-height: calc(100dvh - 90px); overflow: auto; overscroll-behavior: contain; position: sticky; top: 66px; }
 aside.feed h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 aside.feed h2.gap { margin-top: 14px; }
-.bl { padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.bl { padding: 6px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; overflow-wrap: anywhere; }
+.bl .row > * { min-inline-size: 0; }
 .bl .w { color: var(--faint); font-size: 11.5px; }
 .ev { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line);
   font-size: 12.5px; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left; width: 100%; }
@@ -137,8 +138,10 @@ dialog input { width: 100%; margin: 10px 0; }
 <div id="banner" class="banner" hidden></div>
 <main>
   <section class="board" id="board" aria-label="Tasks by status"></section>
-  <aside class="feed" aria-label="Backlog and activity">
-    <h2>Backlog</h2>
+  <aside class="feed" aria-label="Teams, backlog and activity">
+    <h2>Teams</h2>
+    <div id="teams"><div class="empty">No teams yet.</div></div>
+    <h2 class="gap">Backlog</h2>
     <div id="backlog"><div class="empty">Nothing waiting.</div></div>
     <h2 class="gap">Activity</h2>
     <div id="feed"><div class="empty">No events yet.</div></div>
@@ -261,7 +264,46 @@ async function loadTasks() {
   S.byId = new Map(all.tasks.map(t => [t.id, t]));
   renderBoard();
   loadHealth();
+  loadTeams().catch(() => {}); // a failing panel must not hide the board
   loadBacklog().catch(() => {}); // a failing panel must not hide the board
+}
+
+// One row per profile, cheapest first, then owners of open tasks who have no profile.
+// The count is open tasks in every repo (the list above, before the repo filter): status
+// "open" only, matching count_open_tasks. max_open null or absent is no limit.
+async function loadTeams() {
+  const box = document.getElementById("teams");
+  const body = await api("/v1/agents");
+  const agents = (body.agents || []).slice().sort((a, b) =>
+    (a.cost_rank - b.cost_rank) || String(a.name).localeCompare(String(b.name)));
+  const known = new Set(agents.map(a => a.name));
+  const openOf = new Map();
+  for (const t of S.byId.values()) {
+    if (t.status !== "open" || !t.owner_agent) continue;
+    openOf.set(t.owner_agent, (openOf.get(t.owner_agent) || 0) + 1);
+  }
+  const skill = (label, list) => (list && list.length ? label + " " + list.join(",") : null);
+  const rows = agents.map(a => {
+    const open = openOf.get(a.name) || 0;
+    const cap = a.max_open; // null, or missing on an older daemon: no limit
+    const limited = cap != null;
+    const idle = open === 0;
+    return h("div", { class: "bl" },
+      h("div", { class: "row" },
+        h("span", { class: idle ? "faint" : null }, a.name),
+        h("span", { class: "w" }, "cost " + a.cost_rank),
+        limited && open >= cap && h("span", { class: "chip" }, h("span", { class: "dot" }), "full")),
+      h("div", { class: "w" },
+        [skill("best", a.best), skill("can", a.can),
+         limited ? `${open}/${cap} open` : `${open} open`,
+         idle ? "idle" : null].filter(Boolean).join(" · ")));
+  });
+  for (const name of [...openOf.keys()].filter(n => !known.has(n)).sort((a, b) => a.localeCompare(b))) {
+    rows.push(h("div", { class: "bl" },
+      h("div", {}, name),
+      h("div", { class: "w" }, `${openOf.get(name)} open · no profile: takes untagged work only`)));
+  }
+  fill(box, rows.length ? rows : [h("div", { class: "empty" }, "No teams yet.")]);
 }
 
 // Tasks waiting for an agent: what they need, the agent each is reserved for first, and who took

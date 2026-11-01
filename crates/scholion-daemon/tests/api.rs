@@ -2846,6 +2846,28 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ui_page_reads_the_team_profiles() {
+    use tower::ServiceExt as _;
+    let e = env().await;
+    let resp = e
+        .app
+        .clone()
+        .oneshot(Request::get("/ui").body(axum::body::Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let html = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let html = String::from_utf8_lossy(&html);
+    assert!(html.contains("/v1/agents"), "the page reads team profiles");
+    assert!(
+        html.contains("max_open"),
+        "the page shows a team's open-task limit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn reindex_refreshes_mains_code_index_and_skips_unchanged_files() {
     let e = env().await;
     // what migration 0020 does to an index built before constants were symbols

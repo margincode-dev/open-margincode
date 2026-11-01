@@ -416,7 +416,7 @@ quiet for a whole lease (the owner may resume its own), and backlog items. A rev
 agent is reserved for it for 10 minutes. `wait_secs` (MCP `wait`, CLI `--wait`, at most 50) holds
 the call until something fits; `dry_run` says what it would give without taking it, which is what
 `av watch` polls. The MCP task tools take a slug (`louder-hello` or `pantry/louder-hello`) as well as an
-id. The dashboard lists the queue and who each item is reserved for. Design:
+id. The dashboard lists the teams (skill, cost, and open tasks against the limit), the queue and who each item is reserved for. Design:
 `docs/superpowers/specs/2026-10-31-agent-routing-design.md`; how to measure whether it pays:
 `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md` (not yet run: no claim is made).
 To try it with real agents, run `examples/routing-smoke/setup.sh`. It sets up a small sample
@@ -425,12 +425,13 @@ tagged backlog. Each table in its README says which agent should take which task
 
 ### Dashboard
 
-Open `http://localhost:7420/ui` to watch agents work: tasks by status, the backlog, a live activity feed (the
-`/v1/events` long-poll), and for each task its records, changed files, claim and review state.
-"Build context pack" shows exactly what the next agent would receive at a given budget. The page
-is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks for the
-token once per browser tab. It reads two listing routes added for it: `GET /v1/tasks`
-(`?repo=`, `?status=`, `?limit=`) and `GET /v1/tasks/{id}/records`.
+Open `http://localhost:7420/ui` to watch agents work: tasks by status, a Teams panel (each profile's
+skills and cost, how many open tasks it holds, and a full chip at its limit), the backlog, a live
+activity feed (the `/v1/events` long-poll), and for each task its records, changed files, claim and
+review state. "Build context pack" shows exactly what the next agent would receive at a given budget.
+The page is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks
+for the token once per browser tab. It reads `GET /v1/tasks` (`?repo=`, `?status=`, `?limit=`),
+`GET /v1/tasks/{id}/records` and `GET /v1/agents`.
 
 ## Test
 

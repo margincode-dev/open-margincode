@@ -794,7 +794,7 @@ tokens: 1184/2000</span></pre>
   <div class="wrap">
     <div class="sec-label">Many agents, one repo</div>
     <h2>Built for swarms, not for <em>a single</em> chat window.</h2>
-    <p class="sec-intro">Handoffs carry what's done, remaining, broken and open. Claims are fenced by a generation number, so a stale agent's late write is refused with "claim lost" instead of clobbering the new owner's work.</p>
+    <p class="sec-intro">Handoffs carry what's done, remaining, broken and open. Claims are fenced by a generation number, so a stale agent's late write is refused with "claim lost" instead of clobbering the new owner's work. Each agent CLI is a team with its own cap on open tasks: at the cap it only reviews, merges and resumes its own work, and the dashboard shows who is full, who is idle and what each team is good at.</p>
 
     <div class="life reveal">
       <svg viewBox="0 0 980 230" role="img" aria-label="Task lifecycle: open to in review to merged; open to handed off and back by claim; in review back to open on request changes; merge can end in conflicted, which resolves back to open; merged can be undone.">
@@ -970,7 +970,8 @@ av submit &amp;&amp; av merge</pre>
         <li><b>Plan 3 · Lifecycle</b><span>Submit gates, review verdicts, merge with conflicts, handoff &amp; claim with leases and fencing, MCP server.</span></li>
         <li><b>Plan 4 · Benchmarks</b><span><code>scholion-bench</code>: runner, paired analysis, bootstrap intervals, calibration.</span></li>
         <li><b>Plan 5 · Scion-inspired</b><span>Read API without checkout, carried approvals, post-merge runner, bisect, revert, <code>av why</code>.</span></li>
-        <li><b>Next · you</b><span>Bigger benchmarks, more languages, more agents, real teams.</span></li>
+        <li><b>Plan 8–9 · Teams</b><span>Work routes by skill and cost. Each CLI is a team with a cap on open tasks; the dashboard shows who is full.</span></li>
+        <li><b>Next · you</b><span>Bigger benchmarks, more languages, more agents.</span></li>
       </ol>
     </div>
   </div>

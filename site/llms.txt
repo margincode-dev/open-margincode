@@ -23,6 +23,7 @@ Status: an experiment, written almost entirely by coding agents with one human s
 - Context pack: Markdown sections Task, Map, Decisions & dead ends, Code, Conventions, Live work, fitted to a token budget. No LLM; deterministic.
 - Session ledger: what a session was already sent; later packs refer back ("↩ id (sent earlier)") instead of resending.
 - Receipt: every pack is stored as `rcp:<8 hex>`.
+- Team: an agent CLI and the subagents that share its name. Its profile lists what it is best at, what it can do, its cost, and an optional cap on open tasks. At the cap, the next job it is offered is a review, a merge, or one of its own abandoned tasks. The dashboard Teams panel shows who is full, who is idle and what each team is good at.
 
 ## Use it from an agent
 

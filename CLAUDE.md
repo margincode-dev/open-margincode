@@ -25,7 +25,7 @@ Test environment:
 - Postgres tests use `scholion_testutil::TestDb`: a fresh database on `AV_TEST_DATABASE_URL` if set, otherwise an embedded user-space Postgres (downloaded on first run). No Docker needed.
 - Qdrant tests silently skip (pass in ~0s) unless `AV_TEST_QDRANT_URL` (gRPC, e.g. `http://127.0.0.1:6334`) is set. A green workspace run does not prove Qdrant works.
 - `warm_build_under_300ms` is `#[ignore]`d (timing).
-- Docker Desktop without WSL integration needs Windows-drive paths for bind mounts; see the README section of that name.
+- Docker Desktop without WSL integration needs Windows-drive paths for bind mounts; see the section of that name in `docs/reference.md` (the README is the short introduction; the reference holds the details).
 
 ## Architecture
 

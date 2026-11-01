@@ -70,3 +70,5 @@ case ":$PATH:" in
     *) say "$dir is not on PATH; add it, e.g.: export PATH=\"$dir:\$PATH\"" ;;
 esac
 say "next: cd into a git repository and run: av init"
+say "or, in Claude Code: claude plugin marketplace add vinhqbui/scholion && claude plugin install scholion@scholion, then ask Claude to set up Scholion"
+say "if Scholion helps, a star helps others find it: https://github.com/vinhqbui/scholion"

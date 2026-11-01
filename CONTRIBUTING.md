@@ -13,7 +13,7 @@ README), so expect rough edges, and say so in issues when you hit one.
   database there.
 - Qdrant tests skip silently unless `AV_TEST_QDRANT_URL` (gRPC, e.g. `http://127.0.0.1:6334`) is
   set, so a green run does not prove the Qdrant code works.
-- Docker with Compose runs the full stack (`deploy/docker-compose.yml`, see the README's "Run").
+- Docker with Compose runs the full stack (`deploy/docker-compose.yml`, see "Run" in `docs/reference.md`).
 
 ## Before you open a pull request
 

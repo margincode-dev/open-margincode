@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Ask Claude to set it up**: a Claude Code plugin in this repository (`claude plugin marketplace
+  add vinhqbui/scholion`, then `claude plugin install scholion@scholion`) with three skills:
+  `/scholion:setup` (install, `av init`, checks), `/scholion:team` (several agents on one backlog:
+  profiles, first items, `av watch`) and `/scholion:doctor` (finds what is broken).
+- **A short README**: the story of what Scholion is for, how to try it and what it measured. The
+  full reference moved, unchanged, to `docs/reference.md`.
 - **Backlog items can start after others merge**: `av post --after ITEM[,ITEM]` (an item id or the
   slug of its title; `after` in `POST /v1/backlog`). `av next` does not offer the item, and
   `start_task` without a title does not take it, until every listed item has merged; `av backlog`

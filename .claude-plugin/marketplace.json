@@ -1,0 +1,15 @@
+{
+  "name": "scholion",
+  "description": "Scholion: shared memory and one backlog for your coding agents",
+  "owner": {
+    "name": "VINH BUI",
+    "url": "https://github.com/vinhqbui"
+  },
+  "plugins": [
+    {
+      "name": "scholion",
+      "source": "./integrations/claude-code/plugin",
+      "description": "Ask Claude to install Scholion, connect your agents to it and fix a broken setup"
+    }
+  ]
+}

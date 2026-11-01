@@ -1,0 +1,13 @@
+{
+  "name": "scholion",
+  "description": "Ask Claude to install Scholion, connect your agents to it and fix a broken setup",
+  "version": "0.1.0",
+  "author": {
+    "name": "VINH BUI",
+    "url": "https://github.com/vinhqbui"
+  },
+  "homepage": "https://github.com/vinhqbui/scholion",
+  "repository": "https://github.com/vinhqbui/scholion",
+  "license": "MIT",
+  "keywords": ["agents", "memory", "version-control", "mcp", "backlog"]
+}

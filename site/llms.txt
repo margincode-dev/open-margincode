@@ -92,6 +92,7 @@ Open problems:
 - Guide, persistent memory for coding agents over MCP: https://openevaluations.si/guides/memory-for-coding-agents
 - Replay of a real run (handoff, claim, context pack, review, merge), raw JSON: https://openevaluations.si/demo-replay.json
 - README: https://github.com/vinhqbui/scholion/blob/main/README.md
+- Reference (commands, configuration, design): https://github.com/vinhqbui/scholion/blob/main/docs/reference.md
 - Design spec: https://github.com/vinhqbui/scholion/tree/main/docs/superpowers/specs
 - Benchmarks: https://github.com/vinhqbui/scholion/tree/main/bench
 

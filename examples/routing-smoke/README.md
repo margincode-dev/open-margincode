@@ -121,7 +121,7 @@ files. Its `--sandbox workspace` does not confine writes, so watch which paths i
   its own review. Grok reviews Claude's code work; Claude reviews Grok's image work (only Grok can
   do `image`, so any other agent may review it).
 
-## Two agents on DeepSeek Flash (the v0.0.2 recording)
+## Two agents on DeepSeek Flash (the v0.0.2 run)
 
 `deepseek-demo.sh` runs the loop with no subscription: two Claude Code agents pointed at
 DeepSeek's Anthropic-compatible API, `coder` (best `code,tests`) and `writer` (best `docs,ui`,
@@ -138,7 +138,7 @@ examples/routing-smoke/deepseek-demo.sh down
 ```
 
 It needs `~/.config/deepseek/key` (the key alone, `chmod 600`). On 2026-11-01 a pilot of one
-task and its review cost about $0.01, and the recorded run about $0.03. Claude Code cannot price
+task and its review cost about $0.01, and the five-task run about $0.03. Claude Code cannot price
 DeepSeek, so the `costUSD` in its session logs uses Claude prices; check
 `https://api.deepseek.com/user/balance` instead. Set `DEMO` and `AV_URL` the same for every
 command when you change them.

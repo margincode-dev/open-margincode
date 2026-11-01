@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Two Claude Code agents on DeepSeek Flash share one backlog: they take the work that fits them,
-# review each other's submissions and merge what they approve. Recorded for the v0.0.2 demo.
+# review each other's submissions and merge what they approve. The run checked for v0.0.2.
 #
 #   deepseek-demo.sh up                 # a separate daemon on :7441 (data in ~/scholion-demo)
 #   deepseek-demo.sh setup [pilot]      # repo copy, two profiles, the backlog (pilot: one task)

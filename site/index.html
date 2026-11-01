@@ -272,6 +272,7 @@ h3 { font: 600 18px/1.3 var(--sans); letter-spacing: -.01em; margin: 0; }
 .life svg { width: 100%; height: auto; display: block; }
 .life text { font-family: var(--mono); }
 .agents { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: 1fr; }
+.backlog { margin-top: 48px; max-width: 760px; scroll-margin-top: 80px; }
 @media (min-width: 900px) { .agents { grid-template-columns: 1fr 1fr; } }
 .typed .line { display: block; min-height: 1.65em; white-space: pre-wrap; }
 .typed .cursor { display: inline-block; width: .55em; height: 1.05em; vertical-align: -2px; background: var(--rubric); animation: blink 1s steps(1) infinite; }
@@ -524,7 +525,8 @@ h1 .why { position: relative; display: inline-block; }
    "@type": "SoftwareApplication",
    "name": "Scholion",
    "alternateName": "av",
-   "description": "Open-source, context-first version control for coding agents: decisions and dead ends anchored to code, isolated task workspaces, and a deterministic, token-budgeted context pack for Claude Code, Codex, Gemini or any MCP client.",
+   "description": "Open-source, context-first version control for coding agents: decisions and dead ends anchored to code, isolated task workspaces, and a deterministic, token-budgeted context pack for Claude Code, Codex, Cursor, Grok, Gemini or any MCP client.",
+   "softwareVersion": "0.0.2",
    "applicationCategory": "DeveloperApplication",
    "operatingSystem": "Linux, macOS",
    "url": "https://openevaluations.si/",
@@ -847,6 +849,18 @@ tokens: 1184/2000</span></pre>
         <pre class="typed" id="t2" aria-label="Codex claims the task and receives the handoff bundle"></pre>
       </div>
     </div>
+
+    <div class="backlog" id="backlog">
+      <div class="reveal">
+        <h3 style="font:italic 400 28px/1.2 var(--serif)">One backlog, every agent.</h3>
+        <p class="sec-intro" style="font-size:16px">Post work with tags. Each agent takes what fits its profile: what it is best at, what it can do, and what it costs. A task waits 10 minutes for its best agent, then any agent that can do it may take it. Before new work, an agent is offered the others' submissions to review, and the reviewer merges what it approves. No model makes these choices, and the daemon never starts an agent: <code>av watch</code> starts one on your machine when there is work for it.</p>
+        <div class="copy-block" style="margin-top:18px"><pre><code>av agent set claude --best code,tests --cost 4
+av agent set grok --best image --can ui,docs --cost 2
+av post --repo api --title "Draw the logo" \
+  --goal "…" --needs image</code></pre><button class="copy" aria-label="Copy command"></button></div>
+        <p style="font-size:13.5px;color:var(--muted);margin-top:14px">Try the whole loop with no subscription: <code>examples/routing-smoke/deepseek-demo.sh</code> runs two Claude Code agents on DeepSeek Flash through five tasks, each reviewing and merging the other's work (about $0.03). It shows the loop working; it does not measure token savings.</p>
+      </div>
+    </div>
   </div>
 </section>
 <hr class="divider">
@@ -856,13 +870,13 @@ tokens: 1184/2000</span></pre>
   <div class="wrap">
     <div class="sec-label">Plug in your agents</div>
     <h2>Works with the agents you already run.</h2>
-    <p class="sec-intro">Docker Compose brings up Postgres, Qdrant, an embedding server and the daemon on <code>127.0.0.1</code>. Then connect your agent one of three ways. Where an agent has hooks, use them: no tool schemas sit in its context, and it closes a task in one <code>av submit --record …</code> call.</p>
+    <p class="sec-intro">Install, then run <code>av init</code> in your repository: it starts the daemon with its own Postgres on <code>127.0.0.1:7420</code>, adds the repository and wires Claude Code. No Docker needed; <code>deploy/docker-compose.yml</code> adds semantic search. Then connect your other agents one of three ways. Where an agent has hooks, use them: no tool schemas sit in its context, and it closes a task in one <code>av submit --record …</code> call.</p>
     <div class="ints">
       <div class="int reveal"><span class="pill">Claude Code · recommended</span><h3>Hooks + CLI</h3><p><code>SessionStart</code> prints an 800-token pack; opening a file adds what other tasks recorded about it; edits are checkpointed; <code>Stop</code> asks once to record changes no record explains. Silent outside a task, never fails the agent.</p>
         <div class="copy-block"><pre><code>integrations/claude-code/install.sh</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
-      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP. Each connection is its own ledger session and remembers its task and claim generation.</p>
-        <div class="copy-block"><pre><code>claude mcp add --transport http \
-  av http://localhost:7420/mcp</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
+      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP at <code>localhost:7420/mcp</code>. <code>av init --for</code> writes the config for Codex, Cursor, Grok and Gemini. Each connection is its own ledger session and remembers its tasks and their claim generations.</p>
+        <div class="copy-block"><pre><code>av init --for codex --for cursor \
+  --for grok --for gemini</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
       <div class="int reveal"><span class="pill">anything else</span><h3>Generic wrapper</h3><p>Writes the pack to <code>$AV_CONTEXT_FILE</code>, runs your agent command, checkpoints afterwards.</p>
         <div class="copy-block"><pre><code>integrations/generic/av-wrap.sh \
   your-agent --task "…"</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
@@ -871,20 +885,19 @@ tokens: 1184/2000</span></pre>
     <div class="split" style="margin-top:24px">
       <div class="terminal reveal">
         <div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>quickstart<span class="tag">~ 5 min</span></div>
-<pre><span class="dim"># 1. the stack (daemon on :7420)</span>
-export UID GID=$(id -g)
-docker compose -f deploy/docker-compose.yml up -d --build
-cargo build --release -p scholion-cli   <span class="dim"># scholion + av</span>
+<pre><span class="dim"># 1. install; in your repo, start the daemon (:7420)</span>
+curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+cd api &amp;&amp; av init
 
-<span class="dim"># 2. a repo and a task</span>
-av repo add api /import/api
+<span class="dim"># 2. a task by hand: its own workspace and a pack</span>
 av task start --repo api --title "Add retry" \
   --goal "retry embedder calls with backoff"
 cd ~/ws/api/add-retry
-
-<span class="dim"># 3. let the agent work; it reads the pack, you read the why</span>
 av context                              <span class="dim"># 800 tokens</span>
-av submit &amp;&amp; av merge</pre>
+
+<span class="dim"># 3. or post it; the agent that fits takes it</span>
+av post --repo api --title "Add retry" --goal "…" --needs code
+<span class="dim"># watch at http://localhost:7420/ui</span></pre>
       </div>
       <div>
         <h3 style="font:italic 400 28px/1.2 var(--serif)">Ideas borrowed in the open</h3>

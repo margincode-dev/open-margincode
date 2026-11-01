@@ -61,10 +61,9 @@ each takes the work that fits it, reviews the others' work, and merges what it a
 
 ### Evidence
 
-- A 1-minute recording: two Claude Code agents on DeepSeek Flash take tasks from the backlog,
-  review each other's work and merge it. Reproduce it with
-  `examples/routing-smoke/deepseek-demo.sh`; that run cost about $0.03. It shows that the loop
-  works. It is not a measurement of token savings.
+- A real run: two Claude Code agents on DeepSeek Flash took tasks from the backlog, reviewed each
+  other's work and merged it. Reproduce it with `examples/routing-smoke/deepseek-demo.sh`; that
+  run cost about $0.03. It shows that the loop works. It is not a measurement of token savings.
 - Benchmarks and their limits: `bench/results/`. Plain notes files delivered recorded lessons as
   well as av did at 10 notes (E4). The task set with 300 notes (`bench/tasks-relay-scale`) is
   ready but has not been run, so av's advantage at scale is not measured yet.

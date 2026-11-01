@@ -47,12 +47,13 @@
   </ul>
 
   <h2>Connect your agent</h2>
-<pre><code><span class="c"># start the daemon (Postgres + optional semantic search, on 127.0.0.1)</span>
-export UID GID=$(id -g)
-docker compose -f deploy/docker-compose.yml up -d --build
+<pre><code><span class="c"># install, then in your repository: the daemon with its own Postgres on 127.0.0.1:7420</span>
+curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+cd your-repo &amp;&amp; av init                  <span class="c"># Claude Code: hooks and MCP</span>
 
-<span class="c"># any MCP client (for Claude Code, the hooks below cost fewer tokens)</span>
-claude mcp add --transport http av http://localhost:7420/mcp</code></pre>
+<span class="c"># other MCP clients: Codex, Cursor, Grok, Gemini, or any client at http://localhost:7420/mcp</span>
+av init --for codex --for cursor --for grok --for gemini</code></pre>
+  <p>No Docker needed. For semantic search, run the Docker stack instead (<code>deploy/docker-compose.yml</code>).</p>
   <p>The MCP server exposes the same operations as the HTTP API and the <code>av</code> CLI: start a task, record, get a context pack, hand off, claim, review and merge. For Claude Code, the leaner setup is hooks plus the <code>av</code> CLI (<code>integrations/claude-code/install.sh</code>): a pack at session start, other tasks' records when a file is opened, checkpoints after edits, and no tool schemas in the agent's context. <code>get_context</code> returns 800 tokens unless asked for more, and <code>submit</code> takes the closing records in the same call.</p>
 
   <h2>What an agent sees</h2>

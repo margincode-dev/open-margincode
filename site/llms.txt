@@ -25,11 +25,31 @@ Status: an experiment, written almost entirely by coding agents with one human s
 - Receipt: every pack is stored as `rcp:<8 hex>`.
 - Team: an agent CLI and the subagents that share its name. Its profile lists what it is best at, what it can do, its cost, and an optional cap on open tasks. At the cap, the next job it is offered is a review, a merge, or one of its own abandoned tasks. The dashboard Teams panel shows who is full, who is idle and what each team is good at.
 
+## Run it
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+cd your-repo && av init      # daemon with its own Postgres on 127.0.0.1:7420, this repo added, Claude Code wired
+av init --for codex --for cursor --for grok --for gemini   # the same MCP server for other agent CLIs
+```
+
+No Docker needed (Linux, macOS). `deploy/docker-compose.yml` adds semantic search. Dashboard: http://localhost:7420/ui
+
 ## Use it from an agent
 
 - Claude Code (recommended): `integrations/claude-code/install.sh` installs hooks (SessionStart 800-token pack, other tasks' records when a file is opened, checkpoints after edits, a one-time Stop reminder to record unexplained changes); the agent uses the `av` CLI. No MCP tool schemas in context.
 - MCP (clients without hooks): `claude mcp add --transport http av http://localhost:7420/mcp` — 24 tools including start_task, record, get_context (default budget 800), expand, handoff, claim_task, submit (accepts inline records), merge, why, read_file, diff, log.
 - Anything else: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`.
+
+## Share a backlog between agents (0.0.2)
+
+```bash
+av agent set claude --best code,tests --cost 4      # 1 is the cheapest; --max-open N caps open tasks
+av agent set grok --best image --can ui,docs --cost 2
+av post --repo api --title "Draw the logo" --goal "..." --needs image
+```
+
+An agent takes the next job that fits it with `start_task` (no title or goal) or `av next`. Order: reviews of other agents' submitted work (never its own), then handoffs, abandoned tasks and backlog items. A task is reserved for its best-fitting agent for 10 minutes, then any agent that can do it may take it. The reviewer merges what it approves. Rules are deterministic (no LLM). The daemon never starts agents; `av watch -- CMD` starts one locally when work fits. Try it with no subscription: `examples/routing-smoke/deepseek-demo.sh` (two Claude Code agents on DeepSeek Flash, ~$0.03; shows the loop working, does not measure savings).
 
 ## Typical session
 

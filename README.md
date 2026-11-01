@@ -19,6 +19,12 @@ cost** ([benchmark](bench/results/2026-10-27-haiku/), including where it did not
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](docs/img/demo-replay.png)](https://openevaluations.si/demo)
 
+**New in 0.0.2: one backlog for all your agents.** Post work with tags; each agent (Claude Code,
+Codex, Cursor, Grok, Gemini) takes what fits it, another agent reviews it, and the reviewer merges
+what it approves. `examples/routing-smoke/deepseek-demo.sh` runs that loop with two Claude Code
+agents on DeepSeek Flash for about $0.03; it shows the loop working, not token savings. What
+changed: [CHANGELOG.md](CHANGELOG.md).
+
 **Try it** (no Docker: the daemon runs its own Postgres; Linux and macOS):
 
 ```bash
@@ -140,7 +146,12 @@ cleanup, an MCP server with twenty-four agent tools, and a lifecycle event feed
 (`GET /v1/events`). Plan 4 added the `scholion-bench` benchmark harness (`bench/README.md`); the
 task set it was built for comes from a private repository and is not included. Plan 5 added the
 Scion-inspired features below: a workspace-free read API, carried approvals, enforced conventions,
-post-merge checks, revert of any merge, bisect and `why` blame.
+post-merge checks, revert of any merge, bisect and `why` blame. Plan 6 added the offline retrieval
+benchmark (E1); Plan 7, an index that reads main plus each task's own
+changes instead of copying it per task; Plan 8, agent profiles, a shared backlog and routing;
+Plan 9, the review loop (`next` offers reviews and merges first, rescues handoffs and abandoned
+tasks, waits for work) and `av watch`. Lite mode (`av up`, `av init`) runs the daemon with its own
+Postgres, and release 0.0.2 ships it.
 
 Measured so far (details in `bench/README.md` and `bench/retrieval/`): offline, on 42 tasks from
 six public repositories (E1), the first pack names the files a fix touches best of all methods
@@ -421,7 +432,9 @@ id. The dashboard lists the teams (skill, cost, and open tasks against the limit
 `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md` (not yet run: no claim is made).
 To try it with real agents, run `examples/routing-smoke/setup.sh`. It sets up a small sample
 project (and your Sunken Crown checkout, if present) with profiles for Claude Code and Grok and a
-tagged backlog. Each table in its README says which agent should take which task.
+tagged backlog. Each table in its README says which agent should take which task. With no
+subscription, `examples/routing-smoke/deepseek-demo.sh` runs two Claude Code agents on DeepSeek
+Flash through the same loop on its own daemon (the run checked for 0.0.2).
 
 ### Dashboard
 

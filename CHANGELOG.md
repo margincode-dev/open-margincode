@@ -1,23 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- **Ask Claude to set it up**: a Claude Code plugin in this repository (`claude plugin marketplace
-  add vinhqbui/scholion`, then `claude plugin install scholion@scholion`) with three skills:
-  `/scholion:setup` (install, `av init`, checks), `/scholion:team` (several agents on one backlog:
-  profiles, first items, `av watch`) and `/scholion:doctor` (finds what is broken).
-- **A short README**: the story of what Scholion is for, how to try it and what it measured. The
-  full reference moved, unchanged, to `docs/reference.md`.
-- **Backlog items can start after others merge**: `av post --after ITEM[,ITEM]` (an item id or the
-  slug of its title; `after` in `POST /v1/backlog`). `av next` does not offer the item, and
-  `start_task` without a title does not take it, until every listed item has merged; `av backlog`
-  shows it as `waiting on X`. Migration 0026.
-- **`next` gives a conflicted task back to its owner**: after reviews, an approved task whose merge
-  conflicted comes back to its owner (`"from": "conflicted"`, with a `next` action: `av sync` onto
-  main, resolve the markers, re-run the check, validate and submit again), so `av watch` picks it
-  up. If the owner does not act within the lease, any agent that fits may claim it; it stays
-  conflicted.
-
 ## 0.0.2 (2026-11-01)
 
 Several coding agents (Claude Code, Codex, Cursor, Grok Build, Gemini CLI) now share one backlog:
@@ -30,6 +12,16 @@ each takes the work that fits it, reviews the others' work, and merges what it a
   so the installer in the README failed on it.
 - `av init --for codex|grok|gemini|cursor` wires those CLIs to the MCP server. Grok, Gemini and
   Cursor also get an `X-Av-Agent` header, so the daemon knows which agent is calling.
+  `av --agent NAME init --for mcp-json --path FILE` does the same for any client with an
+  `mcpServers` JSON file.
+- **Ask Claude to set it up**: this repository is a Claude Code plugin marketplace. Run
+  `claude plugin marketplace add vinhqbui/scholion`, then `claude plugin install
+  scholion@scholion`. It adds three skills: `/scholion:setup` (install, `av init`, checks),
+  `/scholion:team` (several agents on one backlog: profiles, first items, `av watch`) and
+  `/scholion:doctor` (finds what is broken).
+- **A short README**: what Scholion is for, told as a story, how to try it and what it measured.
+  The full reference moved, unchanged, to `docs/reference.md`.
+- `av repo backup NAME --set URL --branch BR` pushes main to a named branch of a backup remote.
 
 ### Route work to the agent that fits (Plan 8)
 
@@ -40,6 +32,9 @@ each takes the work that fits it, reviews the others' work, and merges what it a
   it. A task is reserved for its best agent for 10 minutes, then any agent that can do it may
   take it.
 - `av handoff --needs TAGS` hands a task to an agent with those skills.
+- **Order the backlog**: `av post --after ITEM[,ITEM]` (an item id or the slug of its title).
+  `av next` does not offer the item, and `start_task` without a title does not take it, until
+  every item it lists has merged; `av backlog` shows it as `waiting on X`.
 
 ### Close the review loop (Plan 9)
 
@@ -50,6 +45,17 @@ each takes the work that fits it, reviews the others' work, and merges what it a
   the daemon never starts processes.
 - **A team's limit**: `av agent set NAME ... --max-open N`. At the limit, an agent is offered only
   reviews and its own unfinished tasks until it submits or hands one off.
+- **Take only some kinds of work**: `av next --take review,merge` (or `--take work`). A
+  review-only agent is never given backlog work, and a worker is never offered (or reserved)
+  other agents' reviews.
+- **A conflicted task goes back to its owner**: an approved task whose merge conflicted is
+  offered to its owner with what to do (sync onto main, resolve, re-check, submit again), so
+  `av watch` picks it up. If the owner does not act within the lease, any agent that fits may
+  claim it.
+- **Keep agents busy**: after its record check, the Claude Code `Stop` hook asks for this agent's
+  next work. If something fits, the agent carries on instead of stopping. It waits for work up to
+  `AV_HOOK_WAIT_SECS` (default 600, `0` turns it off), and continues a session at most
+  `AV_HOOK_MAX_CONTINUES` times (default 20). Grok Build gets the same hook.
 - MCP tools take a task's slug (or `repo/slug`) as well as its id. The CLI still takes the id.
 - One MCP session can hold several tasks: Claude Code's subagents share their parent's
   session. Without `task_id`, a call uses the session's only open task, or asks which one.
@@ -67,14 +73,19 @@ each takes the work that fits it, reviews the others' work, and merges what it a
 ### For code built on the daemon
 
 - Extension points in `scholion_daemon`: `router_with`, `with_extension`, `subscribe_events`,
-  `MergeGuard`, and `AppState::migrate_extension`. An extension runs its own migrations in its
-  own Postgres schema, so its migration numbers never clash with the daemon's.
+  `MergeGuard` (asked before submit, approve and merge), `with_mcp_tools`, `UsageSink`
+  (`POST /v1/agents/{name}/usage`), `put_profile` and `AppState::migrate_extension`. An extension
+  runs its own migrations in its own Postgres schema, so its migration numbers never clash with
+  the daemon's. `run_with` is the daemon's whole start-up as a library call, so an extension
+  binary adds its routes and services without copying `main.rs`.
+- `scholion-agentrun`: a library for running an agent CLI (argv, environment, deadline that kills
+  the process group, parsed usage). The benchmark uses it.
 
 ### Upgrading from 0.0.1
 
 - Stop the daemon and install the new binaries (rerun the installer, or `git pull` and
   `docker compose -f deploy/docker-compose.yml up -d --build`). The daemon adds its new tables
-  (migrations 0021-0024) at start-up; existing tasks and records stay as they were.
+  (migrations 0021-0026) at start-up; existing tasks and records stay as they were.
 - Restart your agent CLIs so they load the new tool parameters.
 
 ### Evidence

@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-bench"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "axum 0.8.9",
  "clap",
@@ -3804,7 +3804,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-cli"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "axum 0.8.9",
  "clap",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-core"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3837,7 +3837,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-daemon"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -3868,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-index"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "proptest",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-pack"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3910,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-semantic"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -3925,7 +3925,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-store"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3942,7 +3942,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-testutil"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "postgresql_embedded",
  "sqlx 0.8.6",
@@ -3952,7 +3952,7 @@ dependencies = [
 
 [[package]]
 name = "scholion-vcs"
-version = "0.1.0"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "futures",

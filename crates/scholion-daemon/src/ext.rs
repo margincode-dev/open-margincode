@@ -6,6 +6,10 @@
 //! agent profiles (`AppState::put_profile`), and migrations of the extension's own tables in its own Postgres schema
 //! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
 //! none of them: no extensions, and a guard that allows everything the lifecycle rules allow.
+//!
+//! A binary built on the daemon starts through `run_with` (`serve.rs`): the same start-up as
+//! `scholion-daemon`, with a `customize` step that gets the built `AppState`, adds the points above
+//! and returns it with its extra routes.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;

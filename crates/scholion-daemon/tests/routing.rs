@@ -1017,3 +1017,61 @@ async fn a_review_comes_before_the_owners_conflicted_task() {
     assert_eq!(body["from"], "conflicted", "{body}");
     assert_eq!(body["task"]["id"], t["task"]["id"]);
 }
+
+async fn next_taking(e: &Env, agent: &str, take: &[&str]) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        "/v1/backlog/next",
+        Some(json!({"agent": agent, "session": "s-next", "take": take})),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_worker_that_takes_only_work_skips_reviews_and_a_reviewer_skips_work() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    post_item(&e, "demo", "quieter hello", &["code"], 0).await;
+
+    // without `take`, grok is offered claude's review first
+    let (_, peek) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog/next",
+        Some(json!({"agent": "grok", "session": "s", "dry_run": true})),
+    )
+    .await;
+    assert_eq!(peek["would"]["from"], "review", "{peek}");
+
+    // a reviewer that takes only reviews is not given the backlog item
+    let (status, r) = next_taking(&e, "codex", &["review", "merge"]).await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["from"], "review", "{r}");
+    assert_eq!(r["task"]["id"], t["task"]["id"]);
+    let (_, r) = next_taking(&e, "codex", &["review"]).await;
+    // its own reserved review again; never the item
+    assert_ne!(r["from"], "backlog", "{r}");
+
+    // a worker that takes only work gets the item, not the review
+    let (status, w) = next_taking(&e, "grok", &["work"]).await;
+    assert_eq!(status, StatusCode::OK, "{w}");
+    assert_eq!(w["from"], "backlog", "{w}");
+    assert_eq!(w["task"]["title"], "quieter hello");
+
+    // approved: only `merge` takes it now
+    approve(&e, &id(&t), "codex").await;
+    let (_, r) = next_taking(&e, "codex", &["review"]).await;
+    assert_eq!(r["task"], Value::Null, "{r}");
+    let (_, r) = next_taking(&e, "codex", &["merge"]).await;
+    assert_eq!(r["from"], "review", "{r}");
+    assert_eq!(r["approved"], true, "{r}");
+}
+
+#[tokio::test]
+async fn an_unknown_take_is_a_client_error() {
+    let e = env().await;
+    let (status, _) = next_taking(&e, "claude", &["everything"]).await;
+    assert!(status.is_client_error(), "{status}");
+}

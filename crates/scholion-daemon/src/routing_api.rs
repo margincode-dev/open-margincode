@@ -200,6 +200,37 @@ struct NextBody {
     dry_run: bool,
     /// With nothing to give, wait up to this many seconds for something (at most `max_wait`).
     wait_secs: Option<u64>,
+    /// What the caller takes; empty takes everything. A review-only agent asks for `review` and
+    /// `merge`, a worker that never reviews for `work`, and is then not offered others' reviews.
+    #[serde(default)]
+    take: Vec<Take>,
+}
+
+/// The kinds of thing `next` gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Take {
+    /// Another agent's task in review, not yet approved at its head.
+    Review,
+    /// Another agent's task approved at its head, to merge.
+    Merge,
+    /// A backlog item, a handed-off task, an abandoned or a conflicted task.
+    Work,
+}
+
+impl Choice {
+    fn kind(&self) -> Take {
+        match self {
+            Choice::Review {
+                approved: false, ..
+            } => Take::Review,
+            Choice::Review { approved: true, .. } => Take::Merge,
+            Choice::Conflicted(_)
+            | Choice::Handoff(_)
+            | Choice::Abandoned(_)
+            | Choice::Backlog(_) => Take::Work,
+        }
+    }
 }
 
 /// The longest `next` holds a call open waiting for work. Under the 60 s that many HTTP clients
@@ -484,7 +515,10 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
     loop {
         // profiles are read again on each look: one may change while an agent waits
         let profiles = st.store.list_profiles().await?;
-        let (choices, queued) = choose(&st, &agent, b.repo.as_deref(), &profiles).await?;
+        let (mut choices, queued) = choose(&st, &agent, b.repo.as_deref(), &profiles).await?;
+        if !b.take.is_empty() {
+            choices.retain(|c| b.take.contains(&c.kind()));
+        }
         let (choices, full) = within_limit(&st, &agent, &profiles, choices).await?;
         let nothing = |key: &str| {
             let mut v = json!({ key: null, "queued": queued });

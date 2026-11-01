@@ -456,6 +456,7 @@ av post --repo bench-repo --title "Redraw the logo" --goal "..." --needs image  
 av post --repo bench-repo --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
+av next --take review,merge                # only reviews and merges (--take work: never reviews)
 av handoff --done … --remaining … --needs image   # hand off to an agent that has the tag
 av --agent grok watch -- grok -p "take your next av job"   # start grok only when work fits it
 ```

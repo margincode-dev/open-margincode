@@ -357,6 +357,10 @@ enum Cmd {
         /// With nothing to take, wait up to this many seconds for something (the daemon caps it).
         #[arg(long)]
         wait: Option<u64>,
+        /// Take only these: review, merge, work (backlog items, handoffs, abandoned and
+        /// conflicted tasks). Repeat or comma-separate; default everything.
+        #[arg(long, value_delimiter = ',')]
+        take: Vec<String>,
     },
     /// Run an agent command whenever work fits --agent: looks every --every seconds without taking
     /// anything, then runs the command (with AV_AGENT and AV_URL set) and waits for it. The command
@@ -1875,7 +1879,12 @@ fn run(cli: Cli) -> Result<()> {
                 cmd,
             },
         )?,
-        Cmd::Next { repo, budget, wait } => {
+        Cmd::Next {
+            repo,
+            budget,
+            wait,
+            take,
+        } => {
             let session = cli
                 .session
                 .clone()
@@ -1883,7 +1892,7 @@ fn run(cli: Cli) -> Result<()> {
             let r = client.post(
                 "/v1/backlog/next",
                 &json!({"repo": repo, "agent": cli.agent, "session": session, "budget": budget,
-                        "wait_secs": wait}),
+                        "wait_secs": wait, "take": take}),
             )?;
             if r["task"].is_null() && r["at_capacity"].is_object() {
                 let open = &r["at_capacity"]["open"];

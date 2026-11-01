@@ -34,7 +34,7 @@ similar = "2"
 sha2 = "0.10"
 subtle = "2.6"
 tower = { version = "0.5", features = ["util"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate"] }
 tokio.workspace = true
 async-trait.workspace = true
 tracing = "0.1"

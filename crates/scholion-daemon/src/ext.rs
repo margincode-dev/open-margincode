@@ -1,8 +1,9 @@
 //! Extension points for code built on top of the daemon: extra routes (`router_with`), typed
 //! services kept in `AppState` (`with_extension`), the event feed in process
-//! (`subscribe_events`), and a guard the lifecycle asks before an approval or a merge
-//! (`MergeGuard`). The daemon alone uses none of them: no extensions, and a guard that allows
-//! everything the lifecycle rules allow.
+//! (`subscribe_events`), a guard the lifecycle asks before an approval or a merge
+//! (`MergeGuard`), and migrations of the extension's own tables in its own Postgres schema
+//! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
+//! none of them: no extensions, and a guard that allows everything the lifecycle rules allow.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;

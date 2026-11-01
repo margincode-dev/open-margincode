@@ -3325,6 +3325,49 @@ async fn extra_routes_find_their_extension_and_sit_behind_the_token() {
     assert_eq!(body["greeting"], "hello");
 }
 
+static BOARD: sqlx::migrate::Migrator = sqlx::migrate!("./tests/ext_migrations");
+
+async fn board_notes(
+    axum::extract::State(st): axum::extract::State<AppState>,
+) -> axum::Json<Value> {
+    let notes: Vec<String> = sqlx::query_scalar("SELECT note FROM agentvcs.board ORDER BY note")
+        .fetch_all(st.pool())
+        .await
+        .unwrap();
+    axum::Json(json!({ "notes": notes }))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_extension_migrates_its_own_schema_and_reads_it_from_its_routes() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(None::<AppState>));
+    let keep = state.clone();
+    let extra = axum::Router::new().route("/v1/ee/board", axum::routing::get(board_notes));
+    let e = env_with_routes(
+        move |s| {
+            *keep.lock().unwrap() = Some(s.clone());
+            s
+        },
+        extra,
+    )
+    .await;
+    let st = state.lock().unwrap().clone().unwrap();
+    st.migrate_extension("agentvcs", &BOARD).await.unwrap();
+    st.migrate_extension("agentvcs", &BOARD).await.unwrap(); // every start-up runs it again
+
+    let t = start_task(&e, "Board note").await;
+    sqlx::query("INSERT INTO agentvcs.board (task, note) VALUES ($1, 'first')")
+        .bind(uuid::Uuid::parse_str(id(&t).as_str()).unwrap())
+        .execute(st.pool())
+        .await
+        .unwrap();
+    let (status, body) = call(&e.app, "GET", "/v1/ee/board", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["notes"], json!(["first"]));
+
+    let err = st.migrate_extension("public", &BOARD).await.unwrap_err();
+    assert!(matches!(err, scholion_core::AvError::Invalid(_)), "{err:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn subscribers_receive_lifecycle_events_in_process() {
     let state = std::sync::Arc::new(std::sync::Mutex::new(None::<AppState>));

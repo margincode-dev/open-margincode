@@ -219,9 +219,20 @@ impl AppState {
         ))
     }
 
-    /// The Postgres pool, for the worker loop's advisory lock.
+    /// The Postgres pool: the worker loop's advisory lock, and an extension's own queries.
     pub fn pool(&self) -> &sqlx::PgPool {
         self.pg.pool()
+    }
+
+    /// Runs an extension's migrations in its own Postgres `schema` (see
+    /// `PgStore::migrate_extension`); call it once at start-up, before serving. Build the
+    /// migrator with `sqlx::migrate!` in the extension's crate.
+    pub async fn migrate_extension(
+        &self,
+        schema: &str,
+        migrator: &sqlx::migrate::Migrator,
+    ) -> scholion_core::Result<()> {
+        self.pg.migrate_extension(schema, migrator).await
     }
 
     /// Inverse of `to_host_path`: where a workspace path a client was told lives in this process.

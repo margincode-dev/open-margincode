@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use globset::Glob;
 use scholion_core::routing::{self, BacklogEntry, BacklogState};
 use scholion_core::*;
-use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
+use sqlx::{Connection, Row};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -203,6 +203,51 @@ impl PgStore {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Runs the migrations of code built on the daemon (an extension) in its own Postgres
+    /// `schema`, created if missing, with that schema's own `_sqlx_migrations`. Their numbers
+    /// never meet the daemon's, and the daemon's migrator never sees them. While they run the
+    /// search path is `schema, public`: an unqualified `CREATE TABLE` lands in `schema`, and the
+    /// daemon's tables (`tasks`, ...) still resolve. Queries afterwards name the schema
+    /// (`schema.table`). The connection used is closed, not returned to the pool, so no pooled
+    /// connection keeps that search path.
+    pub async fn migrate_extension(
+        &self,
+        schema: &str,
+        migrator: &sqlx::migrate::Migrator,
+    ) -> Result<()> {
+        let valid = (1..=63).contains(&schema.len())
+            && schema.starts_with(|c: char| c.is_ascii_lowercase())
+            && schema
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            && !schema.starts_with("pg_")
+            && !matches!(schema, "public" | "information_schema");
+        if !valid {
+            return Err(AvError::Invalid(format!(
+                "extension schema {schema:?}: use 1-63 of a-z, 0-9 and _, starting with a letter; \
+                 not public, information_schema or pg_*"
+            )));
+        }
+        let mut conn = self.pool.acquire().await.map_err(serr)?.detach();
+        let run = async {
+            sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\""))
+                .execute(&mut conn)
+                .await
+                .map_err(serr)?;
+            sqlx::query(&format!("SET search_path TO \"{schema}\", public"))
+                .execute(&mut conn)
+                .await
+                .map_err(serr)?;
+            migrator
+                .run(&mut conn)
+                .await
+                .map_err(|e| AvError::Store(format!("extension {schema}: {e}")))
+        }
+        .await;
+        let _ = conn.close().await;
+        run
     }
 
     pub(crate) async fn hydrate_records(&self, rows: Vec<PgRow>) -> Result<Vec<Record>> {

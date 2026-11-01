@@ -36,7 +36,11 @@ pub(crate) async fn run_backup(st: &AppState, repo: &str) -> Result<BackupState>
     let Some(remote) = state.remote.clone() else {
         return Ok(state);
     };
-    match st.vcs.push_backup(repo, &remote).await {
+    match st
+        .vcs
+        .push_backup(repo, &remote, state.branch.as_deref())
+        .await
+    {
         Ok(pushed) => st.pg.backup_succeeded(repo, &pushed).await,
         Err(e) => {
             tracing::warn!(%repo, error = %e, "backup push failed");
@@ -71,7 +75,7 @@ pub async fn backup_tick(st: &AppState) -> Result<usize> {
 pub async fn start_backups(st: &AppState, remotes: &[(String, String)]) -> Result<()> {
     for (repo, url) in remotes {
         if st.pg.backup_state(repo).await?.remote.as_deref() != Some(url.as_str()) {
-            st.pg.set_backup_remote(repo, Some(url)).await?;
+            st.pg.set_backup_remote(repo, Some(url), None).await?;
         }
     }
     st.pg.mark_backups_due().await
@@ -88,9 +92,13 @@ pub(crate) async fn get_backup(
 pub(crate) struct BackupBody {
     /// `null` removes the backup.
     remote: Option<String>,
+    /// The remote branch main is pushed to; leave it out for the trunk's own name.
+    #[serde(default)]
+    branch: Option<String>,
 }
 
-/// Sets or clears the remote; a new one is pushed right away.
+/// Sets or clears the remote and branch (setting only a remote means the trunk's name again); a
+/// new target is pushed right away.
 pub(crate) async fn set_backup(
     State(st): State<AppState>,
     Path(repo): Path<String>,
@@ -102,7 +110,13 @@ pub(crate) async fn set_backup(
     {
         return Err(AvError::Invalid(format!("{r:?} is not a remote git may push to")).into());
     }
-    let state = st.pg.set_backup_remote(&repo, remote).await?;
+    if let Some(b) = &b.branch {
+        scholion_core::check_backup_branch(b)?;
+    }
+    let state = st
+        .pg
+        .set_backup_remote(&repo, remote, b.branch.as_deref())
+        .await?;
     if state.remote.is_some() {
         spawn_backup(&st, &repo);
     }

@@ -4,9 +4,17 @@ Install (from Meta): `irm https://dev.meta.ai/install.ps1 | iex` on Windows. The
 also found at `~/.local/bin/muse` inside WSL on 2026-10-31 (Muse Code, checked with `muse --help`).
 Log in once with `muse login`; `muse usage` shows your subscription allowance.
 
-**`av init --for muse` does not exist yet.** The MCP settings file is the one thing that could not
-be checked without a login, and this repository does not write config files it has not seen work
-(Plan 8, Task 8).
+**There is no `--for muse`.** Muse's settings path and key names are still unverified, and this
+repository does not invent a dedicated writer for a file it has not seen work (Plan 8, Task 8).
+Once you know the path:
+
+```bash
+av --agent muse init --for mcp-json --path PATH/TO/settings.json
+```
+
+That merges `mcpServers.av` as `{ "type": "http", "url": "…/mcp", "headers": { "X-Av-Agent": "muse" } }`
+(and `Authorization: Bearer ${AV_TOKEN}` when the daemon has a token). If Muse wants different
+keys, edit the entry. The example further down is still unchecked.
 
 ## What was checked (2026-10-31, no login)
 

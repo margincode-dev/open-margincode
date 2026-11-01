@@ -24,6 +24,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/agents", get(list_agents))
         .route("/v1/agents/{name}", put(put_agent))
+        .route("/v1/agents/{name}/usage", post(post_usage))
         .route("/v1/backlog", post(post_backlog).get(list_backlog))
         .route("/v1/backlog/next", post(next))
         .route("/v1/backlog/{id}", delete(drop_backlog))
@@ -74,6 +75,44 @@ async fn put_agent(
         .into_iter()
         .find(|p| p.name == name);
     Ok(Json(json!({ "agent": stored })))
+}
+
+#[derive(Deserialize)]
+struct UsageBody {
+    task_id: Option<String>,
+    session: Option<String>,
+    model: Option<String>,
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    cost_usd: Option<f64>,
+}
+
+/// An agent reports what a call used. The daemon stores nothing: it hands the report to the
+/// usage sink an extension set (`NoUsage` otherwise), which may refuse it (422).
+async fn post_usage(
+    State(st): State<AppState>,
+    Path(name): Path<String>,
+    Json(b): Json<UsageBody>,
+) -> ApiResult<Value> {
+    let report = crate::UsageReport {
+        agent: name.trim().to_owned(),
+        task_id: b.task_id,
+        session: b.session,
+        model: b.model,
+        input_tokens: b.input_tokens,
+        output_tokens: b.output_tokens,
+        cache_read_tokens: b.cache_read_tokens,
+        cost_usd: b.cost_usd,
+    };
+    st.usage
+        .report(report)
+        .await
+        .map_err(|reason| AvError::IllegalState(format!("usage refused: {reason}")))?;
+    Ok(Json(json!({ "accepted": true })))
 }
 
 #[derive(Deserialize)]

@@ -281,12 +281,43 @@ pub enum MergeOutcome {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BackupState {
     pub remote: Option<String>,
+    /// The remote branch main is pushed to; `None` = the trunk's own name.
+    #[serde(default)]
+    pub branch: Option<String>,
     pub last_pushed: Option<ChangeId>,
     /// Consecutive failed pushes since the last success.
     pub failures: u32,
     pub last_error: Option<String>,
     /// When the next attempt is due; `None` = nothing pending.
     pub next_retry: Option<DateTime<Utc>>,
+}
+
+/// Checks a backup branch name: what git accepts as a branch (see `git check-ref-format`), and
+/// nothing that could be read as an option or a refspec (`:`, a leading `-` or `+`).
+pub fn check_backup_branch(name: &str) -> Result<()> {
+    let bad = |why: &str| Err(AvError::Invalid(format!("backup branch {name:?} {why}")));
+    if name.is_empty() || name.len() > 200 {
+        return bad("must be 1 to 200 characters");
+    }
+    if name
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || "~^:?*[\\".contains(c) || !c.is_ascii())
+    {
+        return bad("has a character git does not allow in a branch name");
+    }
+    if name.starts_with(['-', '+', '/', '.']) || name.ends_with(['/', '.']) {
+        return bad("starts or ends with a character git does not allow");
+    }
+    if name.contains("..") || name.contains("//") || name.contains("@{") || name == "@" {
+        return bad("has a sequence git does not allow");
+    }
+    if name
+        .split('/')
+        .any(|part| part.starts_with('.') || part.ends_with(".lock"))
+    {
+        return bad("has a part that starts with . or ends with .lock");
+    }
+    Ok(())
 }
 
 /// One commit of trunk's history (`Vcs::trunk_log`).

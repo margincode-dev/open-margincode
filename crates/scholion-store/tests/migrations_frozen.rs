@@ -103,6 +103,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0024_max_open.sql",
         "aa9c6af8b459061dd5eddddc18ba836a47d4a89b00cd43f8f8ed58b7cdf62779",
     ),
+    (
+        "0025_backup_branch.sql",
+        "ec974b76e8a984d6443c4d4f30362e2c409d0da2b19c05fb7e77fd4bb7e9af94",
+    ),
 ];
 
 #[test]

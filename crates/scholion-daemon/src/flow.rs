@@ -236,6 +236,13 @@ pub(crate) async fn submit(
         .into());
     }
     refuse_conflict_markers(&st, &task.repo, &head, &changed).await?;
+    let action = crate::Guarded::Submit {
+        task: &task,
+        changed_paths: &changed,
+    };
+    if let Err(reason) = st.guard.check(action).await {
+        return Err(AvError::IllegalState(format!("cannot submit: {reason}")).into());
+    }
     // written before the gate, so they count toward it
     let mut recorded = Vec::with_capacity(inline.len());
     for r in inline {

@@ -1571,6 +1571,65 @@ async fn successful_retry_clears_failure_state_and_pushes_main() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn backup_can_push_main_to_a_named_branch() {
+    let e = env().await;
+    let dir = TempDir::new().unwrap();
+    let remote = dir.path().join("backup.git");
+    bare_repo(&remote);
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    let (_, merged) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    let (status, state) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": remote.to_str().unwrap(), "branch": "av-main"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{state}");
+    assert_eq!(state["branch"], "av-main", "{state}");
+    let done = settled(&e).await;
+    assert_eq!(done["failures"], 0, "{done}");
+    assert_eq!(done["last_pushed"], merged["main"], "{done}");
+    assert_eq!(
+        done["branch"], "av-main",
+        "the target survives the push: {done}"
+    );
+    assert_eq!(
+        git_out(&remote, &["rev-parse", "refs/heads/av-main"]),
+        merged["main"].as_str().unwrap()
+    );
+    let (status, _) = call(&e.app, "POST", "/v1/repos/demo/backup/push", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(backup(&e).await["branch"], "av-main");
+
+    // setting only the remote goes back to the trunk name
+    let (_, state) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": remote.to_str().unwrap()})),
+    )
+    .await;
+    assert_eq!(state["branch"], Value::Null, "{state}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bad_backup_branch_is_rejected_and_changes_nothing() {
+    let e = env().await;
+    for bad in ["", "-x", "a..b", "a b", "x.lock", "/x"] {
+        let (status, body) = call(
+            &e.app,
+            "POST",
+            "/v1/repos/demo/backup",
+            Some(json!({"remote": "/srv/b.git", "branch": bad})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}: {body}");
+    }
+    assert_eq!(backup(&e).await["remote"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn option_like_backup_remote_is_rejected() {
     let e = env().await;
     let (status, body) = call(
@@ -3244,6 +3303,8 @@ impl scholion_daemon::MergeGuard for Refuse {
             scholion_daemon::Guarded::Merge { agent, .. } => {
                 (format!("merge by {agent}"), !self.approve)
             }
+            // this guard is about approvals and merges only
+            scholion_daemon::Guarded::Submit { .. } => return Ok(()),
         };
         self.asked.lock().unwrap().push(what);
         if refuse {
@@ -3312,6 +3373,190 @@ async fn a_merge_guard_can_refuse_a_merge_and_main_stays() {
     );
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(task["task"]["status"], "in_review", "{task}");
+}
+
+/// A guard that keeps tasks out of one directory and remembers every submit it was asked about.
+struct Scope {
+    forbidden: &'static str,
+    asked: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl scholion_daemon::MergeGuard for Scope {
+    async fn check(&self, action: scholion_daemon::Guarded<'_>) -> Result<(), String> {
+        let scholion_daemon::Guarded::Submit { changed_paths, .. } = action else {
+            return Ok(());
+        };
+        self.asked.lock().unwrap().push(changed_paths.to_vec());
+        match changed_paths.iter().find(|p| p.starts_with(self.forbidden)) {
+            Some(p) => Err(format!("{p} is outside this persona's paths")),
+            None => Ok(()),
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_can_refuse_a_submit_by_its_changed_paths() {
+    let guard = std::sync::Arc::new(Scope {
+        forbidden: "app/",
+        asked: Default::default(),
+    });
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot submit: app/util.py is outside this persona's paths"),
+        "{body}"
+    );
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+
+    let t = start_task(&e, "Notes").await;
+    std::fs::create_dir_all(ws_dir(&e, &t).join("docs")).unwrap();
+    write_file(&e, &t, "docs/note.md", "hello\n");
+    decide(&e, &t).await;
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        *guard.asked.lock().unwrap(),
+        [
+            vec!["app/util.py".to_owned()],
+            vec!["docs/note.md".to_owned()]
+        ]
+    );
+}
+
+/// A sink that keeps what it is told, and refuses reports for one model.
+#[derive(Default)]
+struct Tally(std::sync::Mutex<Vec<scholion_daemon::UsageReport>>);
+
+#[async_trait::async_trait]
+impl scholion_daemon::UsageSink for Tally {
+    async fn report(&self, report: scholion_daemon::UsageReport) -> Result<(), String> {
+        if report.model.as_deref() == Some("pricey") {
+            return Err("over budget".into());
+        }
+        self.0.lock().unwrap().push(report);
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn usage_is_accepted_and_dropped_without_an_extension() {
+    let e = env().await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/agents/claude/usage",
+        Some(json!({"model": "opus", "input_tokens": 10, "output_tokens": 2})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["accepted"], true);
+    // a malformed report is still refused
+    let (status, _) = call(
+        &e.app,
+        "POST",
+        "/v1/agents/claude/usage",
+        Some(json!({"input_tokens": -1})),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_usage_sink_gets_the_reports_and_can_refuse_one() {
+    let sink = std::sync::Arc::new(Tally::default());
+    let s = sink.clone();
+    let e = env_with(move |st| st.with_usage_sink(s)).await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/agents/claude/usage",
+        Some(
+            json!({"task_id": "t-1", "model": "opus", "input_tokens": 100,
+                    "output_tokens": 20, "cache_read_tokens": 5, "cost_usd": 0.5}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    {
+        let got = sink.0.lock().unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].agent, "claude");
+        assert_eq!(got[0].task_id.as_deref(), Some("t-1"));
+        assert_eq!(got[0].model.as_deref(), Some("opus"));
+        assert_eq!(
+            (
+                got[0].input_tokens,
+                got[0].output_tokens,
+                got[0].cache_read_tokens
+            ),
+            (100, 20, 5)
+        );
+        assert_eq!(got[0].cost_usd, Some(0.5));
+    }
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/agents/claude/usage",
+        Some(json!({"model": "pricey"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("over budget"),
+        "{body}"
+    );
+    assert_eq!(sink.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_extension_upserts_agent_profiles_that_routing_reads() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(None::<AppState>));
+    let keep = state.clone();
+    let e = env_with(move |s| {
+        *keep.lock().unwrap() = Some(s.clone());
+        s
+    })
+    .await;
+    let st = state.lock().unwrap().clone().unwrap();
+    let mut p = scholion_core::routing::Profile {
+        name: "ee-reviewer".into(),
+        best: vec!["review".into()],
+        can: vec![],
+        cost_rank: 2,
+        aliases: vec!["reviewer-bot".into()],
+        max_open: Some(3),
+    };
+    st.put_profile(&p).await.unwrap();
+    p.cost_rank = 4; // the same persona edited: an upsert, not a second row
+    st.put_profile(&p).await.unwrap();
+
+    let (status, body) = call(&e.app, "GET", "/v1/agents", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mine: Vec<&Value> = body["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| a["name"] == "ee-reviewer")
+        .collect();
+    assert_eq!(mine.len(), 1, "{body}");
+    assert_eq!(mine[0]["cost_rank"], 4);
+    assert_eq!(mine[0]["best"], json!(["review"]));
+    assert_eq!(mine[0]["max_open"], 3);
+
+    p.name = "  ".into();
+    let err = st.put_profile(&p).await.unwrap_err();
+    assert!(matches!(err, scholion_core::AvError::Invalid(_)), "{err:?}");
 }
 
 /// What an extension keeps in the state.

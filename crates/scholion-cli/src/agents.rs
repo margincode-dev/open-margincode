@@ -1,7 +1,8 @@
 //! `av init --for NAME`: wires an agent CLI to the daemon's MCP server (`/mcp`). Claude Code
 //! also gets hooks (`local::install_claude_hooks`); Codex, Grok Build, Gemini CLI and Cursor Agent get the MCP
 //! server only, and their agent calls `start_task` and `context` itself (or runs under
-//! `integrations/generic/av-wrap.sh`). Each writer merges into the CLI's own config file, keeps
+//! `integrations/generic/av-wrap.sh`). `mcp-json` merges the same server into any JSON file that
+//! has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file, keeps
 //! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
 
 use std::path::{Path, PathBuf};
@@ -25,6 +26,8 @@ pub enum Agent {
     Gemini,
     /// Cursor Agent CLI (`cursor-agent`): MCP in ~/.cursor/mcp.json, shared with the Cursor editor.
     Cursor,
+    /// Any client that reads `mcpServers` JSON. The file is `--path`, not a home path.
+    McpJson,
 }
 
 impl Agent {
@@ -35,6 +38,7 @@ impl Agent {
             Agent::Grok => "Grok Build",
             Agent::Gemini => "Gemini CLI",
             Agent::Cursor => "Cursor Agent",
+            Agent::McpJson => "mcp-json",
         }
     }
 
@@ -48,6 +52,8 @@ impl Agent {
             Agent::Grok => home.join(".grok/config.toml"),
             Agent::Gemini => home.join(".gemini/settings.json"),
             Agent::Cursor => home.join(".cursor/mcp.json"),
+            // Unused: `av init --for mcp-json` takes `--path` instead of a home config.
+            Agent::McpJson => home.join("mcp.json"),
         }
     }
 }
@@ -103,6 +109,21 @@ pub fn install_cursor(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     let mut server = json!({ "url": mcp_url, "headers": { "X-Av-Agent": "cursor" } });
     if token {
         server["headers"]["Authorization"] = json!("Bearer ${env:AV_TOKEN}");
+    }
+    put_mcp_server(path, server)
+}
+
+/// Any `mcpServers` JSON file: `mcpServers.av` is `{type: http, url, headers: {X-Av-Agent}}`.
+/// `agent` is the caller's `--agent` name. With a token, the client is expected to expand
+/// `${AV_TOKEN}` in the `Authorization` header.
+pub fn install_mcp_json(path: &Path, mcp_url: &str, agent: &str, token: bool) -> Result<()> {
+    let mut server = json!({
+        "type": "http",
+        "url": mcp_url,
+        "headers": { "X-Av-Agent": agent },
+    });
+    if token {
+        server["headers"]["Authorization"] = json!("Bearer ${AV_TOKEN}");
     }
     put_mcp_server(path, server)
 }
@@ -322,6 +343,53 @@ mod tests {
     }
 
     #[test]
+    fn mcp_json_merges_into_any_json_file_and_names_the_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("clients/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"theme":"dark","mcpServers":{"other":{"command":"x"},"av":{"url":"http://old/mcp"}}}"#,
+        )
+        .unwrap();
+        install_mcp_json(&path, URL, "muse", false).unwrap();
+        install_mcp_json(&path, URL, "cline", true).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(v["theme"], "dark");
+        assert_eq!(v["mcpServers"]["other"]["command"], "x");
+        assert_eq!(
+            v["mcpServers"]["av"],
+            json!({
+                "type": "http",
+                "url": URL,
+                "headers": {
+                    "X-Av-Agent": "cline",
+                    "Authorization": "Bearer ${AV_TOKEN}",
+                },
+            })
+        );
+        assert!(!read(&path).contains("http://old"), "{}", read(&path));
+        assert!(dir.path().join("clients/settings.json.bak").exists());
+    }
+
+    #[test]
+    fn mcp_json_creates_a_missing_file_and_omits_the_token_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        install_mcp_json(&path, URL, "agent", false).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(
+            v["mcpServers"]["av"],
+            json!({ "type": "http", "url": URL, "headers": { "X-Av-Agent": "agent" } })
+        );
+        assert!(
+            v["mcpServers"]["av"]["headers"]
+                .get("Authorization")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn broken_config_files_are_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let toml = dir.path().join("config.toml");
@@ -332,6 +400,7 @@ mod tests {
         std::fs::write(&json, "{ nope").unwrap();
         assert!(install_gemini(&json, URL, false).is_err());
         assert!(install_cursor(&json, URL, false).is_err());
+        assert!(install_mcp_json(&json, URL, "muse", false).is_err());
         assert_eq!(read(&json), "{ nope");
     }
 

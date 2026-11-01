@@ -932,9 +932,34 @@ async fn start_task_passes_wait() {
     assert!(out.contains("wait"), "says it can wait: {out}");
 }
 
+/// An extension's MCP tool: echoes `text`, refuses "boom".
+struct Echo;
+
+#[async_trait::async_trait]
+impl scholion_daemon::ToolHandler for Echo {
+    async fn call(&self, agent: &str, args: Value) -> Result<String, String> {
+        match args["text"].as_str() {
+            Some("boom") => Err("echo refused".into()),
+            Some(t) => Ok(format!("{agent} says {t}")),
+            None => Err("no text".into()),
+        }
+    }
+}
+
+fn echo_tool() -> scholion_daemon::ExtTool {
+    scholion_daemon::ExtTool::new(
+        "ee_echo",
+        "Echo text back (extension).",
+        json!({"type": "object", "required": ["text"],
+               "properties": {"text": {"type": "string"}}}),
+        std::sync::Arc::new(Echo),
+    )
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_tool_list_stays_small() {
-    let e = env().await;
+    // the guard counts Community tools only: an extension's tools are its own to pay for
+    let e = env_with(|s| s.with_mcp_tools(vec![echo_tool()])).await;
     let s = connect(&e, "claude-code").await;
     let r = send(
         &e,
@@ -942,15 +967,73 @@ async fn the_tool_list_stays_small() {
         json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
     )
     .await;
-    let bytes = serde_json::to_string(&r.body["result"]["tools"])
+    let community: Vec<&Value> = r.body["result"]["tools"]
+        .as_array()
         .unwrap()
-        .len();
+        .iter()
+        .filter(|t| t["name"] != "ee_echo")
+        .collect();
+    let bytes = serde_json::to_string(&community).unwrap().len();
     // Every tool definition is sent to the model on every turn. Plan 8 added 160 bytes (about 40
     // tokens) to the 10,040 before it, Plan 9 112 (start_task's wait and its longer description);
     // a bigger tool list needs a reason that pays for itself.
     assert!(
         bytes <= 10_320,
         "tools/list is {bytes} bytes; it was 10,312 after Plan 9"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn extension_tools_are_listed_and_called_like_community_ones() {
+    let plain = env().await;
+    let s = connect(&plain, "claude-code").await;
+    let r = send(
+        &plain,
+        Some(&s),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    let names = |r: &Reply| -> Vec<String> {
+        r.body["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(!names(&r).contains(&"ee_echo".to_owned()));
+    let community = names(&r).len();
+
+    let e = env_with(|s| s.with_mcp_tools(vec![echo_tool()])).await;
+    let s = connect(&e, "claude-code").await;
+    let r = send(
+        &e,
+        Some(&s),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    assert_eq!(names(&r).len(), community + 1);
+    assert!(names(&r).contains(&"ee_echo".to_owned()));
+
+    let out = text(&tool(&e, &s, "ee_echo", json!({"text": "hi"})).await);
+    assert!(out.ends_with("says hi"), "{out}");
+
+    // the tool's own refusal is a tool error, as for Community tools
+    let refused = tool(&e, &s, "ee_echo", json!({"text": "boom"})).await;
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert_eq!(refused["result"]["content"][0]["text"], "echo refused");
+
+    // arguments are checked against its schema first
+    let bad = tool(&e, &s, "ee_echo", json!({})).await;
+    assert!(bad["error"]["message"].is_string(), "{bad}");
+
+    // and Community tools still work beside it
+    let unknown = tool(&e, &s, "no_such_tool", json!({})).await;
+    assert!(
+        unknown["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown tool")
     );
 }
 

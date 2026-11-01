@@ -256,12 +256,15 @@ pub fn repo_name(dir: &Path) -> String {
 }
 
 /// `av init`: daemon up (when it is local), this git repository added, `agents` wired.
+/// `mcp_json` is the file for [`Agent::McpJson`]; `agent_name` is written as `X-Av-Agent`.
 pub fn init(
     client: &Client,
     url: &str,
     token: Option<&str>,
     name: Option<&str>,
     agents: &[Agent],
+    mcp_json: Option<&Path>,
+    agent_name: &str,
 ) -> Result<()> {
     let root = git_root()?;
     if !healthy(client) {
@@ -300,7 +303,12 @@ pub fn init(
     let mcp_url = format!("{}/mcp", url.trim_end_matches('/'));
     let codex_home = env_path("CODEX_HOME");
     for &agent in agents {
-        let path = agent.config_path(&home(), codex_home.clone());
+        let path = match agent {
+            Agent::McpJson => mcp_json
+                .ok_or_else(|| local("--for mcp-json needs --path FILE"))?
+                .to_path_buf(),
+            other => other.config_path(&home(), codex_home.clone()),
+        };
         match agent {
             Agent::Claude => {
                 install_claude_hooks(&path)?;
@@ -311,6 +319,9 @@ pub fn init(
             Agent::Grok => agents::install_grok(&path, &mcp_url, token.is_some())?,
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
+            Agent::McpJson => {
+                agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
+            }
         }
         if agent != Agent::Claude {
             println!(
@@ -327,7 +338,8 @@ pub fn init(
         }
     }
     println!(
-        "Other MCP clients: streamable HTTP at {mcp_url}\n\
+        "Other MCP clients: streamable HTTP at {mcp_url}, or\n  \
+         av --agent NAME init --for mcp-json --path FILE\n\
          \n\
          Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
          av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \

@@ -49,6 +49,25 @@ pub(crate) struct McpSession {
 /// How many tasks a session remembers; older ones need `task_id`.
 const SESSION_TASKS: usize = 32;
 
+/// The names of the tools the daemon itself offers.
+pub(crate) fn community_tool_names() -> Vec<String> {
+    tools()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// `tools/list`: the Community tools, then the extension's.
+fn listed_tools(st: &AppState) -> Value {
+    let mut all = tools();
+    if let Some(list) = all.as_array_mut() {
+        list.extend(st.mcp_tools.iter().map(|t| t.definition()));
+    }
+    all
+}
+
 pub(crate) type Sessions = Arc<Mutex<HashMap<String, McpSession>>>;
 
 const INSTRUCTIONS: &str = "Scholion (av): context-first version control. `start_task` (or \
@@ -1001,6 +1020,15 @@ async fn call_tool(
             "arguments are {size} bytes; at most {MAX_ARGUMENTS_BYTES}"
         )));
     }
+    if let Some(ext) = st.mcp_tools.iter().find(|t| t.name == name) {
+        check_args(&ext.input_schema, &args)?;
+        check_sizes(&args)?;
+        let (text, is_error) = match ext.handler.call(&s.agent, args).await {
+            Ok(text) => (text, false),
+            Err(text) => (text, true),
+        };
+        return Ok(json!({"content": [{"type": "text", "text": text}], "isError": is_error}));
+    }
     let tools = tools();
     let Some(tool) = tools
         .as_array()
@@ -1177,7 +1205,7 @@ pub(crate) async fn post(State(st): State<AppState>, headers: HeaderMap, body: B
     };
     let outcome = match method.as_str() {
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({"tools": tools()})),
+        "tools/list" => Ok(json!({"tools": listed_tools(&st)})),
         "tools/call" => call_tool(&st, sid, &session, &params).await,
         other => Err(RpcError {
             code: METHOD_NOT_FOUND,

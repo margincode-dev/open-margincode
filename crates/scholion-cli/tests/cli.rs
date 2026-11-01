@@ -977,6 +977,42 @@ fn repo_backup_sets_a_remote_and_pushes_main() {
 }
 
 #[test]
+fn repo_backup_branch_names_where_main_is_pushed() {
+    let (d, ws, scratch) = started();
+    let remote = TempDir::new().unwrap();
+    git(remote.path(), &["init", "-q", "--bare", "-b", "main"]);
+    let url = remote.path().to_str().unwrap();
+    let set = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "repo", "backup", "demo", "--remote", url, "--branch", "av-main", "--push",
+        ],
+    ));
+    assert!(
+        set.contains(&format!("backup: {url} (branch av-main) · pushed ")),
+        "{set}"
+    );
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(
+        status.contains(&format!("backup: {url} (branch av-main)")),
+        "{status}"
+    );
+    // --branch without a remote to set is refused
+    let out = av(
+        &d,
+        scratch.path(),
+        &["repo", "backup", "demo", "--branch", "x"],
+    );
+    assert!(!out.status.success());
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "backup", "demo", "--clear"],
+    ));
+}
+
+#[test]
 fn search_log_and_abandon() {
     let (d, ws, scratch) = started();
     ok(av(
@@ -1627,6 +1663,95 @@ fn init_wires_codex_grok_and_gemini_through_mcp() {
     );
     // naming only other agents leaves Claude Code alone
     assert!(!home.path().join(".claude").exists());
+}
+
+#[test]
+fn init_mcp_json_needs_a_path_and_path_needs_mcp_json() {
+    let home = TempDir::new().unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let missing = av_env(
+        "http://127.0.0.1:9",
+        home.path(),
+        &env,
+        &["init", "--for", "mcp-json", "--no-claude"],
+    );
+    assert!(!missing.status.success());
+    assert!(
+        err(&missing).contains("--for mcp-json needs --path FILE"),
+        "{}",
+        err(&missing)
+    );
+    let extra = av_env(
+        "http://127.0.0.1:9",
+        home.path(),
+        &env,
+        &[
+            "init",
+            "--for",
+            "grok",
+            "--no-claude",
+            "--path",
+            "client.json",
+        ],
+    );
+    assert!(!extra.status.success());
+    assert!(
+        err(&extra).contains("--path is only for --for mcp-json"),
+        "{}",
+        err(&extra)
+    );
+}
+
+#[test]
+fn init_merges_mcp_json_at_the_given_path() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let file = home.path().join("client.json");
+    std::fs::write(
+        &file,
+        r#"{"theme":"dark","mcpServers":{"other":{"command":"x"}}}"#,
+    )
+    .unwrap();
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("AV_TOKEN", "sekrit"),
+    ];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &[
+            "--agent",
+            "muse",
+            "init",
+            "--name",
+            "demo",
+            "--for",
+            "mcp-json",
+            "--path",
+            file.to_str().unwrap(),
+        ],
+    ));
+    assert!(out.contains("mcp-json MCP server `av`"), "{out}");
+    assert!(out.contains("reads the token from AV_TOKEN"), "{out}");
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["theme"], "dark");
+    assert_eq!(v["mcpServers"]["other"]["command"], "x");
+    assert_eq!(
+        v["mcpServers"]["av"],
+        serde_json::json!({
+            "type": "http",
+            "url": format!("{}/mcp", d.url),
+            "headers": {
+                "X-Av-Agent": "muse",
+                "Authorization": "Bearer ${AV_TOKEN}",
+            },
+        })
+    );
+    assert!(home.path().join("client.json.bak").exists());
+    assert!(!home.path().join(".claude").exists());
+    assert!(!home.path().join(".grok").exists());
 }
 
 #[test]

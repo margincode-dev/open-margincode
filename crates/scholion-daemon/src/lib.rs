@@ -33,7 +33,9 @@ pub use api::{StartPackPause, router, router_with, sync_repos};
 pub use backup::{BACKUP_TICK, backoff, backup_tick, start_backups};
 pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
-pub use ext::{AllowAll, Guarded, MergeGuard};
+pub use ext::{
+    AllowAll, ExtTool, Guarded, MergeGuard, NoUsage, ToolHandler, UsageReport, UsageSink,
+};
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use wiring::{Config, build_state, embed_authorization};
 pub use worker::{DrainStats, OutboxWorker};
@@ -74,6 +76,10 @@ pub struct AppState {
     pub(crate) reviews: routing_api::Reviews,
     /// The longest `next` holds a call open waiting for work (`wait_secs` is clamped to it).
     pub(crate) max_wait: std::time::Duration,
+    /// Tools an extension adds to `/mcp`; the Community tools win a name clash (see `with_mcp_tools`).
+    pub(crate) mcp_tools: Arc<Vec<ext::ExtTool>>,
+    /// Told about `POST /v1/agents/{name}/usage`; `NoUsage` unless an extension sets one.
+    pub(crate) usage: Arc<dyn ext::UsageSink>,
     extensions: ext::Extensions,
     events: ext::EventFeed,
 }
@@ -111,6 +117,8 @@ impl AppState {
             imports: Arc::default(),
             reviews: Arc::default(),
             max_wait: std::time::Duration::from_secs(routing_api::MAX_WAIT_SECS),
+            mcp_tools: Arc::default(),
+            usage: Arc::new(ext::NoUsage),
             extensions: ext::Extensions::default(),
             events: ext::EventFeed::default(),
         }
@@ -134,7 +142,40 @@ impl AppState {
         self.extensions.get()
     }
 
-    /// Asks `guard` before every approval and merge, after the lifecycle rules pass.
+    /// Adds `tools` to `/mcp`: listed after the Community tools, and called with the same
+    /// argument checks. Panics on a name a Community tool or an earlier extension tool already
+    /// has: that is a bug in the extension, found at start-up.
+    pub fn with_mcp_tools(mut self, tools: Vec<ext::ExtTool>) -> Self {
+        let mut all = self.mcp_tools.as_ref().clone();
+        for t in tools {
+            assert!(
+                !mcp::community_tool_names().contains(&t.name)
+                    && all.iter().all(|o| o.name != t.name),
+                "MCP tool name already taken: {}",
+                t.name
+            );
+            all.push(t);
+        }
+        self.mcp_tools = Arc::new(all);
+        self
+    }
+
+    /// Tells `sink` about every usage report (`POST /v1/agents/{name}/usage`).
+    pub fn with_usage_sink(mut self, sink: Arc<dyn ext::UsageSink>) -> Self {
+        self.usage = sink;
+        self
+    }
+
+    /// Creates or updates an agent profile, as `PUT /v1/agents/{name}` does, so an extension's
+    /// own notion of an agent can drive Community routing without a second table.
+    pub async fn put_profile(
+        &self,
+        profile: &scholion_core::routing::Profile,
+    ) -> scholion_core::Result<()> {
+        self.store.put_profile(profile).await
+    }
+
+    /// Asks `guard` before every submit, approval and merge, after the lifecycle rules pass.
     pub fn with_merge_guard(mut self, guard: Arc<dyn MergeGuard>) -> Self {
         self.guard = guard;
         self

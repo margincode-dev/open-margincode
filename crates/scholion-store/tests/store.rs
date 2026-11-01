@@ -672,7 +672,7 @@ async fn backup_state_tracks_remote_failures_and_due_repos() {
         BackupState::default()
     );
     let st = s
-        .set_backup_remote("demo", Some("/srv/b.git"))
+        .set_backup_remote("demo", Some("/srv/b.git"), None)
         .await
         .unwrap();
     assert_eq!(st.remote.as_deref(), Some("/srv/b.git"));
@@ -710,9 +710,44 @@ async fn backup_state_tracks_remote_failures_and_due_repos() {
     assert!(s.due_backups().await.unwrap().is_empty());
     s.mark_backups_due().await.unwrap();
     assert_eq!(s.due_backups().await.unwrap(), vec!["demo".to_owned()]);
-    let st = s.set_backup_remote("demo", None).await.unwrap();
+    let st = s.set_backup_remote("demo", None, None).await.unwrap();
     assert_eq!(st.remote, None);
     assert!(s.due_backups().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn backup_state_keeps_the_branch_until_the_target_is_set_again() {
+    let (_db, s) = store().await;
+    let st = s
+        .set_backup_remote("demo", Some("/srv/b.git"), Some("av-main"))
+        .await
+        .unwrap();
+    assert_eq!(st.branch.as_deref(), Some("av-main"));
+    // a failure, a success and a read all leave the target as it was
+    s.backup_failed("demo", "down", std::time::Duration::ZERO)
+        .await
+        .unwrap();
+    let st = s
+        .backup_succeeded("demo", &ChangeId("abc".into()))
+        .await
+        .unwrap();
+    assert_eq!(st.branch.as_deref(), Some("av-main"));
+    assert_eq!(
+        s.backup_state("demo").await.unwrap().branch.as_deref(),
+        Some("av-main")
+    );
+    // setting the remote again without a branch means the trunk name again
+    let st = s
+        .set_backup_remote("demo", Some("/srv/c.git"), None)
+        .await
+        .unwrap();
+    assert_eq!(st.branch, None);
+    // clearing the remote clears the branch too
+    s.set_backup_remote("demo", Some("/srv/c.git"), Some("x"))
+        .await
+        .unwrap();
+    let st = s.set_backup_remote("demo", None, Some("x")).await.unwrap();
+    assert_eq!((st.remote, st.branch), (None, None));
 }
 
 #[tokio::test]

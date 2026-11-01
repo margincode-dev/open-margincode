@@ -791,3 +791,40 @@ async fn a_limit_below_one_is_refused() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
+
+/// Twelve agents, each the only one that can do its item, all get work from `next`.
+/// None sets `max_open`, and no answer carries `at_capacity`: there is no cap on how
+/// many distinct agents take work.
+#[tokio::test]
+async fn next_routes_twelve_agents_with_no_cap() {
+    let e = env().await;
+    for i in 0..12 {
+        let name = format!("agent-{i:02}");
+        let tag = format!("skill-{i:02}");
+        put_agent(&e, &name, &[&tag], &[], 1).await;
+        post_item(&e, "demo", &format!("job {i:02}"), &[&tag], 600).await;
+    }
+    let mut ids = Vec::new();
+    for i in 0..12 {
+        let name = format!("agent-{i:02}");
+        let (status, body) = next(&e, &name).await;
+        assert_eq!(status, StatusCode::OK, "{name}: {body}");
+        assert_eq!(body["from"], "backlog", "{name}: {body}");
+        assert_eq!(body["task"]["owner_agent"], name, "{body}");
+        assert_eq!(body["task"]["title"], format!("job {i:02}"), "{body}");
+        assert!(
+            body.get("at_capacity").is_none(),
+            "{name} hit a cap: {body}"
+        );
+        ids.push(body["task"]["id"].as_str().unwrap().to_owned());
+    }
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 12, "two agents were given the same task");
+
+    put_agent(&e, "agent-12", &["skill-12"], &[], 1).await;
+    let (status, body) = next(&e, "agent-12").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({"task": null, "queued": 0}));
+    assert!(body.get("at_capacity").is_none(), "{body}");
+}

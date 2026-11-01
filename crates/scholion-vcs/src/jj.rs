@@ -487,7 +487,7 @@ impl Inner {
         Ok(ChangeId(self.trunk_commit(repo, &ro)?.id().hex()))
     }
 
-    fn push_backup(&self, repo: &str, remote_url: &str) -> Result<ChangeId> {
+    fn push_backup(&self, repo: &str, remote_url: &str, branch: Option<&str>) -> Result<ChangeId> {
         let url = remote_url.trim();
         if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
             return Err(AvError::Invalid(format!(
@@ -497,6 +497,17 @@ impl Inner {
         let name = self.trunk_name(repo)?;
         let git_dir = self.repo_dir(repo).join("git");
         let refname = format!("refs/heads/{name}");
+        let target = match branch {
+            Some(b) => {
+                scholion_core::check_backup_branch(b)?;
+                // git has the last word on what a branch name is
+                git_cmd(&git_dir, &["check-ref-format", &format!("refs/heads/{b}")]).map_err(
+                    |_| AvError::Invalid(format!("backup branch {b:?} is not a git branch name")),
+                )?;
+                format!("refs/heads/{b}")
+            }
+            None => refname.clone(),
+        };
         let pushed = git_cmd(&git_dir, &["rev-parse", "--verify", &refname])?;
         // no `+` and no --force: a remote that moved elsewhere rejects the push
         git_cmd_timeout(
@@ -506,7 +517,7 @@ impl Inner {
                 "--porcelain",
                 "--",
                 url,
-                &format!("{refname}:{refname}"),
+                &format!("{refname}:{target}"),
             ],
             PUSH_TIMEOUT,
         )?;
@@ -806,10 +817,20 @@ impl Vcs for JjVcs {
             .await
     }
 
-    async fn push_backup(&self, repo: &str, remote_url: &str) -> Result<ChangeId> {
-        let (name, url) = (repo.to_owned(), remote_url.to_owned());
+    async fn push_backup(
+        &self,
+        repo: &str,
+        remote_url: &str,
+        branch: Option<&str>,
+    ) -> Result<ChangeId> {
+        let (name, url, branch) = (
+            repo.to_owned(),
+            remote_url.to_owned(),
+            branch.map(str::to_owned),
+        );
         // reads only the exported git ref, which merges and undos update atomically
-        self.read(repo, move |i| i.push_backup(&name, &url)).await
+        self.read(repo, move |i| i.push_backup(&name, &url, branch.as_deref()))
+            .await
     }
 
     async fn trunk_log(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {

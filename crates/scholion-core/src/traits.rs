@@ -61,8 +61,14 @@ pub trait Vcs: Send + Sync {
         Err(AvError::Vcs("merge is not supported by this Vcs".into()))
     }
     /// Pushes the trunk ref (as exported to the repo's git dir) to `remote_url`, never forcing;
-    /// returns the pushed commit. A rejected (non-fast-forward) or failed push is an error.
-    async fn push_backup(&self, _repo: &str, _remote_url: &str) -> Result<ChangeId> {
+    /// returns the pushed commit. `branch` names the remote branch it lands on (`None`: the
+    /// trunk's own name). A rejected (non-fast-forward) or failed push is an error.
+    async fn push_backup(
+        &self,
+        _repo: &str,
+        _remote_url: &str,
+        _branch: Option<&str>,
+    ) -> Result<ChangeId> {
         Err(AvError::Vcs(
             "backup push is not supported by this Vcs".into(),
         ))

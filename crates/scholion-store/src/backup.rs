@@ -5,11 +5,12 @@ use sqlx::Row;
 
 use crate::pg::{PgStore, serr};
 
-const BACKUP_COLS: &str = "remote, last_pushed_change, failures, last_error, next_retry";
+const BACKUP_COLS: &str = "remote, branch, last_pushed_change, failures, last_error, next_retry";
 
 fn backup_from_row(row: &sqlx::postgres::PgRow) -> Result<BackupState> {
     Ok(BackupState {
         remote: row.try_get("remote").map_err(serr)?,
+        branch: row.try_get("branch").map_err(serr)?,
         last_pushed: row
             .try_get::<Option<String>, _>("last_pushed_change")
             .map_err(serr)?
@@ -36,18 +37,30 @@ impl PgStore {
             .map(Option::unwrap_or_default)
     }
 
-    /// Sets (or with `None` clears) the remote. A new remote starts clean and is due at once.
-    pub async fn set_backup_remote(&self, repo: &str, remote: Option<&str>) -> Result<BackupState> {
+    /// Sets (or with `None` clears) the remote and the branch main is pushed to (`None`: the
+    /// trunk's own name; always `None` without a remote). A new target starts clean and is due
+    /// at once.
+    pub async fn set_backup_remote(
+        &self,
+        repo: &str,
+        remote: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<BackupState> {
+        if let Some(b) = branch.filter(|_| remote.is_some()) {
+            check_backup_branch(b)?;
+        }
+        let branch = branch.filter(|_| remote.is_some());
         let row = sqlx::query(&format!(
-            "INSERT INTO backup_state (repo, remote, next_retry) VALUES ($1, $2, now())
+            "INSERT INTO backup_state (repo, remote, branch, next_retry) VALUES ($1, $2, $3, now())
              ON CONFLICT (repo) DO UPDATE
-             SET remote = EXCLUDED.remote, failures = 0, last_error = NULL,
+             SET remote = EXCLUDED.remote, branch = EXCLUDED.branch, failures = 0, last_error = NULL,
                  next_retry = CASE WHEN EXCLUDED.remote IS NULL THEN NULL ELSE now() END,
                  updated_at = now()
              RETURNING {BACKUP_COLS}"
         ))
         .bind(repo)
         .bind(remote)
+        .bind(branch)
         .fetch_one(self.pool())
         .await
         .map_err(serr)?;

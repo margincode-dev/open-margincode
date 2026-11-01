@@ -269,6 +269,9 @@ Several agents work against one daemon at once:
   background (60 s timeout, no credential prompts, never forced); a failure is stored and retried
   after 1 s, 2 s, 4 s … up to 5 min, and `scholion status` / `scholion repo backup` show it. Credentials are the
   daemon's own (for SSH, a read-only mounted key and `AV_BACKUP_SSH_COMMAND` in compose).
+  By default main is pushed to a branch of the same name; `scholion repo backup NAME --remote URL
+  --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
+  open a pull request from it. Setting only `--remote` goes back to the trunk's name.
 - Starting a task cleans up after itself: if the workspace cannot be created, the task is marked
   abandoned rather than left open.
 
@@ -300,9 +303,10 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
 | `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `scholion-daemon` that `av up` starts |
 
-`av init [--name NAME] [--for claude|codex|grok|gemini|cursor]...` adds the git repository of the current
+`av init [--name NAME] [--for claude|codex|grok|gemini|cursor|mcp-json]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
-(default: Claude Code); see [Agent integrations](#agent-integrations).
+(default: Claude Code). `--for mcp-json` also needs `--path FILE`. See
+[Agent integrations](#agent-integrations) and [Many agents at once](#many-agents-at-once).
 
 ### Full stack (Docker)
 
@@ -385,6 +389,35 @@ scholion search "rate limit"                       # full-text over the repo's r
 scholion log                                       # main's history, newest first
 scholion abandon                                   # end a task for good (owner only)
 ```
+
+### Many agents at once
+
+Run as many agents as you like on one daemon. There is no seat cap: each distinct agent
+that calls `next` gets the work that fits it.
+
+```bash
+av init --for claude                 # and --for codex, grok, gemini, cursor
+av --agent muse init --for mcp-json --path ~/.muse/settings.json
+
+av agent set claude --best code,tests --can docs --cost 4
+av agent set grok --best docs,review --can code,tests --cost 2
+av agent set muse --best ui --can docs --cost 1
+
+av --agent claude watch -- claude
+av --agent grok watch --every 30 -- grok -p "take your next av job"
+av --agent muse watch -- muse
+```
+
+`--agent NAME` (or `AV_AGENT`) is that CLI's name when it calls `next`. `av agent set NAME
+--best …` is how `next` routes by strength: an item goes first to the agent whose `best`
+tags cover what it needs. `av watch`, once per agent, starts that CLI only when something
+fits it and sets `AV_AGENT` for the command.
+
+The dedicated writers put a fixed `X-Av-Agent` header (`grok`, `gemini`, `cursor`).
+`--for mcp-json` writes the `--agent` name into that header, so a client without its own
+writer still routes as itself. Set a profile under that same name.
+
+The reserve window, review order and `--max-open` are in the next section.
 
 ### Several agents, several subscriptions
 
@@ -514,6 +547,10 @@ opens with a warning naming the culprit merge.
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
   (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
+- **Any `mcpServers` JSON client** (Muse, Windsurf, Cline, …): `av --agent NAME init --for mcp-json --path FILE`
+  merges `mcpServers.av` into that file (`type` `http`, the `/mcp` URL, `X-Av-Agent` set to `NAME`) and
+  keeps the rest. With `AV_TOKEN` set, the header is `Bearer ${AV_TOKEN}`, which the client expands.
+  A client that already has a writer above does not need this.
 - **Codex, Grok Build, Gemini CLI, Cursor Agent**: `av init --for codex|grok|gemini|cursor` merges the
   MCP server into `$CODEX_HOME/config.toml` (default `~/.codex`), `~/.grok/config.toml`,
   `~/.gemini/settings.json` or `~/.cursor/mcp.json`, keeps everything else in the file and the

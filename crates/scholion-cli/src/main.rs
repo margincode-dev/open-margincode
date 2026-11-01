@@ -63,12 +63,15 @@ enum Cmd {
         #[arg(long)]
         name: Option<String>,
         /// Agent CLI to wire to the daemon (repeatable): claude (hooks and MCP), codex, grok,
-        /// gemini, cursor (MCP). Default: claude.
+        /// gemini, cursor (MCP), or mcp-json (merge into --path). Default: claude.
         #[arg(long = "for", value_enum)]
         agents: Vec<agents::Agent>,
         /// Leave Claude Code's settings alone (same as naming only other agents).
         #[arg(long)]
         no_claude: bool,
+        /// JSON file for `--for mcp-json`. Merges `mcpServers.av` into it.
+        #[arg(long, value_name = "FILE")]
+        path: Option<PathBuf>,
     },
     /// Register a git repository (path as seen by the daemon).
     Repo {
@@ -469,11 +472,15 @@ enum RepoCmd {
         name: String,
         git_source: String,
     },
-    /// Show the git backup of main; --set a remote (URL or path), --clear it, or --push now.
+    /// Show the git backup of main; --set a remote (URL or path, also spelled --remote) and
+    /// optionally the --branch main is pushed to (default: its own name), --clear it, or --push now.
     Backup {
         name: String,
-        #[arg(long, conflicts_with = "clear")]
+        #[arg(long, visible_alias = "remote", conflicts_with = "clear")]
         set: Option<String>,
+        /// Remote branch to push main to instead of its own name (needs --set).
+        #[arg(long, requires = "set")]
+        branch: Option<String>,
         #[arg(long)]
         clear: bool,
         #[arg(long)]
@@ -589,6 +596,9 @@ fn backup_line(b: &Value) -> String {
         return "backup: off".to_owned();
     };
     let mut line = format!("backup: {remote}");
+    if let Some(branch) = b["branch"].as_str() {
+        line.push_str(&format!(" (branch {branch})"));
+    }
     match b["last_pushed"].as_str() {
         Some(c) => line.push_str(&format!(
             " · pushed {}",
@@ -880,6 +890,7 @@ fn run(cli: Cli) -> Result<()> {
             name,
             agents,
             no_claude,
+            path,
         } => {
             let mut agents = if agents.is_empty() {
                 vec![agents::Agent::Claude]
@@ -890,12 +901,20 @@ fn run(cli: Cli) -> Result<()> {
             if *no_claude {
                 agents.retain(|a| *a != agents::Agent::Claude);
             }
+            if agents.contains(&agents::Agent::McpJson) && path.is_none() {
+                return Err(CliError::Local("--for mcp-json needs --path FILE".into()));
+            }
+            if path.is_some() && !agents.contains(&agents::Agent::McpJson) {
+                return Err(CliError::Local("--path is only for --for mcp-json".into()));
+            }
             local::init(
                 &client,
                 &cli.url,
                 cli.token.as_deref(),
                 name.as_deref(),
                 &agents,
+                path.as_deref(),
+                &cli.agent,
             )?
         }
         Cmd::Repo {
@@ -949,13 +968,14 @@ fn run(cli: Cli) -> Result<()> {
                 RepoCmd::Backup {
                     name,
                     set,
+                    branch,
                     clear,
                     push,
                 },
         } => {
             let path = format!("/v1/repos/{name}/backup");
             let mut r = if let Some(url) = set {
-                client.post(&path, &json!({"remote": url}))?
+                client.post(&path, &json!({"remote": url, "branch": branch}))?
             } else if *clear {
                 client.post(&path, &json!({"remote": null}))?
             } else {

@@ -272,14 +272,14 @@ async fn push_backup_to_local_bare_remote_has_main_commit() {
         .task("ta", &[("a.py", "one = 1\ntwo = 22\nthree = 3\n")])
         .await;
     let (_, main) = merged(e.merge("ta", &a).await);
-    let pushed = e.vcs.push_backup("demo", &url).await.unwrap();
+    let pushed = e.vcs.push_backup("demo", &url, None).await.unwrap();
     assert_eq!(pushed, main);
     assert_eq!(
         git(remote.path(), &["rev-parse", "refs/heads/main"]),
         main.0
     );
     // nothing new: pushing again is a no-op that still succeeds
-    assert_eq!(e.vcs.push_backup("demo", &url).await.unwrap(), main);
+    assert_eq!(e.vcs.push_backup("demo", &url, None).await.unwrap(), main);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -287,7 +287,7 @@ async fn push_backup_non_fast_forward_is_an_error_not_a_force() {
     let e = env().await;
     let remote = bare_remote();
     let url = remote.path().to_str().unwrap().to_owned();
-    e.vcs.push_backup("demo", &url).await.unwrap();
+    e.vcs.push_backup("demo", &url, None).await.unwrap();
     // someone else moves the remote's main to an unrelated history
     let other = TempDir::new().unwrap();
     git(other.path(), &["init", "-q", "-b", "main"]);
@@ -300,7 +300,7 @@ async fn push_backup_non_fast_forward_is_an_error_not_a_force() {
         .task("ta", &[("a.py", "one = 1\ntwo = 22\nthree = 3\n")])
         .await;
     merged(e.merge("ta", &a).await);
-    let err = e.vcs.push_backup("demo", &url).await.unwrap_err();
+    let err = e.vcs.push_backup("demo", &url, None).await.unwrap_err();
     assert!(matches!(err, AvError::Vcs(_)), "{err:?}");
     assert_eq!(
         git(remote.path(), &["rev-parse", "refs/heads/main"]),
@@ -318,7 +318,60 @@ async fn push_backup_rejects_option_like_and_ext_remotes() {
         "ext::sh -c touch% /tmp/x",
         "",
     ] {
-        let err = e.vcs.push_backup("demo", bad).await.unwrap_err();
+        let err = e.vcs.push_backup("demo", bad, None).await.unwrap_err();
         assert!(matches!(err, AvError::Invalid(_)), "{bad}: {err:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn push_backup_to_a_named_branch_leaves_the_trunk_name_alone() {
+    let e = env().await;
+    let remote = bare_remote();
+    let url = remote.path().to_str().unwrap().to_owned();
+    let a = e
+        .task("ta", &[("a.py", "one = 1\ntwo = 22\nthree = 3\n")])
+        .await;
+    let (_, main) = merged(e.merge("ta", &a).await);
+    let pushed = e
+        .vcs
+        .push_backup("demo", &url, Some("av/phase-1"))
+        .await
+        .unwrap();
+    assert_eq!(pushed, main);
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/av/phase-1"]),
+        main.0
+    );
+    let trunk = std::process::Command::new("git")
+        .current_dir(remote.path())
+        .args(["rev-parse", "--verify", "-q", "refs/heads/main"])
+        .output()
+        .unwrap();
+    assert!(
+        !trunk.status.success(),
+        "main was not pushed under its own name"
+    );
+    // pushing again is a no-op
+    assert_eq!(
+        e.vcs
+            .push_backup("demo", &url, Some("av/phase-1"))
+            .await
+            .unwrap(),
+        main
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn push_backup_rejects_branch_names_git_would_not_accept() {
+    let e = env().await;
+    let remote = bare_remote();
+    let url = remote.path().to_str().unwrap().to_owned();
+    for bad in ["", "-x", "a..b", "a b", "x.lock", "/x", "x/", "a:b", "a~1"] {
+        let err = e
+            .vcs
+            .push_backup("demo", &url, Some(bad))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AvError::Invalid(_)), "{bad:?}: {err:?}");
     }
 }

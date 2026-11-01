@@ -934,3 +934,62 @@ async fn the_tool_list_stays_small() {
         "tools/list is {bytes} bytes; it was 10,312 after Plan 9"
     );
 }
+
+// ---- several tasks on one MCP session (Claude Code subagents share their parent's session)
+
+fn record_count(status: &str) -> i64 {
+    serde_json::from_str::<Value>(status).unwrap()["record_count"]
+        .as_i64()
+        .unwrap()
+}
+
+/// A subagent that starts its own task shares its parent's MCP session (checked with Claude
+/// Code). The session must not then send the parent's writes to the subagent's task: with two
+/// open tasks, a call without `task_id` asks which one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_with_two_open_tasks_asks_which_one() {
+    let e = env().await;
+    let s = connect(&e, "claude-code").await;
+    for title in ["First job", "Second job"] {
+        let out = text(
+            &tool(
+                &e,
+                &s,
+                "start_task",
+                json!({"repo": "demo", "title": title, "goal": "Make hello louder"}),
+            )
+            .await,
+        );
+        assert!(out.contains("workspace:"), "{out}");
+    }
+    let note = json!({"kind": "note", "summary": "hello is fine"});
+    let r = tool(&e, &s, "record", note.clone()).await;
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+    let msg = r["error"]["message"].as_str().unwrap();
+    assert!(
+        msg.contains("demo/first-job") && msg.contains("demo/second-job"),
+        "{msg}"
+    );
+    assert!(msg.contains("task_id"), "{msg}");
+
+    // naming it works, and the write lands on that task
+    let count = |id: &'static str| {
+        let (e, s) = (&e, &s);
+        async move { record_count(&text(&tool(e, s, "status", json!({"task_id": id})).await)) }
+    };
+    let first = count("first-job").await;
+    let mut named = note.clone();
+    named["task_id"] = json!("first-job");
+    let r = tool(&e, &s, "record", named).await;
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    assert_eq!(count("first-job").await, first + 1);
+
+    // once only one of them is open, it is the default again
+    let r = tool(&e, &s, "abandon", json!({"task_id": "second-job"})).await;
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let second = count("second-job").await;
+    let r = tool(&e, &s, "record", note).await;
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    assert_eq!(count("first-job").await, first + 2);
+    assert_eq!(count("second-job").await, second);
+}

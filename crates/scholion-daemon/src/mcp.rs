@@ -39,10 +39,15 @@ const PARSE_ERROR: i64 = -32700;
 #[derive(Clone)]
 pub(crate) struct McpSession {
     agent: String,
-    task: Option<String>,
-    generation: Option<i64>,
+    /// The tasks this session started, claimed or resumed, oldest first, each with the claim
+    /// generation it writes under. Usually one at a time; an agent CLI's subagents share their
+    /// parent's session (checked with Claude Code), so a team can hold several.
+    tasks: Vec<(String, Option<i64>)>,
     last_used: Instant,
 }
+
+/// How many tasks a session remembers; older ones need `task_id`.
+const SESSION_TASKS: usize = 32;
 
 pub(crate) type Sessions = Arc<Mutex<HashMap<String, McpSession>>>;
 
@@ -369,8 +374,11 @@ fn remember(st: &AppState, sid: &str, task: &str, generation: Option<i64>) {
         .unwrap_or_else(|e| e.into_inner())
         .get_mut(sid)
     {
-        s.task = Some(task.to_owned());
-        s.generation = generation;
+        s.tasks.retain(|(t, _)| t != task);
+        s.tasks.push((task.to_owned(), generation));
+        if s.tasks.len() > SESSION_TASKS {
+            s.tasks.remove(0);
+        }
     }
 }
 
@@ -380,21 +388,60 @@ async fn repo_arg(st: &AppState, s: &McpSession, args: &Value) -> Result<String,
     if let Some(r) = str_arg(args, "repo") {
         return Ok(r.to_owned());
     }
-    let (task, _) = target(s, args)?;
+    let (task, _) = target(st, s, args).await?;
     let (_, t) = inner(st, "GET", &format!("/v1/tasks/{}", enc(&task)), None, None).await;
     Ok(t["task"]["repo"].as_str().unwrap_or_default().to_owned())
 }
 
-fn target(s: &McpSession, args: &Value) -> Result<(String, Option<i64>), RpcError> {
-    match str_arg(args, "task_id") {
-        Some(t) if s.task.as_deref() == Some(t) => Ok((t.to_owned(), s.generation)),
-        Some(t) => Ok((t.to_owned(), None)),
-        None => match &s.task {
-            Some(t) => Ok((t.clone(), s.generation)),
-            None => Err(invalid(
-                "no task: pass `task_id`, or call start_task or claim_task first",
-            )),
-        },
+/// The task a tool acts on and the generation to write under (only for the session's own tasks).
+/// Without `task_id`: the session's task; when it holds several, the one still open, and when
+/// more than one is open, an error that names them rather than a guess.
+async fn target(
+    st: &AppState,
+    s: &McpSession,
+    args: &Value,
+) -> Result<(String, Option<i64>), RpcError> {
+    if let Some(t) = str_arg(args, "task_id") {
+        let generation = s.tasks.iter().find(|(id, _)| id == t).and_then(|(_, g)| *g);
+        return Ok((t.to_owned(), generation));
+    }
+    let Some(last) = s.tasks.last() else {
+        return Err(invalid(
+            "no task: pass `task_id`, or call start_task or claim_task first",
+        ));
+    };
+    if s.tasks.len() == 1 {
+        return Ok(last.clone());
+    }
+    let mut open = Vec::new();
+    for (id, generation) in &s.tasks {
+        let Ok(uuid) = id.parse::<Uuid>() else {
+            continue;
+        };
+        if let Ok(task) = st.store.get_task(scholion_core::TaskId(uuid)).await
+            && task.status == scholion_core::TaskStatus::Open
+            && task.owner_agent == s.agent
+        {
+            open.push((
+                id.clone(),
+                *generation,
+                format!("{}/{}", task.repo, task.slug),
+            ));
+        }
+    }
+    match open.len() {
+        0 => Ok(last.clone()),
+        1 => {
+            let (id, generation, _) = open.remove(0);
+            Ok((id, generation))
+        }
+        _ => Err(invalid(format!(
+            "this session holds several open tasks ({}): pass `task_id` (a slug works)",
+            open.iter()
+                .map(|(_, _, n)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
     }
 }
 
@@ -746,7 +793,7 @@ async fn run_tool(
             pretty,
         ),
         _ => {
-            let (task, generation) = target(s, args)?;
+            let (task, generation) = target(st, s, args).await?;
             let t = enc(&task);
             let sess = enc(sid);
             match name {
@@ -1019,8 +1066,7 @@ async fn initialize(
             sid.clone(),
             McpSession {
                 agent,
-                task: pinned.as_ref().map(|(t, _)| t.clone()),
-                generation: pinned.map(|(_, g)| g),
+                tasks: pinned.map(|(t, g)| (t, Some(g))).into_iter().collect(),
                 last_used: Instant::now(),
             },
         );

@@ -26,6 +26,10 @@ pub struct Profile {
     /// Other names the agent introduces itself with (MCP `clientInfo.name`).
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// The most open tasks it may hold at once (an agent CLI with subagents is a team that works
+    /// in parallel). `None`: no limit.
+    #[serde(default)]
+    pub max_open: Option<i32>,
 }
 
 /// A task waiting in the backlog for an agent.
@@ -272,6 +276,7 @@ mod tests {
             can: tags(can),
             cost_rank: cost,
             aliases: vec![],
+            max_open: None,
         }
     }
 

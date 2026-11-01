@@ -99,6 +99,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0023_repos.sql",
         "89bd7e1ec2203faa46008c2411d631dd0f315ceca957f3e3e3ba75ca9bf97165",
     ),
+    (
+        "0024_max_open.sql",
+        "aa9c6af8b459061dd5eddddc18ba836a47d4a89b00cd43f8f8ed58b7cdf62779",
+    ),
 ];
 
 #[test]

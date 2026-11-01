@@ -478,6 +478,15 @@ async fn run_tool(
                         "budget": args["budget"], "wait_secs": args["wait"]})),
             None,
             |r| {
+                if r["task"].is_null() && r["at_capacity"].is_object() {
+                    let open = &r["at_capacity"]["open"];
+                    return format!(
+                        "You hold {open} open task{}, your limit: submit or hand off one before \
+                         taking new work. Reviews of others' work are still \
+                         offered; call start_task again with wait to get one.",
+                        if open == 1 { "" } else { "s" }
+                    );
+                }
                 if r["task"].is_null() {
                     return format!(
                         "No task is waiting for you ({} queued for other agents or still \

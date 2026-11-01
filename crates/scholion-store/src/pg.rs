@@ -721,17 +721,23 @@ impl IntentStore for PgStore {
             .iter()
             .map(|a| non_blank("an alias", a))
             .collect::<Result<_>>()?;
+        if p.max_open.is_some_and(|m| m < 1) {
+            return Err(AvError::Invalid(
+                "max_open must be at least 1 (leave it out for no limit)".into(),
+            ));
+        }
         sqlx::query(
-            "INSERT INTO agent_profiles (name, best, can, cost_rank, aliases)
-             VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO agent_profiles (name, best, can, cost_rank, aliases, max_open)
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (name) DO UPDATE
-             SET best = $2, can = $3, cost_rank = $4, aliases = $5",
+             SET best = $2, can = $3, cost_rank = $4, aliases = $5, max_open = $6",
         )
         .bind(name)
         .bind(best)
         .bind(can)
         .bind(p.cost_rank)
         .bind(aliases)
+        .bind(p.max_open)
         .execute(&self.pool)
         .await
         .map_err(serr)?;
@@ -770,7 +776,7 @@ impl IntentStore for PgStore {
 
     async fn list_profiles(&self) -> Result<Vec<routing::Profile>> {
         let rows = sqlx::query(
-            "SELECT name, best, can, cost_rank, aliases FROM agent_profiles
+            "SELECT name, best, can, cost_rank, aliases, max_open FROM agent_profiles
              ORDER BY cost_rank, name",
         )
         .fetch_all(&self.pool)
@@ -784,9 +790,18 @@ impl IntentStore for PgStore {
                     can: r.try_get("can").map_err(serr)?,
                     cost_rank: r.try_get("cost_rank").map_err(serr)?,
                     aliases: r.try_get("aliases").map_err(serr)?,
+                    max_open: r.try_get("max_open").map_err(serr)?,
                 })
             })
             .collect()
+    }
+
+    async fn count_open_tasks(&self, owner: &str) -> Result<i64> {
+        sqlx::query_scalar("SELECT count(*) FROM tasks WHERE owner_agent = $1 AND status = 'open'")
+            .bind(owner)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(serr)
     }
 
     async fn post_backlog(&self, item: routing::NewBacklogItem) -> Result<BacklogEntry> {

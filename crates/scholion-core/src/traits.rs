@@ -229,6 +229,9 @@ pub trait IntentStore: Send + Sync {
     async fn put_profile(&self, p: &crate::routing::Profile) -> Result<()>;
     /// Cheapest first, then by name.
     async fn list_profiles(&self) -> Result<Vec<crate::routing::Profile>>;
+    /// How many tasks `owner` holds open (in every repo). Tasks in review wait on other agents
+    /// and do not count.
+    async fn count_open_tasks(&self, owner: &str) -> Result<i64>;
     async fn post_backlog(
         &self,
         item: crate::routing::NewBacklogItem,

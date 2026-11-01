@@ -43,6 +43,8 @@ struct AgentBody {
     cost_rank: i32,
     #[serde(default)]
     aliases: Vec<String>,
+    #[serde(default)]
+    max_open: Option<i32>,
 }
 
 fn default_cost_rank() -> i32 {
@@ -62,6 +64,7 @@ async fn put_agent(
             can: b.can,
             cost_rank: b.cost_rank,
             aliases: b.aliases,
+            max_open: b.max_open,
         })
         .await?;
     let stored = st
@@ -396,10 +399,18 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         // profiles are read again on each look: one may change while an agent waits
         let profiles = st.store.list_profiles().await?;
         let (choices, queued) = choose(&st, &agent, b.repo.as_deref(), &profiles).await?;
+        let (choices, full) = within_limit(&st, &agent, &profiles, choices).await?;
+        let nothing = |key: &str| {
+            let mut v = json!({ key: null, "queued": queued });
+            if let Some((open, max)) = full {
+                v["at_capacity"] = json!({ "open": open, "max": max });
+            }
+            v
+        };
         if b.dry_run {
             return Ok(Json(match choices.first() {
                 Some(c) => json!({ "would": would(c) }),
-                None => json!({ "would": null, "queued": queued }),
+                None => nothing("would"),
             }));
         }
         if let Some(v) = act(&st, &agent, &b, choices).await? {
@@ -408,10 +419,47 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         // nothing to give: wait for something (the call is dropped if the client goes away)
         let now = Instant::now();
         if now >= deadline {
-            return Ok(Json(json!({ "task": null, "queued": queued })));
+            return Ok(Json(nothing("task")));
         }
         tokio::time::sleep(WAIT_STEP.min(deadline - now)).await;
     }
+}
+
+/// An agent CLI that runs subagents is a team and may hold several open tasks, up to its
+/// profile's `max_open`. At the limit it gets only what finishes work: reviews and merges of
+/// others' tasks, and its own abandoned tasks back. Returns the choices left and, at the limit,
+/// `(open, max)`.
+async fn within_limit(
+    st: &AppState,
+    agent: &str,
+    profiles: &[Profile],
+    choices: Vec<Choice>,
+) -> Result<(Vec<Choice>, Option<(i64, i32)>)> {
+    let Some(max) = profiles
+        .iter()
+        .find(|p| p.name == agent)
+        .and_then(|p| p.max_open)
+    else {
+        return Ok((choices, None));
+    };
+    let open = st.store.count_open_tasks(agent).await?;
+    if open < i64::from(max) {
+        return Ok((choices, None));
+    }
+    let mut kept = Vec::new();
+    for c in choices {
+        let keep = match &c {
+            Choice::Review { .. } => true,
+            Choice::Abandoned(item) => {
+                st.store.get_task(TaskId(item.id)).await?.owner_agent == agent
+            }
+            Choice::Handoff(_) | Choice::Backlog(_) => false,
+        };
+        if keep {
+            kept.push(c);
+        }
+    }
+    Ok((kept, Some((open, max))))
 }
 
 /// Acts on the first choice that works: offers a review, claims or resumes a task, or starts a

@@ -695,6 +695,25 @@ async fn start_task_without_arguments_says_when_nothing_is_waiting() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn start_task_at_the_limit_says_to_finish_work_first() {
+    let e = env().await;
+    put_profile(
+        &e,
+        "claude",
+        json!({"best": ["code"], "aliases": ["claude-code"], "max_open": 1}),
+    )
+    .await;
+    post_backlog(&e, "first", &["code"], 600).await;
+    post_backlog(&e, "second", &["code"], 600).await;
+    let s = connect(&e, "claude-code").await;
+    let out = text(&tool(&e, &s, "start_task", json!({})).await);
+    assert!(out.contains("workspace:"), "{out}");
+    let out = text(&tool(&e, &s, "start_task", json!({})).await);
+    assert!(out.contains("You hold 1 open task, your limit"), "{out}");
+    assert!(out.contains("submit or hand off"), "{out}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn start_task_with_a_title_still_needs_repo_and_goal() {
     let e = env().await;
     let s = connect(&e, "claude-code").await;

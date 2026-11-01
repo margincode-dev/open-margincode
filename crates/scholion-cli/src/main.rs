@@ -389,6 +389,10 @@ enum AgentCmd {
         /// Another name the agent introduces itself with (repeatable).
         #[arg(long = "alias")]
         aliases: Vec<String>,
+        /// The most open tasks it may hold at once (an agent CLI with subagents works in
+        /// parallel). Default: no limit.
+        #[arg(long)]
+        max_open: Option<i32>,
     },
     /// List the profiles, cheapest first.
     List,
@@ -804,6 +808,9 @@ fn agent_line(a: &Value) -> String {
         if !v.is_empty() {
             line.push_str(&format!("  {label} {v}"));
         }
+    }
+    if let Some(m) = a["max_open"].as_i64() {
+        line.push_str(&format!("  max_open {m}"));
     }
     line
 }
@@ -1698,11 +1705,13 @@ fn run(cli: Cli) -> Result<()> {
                     can,
                     cost,
                     aliases,
+                    max_open,
                 },
         } => {
             let r = client.put(
                 &format!("/v1/agents/{name}"),
-                &json!({"best": best, "can": can, "cost_rank": cost, "aliases": aliases}),
+                &json!({"best": best, "can": can, "cost_rank": cost, "aliases": aliases,
+                        "max_open": max_open}),
             )?;
             println!("{}", agent_line(&r["agent"]));
         }
@@ -1824,6 +1833,15 @@ fn run(cli: Cli) -> Result<()> {
                 &json!({"repo": repo, "agent": cli.agent, "session": session, "budget": budget,
                         "wait_secs": wait}),
             )?;
+            if r["task"].is_null() && r["at_capacity"].is_object() {
+                let open = &r["at_capacity"]["open"];
+                println!(
+                    "You hold {open} open task{}, your limit: submit or hand off one before \
+                     taking new work. Reviews of others' work are still offered.",
+                    if open == 1 { "" } else { "s" }
+                );
+                return Ok(());
+            }
             if r["task"].is_null() {
                 println!(
                     "No task is waiting for you ({} queued for other agents or still reserved).",

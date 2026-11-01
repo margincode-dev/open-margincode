@@ -2072,6 +2072,48 @@ fn next_starts_the_task_writes_the_task_file_and_prints_the_pack() {
 }
 
 #[test]
+fn a_team_limit_is_set_listed_and_reported_by_next() {
+    let (d, scratch) = daemon_with_repo();
+    let line = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "agent",
+            "set",
+            "claude",
+            "--best",
+            "code",
+            "--max-open",
+            "1",
+        ],
+    ));
+    assert!(line.contains("max_open 1"), "{line}");
+    assert!(ok(av(&d, scratch.path(), &["agent", "list"])).contains("max_open 1"));
+    for title in ["First", "Second"] {
+        ok(av(
+            &d,
+            scratch.path(),
+            &[
+                "post",
+                "--repo",
+                "demo",
+                "--title",
+                title,
+                "--goal",
+                "Make hello louder",
+                "--needs",
+                "code",
+                "--reserve",
+                "0",
+            ],
+        ));
+    }
+    ok(av_as(&d, scratch.path(), "claude", &["next"]));
+    let full = ok(av_as(&d, scratch.path(), "claude", &["next"]));
+    assert!(full.contains("You hold 1 open task, your limit"), "{full}");
+}
+
+#[test]
 fn next_with_nothing_for_the_agent_says_so_and_exits_zero() {
     let (d, scratch) = daemon_with_repo();
     ok(av(

@@ -384,6 +384,7 @@ One daemon serves every agent; each CLI only needs its own config entry for the 
 av agent set claude --best code,tests --can docs --cost 4     # 1 is the cheapest
 av agent set muse --can code,docs --cost 1
 av agent set grok --best image --can ui --cost 2 --alias grok-shell-av
+av agent set cursor --best code --can tests,ui,docs --cost 3 --max-open 2   # at most 2 open tasks
 av post --repo bench-repo --title "Redraw the logo" --goal "..." --needs image   # to the backlog
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
@@ -398,6 +399,14 @@ agent's `best` or `can`; the best-fitting agent (the item's `--prefer`, then mos
 cheapest) has it to itself for `--reserve` seconds (default 600), after which any agent that can do
 it may take it, so work moves on when an agent runs out of quota. Untagged work goes to the
 cheapest agent.
+
+Each agent CLI is treated as an engineering team: Scholion gives it work, has another team review
+it and keeps the shared memory, while the CLI splits the work among its own subagents. Those
+subagents carry the team's name (the `X-Av-Agent` header is in the CLI's config), so a team never
+reviews its own work. Post items the size of a team's job, a goal with a definition of done, not
+single steps. `--max-open N` caps how many open tasks a team holds at once (tasks in review do
+not count): at the cap, `next` gives it only reviews, merges and its own abandoned tasks, so one
+team running many subagents cannot take the whole backlog.
 
 `next` (and `start_task` with no title or goal) closes the loop. Its order: first reviews of other
 agents' submitted work (an agent never reviews its own; it reviews work it could have done, unless

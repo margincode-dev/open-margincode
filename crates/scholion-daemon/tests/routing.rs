@@ -706,3 +706,88 @@ async fn a_peek_never_waits() {
     assert_eq!(body, json!({"would": null, "queued": 0}));
     assert!(t.elapsed() < std::time::Duration::from_millis(500));
 }
+
+// ---- a team's limit on open tasks (`max_open`)
+
+async fn put_limited(e: &Env, name: &str, best: &[&str], cost: i32, max_open: i32) {
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/agents/{name}"),
+        Some(json!({"best": best, "cost_rank": cost, "max_open": max_open})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["agent"]["max_open"], max_open, "{body}");
+}
+
+/// An agent CLI that runs subagents is a team: it may take work in parallel, but only up to its
+/// limit, so one team cannot hold the whole backlog. Reviews and merges finish work, so they are
+/// still offered at the limit.
+#[tokio::test]
+async fn a_team_at_its_limit_gets_reviews_but_no_new_work() {
+    let e = env().await;
+    put_limited(&e, "claude", &["code"], 4, 1).await;
+    put_agent(&e, "grok", &["image"], &["code"], 2).await;
+    post_item(&e, "demo", "first", &["code"], 600).await;
+    let (_, first) = next(&e, "claude").await;
+    assert_eq!(first["task"]["title"], "first", "{first}");
+    post_item(&e, "demo", "second", &["code"], 600).await;
+
+    let (status, body) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["task"], Value::Null, "{body}");
+    assert_eq!(body["at_capacity"], json!({"open": 1, "max": 1}), "{body}");
+    let (_, peek) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog/next",
+        Some(json!({"agent": "claude", "session": "s", "dry_run": true})),
+    )
+    .await;
+    assert_eq!(peek["would"], Value::Null, "{peek}");
+    assert_eq!(peek["at_capacity"]["max"], 1, "{peek}");
+
+    // grok's image work needs a reviewer, and claude is offered it at the limit
+    let g = take_and_submit(&e, "grok", "draw it", &["image"]).await;
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "review", "{body}");
+    approve(&e, &id(&g), "claude").await;
+    let (status, b) = task_op(&e, &id(&g), "merge", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+
+    // claude submits its task: below the limit again, it takes the next item
+    edit_greeter(&e, &first);
+    record_decision(&e, &first).await;
+    let (status, b) = task_op(&e, &id(&first), "submit", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["task"]["title"], "second", "{body}");
+    assert!(body.get("at_capacity").is_none(), "{body}");
+}
+
+/// Its own abandoned task is work it already holds: resuming it adds nothing.
+#[tokio::test]
+async fn a_team_at_its_limit_still_resumes_its_own_abandoned_task() {
+    let e = env_with(|s| s.with_lease_secs(1)).await;
+    put_limited(&e, "claude", &["code"], 4, 1).await;
+    let t = start_task(&e, "Make hello louder").await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    post_item(&e, "demo", "other", &["code"], 600).await;
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "abandoned", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}
+
+#[tokio::test]
+async fn a_limit_below_one_is_refused() {
+    let e = env().await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/claude",
+        Some(json!({"best": ["code"], "max_open": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}

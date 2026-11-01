@@ -18,6 +18,7 @@ fn profile(name: &str, best: &[&str], can: &[&str], cost: i32) -> Profile {
         can: can.iter().map(|s| s.to_string()).collect(),
         cost_rank: cost,
         aliases: vec![],
+        max_open: None,
     }
 }
 
@@ -305,4 +306,45 @@ async fn abandoned_tasks_are_open_tasks_past_their_lease() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn a_profile_keeps_its_open_task_limit() {
+    let (_db, s) = store().await;
+    let mut c = profile("claude", &["code"], &[], 4);
+    c.max_open = Some(2);
+    s.put_profile(&c).await.unwrap();
+    s.put_profile(&profile("grok", &["image"], &[], 2))
+        .await
+        .unwrap();
+    let all = s.list_profiles().await.unwrap();
+    let get = |n: &str| all.iter().find(|p| p.name == n).unwrap().max_open;
+    assert_eq!(get("claude"), Some(2));
+    assert_eq!(get("grok"), None, "no limit");
+    // a limit below 1 would mean "never give it work": refused
+    for bad in [0, -1] {
+        c.max_open = Some(bad);
+        assert!(matches!(s.put_profile(&c).await, Err(AvError::Invalid(_))));
+    }
+}
+
+#[tokio::test]
+async fn open_tasks_are_counted_per_owner_across_repos() {
+    let (_db, s) = store().await;
+    for repo in ["a", "b"] {
+        let mut t = new_task();
+        t.repo = repo.into();
+        s.create_task(t).await.unwrap();
+    }
+    let submitted = s.create_task(new_task()).await.unwrap();
+    s.transition(submitted.id, lifecycle::Event::Submit)
+        .await
+        .unwrap();
+    let mut other = new_task();
+    other.owner_agent = "grok".into();
+    s.create_task(other).await.unwrap();
+    // in review waits on other agents, so it does not count
+    assert_eq!(s.count_open_tasks("claude").await.unwrap(), 2);
+    assert_eq!(s.count_open_tasks("grok").await.unwrap(), 1);
+    assert_eq!(s.count_open_tasks("nobody").await.unwrap(), 0);
 }

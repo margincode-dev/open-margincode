@@ -1,15 +1,16 @@
 //! One benchmark session in one arm: prepare the working directory, run headless Claude Code,
 //! verify. Nothing here touches the source repo except `git clone` from it and `git show`.
 
-use std::fs::File;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use globset::Glob;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+use scholion_agentrun::AgentCommand;
+use scholion_agentrun::process::{run_with_timeout, shell};
 
 use crate::Result;
 use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
@@ -343,51 +344,6 @@ pub fn tree_matches(repo: &Path, rev: &str, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-struct Waited {
-    exit: Option<i32>,
-    killed: bool,
-}
-
-/// Runs `cmd` in its own process group; after `timeout` the whole group is SIGKILLed.
-fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Waited> {
-    cmd.process_group(0);
-    let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return Ok(Waited {
-                exit: status.code(),
-                killed: false,
-            });
-        }
-        if start.elapsed() >= timeout {
-            let _ = Command::new("kill")
-                .args(["-KILL", "--", &format!("-{}", child.id())])
-                .status();
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(Waited {
-                exit: None,
-                killed: true,
-            });
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-fn shell(script: &str, cwd: &Path, log: &Path) -> Result<Command> {
-    let out = File::create(log).map_err(|e| format!("{}: {e}", log.display()))?;
-    let err = out.try_clone().map_err(|e| e.to_string())?;
-    let mut cmd = Command::new("sh");
-    cmd.arg("-c")
-        .arg(script)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err);
-    Ok(cmd)
-}
-
 /// The bench daemon's HTTP API.
 pub struct Daemon {
     url: String,
@@ -645,7 +601,10 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
     });
     if cfg.jit_hooks {
         let read = format!("echo pre-read >> {count}; {av} hook pre-read");
-        let stop = format!("echo stop >> {count}; {av} hook stop");
+        // The prefix is on the hook command: a bench backlog is empty, and the default
+        // wait is 600s. A Stop hook that does not inherit the session environment would
+        // otherwise stall the run.
+        let stop = format!("echo stop >> {count}; AV_HOOK_WAIT_SECS=0 {av} hook stop");
         hooks["PreToolUse"] = json!([{"matcher": "Read|Edit|MultiEdit",
                                       "hooks": [{"type": "command", "command": read}]}]);
         hooks["Stop"] = json!([{"hooks": [{"type": "command", "command": stop}]}]);
@@ -761,8 +720,8 @@ pub fn run_session(
     if arm.uses_av() && cfg.av_mcp {
         tools.push("mcp__av".into());
     }
-    let mut cmd = Command::new(&cfg.claude_bin);
-    cmd.arg("-p")
+    let mut cmd = AgentCommand::new(&cfg.claude_bin)
+        .arg("-p")
         .arg(&spec.goal)
         .args(["--output-format", "stream-json", "--verbose"])
         .args(["--max-turns", &spec.max_turns.to_string()])
@@ -777,42 +736,34 @@ pub fn run_session(
         .arg("--no-session-persistence")
         .arg("--allowedTools")
         .args(&tools)
-        .current_dir(&workspace)
-        .stdin(Stdio::null())
-        .stdout(File::create(&outcome.events_path).map_err(|e| e.to_string())?)
-        .stderr(File::create(dir.join("claude.stderr")).map_err(|e| e.to_string())?)
+        .cwd(&workspace)
         .env("CLAUDE_CONFIG_DIR", &config_dir)
-        .env("AV_AGENT", AGENT);
-    if !spec.path_prepend.is_empty() {
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let dirs = spec
-            .path_prepend
-            .iter()
-            .cloned()
-            .chain(std::env::split_paths(&inherited));
-        cmd.env(
-            "PATH",
-            std::env::join_paths(dirs).map_err(|e| format!("path_prepend: {e}"))?,
-        );
-    }
+        .env("AV_AGENT", AGENT)
+        // The Stop hook (`--jit-hooks`) would wait up to 600 s for backlog work; a bench task's
+        // backlog is empty, so that wait would only eat the session timeout. The hook command
+        // also prefixes AV_HOOK_WAIT_SECS=0, in case the CLI does not pass this environment in.
+        .env("AV_HOOK_WAIT_SECS", "0")
+        .path_prepend(spec.path_prepend.clone())
+        .timeout(Duration::from_secs(spec.session_timeout_secs))
+        .events_path(&outcome.events_path)
+        .stderr_path(dir.join("claude.stderr"));
     if cfg.prices.is_none() {
-        cmd.args(["--max-budget-usd", &format!("{:.2}", cfg.session_cap_usd)]);
+        cmd = cmd.max_budget_usd(Some(cfg.session_cap_usd));
     }
     for v in NESTED_ENV {
-        cmd.env_remove(v);
+        cmd = cmd.env_remove(v);
     }
     if let Some(url) = &cfg.av_url {
-        cmd.env("AV_URL", url);
+        cmd = cmd.env("AV_URL", url);
     }
-    match &cfg.av_token {
+    cmd = match &cfg.av_token {
         Some(t) => cmd.env("AV_TOKEN", t),
         None => cmd.env_remove("AV_TOKEN"),
     };
-    let started = Instant::now();
-    let w = run_with_timeout(cmd, Duration::from_secs(spec.session_timeout_secs))?;
-    outcome.wall_secs = started.elapsed().as_secs_f64();
-    outcome.claude_killed = w.killed;
-    outcome.claude_exit = w.exit;
+    let ran = cmd.run()?;
+    outcome.wall_secs = ran.wall.as_secs_f64();
+    outcome.claude_killed = ran.killed;
+    outcome.claude_exit = ran.exit;
 
     if let (Some(t), Some(daemon)) = (&av_task, &daemon) {
         daemon.post(

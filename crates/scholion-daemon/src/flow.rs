@@ -1243,8 +1243,9 @@ pub(crate) async fn claim_as(
     }))
 }
 
-/// The owner of an open task whose lease ran out takes it back (after a restart, say): the lease
-/// is renewed under the same generation and the answer looks like `claim_as`'s.
+/// The owner of an open task whose lease ran out takes it back (after a restart, say), or of a
+/// conflicted task `next` offers it again: the lease is renewed under the same generation and the
+/// answer looks like `claim_as`'s.
 pub(crate) async fn resume_as(
     st: &AppState,
     id: TaskId,
@@ -1254,9 +1255,11 @@ pub(crate) async fn resume_as(
 ) -> Result<Value> {
     let _guard = st.lock_task(id).await;
     let task = st.store.get_task(id).await?;
-    if task.owner_agent != agent || task.status != TaskStatus::Open {
+    if task.owner_agent != agent
+        || !matches!(task.status, TaskStatus::Open | TaskStatus::Conflicted)
+    {
         return Err(AvError::IllegalState(format!(
-            "task {} is not an open task of {agent}",
+            "task {} is not an open or conflicted task of {agent}",
             task.slug
         )));
     }

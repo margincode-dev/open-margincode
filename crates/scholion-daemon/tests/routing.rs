@@ -828,3 +828,192 @@ async fn next_routes_twelve_agents_with_no_cap() {
     assert_eq!(body, json!({"task": null, "queued": 0}));
     assert!(body.get("at_capacity").is_none(), "{body}");
 }
+
+// ---- Backlog dependencies: an item can start after others merge ----
+
+async fn post_after(e: &Env, title: &str, after: &[&str]) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        "/v1/backlog",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "after": after, "reserve_secs": 0}),
+        ),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn an_item_is_not_offered_until_the_items_it_lists_have_merged() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 1).await;
+    put_agent(&e, "grok", &["code"], &[], 2).await;
+    post_item(&e, "demo", "stop hook", &["code"], 0).await;
+    // by title slug; the dependent is posted before A is taken
+    let (status, b) = post_after(&e, "keep agents busy", &["stop-hook"]).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(b["waiting_on"], json!(["stop hook"]), "{b}");
+
+    // A is queued: only A is offered, B waits
+    let (_, t) = next(&e, "grok").await;
+    assert_eq!(t["task"]["title"], "stop hook", "{t}");
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(body["task"], Value::Null, "B waits while A is open: {body}");
+    let items = backlog(&e, "?state=queued").await;
+    assert_eq!(items[0]["waiting_on"], json!(["stop hook"]));
+
+    // A in review: still not offered (a peek says the same)
+    edit_greeter(&e, &t);
+    record_decision(&e, &t).await;
+    let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "grok"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(
+        body["task"],
+        Value::Null,
+        "B waits while A is in review: {body}"
+    );
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(
+        body["from"], "review",
+        "claude gets the review, not B: {body}"
+    );
+
+    // A merged: B is offered
+    approve(&e, &id(&t), "claude").await;
+    let (status, b) = task_op(&e, &id(&t), "merge", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(
+        backlog(&e, "?state=queued").await[0]["waiting_on"],
+        json!([])
+    );
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(body["from"], "backlog", "{body}");
+    assert_eq!(body["task"]["title"], "keep agents busy", "{body}");
+}
+
+#[tokio::test]
+async fn after_takes_an_item_id_and_refuses_an_unknown_item() {
+    let e = env().await;
+    let a = post_item(&e, "demo", "first", &[], 0).await;
+    let id = a["id"].as_str().unwrap();
+    let (status, b) = post_after(&e, "second", &[id]).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(b["after"], json!([id]), "{b}");
+    let (status, b) = post_after(&e, "third", &["nothing-like-it"]).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{b}");
+}
+
+// ---- dogfood: next offers a conflicted task back to its owner ----
+
+const SYNC_ACTION: &str = "Its merge conflicted because main moved: av sync it onto main, resolve \
+                           the conflict markers, re-run the check, validate and submit it again.";
+
+/// `agent` starts a task directly, edits `app/greeter.py` to `text`, records a decision and
+/// submits it.
+async fn start_edit_submit(e: &Env, agent: &str, title: &str, text: &str) -> Value {
+    let (status, t) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "agent": agent, "session": format!("s-{agent}")}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    std::fs::write(ws_dir(e, &t).join("app/greeter.py"), text).unwrap();
+    record_decision(e, &t).await;
+    let (status, b) = task_op(e, &id(&t), "submit", json!({"agent": agent})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    t
+}
+
+const GREETER_LOUD: &str =
+    "class Greeter:\n    def hello(self, name):\n        return name.upper()\n";
+const GREETER_SHOUT: &str =
+    "class Greeter:\n    def hello(self, name):\n        return name + \"!\"\n";
+
+/// claude's task and codex's change the same lines. Both are approved and codex's merges first, so
+/// claude's merge comes out conflicted. Returns claude's task.
+async fn conflicted_task(e: &Env) -> Value {
+    three_agents(e).await;
+    let mine = start_edit_submit(e, "claude", "Make hello loud", GREETER_LOUD).await;
+    let theirs = start_edit_submit(e, "codex", "Make hello shout", GREETER_SHOUT).await;
+    approve(e, &id(&theirs), "grok").await;
+    let (status, b) = task_op(e, &id(&theirs), "merge", json!({"agent": "grok"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    approve(e, &id(&mine), "grok").await;
+    let (status, b) = task_op(e, &id(&mine), "merge", json!({"agent": "grok"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(b["status"], "conflicted", "{b}");
+    mine
+}
+
+#[tokio::test]
+async fn a_conflicted_task_is_offered_to_its_owner_with_the_sync_action() {
+    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let t = conflicted_task(&e).await;
+
+    let p = peek(&e, "claude").await;
+    assert_eq!(p["would"]["from"], "conflicted", "{p}");
+    assert_eq!(p["would"]["task_id"], t["task"]["id"], "{p}");
+
+    let (status, body) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["from"], "conflicted", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+    assert_eq!(body["task"]["owner_agent"], "claude");
+    assert_eq!(body["task"]["status"], "conflicted");
+    assert_eq!(body["generation"], 1, "the owner keeps it: {body}");
+    assert_eq!(body["next"], SYNC_ACTION);
+    assert!(body["bundle"]["markdown"].is_string(), "{body}");
+}
+
+#[tokio::test]
+async fn another_agent_gets_a_conflicted_task_only_after_the_owners_lease() {
+    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let t = conflicted_task(&e).await;
+
+    // the owner takes it back, which renews its lease: nobody else is offered it now
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "conflicted", "{body}");
+    for other in ["grok", "codex"] {
+        assert_eq!(peek(&e, other).await["would"], Value::Null, "{other}");
+        let (_, body) = next(&e, other).await;
+        assert_eq!(body["task"], Value::Null, "{other}: {body}");
+    }
+
+    // the owner goes quiet past its lease: any agent that fits may claim it, and it stays conflicted
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(body["from"], "conflicted", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+    assert_eq!(body["task"]["owner_agent"], "grok");
+    assert_eq!(body["task"]["status"], "conflicted");
+    assert_eq!(body["generation"], 2);
+    assert_eq!(body["next"], SYNC_ACTION);
+    // and it is no longer claude's
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["task"], Value::Null, "{body}");
+}
+
+#[tokio::test]
+async fn a_review_comes_before_the_owners_conflicted_task() {
+    let e = env_with(|s| s.with_lease_secs(3600)).await;
+    let t = conflicted_task(&e).await;
+    let other = take_and_submit(&e, "codex", "louder hello", &["code"]).await;
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "review", "{body}");
+    assert_eq!(body["task"]["id"], other["task"]["id"]);
+    // once the review is out of the way (reserved for claude, who holds it), the owner asks again
+    // for its own task: the review is still its to do, so merge it away first
+    approve(&e, &id(&other), "claude").await;
+    let (status, b) = task_op(&e, &id(&other), "merge", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "conflicted", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}

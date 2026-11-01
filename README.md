@@ -45,6 +45,29 @@ claude mcp add --transport http av http://localhost:7420/mcp   # or any MCP clie
 av repo add myrepo /import/myrepo                              # path inside the container
 ```
 
+## Editions
+
+Community is this repository. Commercial is not available yet, and this section names no price.
+
+**Community** (free, [MIT](LICENSE)). Connect any number of agents: Claude Code, Codex, Grok,
+Gemini, Cursor, or any MCP client.
+
+```bash
+av init --for claude --for codex --for grok --for gemini --for cursor
+av --agent muse init --for mcp-json --path PATH/TO/settings.json
+```
+
+They share one memory (records next to the code, and the context pack), a review loop (another
+agent reviews, and the reviewer merges), and routing by strength (`av agent set NAME --best …`,
+then cost). There is no seat cap. `--max-open` on a profile is a limit you set, not a license.
+The daemon does not launch agents and holds no keys for the agents' own models. Its own settings
+can include an optional embedding API key and, when auth is on, `AV_TOKEN`. Details:
+[Many agents at once](#many-agents-at-once).
+
+**Commercial** (agentvcs, hosted) is not available. The plan, and only the plan, is a service that
+runs agents for you: personas, a model connection that is managed or your own key and endpoint,
+budgets in subscription credits, and approval gates. There is nothing to buy.
+
 ## How this was built
 
 Scholion is **vibe-coded**: AI coding agents (mostly Claude Code, with some help from other
@@ -397,7 +420,7 @@ that calls `next` gets the work that fits it.
 
 ```bash
 av init --for claude                 # and --for codex, grok, gemini, cursor
-av --agent muse init --for mcp-json --path ~/.muse/settings.json
+av --agent muse init --for mcp-json --path PATH/TO/settings.json   # Muse's own path is unverified
 
 av agent set claude --best code,tests --can docs --cost 4
 av agent set grok --best docs,review --can code,tests --cost 2
@@ -430,14 +453,16 @@ av agent set muse --can code,docs --cost 1
 av agent set grok --best image --can ui --cost 2 --alias grok-shell-av
 av agent set cursor --best code --can tests,ui,docs --cost 3 --max-open 2   # at most 2 open tasks
 av post --repo bench-repo --title "Redraw the logo" --goal "..." --needs image   # to the backlog
+av post --repo bench-repo --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
 av handoff --done … --remaining … --needs image   # hand off to an agent that has the tag
 av --agent grok watch -- grok -p "take your next av job"   # start grok only when work fits it
 ```
 
-An agent's own CLI runs the work on its own subscription; Scholion holds no vendor credentials and
-never launches an agent. Agents pull: MCP agents call `start_task` with no arguments, the others
+An agent's own CLI runs the work on its own subscription; Scholion holds no keys for the agents'
+own models. Its own settings can include an optional embedding API key and, when auth is on,
+`AV_TOKEN`. The daemon does not launch agents (`av watch` does, on your machine). Agents pull: MCP agents call `start_task` with no arguments, the others
 `av next`. Rules (no model involved): an agent can take an item when every tag it needs is in the
 agent's `best` or `can`; the best-fitting agent (the item's `--prefer`, then most `best` tags, then
 cheapest) has it to itself for `--reserve` seconds (default 600), after which any agent that can do
@@ -547,6 +572,15 @@ opens with a warning naming the culprit merge.
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
   (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
+
+  **Keep agents busy.** After that check, `Stop` asks the daemon for this agent's next work (a dry run of
+  `POST /v1/backlog/next`, the call `av watch` polls). If something fits (queued work, a review, a handoff or an
+  abandoned task), it blocks the stop with `av: <what is waiting> - call start_task with no title`, so the agent
+  carries on instead of idling. If nothing fits yet it keeps looking every 15 s for up to `AV_HOOK_WAIT_SECS`
+  (default 600; `0` turns this off), which costs no model tokens, then lets the stop through. It continues one
+  agent session at most `AV_HOOK_MAX_CONTINUES` times (default 20, counted in `.av-task`), and a daemon that
+  does not answer allows the stop at once. `install.sh` sets the hook's timeout to `AV_HOOK_WAIT_SECS` + 60 s,
+  so run it again after changing the wait: `AV_HOOK_WAIT_SECS=120 integrations/claude-code/install.sh`.
 - **Any `mcpServers` JSON client** (Muse, Windsurf, Cline, …): `av --agent NAME init --for mcp-json --path FILE`
   merges `mcpServers.av` into that file (`type` `http`, the `/mcp` URL, `X-Av-Agent` set to `NAME`) and
   keeps the rest. With `AV_TOKEN` set, the header is `Bearer ${AV_TOKEN}`, which the client expands.
@@ -556,8 +590,11 @@ opens with a warning naming the culprit merge.
   `~/.gemini/settings.json` or `~/.cursor/mcp.json`, keeps everything else in the file and the
   previous one as `*.bak`. With `AV_TOKEN` set, the file only names the variable (Codex
   `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}`, Cursor `${env:AV_TOKEN}` in a header),
-  never the token. These agents get no hooks: they call `start_task`/`claim_task` and `get_context`
-  themselves; the instructions to give them are in `integrations/<agent>/README.md`. All of them
+  never the token. Codex, Gemini and Cursor get no hooks: they call `start_task`/`claim_task` and
+  `get_context` themselves. Grok gets `SessionStart` and `Stop` in `~/.grok/hooks/av.json` unless
+  `~/.claude/settings.json` already loads them (Grok runs both; see `integrations/grok/README.md`
+  for the 8-continuation cap and folder trust). The instructions to give an agent are in
+  `integrations/<agent>/README.md`. All of them
   share one memory, so a dead end Claude recorded is in the pack Codex gets.
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).

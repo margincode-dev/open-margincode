@@ -127,6 +127,9 @@ struct PostBacklog {
     priority: i32,
     reserve_secs: Option<i64>,
     posted_by: Option<String>,
+    /// Items this one starts after: a backlog item id or the slug of its title.
+    #[serde(default)]
+    after: Vec<String>,
 }
 
 async fn post_backlog(
@@ -144,6 +147,7 @@ async fn post_backlog(
             priority: b.priority,
             reserve_secs: b.reserve_secs.unwrap_or(routing::DEFAULT_RESERVE_SECS),
             posted_by: b.posted_by.unwrap_or_else(|| "user".into()),
+            after: b.after,
         })
         .await?;
     Ok(Json(entry))
@@ -215,12 +219,17 @@ pub(crate) type Reviews = Arc<Mutex<HashMap<TaskId, (String, Instant)>>>;
 const REVIEW_TODO: &str = "Review it: review_task, run its tests in its workspace and validate, \
                            then post_review. If you approve, merge it.";
 const MERGE_TODO: &str = "It is approved: merge it.";
+const SYNC_TODO: &str = "Its merge conflicted because main moved: av sync it onto main, resolve \
+                         the conflict markers, re-run the check, validate and submit it again.";
 
 /// What `next` may give an agent, best first.
 #[derive(Debug)]
 pub(crate) enum Choice {
     /// Another agent's task in review; `approved` at its current head (then it only needs a merge).
     Review { task: Task, approved: bool },
+    /// A task whose merge conflicted: its owner syncs it onto main, resolves and resubmits. Offered
+    /// to the owner at once, to any other agent once the owner's lease ran out (then claimed).
+    Conflicted(BacklogItem),
     /// A handed-off task to claim; the item stands for it (`id` is the task id).
     Handoff(BacklogItem),
     /// An open task whose owner went quiet (its lease ran out): claimed, or resumed by its owner.
@@ -229,8 +238,17 @@ pub(crate) enum Choice {
     Backlog(BacklogItem),
 }
 
-/// Everything `agent` may be given now, best first (reviews and merges, then handoffs and backlog
-/// items in the order of `routing::order_for`), and how many items are queued.
+/// What a task offered under its own id is: how `choose` and `act` tell the kinds apart.
+#[derive(Clone, Copy)]
+enum Kind {
+    Handoff,
+    Abandoned,
+    Conflicted,
+}
+
+/// Everything `agent` may be given now, best first (reviews and merges, the agent's own conflicted
+/// tasks, then handoffs and backlog items in the order of `routing::order_for`), and how many
+/// items are queued.
 pub(crate) async fn choose(
     st: &AppState,
     agent: &str,
@@ -238,6 +256,18 @@ pub(crate) async fn choose(
     profiles: &[Profile],
 ) -> Result<(Vec<Choice>, usize)> {
     let mut choices = review_choices(st, agent, repo, profiles).await?;
+
+    // Conflicted tasks: the owner keeps its own at once (it has to sync, resolve and resubmit);
+    // another agent may take one once the owner's lease ran out, like an abandoned open task.
+    let conflicted = st.store.conflicted_tasks(repo, st.lease_secs).await?;
+    for c in &conflicted {
+        if c.task.owner_agent == agent {
+            let needs = task_needs(st, &c.task).await?;
+            choices.push(Choice::Conflicted(task_item(
+                &c.task, needs, None, c.since, 0,
+            )));
+        }
+    }
 
     let queued = st
         .store
@@ -247,8 +277,13 @@ pub(crate) async fn choose(
     // window starts at the handoff; the agent that handed it off neither takes nor holds it),
     // and every open task whose owner went quiet (no window: it already waited a whole lease, so
     // whoever fits and asks first gets it, its restarted owner included).
-    let mut items: Vec<BacklogItem> = queued.iter().map(|e| e.item.clone()).collect();
-    let mut kind: HashMap<Uuid, bool> = HashMap::new(); // task id -> abandoned?
+    // An item that starts after others is offered once every one of them has merged.
+    let mut items: Vec<BacklogItem> = queued
+        .iter()
+        .filter(|e| e.waiting_on.is_empty())
+        .map(|e| e.item.clone())
+        .collect();
+    let mut kind: HashMap<Uuid, Kind> = HashMap::new();
     let mut excluded: HashMap<Uuid, String> = HashMap::new();
     for h in st.store.handed_off_tasks(repo).await? {
         // Tags given at the handoff hold. Without them the task keeps its item's tags, unless only
@@ -263,7 +298,7 @@ pub(crate) async fn choose(
         } else {
             h.needs.clone()
         };
-        kind.insert(h.task.id.0, false);
+        kind.insert(h.task.id.0, Kind::Handoff);
         excluded.insert(h.task.id.0, h.task.owner_agent.clone());
         items.push(task_item(
             &h.task,
@@ -275,13 +310,23 @@ pub(crate) async fn choose(
     }
     for a in st.store.abandoned_tasks(repo, st.lease_secs).await? {
         let needs = task_needs(st, &a.task).await?;
-        kind.insert(a.task.id.0, true);
+        kind.insert(a.task.id.0, Kind::Abandoned);
         items.push(task_item(&a.task, needs, None, a.since, 0));
     }
-    for item in routing::order_for_excluding(agent, &items, profiles, Utc::now(), &excluded) {
+    // a conflicted task whose owner's lease ran out (the owner's own were offered above)
+    let now = Utc::now();
+    for c in conflicted {
+        if c.task.owner_agent != agent && c.since < now {
+            let needs = task_needs(st, &c.task).await?;
+            kind.insert(c.task.id.0, Kind::Conflicted);
+            items.push(task_item(&c.task, needs, None, c.since, 0));
+        }
+    }
+    for item in routing::order_for_excluding(agent, &items, profiles, now, &excluded) {
         choices.push(match kind.get(&item.id) {
-            Some(false) => Choice::Handoff(item.clone()),
-            Some(true) => Choice::Abandoned(item.clone()),
+            Some(Kind::Handoff) => Choice::Handoff(item.clone()),
+            Some(Kind::Abandoned) => Choice::Abandoned(item.clone()),
+            Some(Kind::Conflicted) => Choice::Conflicted(item.clone()),
             None => Choice::Backlog(item.clone()),
         });
     }
@@ -297,6 +342,7 @@ fn would(c: &Choice) -> Value {
         }
         Choice::Handoff(i) => ("handoff", i),
         Choice::Abandoned(i) => ("abandoned", i),
+        Choice::Conflicted(i) => ("conflicted", i),
         Choice::Backlog(i) => {
             return json!({ "from": "backlog", "backlog_id": i.id, "repo": i.repo,
                            "title": i.title });
@@ -323,6 +369,7 @@ fn task_item(
         priority: 0,
         reserve_secs,
         created_at: since,
+        after: Vec::new(),
     }
 }
 
@@ -466,7 +513,7 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
 
 /// An agent CLI that runs subagents is a team and may hold several open tasks, up to its
 /// profile's `max_open`. At the limit it gets only what finishes work: reviews and merges of
-/// others' tasks, and its own abandoned tasks back. Returns the choices left and, at the limit,
+/// others' tasks, and its own abandoned and conflicted tasks back. Returns the choices left and, at the limit,
 /// `(open, max)`.
 async fn within_limit(
     st: &AppState,
@@ -489,7 +536,7 @@ async fn within_limit(
     for c in choices {
         let keep = match &c {
             Choice::Review { .. } => true,
-            Choice::Abandoned(item) => {
+            Choice::Abandoned(item) | Choice::Conflicted(item) => {
                 st.store.get_task(TaskId(item.id)).await?.owner_agent == agent
             }
             Choice::Handoff(_) | Choice::Backlog(_) => false,
@@ -531,6 +578,20 @@ async fn act(
                 };
                 taken.map(|mut v| {
                     v["from"] = json!("abandoned");
+                    v
+                })
+            }
+            Choice::Conflicted(item) => {
+                let id = TaskId(item.id);
+                let own = st.store.get_task(id).await?.owner_agent == agent;
+                let taken = if own {
+                    resume_as(st, id, agent, b.budget, b.family).await
+                } else {
+                    claim_as(st, id, agent, b.budget, b.family).await
+                };
+                taken.map(|mut v| {
+                    v["from"] = json!("conflicted");
+                    v["next"] = json!(SYNC_TODO);
                     v
                 })
             }

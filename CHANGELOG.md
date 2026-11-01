@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Backlog items can start after others merge**: `av post --after ITEM[,ITEM]` (an item id or the
+  slug of its title; `after` in `POST /v1/backlog`). `av next` does not offer the item, and
+  `start_task` without a title does not take it, until every listed item has merged; `av backlog`
+  shows it as `waiting on X`. Migration 0026.
+- **`next` gives a conflicted task back to its owner**: after reviews, an approved task whose merge
+  conflicted comes back to its owner (`"from": "conflicted"`, with a `next` action: `av sync` onto
+  main, resolve the markers, re-run the check, validate and submit again), so `av watch` picks it
+  up. If the owner does not act within the lease, any agent that fits may claim it; it stays
+  conflicted.
+
 ## 0.0.2 (2026-11-01)
 
 Several coding agents (Claude Code, Codex, Cursor, Grok Build, Gemini CLI) now share one backlog:

@@ -46,6 +46,9 @@ pub struct BacklogItem {
     pub priority: i32,
     pub reserve_secs: i64,
     pub created_at: DateTime<Utc>,
+    /// Backlog items that must be merged before `next` offers this one.
+    #[serde(default)]
+    pub after: Vec<Uuid>,
 }
 
 /// What the user posts to the backlog (`av post`).
@@ -61,6 +64,9 @@ pub struct NewBacklogItem {
     pub priority: i32,
     pub reserve_secs: i64,
     pub posted_by: String,
+    /// Items this one starts after, each a backlog item id or the slug of its title (same repo).
+    #[serde(default)]
+    pub after: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +112,9 @@ pub struct BacklogEntry {
     pub taken_by: Option<String>,
     pub taken_at: Option<DateTime<Utc>>,
     pub posted_by: String,
+    /// Titles of the items in `after` that are not merged yet; empty: nothing to wait for.
+    #[serde(default)]
+    pub waiting_on: Vec<String>,
 }
 
 /// A handed-off task that names what its next agent needs (`av handoff --needs`).
@@ -305,6 +314,7 @@ mod tests {
             priority: 0,
             reserve_secs: DEFAULT_RESERVE_SECS,
             created_at: t0(),
+            after: vec![],
         }
     }
 

@@ -127,6 +127,11 @@ fn av_with(url: &str, cwd: &Path, args: &[&str]) -> Output {
         .env_remove("AV_SESSION")
         .env_remove("AV_AGENT")
         .env_remove("AV_TOKEN")
+        // the Stop hook's keep-busy wait is off unless a test turns it on
+        .env("AV_HOOK_WAIT_SECS", "0")
+        // This process may be a Grok session. Those variables would make `av hook` act as grok.
+        .env_remove("GROK_HOOK_EVENT")
+        .env_remove("GROK_SESSION_ID")
         .args(args)
         .output()
         .unwrap()
@@ -1150,6 +1155,8 @@ fn hook_post_edit_finds_the_task_from_the_edited_file() {
         .env("AV_URL", &d.url)
         .env_remove("AV_TASK")
         .env_remove("AV_AGENT")
+        .env_remove("GROK_HOOK_EVENT")
+        .env_remove("GROK_SESSION_ID")
         .args(["hook", "post-edit"])
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -1234,6 +1241,41 @@ fn install_sh_merges_both_hooks_and_is_idempotent() {
 }
 
 #[test]
+fn install_sh_sets_the_stop_hook_timeout_above_the_keep_busy_wait() {
+    if Command::new("jq").arg("--version").output().is_err() {
+        eprintln!("jq not installed; skipping");
+        return;
+    }
+    let script = repo_root().join("integrations/claude-code/install.sh");
+    let timeout_after = |wait: Option<&str>| -> (serde_json::Value, bool) {
+        let home = TempDir::new().unwrap();
+        let mut cmd = Command::new("bash");
+        cmd.arg(&script)
+            .env("HOME", home.path())
+            .env_remove("AV_HOOK_WAIT_SECS");
+        if let Some(w) = wait {
+            cmd.env("AV_HOOK_WAIT_SECS", w);
+        }
+        let o = cmd.output().unwrap();
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(home.path().join(".claude/settings.json")).unwrap_or_default(),
+        )
+        .unwrap_or_default();
+        (
+            settings["hooks"]["Stop"][0]["hooks"][0]["timeout"].clone(),
+            o.status.success(),
+        )
+    };
+    // default wait 600 s: the hook may run 660 s
+    assert_eq!(timeout_after(None), (serde_json::json!(660), true));
+    assert_eq!(timeout_after(Some("30")), (serde_json::json!(90), true));
+    assert_eq!(timeout_after(Some("0")), (serde_json::json!(60), true));
+    // not a number: refused, and nothing is written
+    let (t, ok) = timeout_after(Some("soon"));
+    assert!(!ok && t.is_null(), "{t}");
+}
+
+#[test]
 fn every_integration_script_parses() {
     for script in [
         "integrations/claude-code/install.sh",
@@ -1299,6 +1341,9 @@ fn hook_session_start_after_compaction_starts_a_new_session() {
             .current_dir(&ws)
             .env("AV_URL", &d.url)
             .env_remove("AV_SESSION")
+            .env_remove("AV_AGENT")
+            .env_remove("GROK_HOOK_EVENT")
+            .env_remove("GROK_SESSION_ID")
             .args(["hook", "session-start"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -1328,14 +1373,29 @@ fn hook_session_start_after_compaction_starts_a_new_session() {
 }
 
 fn av_stdin(d: &Daemon, cwd: &Path, args: &[&str], stdin: &str) -> Output {
+    av_stdin_env(&d.url, cwd, &[], args, stdin)
+}
+
+/// `av_stdin` with extra environment. `AV_AGENT` and Grok's hook variables are cleared first,
+/// so a value in `env` is the only way they are set. `AV_HOOK_WAIT_SECS=0` keeps a later
+/// keep-busy wait from stalling tests that do not opt in.
+fn av_stdin_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str], stdin: &str) -> Output {
     use std::io::Write as _;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
-        .current_dir(cwd)
-        .env("AV_URL", &d.url)
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
+    cmd.current_dir(cwd)
+        .env("AV_URL", url)
         .env_remove("AV_TASK")
         .env_remove("AV_SESSION")
         .env_remove("AV_AGENT")
         .env_remove("AV_TOKEN")
+        .env_remove("GROK_HOOK_EVENT")
+        .env_remove("GROK_SESSION_ID")
+        .env("AV_HOOK_WAIT_SECS", "0")
+        .env_remove("AV_HOOK_MAX_CONTINUES");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1529,6 +1589,334 @@ fn hook_stop_is_silent_outside_a_task_and_when_the_daemon_is_down() {
     assert_eq!(out(&o), "");
 }
 
+// ---- keep agents busy: the Stop hook continues when av has fitting work
+
+/// Puts one item with no tag requirements in the backlog, so any agent fits it.
+fn post_item(d: &Daemon, scratch: &Path, title: &str) {
+    ok(av(
+        d,
+        scratch,
+        &[
+            "post", "--repo", "demo", "--title", title, "--goal", "do it",
+        ],
+    ));
+}
+
+fn stop_with(d: &Daemon, ws: &Path, env: &[(&str, &str)], session: &str, active: bool) -> Output {
+    av_stdin_env(
+        &d.url,
+        ws,
+        env,
+        &["hook", "stop"],
+        &stop_input(ws, session, active),
+    )
+}
+
+#[test]
+fn hook_stop_blocks_when_work_is_queued_and_the_reason_names_it() {
+    let (d, ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "1")], "cc-1", false);
+    assert!(o.status.success(), "{}", err(&o));
+    let v: serde_json::Value = serde_json::from_str(&out(&o)).unwrap();
+    assert_eq!(v["decision"], "block", "{}", out(&o));
+    let reason = v["reason"].as_str().unwrap();
+    assert!(reason.starts_with("av: "), "{reason}");
+    assert!(reason.contains("Fix the README typos"), "{reason}");
+    assert!(
+        reason.ends_with("call start_task with no title"),
+        "{reason}"
+    );
+    // the hook only looked: the item is still queued
+    let backlog = ok(av(&d, &ws, &["backlog"]));
+    assert!(backlog.contains("Fix the README typos"), "{backlog}");
+    assert!(!backlog.contains("taken"), "{backlog}");
+}
+
+#[test]
+fn hook_stop_waits_out_an_empty_backlog_then_allows_the_stop() {
+    let (d, ws, _scratch) = started();
+    let t = std::time::Instant::now();
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "1")], "cc-1", false);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
+    assert!(
+        t.elapsed() >= std::time::Duration::from_millis(900),
+        "returned after {:?}, before the wait",
+        t.elapsed()
+    );
+    // a Stop hook that is already continuing is let go too when nothing fits
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "1")], "cc-1", true);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+}
+
+#[test]
+fn hook_stop_picks_up_work_that_arrives_during_the_wait() {
+    let (d, ws, scratch) = started();
+    let url = d.url.clone();
+    let scratch_path = scratch.path().to_path_buf();
+    let poster = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        ok(av_with(
+            &url,
+            &scratch_path,
+            &[
+                "post", "--repo", "demo", "--title", "Late job", "--goal", "g",
+            ],
+        ));
+    });
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "20")], "cc-1", false);
+    poster.join().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&out(&o)).unwrap();
+    assert_eq!(v["decision"], "block", "{}{}", out(&o), err(&o));
+    assert!(v["reason"].as_str().unwrap().contains("Late job"), "{v}");
+}
+
+#[test]
+fn hook_stop_wait_of_zero_turns_the_feature_off() {
+    let (d, ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "0")], "cc-1", false);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+}
+
+#[test]
+fn hook_stop_continues_at_most_max_continues_times_per_session() {
+    let (d, ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let env = [("AV_HOOK_WAIT_SECS", "1"), ("AV_HOOK_MAX_CONTINUES", "2")];
+    let blocked = |session: &str, active: bool| {
+        let o = stop_with(&d, &ws, &env, session, active);
+        assert!(o.status.success(), "{}", err(&o));
+        out(&o).contains("\"block\"")
+    };
+    // Claude Code sets stop_hook_active once a Stop hook has continued the session
+    assert!(blocked("cc-cap", false), "first continue");
+    assert!(blocked("cc-cap", true), "second continue, still work");
+    assert!(
+        !blocked("cc-cap", true),
+        "the cap of 2 is reached: let it stop"
+    );
+    assert!(!blocked("cc-cap", true), "and it stays reached");
+    // the count is per session
+    assert!(blocked("cc-other", false), "a new session starts at zero");
+    // the count lives in the task file, not in the environment
+    let tf = std::fs::read_to_string(ws.join(".av-task")).unwrap();
+    assert!(tf.contains("continues"), "{tf}");
+}
+
+#[test]
+fn hook_stop_with_the_daemon_down_allows_the_stop_at_once() {
+    let (_d, ws, _scratch) = started();
+    let t = std::time::Instant::now();
+    let o = av_stdin_env(
+        "http://127.0.0.1:1",
+        &ws,
+        &[("AV_HOOK_WAIT_SECS", "30")],
+        &["hook", "stop"],
+        &stop_input(&ws, "cc-1", false),
+    );
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(10),
+        "waited {:?} for a daemon that is down",
+        t.elapsed()
+    );
+}
+
+#[test]
+fn hook_stop_outside_a_task_stays_silent_even_with_work_queued() {
+    let (d, _ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let bare = TempDir::new().unwrap();
+    let o = av_stdin_env(
+        &d.url,
+        bare.path(),
+        &[("AV_HOOK_WAIT_SECS", "1")],
+        &["hook", "stop"],
+        &stop_input(bare.path(), "s", false),
+    );
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
+}
+
+#[test]
+fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
+    let (d, ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    let env = [("AV_HOOK_WAIT_SECS", "1")];
+    let first = stop_with(&d, &ws, &env, "cc-1", false);
+    let v: serde_json::Value = serde_json::from_str(&out(&first)).unwrap();
+    assert!(
+        v["reason"].as_str().unwrap().contains("no record explains"),
+        "{v}"
+    );
+    // a single block per stop: the next Stop is the one that sees the waiting work
+    let second = stop_with(&d, &ws, &env, "cc-1", true);
+    let v: serde_json::Value = serde_json::from_str(&out(&second)).unwrap();
+    assert!(
+        v["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Fix the README typos"),
+        "{v}"
+    );
+}
+
+/// The task was started as `agent`. A Stop hook that acts as someone else is fenced at the
+/// checkpoint (`claim lost` on stderr). One that acts as the owner checkpoints quietly.
+fn stop_claims(d: &Daemon, ws: &Path, env: &[(&str, &str)], args: &[&str]) -> bool {
+    let o = av_stdin_env(&d.url, ws, env, args, &stop_input(ws, "who", false));
+    assert!(o.status.success(), "{}", err(&o));
+    let stderr = err(&o);
+    assert!(
+        out(&o).is_empty() || out(&o).contains("\"block\""),
+        "unexpected stdout {}",
+        out(&o)
+    );
+    stderr.contains("claim lost")
+}
+
+#[test]
+fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise() {
+    let (d, ws, _scratch) = started();
+    // Grok sets one of these on the hook process. Neither --agent nor AV_AGENT is set.
+    assert!(
+        stop_claims(&d, &ws, &[("GROK_HOOK_EVENT", "Stop")], &["hook", "stop"]),
+        "GROK_HOOK_EVENT should act as grok, not the task owner"
+    );
+    assert!(
+        stop_claims(&d, &ws, &[("GROK_SESSION_ID", "sess")], &["hook", "stop"]),
+        "GROK_SESSION_ID alone should act as grok"
+    );
+    // Claude Code sets neither, so the hook keeps the default agent, who owns this task.
+    assert!(
+        !stop_claims(&d, &ws, &[], &["hook", "stop"]),
+        "without a Grok variable the hook is the Claude default (the task owner)"
+    );
+    // An explicit name wins over the Grok environment.
+    assert!(
+        !stop_claims(
+            &d,
+            &ws,
+            &[("AV_AGENT", "agent"), ("GROK_HOOK_EVENT", "Stop")],
+            &["hook", "stop"]
+        ),
+        "AV_AGENT wins over GROK_HOOK_EVENT"
+    );
+    assert!(
+        stop_claims(
+            &d,
+            &ws,
+            &[("GROK_SESSION_ID", "sess")],
+            &["--agent", "grok", "hook", "stop"]
+        ),
+        "--agent wins, and grok is not the task owner"
+    );
+    assert!(
+        !stop_claims(
+            &d,
+            &ws,
+            &[("GROK_HOOK_EVENT", "Stop"), ("GROK_SESSION_ID", "sess")],
+            &["--agent", "agent", "hook", "stop"]
+        ),
+        "--agent agent is the owner even when Grok's variables are set"
+    );
+}
+
+/// The name the hook sends to `next` is the one that matters: an image item fits grok and not
+/// the Claude default (`agent`, no profile). `--agent` and `AV_AGENT` still win.
+#[test]
+fn hook_stop_offers_grok_the_image_work_and_not_the_claude_default() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "grok", "--best", "image", "--cost", "2"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Draw the logo",
+            "--goal",
+            "A flat logo",
+            "--needs",
+            "image",
+            "--reserve",
+            "0",
+        ],
+    ));
+    let reason = |env: &[(&str, &str)], args: &[&str], session: &str| {
+        let o = av_stdin_env(&d.url, &ws, env, args, &stop_input(&ws, session, false));
+        assert!(o.status.success(), "{}", err(&o));
+        out(&o)
+    };
+    let grok_wait = [("AV_HOOK_WAIT_SECS", "1"), ("GROK_HOOK_EVENT", "Stop")];
+    let via_event = reason(&grok_wait, &["hook", "stop"], "logo-event");
+    assert!(
+        via_event.contains("Draw the logo") && via_event.contains("call start_task with no title"),
+        "GROK_HOOK_EVENT: {via_event}"
+    );
+    let via_session = reason(
+        &[("AV_HOOK_WAIT_SECS", "1"), ("GROK_SESSION_ID", "grok-sess")],
+        &["hook", "stop"],
+        "logo-session",
+    );
+    assert!(
+        via_session.contains("Draw the logo"),
+        "GROK_SESSION_ID: {via_session}"
+    );
+    // still only a look: the item stays queued
+    let backlog = ok(av(&d, &ws, &["backlog"]));
+    assert!(backlog.contains("Draw the logo"), "{backlog}");
+    assert!(!backlog.contains("taken"), "{backlog}");
+
+    let plain = reason(
+        &[("AV_HOOK_WAIT_SECS", "1")],
+        &["hook", "stop"],
+        "logo-default",
+    );
+    assert!(
+        !plain.contains("Draw the logo"),
+        "the Claude default has no image profile: {plain}"
+    );
+    let overridden = reason(
+        &[
+            ("AV_HOOK_WAIT_SECS", "1"),
+            ("AV_AGENT", "agent"),
+            ("GROK_HOOK_EVENT", "Stop"),
+        ],
+        &["hook", "stop"],
+        "logo-av-agent",
+    );
+    assert!(
+        !overridden.contains("Draw the logo"),
+        "AV_AGENT wins over the Grok environment: {overridden}"
+    );
+    let flagged = reason(
+        &[("AV_HOOK_WAIT_SECS", "1")],
+        &["--agent", "grok", "hook", "stop"],
+        "logo-flag",
+    );
+    assert!(
+        flagged.contains("Draw the logo"),
+        "--agent grok with no Grok variables: {flagged}"
+    );
+}
+
 /// `av` with extra environment (HOME, PATH, AV_HOME, ...) on top of `av_with`'s.
 fn av_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
@@ -1540,7 +1928,9 @@ fn av_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Output 
         .env_remove("AV_TOKEN")
         .env_remove("AV_DATABASE_URL")
         .env_remove("AV_STORE_ROOT")
-        .env_remove("AV_WS_ROOT");
+        .env_remove("AV_WS_ROOT")
+        .env_remove("GROK_HOOK_EVENT")
+        .env_remove("GROK_SESSION_ID");
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -1663,6 +2053,107 @@ fn init_wires_codex_grok_and_gemini_through_mcp() {
     );
     // naming only other agents leaves Claude Code alone
     assert!(!home.path().join(".claude").exists());
+}
+
+#[test]
+fn init_installs_grok_hooks_unless_claude_settings_already_load_them() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let log = home.path().join("claude.log");
+    // a fake `claude`, so this test does not call the real CLI
+    write_script(
+        &bin.path().join("claude"),
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> {log}\ncase \"$2\" in\n  get) [ -f {added} ] ;;\n  add) touch {added} ;;\nesac\n",
+            log = log.display(),
+            added = home.path().join("added").display()
+        ),
+    );
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("PATH", path.as_str()),
+        ("AV_HOOK_WAIT_SECS", "12"),
+    ];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "grok", "--no-claude"],
+    ));
+    assert!(out.contains("Grok Build hooks:"), "{out}");
+    let hooks_path = home.path().join(".grok/hooks/av.json");
+    let read = |path: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    };
+    let v = read(&hooks_path);
+    assert!(
+        v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("av hook session-start"),
+        "{v}"
+    );
+    let stop = &v["hooks"]["Stop"][0]["hooks"][0];
+    assert!(
+        stop["command"].as_str().unwrap().contains("av hook stop"),
+        "{stop}"
+    );
+    assert_eq!(stop["timeout"], 72, "wait 12 plus the 60s margin");
+    assert!(v["hooks"].get("PreToolUse").is_none(), "{v}");
+    assert!(v["hooks"].get("PostToolUse").is_none(), "{v}");
+    ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "grok", "--no-claude"],
+    ));
+    let again = read(&hooks_path);
+    assert_eq!(again["hooks"]["Stop"].as_array().unwrap().len(), 1);
+
+    // Claude settings already load the hook: do not write a second copy Grok would also run.
+    let home2 = TempDir::new().unwrap();
+    let settings = home2.path().join(".claude/settings.json");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    std::fs::write(
+        &settings,
+        r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"av hook stop"}]}]}}"#,
+    )
+    .unwrap();
+    let env2 = [
+        ("HOME", home2.path().to_str().unwrap()),
+        ("AV_HOOK_WAIT_SECS", "12"),
+    ];
+    let skipped = ok(av_env(
+        &d.url,
+        &d.src,
+        &env2,
+        &["init", "--name", "demo", "--for", "grok", "--no-claude"],
+    ));
+    assert!(skipped.contains("already reachable"), "{skipped}");
+    assert!(!home2.path().join(".grok/hooks/av.json").exists());
+    assert!(
+        std::fs::read_to_string(home2.path().join(".grok/config.toml"))
+            .unwrap()
+            .contains("mcp_servers")
+    );
+
+    // Installing Claude's hooks afterwards removes the grok copy.
+    let claude = ok(av_env(&d.url, &d.src, &env, &["init", "--name", "demo"]));
+    assert!(claude.contains("Claude Code hooks:"), "{claude}");
+    assert!(!hooks_path.exists(), "both files would fire the Stop hook");
+    let installed = read(&home.path().join(".claude/settings.json"));
+    assert!(
+        installed["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("av hook stop")
+    );
 }
 
 #[test]
@@ -2117,6 +2608,35 @@ fn agent_set_and_list_show_the_profiles_cheapest_first() {
     assert!(lines[0].contains("aliases muse-code,muse-cli"), "{list}");
     assert!(lines[1].starts_with("claude"), "{list}");
     assert!(lines[1].contains("best code,tests"), "{list}");
+}
+
+#[test]
+fn post_after_shows_waiting_on_in_the_backlog() {
+    let (d, scratch) = daemon_with_repo();
+    let post = |title: &str, extra: &[&str]| {
+        let mut args = vec![
+            "post", "--repo", "demo", "--title", title, "--goal", "A goal",
+        ];
+        args.extend_from_slice(extra);
+        av(&d, scratch.path(), &args)
+    };
+    ok(post("Stop hook", &[]));
+    let posted = ok(post("Keep agents busy", &["--after", "stop-hook"]));
+    assert!(posted.contains("waiting on Stop hook"), "{posted}");
+    let list = ok(av(&d, scratch.path(), &["backlog"]));
+    let line = list
+        .lines()
+        .find(|l| l.contains("Keep agents busy"))
+        .unwrap();
+    assert!(line.contains("waiting on Stop hook"), "{list}");
+    let line = list
+        .lines()
+        .find(|l| l.contains("Stop hook  ") || l.ends_with("Stop hook"))
+        .unwrap();
+    assert!(!line.contains("waiting on"), "{list}");
+    // an item that does not exist is refused
+    let refused = post("Third", &["--after", "no-such-item"]);
+    assert!(!refused.status.success(), "{}", out(&refused));
 }
 
 #[test]

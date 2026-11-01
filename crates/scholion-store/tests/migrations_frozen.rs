@@ -107,6 +107,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0025_backup_branch.sql",
         "ec974b76e8a984d6443c4d4f30362e2c409d0da2b19c05fb7e77fd4bb7e9af94",
     ),
+    (
+        "0026_backlog_after.sql",
+        "808eb6c4a393325f164e613096aa11862a708c7555b4ddeb1f3431796ca5a4f5",
+    ),
 ];
 
 #[test]

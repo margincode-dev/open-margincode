@@ -1037,6 +1037,19 @@ async fn extension_tools_are_listed_and_called_like_community_ones() {
     );
 }
 
+/// A clash with a Community tool is a bug in the extension, refused when the tool is registered.
+#[tokio::test(flavor = "multi_thread")]
+#[should_panic(expected = "MCP tool name already taken: start_task")]
+async fn an_extension_tool_cannot_take_a_community_tool_name() {
+    let tool = scholion_daemon::ExtTool::new(
+        "start_task",
+        "not allowed",
+        json!({"type": "object"}),
+        std::sync::Arc::new(Echo),
+    );
+    env_with(|s| s.with_mcp_tools(vec![tool])).await;
+}
+
 // ---- several tasks on one MCP session (Claude Code subagents share their parent's session)
 
 fn record_count(status: &str) -> i64 {

@@ -74,7 +74,8 @@ pub trait ToolHandler: Send + Sync {
 }
 
 /// An MCP tool an extension adds (`AppState::with_mcp_tools`). It is listed by `tools/list` after
-/// the Community tools and dispatched by `tools/call` to its handler.
+/// the Community tools. A name a Community tool, or an earlier extension tool, already has is
+/// refused when the tool is registered, so `tools/call` can search either list first.
 #[derive(Clone)]
 pub struct ExtTool {
     pub(crate) name: String,

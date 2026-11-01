@@ -408,6 +408,68 @@ async fn search_symbols_matches_qname_and_path_substring_case_insensitively() {
     );
 }
 
+/// A call to a name several symbols share cannot tell which one it means, so it counts for none
+/// of them; a name only one symbol defines still gets every caller.
+#[tokio::test]
+async fn in_degree_does_not_attribute_a_shared_name() {
+    let (_db, idx, _) = setup().await;
+    let mut files = vec![
+        f("a.py", "def get():\n    pass\n"),
+        f("b.py", "def get():\n    pass\n"),
+        f("c.py", "def put():\n    pass\n"),
+    ];
+    for n in 0..6 {
+        files.push(f(
+            &format!("user{n}.py"),
+            &format!("def user{n}():\n    get()\n    put()\n"),
+        ));
+    }
+    idx.index_paths("demo", "main", files).await.unwrap();
+    let a = sym(&idx, "main", "a.py", "get").await;
+    let b = sym(&idx, "main", "b.py", "get").await;
+    let put = sym(&idx, "main", "c.py", "put").await;
+    let deg = idx
+        .in_degree(&ScopeView::main("demo"), &[a, b, put])
+        .await
+        .unwrap();
+    assert_eq!(deg.get(&a).copied().unwrap_or(0), 0, "{deg:?}");
+    assert_eq!(deg.get(&b).copied().unwrap_or(0), 0, "{deg:?}");
+    assert_eq!(deg.get(&put), Some(&6), "`put` is unique: all six callers");
+}
+
+/// The dogfood case: two unrelated types both define `new` and hundreds of symbols call a `new`.
+/// Neither definition may look like a hot spot (the risk threshold is 5).
+#[tokio::test]
+async fn in_degree_is_low_for_two_unrelated_new() {
+    let (_db, idx, _) = setup().await;
+    let mut files = vec![
+        f(
+            "tool.py",
+            "class ExtTool:\n    def new(self):\n        pass\n",
+        ),
+        f(
+            "state.py",
+            "class AppState:\n    def new(self):\n        pass\n",
+        ),
+    ];
+    for n in 0..300 {
+        files.push(f(
+            &format!("user{n}.py"),
+            &format!("def user{n}():\n    new()\n"),
+        ));
+    }
+    idx.index_paths("demo", "main", files).await.unwrap();
+    let tool = sym(&idx, "main", "tool.py", "ExtTool.new").await;
+    let state = sym(&idx, "main", "state.py", "AppState.new").await;
+    let deg = idx
+        .in_degree(&ScopeView::main("demo"), &[tool, state])
+        .await
+        .unwrap();
+    for id in [tool, state] {
+        assert!(deg.get(&id).copied().unwrap_or(0) < 5, "{deg:?}");
+    }
+}
+
 #[tokio::test]
 async fn in_degree_counts_the_symbols_that_reference_each_one() {
     let (_db, idx, _) = setup().await;

@@ -89,6 +89,20 @@ impl ParsedSession {
     pub fn truncated(&self) -> bool {
         self.result.is_none()
     }
+
+    /// The session's token total: the `result` event's usage when it counted anything (or read
+    /// cache), else the sum over the messages (a killed stream has no `result`).
+    pub fn total_usage(&self) -> Usage {
+        match &self.result {
+            Some(r) if r.usage.counted() > 0 || r.usage.cache_read > 0 => r.usage,
+            _ => self.messages.iter().fold(Usage::default(), |a, m| Usage {
+                input: a.input + m.usage.input,
+                cache_creation: a.cache_creation + m.usage.cache_creation,
+                cache_read: a.cache_read + m.usage.cache_read,
+                output: a.output + m.usage.output,
+            }),
+        }
+    }
 }
 
 /// Tolerant: bad or partial lines are counted, never fatal.

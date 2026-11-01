@@ -274,6 +274,15 @@ pub trait IntentStore: Send + Sync {
         repo: Option<&str>,
         lease_secs: u64,
     ) -> Result<Vec<crate::routing::Stale>>;
+    /// Every conflicted task (of `repo`, or all): approved, but its merge conflicted, so the owner
+    /// must sync, resolve and resubmit. `since` is when its owner's lease ends (as for
+    /// `abandoned_tasks`); the owner is offered it at once, any other agent once `since` has passed.
+    /// Oldest first.
+    async fn conflicted_tasks(
+        &self,
+        repo: Option<&str>,
+        lease_secs: u64,
+    ) -> Result<Vec<crate::routing::Stale>>;
     async fn set_workspace(&self, id: TaskId, path: &Path, base: &ChangeId) -> Result<()>;
     async fn set_pack_mode(&self, id: TaskId, mode: PackMode) -> Result<()>;
     async fn set_head(&self, id: TaskId, head: &ChangeId, touched: &[String]) -> Result<()>;

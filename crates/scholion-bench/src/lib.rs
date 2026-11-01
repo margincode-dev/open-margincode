@@ -5,7 +5,6 @@
 //! context packs against baselines offline, with no agent; `mine` builds its task sets from history.
 
 pub mod calibrate;
-pub mod events;
 pub mod metrics;
 pub mod mine;
 pub mod orchestrate;
@@ -15,5 +14,9 @@ pub mod runner;
 pub mod scale;
 pub mod spec;
 pub mod stats;
+
+/// The transcript parser lives in `scholion-agentrun`, shared with the commercial runner; the
+/// old path keeps working.
+pub use scholion_agentrun::events;
 
 pub type Result<T> = std::result::Result<T, String>;

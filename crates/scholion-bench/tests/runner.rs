@@ -590,7 +590,10 @@ fn jit_hooks_add_pre_read_and_stop_to_the_av_arms() {
     let stop = v["hooks"]["Stop"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap();
-    assert!(stop.contains("hook stop"), "{s}");
+    assert!(
+        stop.contains("AV_HOOK_WAIT_SECS=0") && stop.contains("hook stop"),
+        "{s}"
+    );
     f.cfg.jit_hooks = false;
     let o = run_session(&f.spec, Arm::Av, 2, "r4", &f.cfg).unwrap();
     let s = std::fs::read_to_string(o.run_dir.join("settings.json")).unwrap();
@@ -618,6 +621,31 @@ fn priced_runs_do_not_pass_claudes_own_budget_cap() {
     run_session(&f.spec, Arm::Baseline, 1, "r5", &f.cfg).unwrap();
     let a = std::fs::read_to_string(&args).unwrap();
     assert!(!a.contains("--max-budget-usd"), "{a}");
+}
+
+#[test]
+fn claude_runs_with_the_stop_hook_wait_off() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    let seen = f.marker.with_extension("wait");
+    let claude = script(
+        f._tools.path(),
+        "claude-env",
+        &FAKE_CLAUDE.replace(
+            "echo \"$PWD\" >> \"$FAKE_MARKER\"\n",
+            &format!(
+                "echo \"$PWD\" >> \"$FAKE_MARKER\"\necho \"wait=$AV_HOOK_WAIT_SECS\" > {}\n",
+                seen.display()
+            ),
+        ),
+    );
+    f.cfg.claude_bin = claude.to_string_lossy().into();
+    // SAFETY: the runner tests hold SERIAL; the runner must set the value itself, not inherit it.
+    unsafe { std::env::set_var("AV_HOOK_WAIT_SECS", "600") };
+    let r = run_session(&f.spec, Arm::Baseline, 1, "r6", &f.cfg);
+    unsafe { std::env::remove_var("AV_HOOK_WAIT_SECS") };
+    r.unwrap();
+    assert_eq!(std::fs::read_to_string(&seen).unwrap().trim(), "wait=0");
 }
 
 /// `f` with its spec reloaded so it prepends `dirs` to the agent's PATH.

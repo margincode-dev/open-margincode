@@ -331,6 +331,10 @@ enum Cmd {
         /// Seconds only the best-fitting agent may take it (default 600); then any agent that can.
         #[arg(long)]
         reserve: Option<i64>,
+        /// Start only after these backlog items have merged (comma separated; an item id or the
+        /// slug of its title). `av next` does not offer the item before.
+        #[arg(long, value_delimiter = ',')]
+        after: Vec<String>,
     },
     /// List the backlog, or drop an item.
     #[command(args_conflicts_with_subcommands = true)]
@@ -430,7 +434,9 @@ enum HookCmd {
     /// Print what other tasks recorded about the file being opened (Claude Code `PreToolUse` on
     /// reads and edits), each record once per session.
     PreRead,
-    /// Ask once per agent session to record the changes no record explains (Claude Code `Stop`).
+    /// Claude Code `Stop`: ask once per agent session to record the changes no record explains;
+    /// then, if av has work that fits this agent, keep it going (waits up to AV_HOOK_WAIT_SECS,
+    /// default 600, 0 = off; at most AV_HOOK_MAX_CONTINUES, default 20, continues per session).
     Stop,
 }
 
@@ -838,6 +844,19 @@ fn tags_suffix(needs: &Value) -> String {
     }
 }
 
+/// ` · waiting on A, B` for the unmerged items a backlog item starts after; nothing when none.
+fn waiting_suffix(waiting_on: &Value) -> String {
+    let titles: Vec<&str> = waiting_on
+        .as_array()
+        .map(|v| v.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if titles.is_empty() {
+        String::new()
+    } else {
+        format!(" · waiting on {}", titles.join(", "))
+    }
+}
+
 fn s(v: &Value) -> &str {
     v.as_str().unwrap_or_default()
 }
@@ -1015,6 +1034,8 @@ fn run(cli: Cli) -> Result<()> {
                 agent: Some(cli.agent.clone()),
                 last_checkpoint_ms: None,
                 nudged_session: None,
+                continue_session: None,
+                continues: 0,
             };
             write_taskfile(&workspace, &tf);
             println!("workspace: {}", workspace.display());
@@ -1532,9 +1553,9 @@ fn run(cli: Cli) -> Result<()> {
                 no_map,
                 max_code,
             } => hook::session_start(&client, *budget, code, !*no_map, *max_code),
-            HookCmd::PostEdit => hook::post_edit(&client, &cli.agent),
+            HookCmd::PostEdit => hook::post_edit(&client, &hook::hook_agent(&cli.agent)),
             HookCmd::PreRead => hook::pre_read(&client),
-            HookCmd::Stop => hook::stop(&client, &cli.agent),
+            HookCmd::Stop => hook::stop(&client, &hook::hook_agent(&cli.agent)),
         },
         Cmd::Search { query, repo, limit } => {
             let repo = repo_for(&cli, &client, repo)?;
@@ -1709,6 +1730,8 @@ fn run(cli: Cli) -> Result<()> {
                     agent: Some(cli.agent.clone()),
                     last_checkpoint_ms: None,
                     nudged_session: None,
+                    continue_session: None,
+                    continues: 0,
                 },
             );
             println!("workspace: {}", workspace.display());
@@ -1770,18 +1793,20 @@ fn run(cli: Cli) -> Result<()> {
             prefer,
             priority,
             reserve,
+            after,
         } => {
             let r = client.post(
                 "/v1/backlog",
                 &json!({"repo": repo, "title": title, "goal": goal, "needs": needs,
                         "prefer": prefer, "priority": priority, "reserve_secs": reserve,
-                        "posted_by": cli.agent}),
+                        "posted_by": cli.agent, "after": after}),
             )?;
             println!(
-                "posted {} · {}{}",
+                "posted {} · {}{}{}",
                 s(&r["id"]),
                 s(&r["title"]),
-                tags_suffix(&r["needs"])
+                tags_suffix(&r["needs"]),
+                waiting_suffix(&r["waiting_on"])
             );
         }
         Cmd::Backlog {
@@ -1813,14 +1838,21 @@ fn run(cli: Cli) -> Result<()> {
                     .as_str()
                     .map(|a| format!(" · taken by {a}"))
                     .unwrap_or_default();
+                // only a queued item waits: a taken one has started, a dropped one never will
+                let waiting = if i["state"] == "queued" {
+                    waiting_suffix(&i["waiting_on"])
+                } else {
+                    String::new()
+                };
                 println!(
-                    "{}  {}  {}  p{}  {}{}{}",
+                    "{}  {}  {}  p{}  {}{}{}{}",
                     s(&i["id"]),
                     s(&i["state"]),
                     s(&i["repo"]),
                     i["priority"],
                     s(&i["title"]),
                     tags_suffix(&i["needs"]),
+                    waiting,
                     taken
                 );
             }
@@ -1884,7 +1916,9 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             // a claimed or resumed task comes with its handoff bundle
-            let handoff = r["from"] == "handoff" || r["from"] == "abandoned";
+            let handoff = ["handoff", "abandoned", "conflicted"]
+                .iter()
+                .any(|from| r["from"] == *from);
             let workspace = PathBuf::from(s(&task["workspace_path"]));
             // a claim starts a fresh session; the owner name is the profile's, not an alias
             let session = if handoff {
@@ -1906,6 +1940,8 @@ fn run(cli: Cli) -> Result<()> {
                     agent: Some(s(&task["owner_agent"]).to_owned()),
                     last_checkpoint_ms: None,
                     nudged_session: None,
+                    continue_session: None,
+                    continues: 0,
                 },
             );
             println!("workspace: {}", workspace.display());
@@ -1913,6 +1949,10 @@ fn run(cli: Cli) -> Result<()> {
             println!("session: {session}");
             if handoff {
                 println!("generation: {}\n", r["generation"]);
+                // a conflicted task says what to do first
+                if r["from"] == "conflicted" {
+                    println!("{}\n", s(&r["next"]));
+                }
                 println!("{}", s(&r["bundle"]["markdown"]));
             } else {
                 println!();

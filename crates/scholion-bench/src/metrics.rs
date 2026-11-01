@@ -24,15 +24,7 @@ pub struct SessionMetrics {
 
 /// The `result` event's usage, or the sum over messages when there is none.
 fn session_usage(s: &ParsedSession) -> Usage {
-    match &s.result {
-        Some(r) if r.usage.counted() > 0 || r.usage.cache_read > 0 => r.usage,
-        _ => s.messages.iter().fold(Usage::default(), |a, m| Usage {
-            input: a.input + m.usage.input,
-            cache_creation: a.cache_creation + m.usage.cache_creation,
-            cache_read: a.cache_read + m.usage.cache_read,
-            output: a.output + m.usage.output,
-        }),
-    }
+    s.total_usage()
 }
 
 /// Tools that write files, and the input key that names the file.

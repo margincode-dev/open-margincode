@@ -562,6 +562,7 @@ h1 .why { position: relative; display: inline-block; }
       <a href="#how">How it works</a>
       <a href="#pack">Context packs</a>
       <a href="#evidence">Evidence</a>
+      <a href="#editions">Editions</a>
       <a href="/demo">Demo</a>
       <a href="#contribute">Contribute</a>
     </div>
@@ -905,6 +906,30 @@ av post --repo api --title "Add retry" --goal "…" --needs code
         <div class="tools" aria-label="Some of the MCP tools">
           <code>start_task</code><code>record</code><code>get_context</code><code>expand</code><code>read_symbol</code><code>search_history</code><code>handoff</code><code>claim_task</code><code>submit</code><code>review_task</code><code>merge</code><code>undo</code><code>validate</code><code>why</code><code>read_file</code><code>diff</code><code>log</code><code>…</code>
         </div>
+      </div>
+    </div>
+  </div>
+</section>
+<hr class="divider">
+
+<!-- ================= EDITIONS ================= -->
+<section id="editions">
+  <div class="wrap">
+    <div class="sec-label">Two editions</div>
+    <h2>Community is what you can run. <em>Commercial is not here yet.</em></h2>
+    <p class="sec-intro">Scholion today is the Community edition: free and MIT. agentvcs, the hosted Commercial edition, is not available. Commercial has no price, because there is nothing to buy.</p>
+    <div class="agents" style="margin-top:48px">
+      <div class="int reveal">
+        <span class="pill">Community · free · MIT</span>
+        <h3>Your agents, one shared memory</h3>
+        <p>Connect as many as you run: Claude Code, Codex, Grok, Gemini, Cursor, or any MCP client. They share records and context packs, review each other's work, and take the next job by strength (<code>--best</code>, then cost). There is no seat cap. A profile's <code>--max-open</code> is a limit you set. The daemon does not start agents and holds no keys for the agents' own models. Its own settings can include an optional embedding API key and, when auth is on, <code>AV_TOKEN</code>.</p>
+        <div class="copy-block"><pre><code>av --agent muse init --for mcp-json \
+  --path PATH/TO/settings.json</code></pre><button class="copy" aria-label="Copy command"></button></div>
+      </div>
+      <div class="int reveal">
+        <span class="pill">Commercial · agentvcs · not available</span>
+        <h3>Hosted, when it exists</h3>
+        <p>Not available yet. The plan is a hosted service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. None of that is in this repository.</p>
       </div>
     </div>
   </div>

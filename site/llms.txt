@@ -69,6 +69,11 @@ av submit --record "decision: honour Retry-After @ shared/text.py:embed"   # rec
 - Knowledge relay E4, Claude Code + DeepSeek Flash, 10 tasks x 3 runs per arm: with an earlier agent's lessons, cost per solved task falls ~42% (from the lessons, not from av: notes get the same) and acceptance rises from 18/30 (cold) to 30/30. With 10 notes a plain NOTES.md delivers them as well as av (av -1.8%). `bench/results/2026-10-29-relay-lean/`
 - Not yet shown: the productivity gain on large codebases. The 20k-line Rust task set is unmeasured.
 
+## Editions
+
+- Community (this repository): free, MIT. Connect any number of agents — Claude Code, Codex, Grok, Gemini, Cursor, or any MCP client with `av --agent NAME init --for mcp-json --path FILE`. They share records and context packs, a review loop (another agent reviews, and the reviewer merges), and routing by strength (`av agent set NAME --best …`, then cost). No seat cap. `--max-open` is an optional limit on one profile, not a license. The daemon does not launch agents and holds no keys for the agents' own models. Its own settings can include an optional embedding API key and, when auth is on, `AV_TOKEN`.
+- Commercial (agentvcs, hosted): not available. The plan is a service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. No prices, because there is nothing to buy.
+
 ## Contribute
 
 Rust 2024, Cargo workspace. TDD: failing test first, then `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`. See CONTRIBUTING.md and CLAUDE.md in the repo.

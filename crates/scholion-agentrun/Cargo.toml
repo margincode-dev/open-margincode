@@ -1,0 +1,13 @@
+[package]
+name = "scholion-agentrun"
+version = "0.0.2"
+description = "Run an agent CLI as a child process and read its event stream: the shared core of the benchmark harness and the commercial runner."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

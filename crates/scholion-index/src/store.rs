@@ -596,6 +596,25 @@ fn kind_from_str(s: &str) -> Result<SymbolKind> {
     }
 }
 
+/// A name defined by more than this many symbols is too common to say which definition a call
+/// means (`new`, `call`, `check`): its callers are not counted for any of them in `in_degree`.
+/// A bare-name ref cannot tell `Foo::new` from `Bar::new`, and splitting the callers 1/k is not
+/// enough: 600 callers over 2 definitions is still 300 each, over 17 it is 35. So only a name
+/// with exactly one definition, where the call is unambiguous, yields a count.
+const MAX_SHARED_NAME: u32 = 1;
+
+/// SQL for the in-degree of a group of edges: the callers a symbol has that name it
+/// unambiguously. An edge whose weight (1/k when k symbols share the called name) says more than
+/// `MAX_SHARED_NAME` symbols share the name counts for nothing (the weight is exact in float4 and
+/// float8 alike, so the cut falls between 1/MAX and 1/(MAX+1)). The sum is rounded to the nearest
+/// whole caller; the small excess keeps a sum that lands on .5 from rounding down.
+fn degree_of_weights() -> String {
+    format!(
+        "floor(sum(CASE WHEN weight::float8 > 1.0 / ({MAX_SHARED_NAME} + 0.5) \
+         THEN weight::float8 ELSE 0 END) + 0.5001)::bigint"
+    )
+}
+
 /// Recomputes outgoing edges of `ids`. An identifier in `refs` links to every other symbol in the
 /// same scope whose last qname segment equals it; k candidates each get weight 1/k.
 async fn rebuild_edges(conn: &mut PgConnection, ids: &[i64]) -> Result<()> {
@@ -1509,14 +1528,17 @@ impl CodeIndex for PgIndex {
             Some(m) => m.is_empty(),
         };
         let rows: Vec<(i64, i64)> = if plain {
-            sqlx::query_as("SELECT dst, count(*) FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst")
-                .bind(&ids)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(ierr)?
+            sqlx::query_as(&format!(
+                "SELECT dst, {} FROM symbol_refs WHERE dst = ANY($1) GROUP BY dst",
+                degree_of_weights()
+            ))
+            .bind(&ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ierr)?
         } else {
             let masked = mask.as_ref().expect("non-plain has a mask");
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 "WITH
                  view_syms AS (
                      SELECT id, name, refs, path, scope FROM symbols
@@ -1527,7 +1549,7 @@ impl CodeIndex for PgIndex {
                  overlay_syms AS (
                      SELECT id, name, refs FROM view_syms WHERE scope = $2
                  ),
-                 edges AS (
+                 pairs AS (
                      SELECT e.src, e.dst
                      FROM symbol_refs e
                      JOIN symbols s ON s.id = e.src
@@ -1544,9 +1566,18 @@ impl CodeIndex for PgIndex {
                      SELECT v.id, o.id
                      FROM overlay_syms o
                      JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id
+                 ),
+                 -- a name several symbols share weighs 1/k per edge, as the stored edges do, so
+                 -- a rebuilt scope and an overlay view count alike
+                 edges AS (
+                     SELECT p.src, p.dst,
+                            1.0::float8 / (SELECT count(*) FROM view_syms v2
+                                           WHERE v2.name = d.name AND v2.id <> p.src) AS weight
+                     FROM pairs p JOIN view_syms d ON d.id = p.dst
                  )
-                 SELECT dst, count(*) FROM edges WHERE dst = ANY($4) GROUP BY dst",
-            )
+                 SELECT dst, {} FROM edges WHERE dst = ANY($4) GROUP BY dst",
+                degree_of_weights()
+            ))
             .bind(repo)
             .bind(scope)
             .bind(masked)

@@ -22,6 +22,16 @@ pub struct TaskFile {
     /// The agent session `av hook stop` last asked to record its changes; it asks once per session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nudged_session: Option<String>,
+    /// The agent session whose Stop hooks `av hook stop` has continued because av had work for
+    /// it, and how many times (`AV_HOOK_MAX_CONTINUES` caps it). A new session starts at zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continue_session: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub continues: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Nearest `.av-task` in `start` or any ancestor, with the directory that holds it.

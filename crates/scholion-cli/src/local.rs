@@ -307,7 +307,9 @@ pub fn init(
             Agent::McpJson => mcp_json
                 .ok_or_else(|| local("--for mcp-json needs --path FILE"))?
                 .to_path_buf(),
-            other => other.config_path(&home(), codex_home.clone()),
+            other => other
+                .config_path(&home(), codex_home.clone())
+                .expect("every agent but mcp-json has a home config"),
         };
         match agent {
             Agent::Claude => {
@@ -316,7 +318,19 @@ pub fn init(
                 claude_mcp(&mcp_url, token);
             }
             Agent::Codex => agents::install_codex(&path, &mcp_url, token.is_some())?,
-            Agent::Grok => agents::install_grok(&path, &mcp_url, token.is_some())?,
+            Agent::Grok => {
+                agents::install_grok(&path, &mcp_url, token.is_some())?;
+                let home_dir = home();
+                let hooks_path = home_dir.join(".grok/hooks/av.json");
+                if install_grok_hooks(&home_dir, agents.contains(&Agent::Claude))? {
+                    println!("Grok Build hooks: {}", hooks_path.display());
+                } else {
+                    println!(
+                        "Grok Build hooks: skipped, already reachable from {}",
+                        home_dir.join(".claude/settings.json").display()
+                    );
+                }
+            }
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
             Agent::McpJson => {
@@ -379,6 +393,14 @@ fn hook(sub: &str) -> Value {
     json!({ "type": "command", "command": format!("command -v av >/dev/null 2>&1 && av hook {sub}; exit 0") })
 }
 
+/// The Stop hook waits for work (`AV_HOOK_WAIT_SECS`), so its timeout must exceed the wait: Claude
+/// Code discards the output of a hook it cancels, and its default timeout is 600 s.
+fn stop_hook() -> Value {
+    let mut h = hook("stop");
+    h["timeout"] = json!(crate::hook::stop_timeout_secs());
+    h
+}
+
 /// Merges the `SessionStart`, `PreToolUse`, `PostToolUse` and `Stop` hooks into Claude Code's settings,
 /// replacing earlier Scholion hooks; the previous file is kept as `settings.json.bak`.
 pub fn install_claude_hooks(path: &Path) -> Result<()> {
@@ -407,7 +429,7 @@ pub fn install_claude_hooks(path: &Path) -> Result<()> {
             "PreToolUse",
             json!({ "matcher": "Read|Edit|MultiEdit", "hooks": [hook("pre-read")] }),
         ),
-        ("Stop", json!({ "hooks": [hook("stop")] })),
+        ("Stop", json!({ "hooks": [stop_hook()] })),
     ];
     let hooks = settings
         .as_object_mut()
@@ -437,6 +459,147 @@ pub fn install_claude_hooks(path: &Path) -> Result<()> {
     if path.exists() {
         std::fs::copy(path, path.with_extension("json.bak"))
             .map_err(|e| local(format!("cannot back up {}: {e}", path.display())))?;
+    }
+    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
+    std::fs::write(path, text)
+        .map_err(|e| local(format!("cannot write {}: {e}", path.display())))?;
+    // Grok reads this file and ~/.grok/hooks/*.json. Drop the copy `av init --for grok` wrote
+    // so the same hook does not fire twice.
+    if let Some(home_dir) = claude_config_home(path) {
+        strip_our_hooks_file(&home_dir.join(".grok/hooks/av.json"))?;
+    }
+    Ok(())
+}
+
+/// `path` is `~/.claude/settings.json`: the home directory, when the parent is `.claude`.
+fn claude_config_home(path: &Path) -> Option<PathBuf> {
+    let dir = path.parent()?;
+    if dir.file_name().and_then(|s| s.to_str()) != Some(".claude") {
+        return None;
+    }
+    dir.parent().map(PathBuf::from)
+}
+
+/// Whether `~/.claude/settings.json` already loads an av hook. Grok reads that file, so a second
+/// copy in `~/.grok/hooks` would fire twice.
+fn claude_settings_have_ours(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(settings) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    settings
+        .get("hooks")
+        .and_then(Value::as_object)
+        .is_some_and(|events| {
+            events.values().any(|list| {
+                list.as_array()
+                    .is_some_and(|entries| entries.iter().any(ours))
+            })
+        })
+}
+
+/// Writes SessionStart (the pack) and Stop into `~/.grok/hooks/av.json`. Returns false, and
+/// removes a previous copy of that file, when Claude's settings already load the av hooks or
+/// this `av init` is about to install them (`claude_in_this_run`).
+pub fn install_grok_hooks(home_dir: &Path, claude_in_this_run: bool) -> Result<bool> {
+    let path = home_dir.join(".grok/hooks/av.json");
+    let settings = home_dir.join(".claude/settings.json");
+    if claude_in_this_run || claude_settings_have_ours(&settings) {
+        strip_our_hooks_file(&path)?;
+        return Ok(false);
+    }
+    let add = [
+        ("SessionStart", json!({ "hooks": [hook("session-start")] })),
+        ("Stop", json!({ "hooks": [stop_hook()] })),
+    ];
+    merge_hook_entries(&path, &add)?;
+    Ok(true)
+}
+
+/// Merges `add` into a hooks JSON file, replacing earlier Scholion entries for those events.
+fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
+    let mut settings: Value = match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            local(format!(
+                "{} is not valid JSON ({e}); nothing changed",
+                path.display()
+            ))
+        })?,
+        Err(_) => json!({}),
+    };
+    if !settings.is_object() {
+        return Err(local(format!(
+            "{} is not a JSON object; nothing changed",
+            path.display()
+        )));
+    }
+    let hooks = settings
+        .as_object_mut()
+        .expect("checked above")
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    if !hooks.is_object() {
+        *hooks = json!({});
+    }
+    for (event, entry) in add {
+        let list = hooks
+            .as_object_mut()
+            .expect("an object")
+            .entry(*event)
+            .or_insert_with(|| json!([]));
+        let mut kept: Vec<Value> = list
+            .as_array()
+            .map(|a| a.iter().filter(|e| !ours(e)).cloned().collect())
+            .unwrap_or_default();
+        kept.push(entry.clone());
+        *list = Value::Array(kept);
+    }
+    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
+    agents::write_with_backup(path, &text)
+}
+
+/// Removes our hook entries from `path`. Deletes the file when that leaves nothing else.
+/// A missing file is fine. A file that is not JSON is left as it is.
+fn strip_our_hooks_file(path: &Path) -> Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(local(format!("cannot read {}: {e}", path.display()))),
+    };
+    let mut settings: Value = match serde_json::from_str::<Value>(&text) {
+        Ok(v) if v.is_object() => v,
+        _ => return Ok(()),
+    };
+    let empty = {
+        let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
+            return Ok(());
+        };
+        let mut changed = false;
+        for list in hooks.values_mut() {
+            let Some(entries) = list.as_array_mut() else {
+                continue;
+            };
+            let before = entries.len();
+            entries.retain(|e| !ours(e));
+            changed |= entries.len() != before;
+        }
+        if !changed {
+            return Ok(());
+        }
+        hooks.retain(|_, list| list.as_array().is_none_or(|entries| !entries.is_empty()));
+        hooks.is_empty()
+    };
+    let only_hooks = settings
+        .as_object()
+        .is_some_and(|obj| obj.len() == 1 && obj.contains_key("hooks"));
+    if empty && only_hooks {
+        return std::fs::remove_file(path)
+            .map_err(|e| local(format!("cannot remove {}: {e}", path.display())));
+    }
+    if empty {
+        settings.as_object_mut().expect("object").remove("hooks");
     }
     let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
     std::fs::write(path, text).map_err(|e| local(format!("cannot write {}: {e}", path.display())))
@@ -544,6 +707,12 @@ mod tests {
                 .unwrap()
                 .contains("av hook stop")
         );
+        // The Stop hook waits up to AV_HOOK_WAIT_SECS; its timeout must be above that, and av init
+        // must not drop the one install.sh set.
+        let timeout = stop[1]["hooks"][0]["timeout"].as_u64().unwrap();
+        assert_eq!(timeout, crate::hook::stop_timeout_secs());
+        assert_eq!(crate::hook::stop_timeout_for(600), 660);
+        assert!(timeout > 60);
         let pre = &v["hooks"]["PreToolUse"][0];
         assert_eq!(pre["matcher"], "Read|Edit|MultiEdit");
         assert_eq!(v["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
@@ -561,5 +730,93 @@ mod tests {
         std::fs::write(&path, "{ not json").unwrap();
         assert!(install_claude_hooks(&path).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    fn grok_hooks(home: &Path) -> Value {
+        let path = home.join(".grok/hooks/av.json");
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn grok_hooks_file_is_session_start_and_stop_and_a_second_write_does_not_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let v = grok_hooks(dir.path());
+        let start = v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(start.contains("av hook session-start"), "{start}");
+        let stop = &v["hooks"]["Stop"][0]["hooks"][0];
+        assert!(
+            stop["command"].as_str().unwrap().contains("av hook stop"),
+            "{stop}"
+        );
+        assert_eq!(stop["timeout"], json!(crate::hook::stop_timeout_secs()));
+        assert_eq!(crate::hook::stop_timeout_for(600), 660);
+        assert!(v["hooks"].get("PreToolUse").is_none(), "{v}");
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
+        // a hook the user added in the same file stays
+        let path = dir.path().join(".grok/hooks/av.json");
+        let mut edited = v.clone();
+        edited["hooks"]["Notification"] =
+            json!([{ "hooks": [{ "type": "command", "command": "say hi" }] }]);
+        std::fs::write(&path, serde_json::to_string(&edited).unwrap()).unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let v = grok_hooks(dir.path());
+        assert_eq!(
+            v["hooks"]["Notification"][0]["hooks"][0]["command"],
+            "say hi"
+        );
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn grok_hooks_are_left_out_when_claude_settings_already_load_them() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let settings = dir.path().join(".claude/settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(
+            &settings,
+            r#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"av hook stop"}]}]}}"#,
+        )
+        .unwrap();
+        assert!(!install_grok_hooks(dir.path(), false).unwrap());
+        assert!(
+            !dir.path().join(".grok/hooks/av.json").exists(),
+            "a second copy would fire twice"
+        );
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("\"model\"")
+        );
+        // this init is about to install Claude's hooks, so it does not write the grok file
+        let bare = tempfile::tempdir().unwrap();
+        assert!(!install_grok_hooks(bare.path(), true).unwrap());
+        assert!(!bare.path().join(".grok/hooks/av.json").exists());
+    }
+
+    #[test]
+    fn installing_claude_hooks_removes_the_grok_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let settings = dir.path().join(".claude/settings.json");
+        install_claude_hooks(&settings).unwrap();
+        assert!(!dir.path().join(".grok/hooks/av.json").exists());
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert!(
+            v["hooks"]["Stop"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("av hook stop")
+        );
+        assert!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("av hook session-start")
+        );
     }
 }

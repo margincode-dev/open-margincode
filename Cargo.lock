@@ -3780,6 +3780,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "scholion-agentrun"
+version = "0.0.2"
+dependencies = [
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "scholion-bench"
 version = "0.0.2"
 dependencies = [
@@ -3787,6 +3795,7 @@ dependencies = [
  "clap",
  "globset",
  "regex",
+ "scholion-agentrun",
  "scholion-daemon",
  "scholion-index",
  "scholion-store",

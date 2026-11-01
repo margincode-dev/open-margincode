@@ -76,7 +76,8 @@ pub struct AppState {
     pub(crate) reviews: routing_api::Reviews,
     /// The longest `next` holds a call open waiting for work (`wait_secs` is clamped to it).
     pub(crate) max_wait: std::time::Duration,
-    /// Tools an extension adds to `/mcp`; the Community tools win a name clash (see `with_mcp_tools`).
+    /// Tools an extension adds to `/mcp`. `with_mcp_tools` refuses a name a Community tool or an
+    /// earlier extension tool already has, so a clash never reaches dispatch.
     pub(crate) mcp_tools: Arc<Vec<ext::ExtTool>>,
     /// Told about `POST /v1/agents/{name}/usage`; `NoUsage` unless an extension sets one.
     pub(crate) usage: Arc<dyn ext::UsageSink>,
@@ -144,7 +145,8 @@ impl AppState {
 
     /// Adds `tools` to `/mcp`: listed after the Community tools, and called with the same
     /// argument checks. Panics on a name a Community tool or an earlier extension tool already
-    /// has: that is a bug in the extension, found at start-up.
+    /// has: that is a bug in the extension, found at start-up. Because registration refuses the
+    /// clash, `tools/call` can search either list first.
     pub fn with_mcp_tools(mut self, tools: Vec<ext::ExtTool>) -> Self {
         let mut all = self.mcp_tools.as_ref().clone();
         for t in tools {

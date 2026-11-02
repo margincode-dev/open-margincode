@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the Docker stack: import a repo, start a task, edit, checkpoint, record a
 # dead end, and check the context pack and file ownership.
-#   scripts/smoke.sh          run the test (SMOKE_REPO=<dir name under $AV_IMPORT_ROOT>, default bench-repo)
+#   scripts/smoke.sh          run the test (SMOKE_REPO=<dir name under $AV_IMPORT_ROOT>, default pantry:
+#                             a git repo of examples/routing-smoke/pantry/ under $AV_IMPORT_ROOT)
 #   scripts/smoke.sh --down   stop the stack and delete its volumes
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -38,7 +39,7 @@ for _ in $(seq 1 90); do
 done
 curl -sf "$AV_URL/healthz" >/dev/null || fail "daemon did not become healthy at $AV_URL"
 
-REPO="${SMOKE_REPO:-bench-repo}"
+REPO="${SMOKE_REPO:-pantry}"
 "$AV" repo add "$REPO" "/import/$REPO"
 
 out="$("$AV" task start --repo "$REPO" --title "smoke test" --goal "append a function")"

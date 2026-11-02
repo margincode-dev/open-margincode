@@ -22,7 +22,7 @@
 > and `bench/tasks-scholion` (this repository with injected bugs).
 
 Plan 4 (`docs/superpowers/plans/2026-10-18-agentvcs-plan-4-benchmark.md`). Ten real tasks from
-`bench-repo` run with headless Claude Code in three arms that start from the same scrubbed
+a private Python repository (below, "the bench repo") run with headless Claude Code in three arms that start from the same scrubbed
 single-commit tree:
 
 | arm | what the agent gets |
@@ -50,23 +50,19 @@ cargo build --release -p scholion-bench -p scholion-cli
 export PATH=$PWD/target/release:$PATH        # scholion-bench and av (the hooks run `av`)
 ```
 
-### 1. A Python env for the bench-repo tests
+### 1. A Python env for the bench repo's tests
 
 `setup_cmd` and `verify_cmd` run with the PATH you start `scholion-bench` with. The agent (`claude`)
 gets the same PATH plus any directories a task lists in `path_prepend` (put first, `~/` expanded;
 `check` warns about one that is missing); `path_prepend` does not apply to `setup_cmd` or
 `verify_cmd`. The tallyho and relay tasks use `~/bench-work/venv/bin` there so the agent can run
-pytest. Either put a venv on the PATH yourself or activate one that can run bench-repo's unit tests
-at every task's base commit (both the Chroma era and the Qdrant era), because `verify_cmd` needs it
-too:
+pytest. Either put a venv on the PATH yourself or activate one that can run the bench repo's unit tests
+at every task's base commit, because `verify_cmd` needs it too:
 
 ```bash
 python3 -m venv ~/bench-work/venv && . ~/bench-work/venv/bin/activate
-pip install -r requirements.txt pytest
+pip install -r <bench repo>/requirements.txt pytest   # whatever its tests need at every base commit
 ```
-
-`sentence-transformers` is in the requirements but the tests fake it, so leaving it out (and
-torch with it) is fine.
 
 ### 2. The bench stack (never your real one)
 
@@ -102,16 +98,16 @@ If the stack has `AV_TOKEN` set, export the same `AV_TOKEN` for scholion-bench.
 scholion-bench check bench/tasks                  # every task: ok
 ```
 
-Task files point at `~/projects/bench-repo`; `--repos DIR` (or `AV_BENCH_REPOS`) uses `DIR/bench-repo`
-instead.
+Each task file's `repo_path` names the bench repo's checkout; `--repos DIR` (or `AV_BENCH_REPOS`)
+replaces its parent, so a spec with `repo_path = "~/projects/<name>"` uses `DIR/<name>` instead.
 
 ### 4. Pilot (6 sessions, about $5 at most)
 
 ```bash
 COMMON="--av-url http://127.0.0.1:7430 --session-cap-usd 2 $BENCH"
-scholion-bench run bench/tasks --only request-top-k,chunk-overlap-guard --reps 1 \
+scholion-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
   --budget-usd 5 --out bench/results/pilot $COMMON              # prints the plan, spends nothing
-scholion-bench run bench/tasks --only request-top-k,chunk-overlap-guard --reps 1 \
+scholion-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
   --budget-usd 5 --out bench/results/pilot $COMMON --confirm
 ```
 
@@ -177,41 +173,27 @@ Bash is allowed, so agents can run tests; it runs inside the throwaway copies un
 
 ## The ten tasks
 
-All from `bench-repo` (`~/projects/bench-repo`). Each verify command was confirmed to **fail at
-`base_rev` and pass at `fix_rev`** (2026-10-22, Python 3.13, a fresh clone per check), and a
-rehearsal with an oracle `claude` that applies the real fix accepted all 30 sessions (10 tasks ×
-3 arms) through the real daemon and hooks.
-
-| task | base → fix | hidden tests | at base | at fix | dead end |
-|---|---|---|---|---|---|
-| no-results-disclosure | `0eb9117^` → `0eb9117` | the commit's `test_agent_runtime.py` | exit 1 | exit 0 | yes |
-| tax-source-links | `983083a^` → `983083a` | the commit's `test_openai_compat.py` | exit 1 | exit 0 | |
-| warmup-reranker | `bec1f1e^` → `bec1f1e` | the commit's `test_main_api.py` | exit 1 | exit 0 | |
-| chunk-overlap-guard | `bac3390^` → `bac3390` | written: 8 tests | 5 fail | 8 pass | |
-| request-top-k | `d41137a^` → `d41137a` | written: 2 tests | 2 fail | 2 pass | |
-| paginated-collection-scan | `1816d7d^` → `1816d7d` | written: 4 tests | 4 fail | 4 pass | |
-| summary-context-overflow | `cf460a4^` → `cf460a4` | written: 4 tests (fake vLLM) | 3 fail | 4 pass | yes (history) |
-| retrieve-overrides | `18ce9a2^` → `18ce9a2` | written: 3 tests | 2 fail | 3 pass | |
-| per-pdf-progress | `ff3a2b6^` → `ff3a2b6` | written: 3 tests | 1 fail | 3 pass | |
-| adaptive-top-k | `f8e4ddc^` → `0a05a74` | the repo's own tests for the feature, minus one on a private helper | 5 fail, 1 error | 6 pass | |
+All from the bench repo, which is private, so the task files are not included. Each verify
+command was confirmed to **fail at `base_rev` and pass at `fix_rev`** (2026-10-22, Python 3.13, a
+fresh clone per check), and a rehearsal with an oracle `claude` that applies the real fix accepted
+all 30 sessions (10 tasks × 3 arms) through the real daemon and hooks.
 
 Notes on the choices:
 
-- **Hidden tests decide acceptance.** Six of the real fixes had no test, so the benchmark has its
-  own in `bench/tasks/files/`. They test behaviour through code that exists at `base_rev` and avoid
-  helper names the fix invented. Where the fix's own tests need a name the agent cannot guess,
-  the goal states it (`NO_GROUNDING_ANSWER`, the `_reranker` warm-up key, the `adaptive_*`
-  settings).
-- **adaptive-top-k** uses `0a05a74` as `fix_rev`: `f8e4ddc`'s own tests patch helpers that
-  only exist one commit later, where `0a05a74` repaired them.
-- **summary-context-overflow** carries the one dead end that git history records: `ed0c1b5`
-  lowered the tiktoken cap 60000 → 55000 and the overflow came back (`cf460a4` explains why).
-  **no-results-disclosure**'s dead end comes from its commit message, which rejects the additive
-  `error` event in favour of the content-replacing `correction` event. The plan asks for three
+- **Hidden tests decide acceptance.** Four tasks use the fix commit's own tests (one of them the
+  repo's own tests for the feature, minus one on a private helper). Six of the real fixes had no
+  test, so the benchmark has its own in `bench/tasks/files/`. They test behaviour through code
+  that exists at `base_rev` and avoid helper names the fix invented. Where the fix's own tests
+  need a name the agent cannot guess, the goal states it.
+- **One task's `fix_rev` is not its base's child**: the feature commit's own tests patch helpers
+  that only exist one commit later, where the next commit repaired them, so that commit is the fix.
+- **Two tasks carry a dead end.** One is the dead end git history records: an earlier commit
+  lowered a limit and the bug came back (the fix commit explains why). The other comes from its
+  fix commit's message, which rejects one approach in favour of another. The plan asks for three
   dead-end tasks; history supports two, and no third was invented.
-- **second-repo is not in the set.** It has 17 commits and no tests; the only small fix with a
-  checkable result (`ef3dd06`, TypeScript errors in the bridge) still leaves type errors in the
-  same two files at the fix commit, so no verify command can tell its fix from its base.
+- **A second private repo was considered and left out.** It has no tests, and its only small fix
+  with a checkable result still leaves type errors in the same files at the fix commit, so no
+  verify command can tell its fix from its base.
 - Models: every task uses `claude-sonnet-5-5`; change `model` in the task files to compare
   another.
 

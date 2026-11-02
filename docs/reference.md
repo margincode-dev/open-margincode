@@ -414,19 +414,19 @@ Enabling WSL integration for the distro in Docker Desktop avoids all of this.
 ## Use
 
 ```bash
-scholion repo add bench-repo /import/bench-repo      # path as seen inside the container
+scholion repo add pantry /import/pantry            # path as seen inside the container
 scholion repo list                                 # every imported repo, its main and source
-scholion task start --repo bench-repo --title "Add retry" --goal "retry embedder calls with backoff"
-cd ~/ws/bench-repo/add-retry                  # printed as `workspace:`
+scholion task start --repo pantry --title "Atomic save" --goal "write pantry.json atomically so a crash cannot truncate it"
+cd ~/ws/pantry/atomic-save                   # printed as `workspace:`
 scholion checkpoint                                # snapshot + refresh the index
-scholion record --kind attempt --summary "tried tenacity; not installed" --anchor shared/text.py
+scholion record --kind attempt --summary "tried os.rename; fails on Windows if the file exists" --anchor pantry/store.py
 scholion context                                   # 800 tokens of what an agent needs; --budget N for more
 scholion context --fresh                           # resend everything (e.g. after context compaction)
 scholion submit                                    # to review (needs a decision, attempt or note)
-scholion handoff --done "retries added" --remaining "tests for the 429 path"   # prints the bundle
+scholion handoff --done "atomic save added" --remaining "tests for the crash path"   # prints the bundle
 AV_AGENT=codex scholion claim <task-id>            # another agent takes over; rewrites .av-task
 scholion bundle --pr                               # review bundle: tests at head, risks, checklist
-scholion search "rate limit"                       # full-text over the repo's records
+scholion search "atomic"                           # full-text over the repo's records
 scholion log                                       # main's history, newest first
 scholion abandon                                   # end a task for good (owner only)
 ```
@@ -470,8 +470,8 @@ av agent set claude --best code,tests --can docs --cost 4     # 1 is the cheapes
 av agent set muse --can code,docs --cost 1
 av agent set grok --best image --can ui --cost 2 --alias grok-shell-av
 av agent set cursor --best code --can tests,ui,docs --cost 3 --max-open 2   # at most 2 open tasks
-av post --repo bench-repo --title "Redraw the logo" --goal "..." --needs image   # to the backlog
-av post --repo bench-repo --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
+av post --repo pantry --title "Redraw the logo" --goal "..." --needs image   # to the backlog
+av post --repo pantry --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
 av next --take review,merge                # only reviews and merges (--take work: never reviews)

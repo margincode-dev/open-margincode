@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Measure the spec's success criterion: on ~10 replayed real tasks from `bench-repo` and `second-repo`, `av`-assisted agent sessions use materially fewer tokens before the first relevant edit and in total, with no drop in task success and fewer repeated dead ends, compared with baseline Claude Code + git. Also calibrate the packer's token-estimate factor against real API usage.
+**Goal:** Measure the spec's success criterion: on ~10 replayed real tasks from two private repos, `av`-assisted agent sessions use materially fewer tokens before the first relevant edit and in total, with no drop in task success and fewer repeated dead ends, compared with baseline Claude Code + git. Also calibrate the packer's token-estimate factor against real API usage.
 
 **Architecture:** A new `av-bench` crate (binary `av-bench`) with three layers. (1) **Task specs**: TOML files pinning a repo commit, a goal prompt, ground-truth relevant files, a verification command and, for some tasks, a seeded dead end. (2) **Runner**: for each task and each arm (`baseline`, `av`) it creates a fresh checkout, runs headless Claude Code (`claude -p --output-format stream-json`), and stores the raw event stream. (3) **Analyzer**: pure functions over the stored event streams produce metrics and a Markdown report. The analyzer is tested on recorded fixtures with no network; only the runner spends money.
 
@@ -83,12 +83,12 @@ pub fn check_spec(spec: &TaskSpec) -> Result<()>;   // repo exists, base_rev res
 
 **Files:** Create `bench/tasks/*.toml` (10 files), `bench/README.md`.
 
-This task is research on the user's real repos, not code. Choose from the git history of `~/projects/bench-repo` (5 tasks) and `~/projects/second-repo` (5 tasks): commits that fixed a bug or added a small feature (diff touching 1–4 files) and that have a runnable verification (test file or typecheck). For each: `base_rev` = the commit's parent, `goal` = a one-paragraph description written from the commit message **without naming files**, `relevant_files` = files the real commit changed, `verify_cmd` = the narrowest command that fails at `base_rev` and passes at the commit (confirm both by running it). Pick at least 3 tasks where git history shows a *reverted or abandoned approach* and add it as a `[[dead_end]]`.
+This task is research on the user's real repos, not code. Choose from the git history of two private repos (5 tasks each): commits that fixed a bug or added a small feature (diff touching 1–4 files) and that have a runnable verification (test file or typecheck). For each: `base_rev` = the commit's parent, `goal` = a one-paragraph description written from the commit message **without naming files**, `relevant_files` = files the real commit changed, `verify_cmd` = the narrowest command that fails at `base_rev` and passes at the commit (confirm both by running it). Pick at least 3 tasks where git history shows a *reverted or abandoned approach* and add it as a `[[dead_end]]`.
 
 - [ ] **Step 1:** List candidate commits (`git log --oneline --stat`), shortlist 15, and show the shortlist to the user in one message with the one-line reason for each; the user's picks (or "your choice") finalize the ten. (The commits are the user's code and the dead-end choices are judgement calls; this is the one place this plan asks.)
 - [ ] **Step 2:** For each chosen task write the TOML, then confirm the verify command **fails** at `base_rev` and **passes** at the real commit in a throwaway `git clone --no-hardlinks` under `~/bench-work` (never `git worktree add`, which writes into the source repo's `.git`), deleted afterwards. Record both exit codes in `bench/README.md`.
 - [ ] **Step 3:** `cargo run -p av-bench -- check bench/tasks/*.toml` → every task `ok`.
-- [ ] **Step 4:** Commit `bench: ten tasks from bench-repo and second-repo`.
+- [ ] **Step 4:** Commit `bench: ten tasks from two private repos`.
 
 ### Task 3: Event parsing and metrics
 

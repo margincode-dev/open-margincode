@@ -15,7 +15,7 @@
 1. **This plan** — engine, intent store, code index, structural packer, HTTP + CLI, Docker (daemon + Postgres).
 2. Semantic layer — Qdrant + text-embeddings-inference, outbox worker, semantic candidates, `degraded: semantic`, `av reindex`.
 3. Collaboration — MCP server, `handoff`/`claim_task`/`submit`/`review`/`merge`/`undo`, record-discipline refusals, Claude Code hooks, git backup push.
-4. Benchmark harness — replay ~10 tasks (`bench-repo`, `second-repo`), calibrate token factors.
+4. Benchmark harness — replay ~10 tasks from two private repos, calibrate token factors.
 
 ## Global Constraints
 
@@ -272,7 +272,7 @@ Config via env: `AV_DATABASE_URL`, `AV_STORE_ROOT`, `AV_WS_ROOT` (container path
 
 Compose: services `daemon` (`user: "${UID}:${GID}"`, ports `7420:7420`, volumes `av-store:/store`, `${AV_WS_ROOT:-$HOME/ws}:/ws`, `${AV_IMPORT_ROOT:-$HOME/projects}:/import:ro`, env per Task 8 with `AV_WS_HOST_ROOT=${AV_WS_ROOT:-$HOME/ws}`) and `postgres:16` (volume `av-pg`, healthcheck; daemon `depends_on` healthy). Qdrant/TEI are added by Plan 2.
 
-- [ ] **Step 1: Write `scripts/smoke.sh`** (the failing check): `docker compose up -d --build` → `av repo add bench-repo /import/bench-repo` → `av task start …` → append a function to a file in the returned host workspace path → `av checkpoint` → `av record --kind attempt …` → `av context` and assert output contains the new function name and the attempt summary; then assert the new file under `$AV_WS_ROOT` is owned by the current user (`stat -c %u` == `id -u`).
+- [ ] **Step 1: Write `scripts/smoke.sh`** (the failing check): `docker compose up -d --build` → `av repo add pantry /import/pantry` → `av task start …` → append a function to a file in the returned host workspace path → `av checkpoint` → `av record --kind attempt …` → `av context` and assert output contains the new function name and the attempt summary; then assert the new file under `$AV_WS_ROOT` is owned by the current user (`stat -c %u` == `id -u`).
 - [ ] **Step 2:** Run `scripts/smoke.sh` before the compose files exist → FAIL.
 - [ ] **Step 3:** Write the Dockerfile and compose file.
 - [ ] **Step 4:** Run `scripts/smoke.sh` → exits 0. Also run `cargo test -p av-pack -- --ignored warm_build_under_300ms` against the stack.

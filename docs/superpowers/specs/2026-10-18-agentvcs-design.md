@@ -16,7 +16,7 @@ Root cause of (2) and (3): git records snapshots but discards intent, decisions 
 - Storage: **PostgreSQL + Qdrant** (no SQLite), all free/OSS. Local OSS embedding model.
 - First sub-project = context budget. Storage-cost work is a later sub-project.
 
-**Success criterion (measured):** on ~10 replayed real tasks from `bench-repo` and `second-repo`, `av`-assisted sessions use materially fewer tokens before the first relevant edit and in total, with no drop in task success and fewer repeated dead ends, vs. baseline Claude Code + git.
+**Success criterion (measured):** on ~10 replayed real tasks from two private repos, `av`-assisted sessions use materially fewer tokens before the first relevant edit and in total, with no drop in task success and fewer repeated dead ends, vs. baseline Claude Code + git.
 
 ## Architecture
 
@@ -96,11 +96,11 @@ MCP tools (mirrored by `av` subcommands): `start_task`, `checkpoint`, `record`, 
 
 - Unit: packer scoring/budget allocation/tier rendering, anchor resolution, outbox worker, ledger.
 - Integration: testcontainers (Postgres, Qdrant) against small fixture repos; golden-file tests for pack output.
-- Benchmark harness (the success criterion): replay ~10 real tasks on `bench-repo` and `second-repo`; compare baseline vs `av` on tokens-before-first-relevant-edit, total tokens, repeated dead ends, task success.
+- Benchmark harness (the success criterion): replay ~10 real tasks from two private repos; compare baseline vs `av` on tokens-before-first-relevant-edit, total tokens, repeated dead ends, task success.
 
 ## Scope
 
 **v1 (this spec):** VCS engine wrapper, intent store, code index (Rust/TS/Python), context packer, MCP + HTTP + CLI, task/handoff/review/merge, git backup, Docker compose, benchmark harness.
 
-**Later, separate specs:** (1) custom jj storage backend (chunk dedup + compression) for the storage pain; (2) copy-on-write workspaces for heavy ignored dirs (`node_modules`, `.venv`); (3) automatic record extraction from agent transcripts; (4) second-repo UI integration.
+**Later, separate specs:** (1) custom jj storage backend (chunk dedup + compression) for the storage pain; (2) copy-on-write workspaces for heavy ignored dirs (`node_modules`, `.venv`); (3) automatic record extraction from agent transcripts; (4) integration with an external dashboard UI.
 

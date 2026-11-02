@@ -136,8 +136,8 @@ Decision rule:
 Pairs of tasks on the same code, where task A's agent learns something task B's agent needs:
 - **Trap tasks:** the obvious approach fails for a reason found only by trying (a dependency quirk,
   a hidden invariant, a performance cliff). Seed each from a real commit pair where history shows
-  a reverted attempt, like the Plan 4 tasks `summary-context-overflow` and
-  `no-results-disclosure`, or construct it.
+  a reverted attempt, like the two Plan 4 tasks that carry a dead end, or
+  construct it.
 - **Decision tasks:** A settles a design choice with a reason (an error format, a naming rule). B
   must follow it in a different file.
 - **Interrupted handoff:** A is stopped at half its budget, and B finishes the task.

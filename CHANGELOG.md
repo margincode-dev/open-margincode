@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A `checkpoint` event**: a snapshot that moves a task's head (`POST /v1/tasks/{id}/checkpoint`,
+  a submit, a sync) now lands in the event feed as kind `checkpoint` with the new head, the old one
+  (`payload.from`) and how many paths the task changes (`payload.touched`), so `GET /v1/events`,
+  `scholion events --follow` and in-process subscribers see work as it happens instead of polling
+  `head_change`. A snapshot that moves nothing is no event.
 - **Targets** (Plan 10 A3): `av target add --repo R --title T [--due YYYY-MM-DD]` names something
   the team works toward; `av post --target SLUG` (or `av backlog target ITEM SLUG`) counts a
   backlog item toward it, and `av target list` shows how many of its items merged, are being

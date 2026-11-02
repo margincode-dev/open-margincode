@@ -1378,15 +1378,32 @@ impl IntentStore for PgStore {
 
     async fn set_head(&self, id: TaskId, head: &ChangeId, touched: &[String]) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(serr)?;
-        let n = sqlx::query("UPDATE tasks SET head_change = $2 WHERE id = $1")
+        let before: Option<(String, String)> =
+            sqlx::query_as("SELECT repo, head_change FROM tasks WHERE id = $1 FOR UPDATE")
+                .bind(id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(serr)?;
+        let Some((repo, old_head)) = before else {
+            return Err(AvError::NotFound(format!("task {id}")));
+        };
+        sqlx::query("UPDATE tasks SET head_change = $2 WHERE id = $1")
             .bind(id.0)
             .bind(&head.0)
             .execute(&mut *tx)
             .await
-            .map_err(serr)?
-            .rows_affected();
-        if n == 0 {
-            return Err(AvError::NotFound(format!("task {id}")));
+            .map_err(serr)?;
+        if old_head != head.0 {
+            // a checkpoint: the head moved, so subscribers learn of the new work without polling
+            insert_event(
+                &mut tx,
+                &repo,
+                "checkpoint",
+                Some(id),
+                Some(&head.0),
+                serde_json::json!({ "from": old_head, "touched": touched.len() }),
+            )
+            .await?;
         }
         sqlx::query("DELETE FROM task_touched WHERE task_id = $1")
             .bind(id.0)

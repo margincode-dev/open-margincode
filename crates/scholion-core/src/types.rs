@@ -374,8 +374,10 @@ pub struct CheckRow {
 pub struct AvEvent {
     pub id: i64,
     pub repo: String,
-    /// `started`, `submit`, `approve`, `request_changes`, `merged`, `conflicted`, `resolve`,
-    /// `handoff`, `claim`, `undo` or `abandon`.
+    /// `started`, `checkpoint`, `submit`, `approve`, `request_changes`, `merged`, `conflicted`,
+    /// `resolve`, `handoff`, `claim`, `undo` or `abandon`. A `checkpoint` is a snapshot that
+    /// moved the task's head (its payload: `from`, the old head, and `touched`, how many paths
+    /// the task changes against its base).
     pub kind: String,
     pub task_id: Option<TaskId>,
     /// The merge commit for `merged`, else the task's head when the event happened.

@@ -2094,7 +2094,7 @@ async fn events_feed_reports_the_lifecycle_in_order() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         kinds(&body),
-        ["started", "submit", "approve", "merged"],
+        ["started", "checkpoint", "submit", "approve", "merged"],
         "{body}"
     );
     let events = body["events"].as_array().unwrap();
@@ -2103,17 +2103,17 @@ async fn events_feed_reports_the_lifecycle_in_order() {
         "{body}"
     );
     assert_eq!(
-        events[3]["change"], merged["main"],
+        events[4]["change"], merged["main"],
         "merged carries the merge commit"
     );
     let ids: Vec<i64> = events.iter().map(|ev| ev["id"].as_i64().unwrap()).collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "{ids:?}");
-    assert_eq!(body["next"], ids[3]);
+    assert_eq!(body["next"], ids[4]);
 
     let (_, rest) = call(
         &e.app,
         "GET",
-        &format!("/v1/events?repo=demo&since={}", ids[1]),
+        &format!("/v1/events?repo=demo&since={}", ids[2]),
         None,
     )
     .await;
@@ -2153,6 +2153,67 @@ async fn events_long_poll_returns_as_soon_as_an_event_lands() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(kinds(&body), ["submit"], "{body}");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checkpoint_that_moves_the_head_is_an_event_and_one_that_does_not_is_none() {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(None::<AppState>));
+    let keep = state.clone();
+    let e = env_with(move |s| {
+        *keep.lock().unwrap() = Some(s.clone());
+        s
+    })
+    .await;
+    let st = state.lock().unwrap().clone().unwrap();
+    let mut rx = st.subscribe_events().await.unwrap();
+    let t = start_task(&e, "Upper names").await;
+    let (_, before) = call(&e.app, "GET", "/v1/events?repo=demo", None).await;
+    let since = before["next"].as_i64().unwrap();
+
+    write_file(&e, &t, "app/util.py", UPPER);
+    let (status, moved) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_ne!(moved["head_change"], t["task"]["head_change"], "{moved}");
+    let (_, body) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/events?repo=demo&since={since}"),
+        None,
+    )
+    .await;
+    assert_eq!(kinds(&body), ["checkpoint"], "{body}");
+    let ev = &body["events"][0];
+    assert_eq!(ev["task_id"], t["task"]["id"]);
+    assert_eq!(ev["change"], moved["head_change"], "the new head");
+    assert_eq!(
+        ev["payload"]["from"], t["task"]["head_change"],
+        "the old head"
+    );
+    assert_eq!(ev["payload"]["touched"], 1, "{ev}");
+
+    // the in-process feed carries it too: the start, then the checkpoint
+    let mut seen = Vec::new();
+    while seen.len() < 2 {
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .expect("an event within 10 s")
+            .unwrap();
+        seen.push(ev.kind);
+    }
+    assert_eq!(seen, ["started", "checkpoint"]);
+
+    // a snapshot that changes nothing moves no head and is no event
+    let (_, again) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(again["head_change"], moved["head_change"]);
+    assert_eq!(again["changed"], moved["changed"]);
+    let (_, after) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/events?repo=demo&since={}", body["next"]),
+        None,
+    )
+    .await;
+    assert!(kinds(&after).is_empty(), "{after}");
 }
 
 // ---- Plan 5 Task 4: carried approvals ----

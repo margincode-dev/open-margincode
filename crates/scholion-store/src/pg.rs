@@ -943,10 +943,11 @@ impl IntentStore for PgStore {
             ));
         }
         sqlx::query(
-            "INSERT INTO agent_profiles (name, best, can, cost_rank, aliases, max_open)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            "INSERT INTO agent_profiles (name, best, can, cost_rank, aliases, max_open, managed_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (name) DO UPDATE
-             SET best = $2, can = $3, cost_rank = $4, aliases = $5, max_open = $6",
+             SET best = $2, can = $3, cost_rank = $4, aliases = $5, max_open = $6,
+                 managed_by = $7",
         )
         .bind(name)
         .bind(best)
@@ -954,6 +955,7 @@ impl IntentStore for PgStore {
         .bind(p.cost_rank)
         .bind(aliases)
         .bind(p.max_open)
+        .bind(&p.managed_by)
         .execute(&self.pool)
         .await
         .map_err(serr)?;
@@ -992,7 +994,7 @@ impl IntentStore for PgStore {
 
     async fn list_profiles(&self) -> Result<Vec<routing::Profile>> {
         let rows = sqlx::query(
-            "SELECT name, best, can, cost_rank, aliases, max_open FROM agent_profiles
+            "SELECT name, best, can, cost_rank, aliases, max_open, managed_by FROM agent_profiles
              ORDER BY cost_rank, name",
         )
         .fetch_all(&self.pool)
@@ -1007,6 +1009,7 @@ impl IntentStore for PgStore {
                     cost_rank: r.try_get("cost_rank").map_err(serr)?,
                     aliases: r.try_get("aliases").map_err(serr)?,
                     max_open: r.try_get("max_open").map_err(serr)?,
+                    managed_by: r.try_get("managed_by").map_err(serr)?,
                 })
             })
             .collect()

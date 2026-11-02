@@ -19,6 +19,7 @@ fn profile(name: &str, best: &[&str], can: &[&str], cost: i32) -> Profile {
         cost_rank: cost,
         aliases: vec![],
         max_open: None,
+        managed_by: None,
     }
 }
 
@@ -61,6 +62,7 @@ async fn profiles_are_upserted_and_listed_cheapest_first() {
     // a second put replaces the first
     let mut c = profile("claude", &["code", "tests"], &[], 3);
     c.aliases = vec!["claude-code".into()];
+    c.managed_by = Some("ee".into());
     s.put_profile(&c).await.unwrap();
 
     let all = s.list_profiles().await.unwrap();

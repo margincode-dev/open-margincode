@@ -1287,3 +1287,96 @@ async fn a_closed_target_takes_no_items() {
         "{body}"
     );
 }
+
+/// The state the env was built from, so a test can write what an extension writes.
+async fn env_and_state() -> (Env, AppState) {
+    let keep: Arc<std::sync::Mutex<Option<AppState>>> = Arc::default();
+    let k = keep.clone();
+    let e = env_with(move |s| {
+        *k.lock().unwrap() = Some(s.clone());
+        s
+    })
+    .await;
+    let st = keep.lock().unwrap().clone().unwrap();
+    (e, st)
+}
+
+fn managed(name: &str, by: Option<&str>) -> scholion_core::routing::Profile {
+    scholion_core::routing::Profile {
+        name: name.into(),
+        best: vec!["review".into()],
+        can: vec![],
+        cost_rank: 2,
+        aliases: vec![],
+        max_open: None,
+        managed_by: by.map(str::to_owned),
+    }
+}
+
+async fn agent(e: &Env, name: &str) -> Value {
+    let (status, body) = call(&e.app, "GET", "/v1/agents", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == name)
+        .cloned()
+        .unwrap_or_else(|| panic!("no agent {name} in {body}"))
+}
+
+#[tokio::test]
+async fn a_managed_profile_refuses_the_api_put_and_names_its_manager() {
+    let (e, st) = env_and_state().await;
+    st.put_profile(&managed("reviewer", Some("ee")))
+        .await
+        .unwrap();
+    assert_eq!(agent(&e, "reviewer").await["managed_by"], "ee");
+
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/reviewer",
+        Some(json!({"best": ["code"], "cost_rank": 9})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("agent reviewer is managed by ee; change it there"),
+        "{body}"
+    );
+    // unchanged
+    let a = agent(&e, "reviewer").await;
+    assert_eq!(a["best"], json!(["review"]), "{a}");
+    assert_eq!(a["cost_rank"], 2, "{a}");
+    assert_eq!(a["managed_by"], "ee", "{a}");
+
+    // its manager may still rewrite it, and may let it go
+    st.put_profile(&managed("reviewer", None)).await.unwrap();
+    assert_eq!(agent(&e, "reviewer").await["managed_by"], Value::Null);
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/reviewer",
+        Some(json!({"best": ["code"], "cost_rank": 9})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["agent"]["cost_rank"], 9, "{body}");
+}
+
+#[tokio::test]
+async fn a_profile_put_through_the_api_is_not_managed_and_can_be_overwritten() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    let a = agent(&e, "claude").await;
+    assert!(a.get("managed_by").is_some(), "{a}");
+    assert_eq!(a["managed_by"], Value::Null, "{a}");
+    put_agent(&e, "claude", &["docs"], &[], 1).await;
+    let a = agent(&e, "claude").await;
+    assert_eq!(a["best"], json!(["docs"]), "{a}");
+    assert_eq!(a["cost_rank"], 1, "{a}");
+}

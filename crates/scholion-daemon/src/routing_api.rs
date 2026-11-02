@@ -63,6 +63,19 @@ async fn put_agent(
     Json(b): Json<AgentBody>,
 ) -> ApiResult<Value> {
     let name = name.trim().to_owned();
+    // a profile an extension manages is changed there, never by a put that knows nothing of it
+    let stored = st
+        .store
+        .list_profiles()
+        .await?
+        .into_iter()
+        .find(|p| p.name == name);
+    if let Some(manager) = stored.and_then(|p| p.managed_by) {
+        return Err(AvError::Conflict(format!(
+            "agent {name} is managed by {manager}; change it there"
+        ))
+        .into());
+    }
     st.store
         .put_profile(&Profile {
             name: name.clone(),
@@ -71,6 +84,7 @@ async fn put_agent(
             cost_rank: b.cost_rank,
             aliases: b.aliases,
             max_open: b.max_open,
+            managed_by: None,
         })
         .await?;
     let stored = st

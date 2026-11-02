@@ -115,6 +115,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0027_targets.sql",
         "7c457e6a871430f368681b9c41d0c20979422d7ca5c5ea0c2d004fa3d1caf13a",
     ),
+    (
+        "0028_managed_profiles.sql",
+        "3959651db4db0d330c393eb9549b9affbe9783d7ccec216fb56b08e7533b2ca8",
+    ),
 ];
 
 #[test]

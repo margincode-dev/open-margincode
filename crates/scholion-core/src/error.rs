@@ -13,6 +13,9 @@ pub enum AvError {
     /// A well-formed request that the task's current state does not allow (HTTP 422).
     #[error("not allowed now: {0}")]
     IllegalState(String),
+    /// A well-formed request that would overwrite what another writer owns (HTTP 409).
+    #[error("conflict: {0}")]
+    Conflict(String),
     #[error("vcs error: {0}")]
     Vcs(String),
     #[error("store error: {0}")]

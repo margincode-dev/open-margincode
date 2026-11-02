@@ -172,7 +172,9 @@ impl AppState {
     }
 
     /// Creates or updates an agent profile, as `PUT /v1/agents/{name}` does, so an extension's
-    /// own notion of an agent can drive Community routing without a second table.
+    /// own notion of an agent can drive Community routing without a second table. With
+    /// `managed_by` set the profile is the extension's: the API refuses to overwrite it (409)
+    /// until a put with `managed_by: None` lets it go.
     pub async fn put_profile(
         &self,
         profile: &scholion_core::routing::Profile,

@@ -30,6 +30,10 @@ pub struct Profile {
     /// in parallel). `None`: no limit.
     #[serde(default)]
     pub max_open: Option<i32>,
+    /// Who writes this profile: `None` for the user (`av agent set`), else the name of the
+    /// extension that manages it, and `PUT /v1/agents/{name}` refuses to overwrite it.
+    #[serde(default)]
+    pub managed_by: Option<String>,
 }
 
 /// A task waiting in the backlog for an agent.
@@ -365,6 +369,7 @@ mod tests {
             cost_rank: cost,
             aliases: vec![],
             max_open: None,
+            managed_by: None,
         }
     }
 

@@ -3554,6 +3554,7 @@ async fn an_extension_upserts_agent_profiles_that_routing_reads() {
         cost_rank: 2,
         aliases: vec!["reviewer-bot".into()],
         max_open: Some(3),
+        managed_by: None,
     };
     st.put_profile(&p).await.unwrap();
     p.cost_rank = 4; // the same persona edited: an upsert, not a second row

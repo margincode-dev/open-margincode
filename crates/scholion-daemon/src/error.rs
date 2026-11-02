@@ -18,6 +18,7 @@ impl IntoResponse for ApiError {
             AvError::SummaryTooLong(_) | AvError::Invalid(_) => StatusCode::BAD_REQUEST,
             AvError::NotFound(_) => StatusCode::NOT_FOUND,
             AvError::IllegalState(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            AvError::Conflict(_) => StatusCode::CONFLICT,
             AvError::Vcs(_) | AvError::Store(_) | AvError::Index(_) | AvError::Semantic(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }

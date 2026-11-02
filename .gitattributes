@@ -1,0 +1,7 @@
+# Keep text files LF in every checkout, Windows included. The daemon image, the shell scripts
+# and the migration checksums (sqlx, tests/migrations_frozen.rs) all expect LF; a CRLF checkout
+# builds an image whose migrations no longer match an existing database.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

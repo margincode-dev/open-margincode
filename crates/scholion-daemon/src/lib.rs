@@ -12,6 +12,7 @@ mod ext;
 mod flow;
 mod indexing;
 mod mcp;
+mod office;
 mod reindex;
 mod routing_api;
 mod serve;

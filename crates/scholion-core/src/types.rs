@@ -466,6 +466,22 @@ pub struct OutboxRow {
     pub row: NewOutbox,
 }
 
+/// One entry of an agent's timeline (`scholion_store::PgStore::agent_timeline`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimelineItem {
+    pub at: DateTime<Utc>,
+    /// A record kind (`intent`, `decision`, `attempt`, `note`, `handoff`, `review`,
+    /// `validation`), a review verdict (`approve`, `request_changes`), or `started`, `claim`,
+    /// `submit` or `merged`.
+    pub kind: String,
+    pub task_id: Uuid,
+    pub repo: String,
+    pub slug: String,
+    pub title: String,
+    /// A record's summary; empty for the others.
+    pub text: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -523,16 +523,23 @@ Flash through the same loop on its own daemon (the run checked for 0.0.2).
 
 ### Dashboard
 
-Open `http://localhost:7420/ui` to watch agents work: tasks by status, a Teams panel (each profile's
-skills and cost, how many open tasks it holds, and a full chip at its limit), the repo's targets with
-their progress (overdue ones in red), the backlog, a live
+Open `http://localhost:7420/ui` to watch agents work: tasks by status, a Teams panel that works as an
+office (one desk per agent: its skills and cost, how many open tasks it holds against its limit, what
+it is on now, what it did last, and whether it is working, reviewing, idle or *quiet*: holding open
+tasks it has not written to for a whole lease, so `next` offers them to others), the repo's targets
+with their progress (overdue ones in red), the backlog, a live
 activity feed (the `/v1/events` long-poll), and for each task its records, changed files, claim and
-review state. "Build context pack" shows exactly what the next agent would receive at a given budget.
+review state. Click a desk (or a task's owner) for that agent's timeline: the records it wrote, the
+tasks it started and claimed, its review verdicts, its submits and its merges, newest first. It is
+built from what Scholion already keeps; nothing extra is recorded, and no cost is tracked. "Build
+context pack" shows exactly what the next agent would receive at a given budget.
 The page is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks
 for the token once per browser tab. It reads `GET /v1/tasks` (`?repo=`, `?status=`, `?limit=`),
-`GET /v1/tasks/{id}/records`, `GET /v1/agents`, `GET /v1/backlog` and `GET /v1/targets` (`?repo=`,
-`?status=active|done|dropped`). Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or
-slug}` (`{status, repo}`) and `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
+`GET /v1/tasks/{id}/records`, `GET /v1/agents`, `GET /v1/backlog`, `GET /v1/targets` (`?repo=`,
+`?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
+repo's tasks) and `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100).
+Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
+`PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
 
 ## Test
 

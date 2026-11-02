@@ -151,6 +151,25 @@ dialog input { width: 100%; margin: 10px 0; }
 }
 .pond .team .row { justify-content: center; }
 .pond .team .w { text-align: center; }
+button.team { cursor: pointer; font: inherit; color: inherit; }
+button.team:hover, button.team:focus-visible { border-color: var(--rubric); outline: none; }
+.pond .team .now { font-size: 12px; margin-top: 3px; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pond .team .last { font-size: 11.5px; color: var(--faint); margin-top: 2px; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pond .team.quiet { border-color: var(--warn); }
+.chip.quiet { color: var(--warn); border-color: var(--warn); }
+.tl { list-style: none; margin: 0; padding: 0 0 0 2px; border-left: 2px solid var(--line); }
+.tl li { position: relative; padding: 0 0 0 10px; }
+.tl li::before { content: ""; position: absolute; left: -5px; top: 9px; width: 8px; height: 8px;
+  background: var(--line); }
+.tl li.tl-intent::before { background: var(--intent); } .tl li.tl-decision::before { background: var(--decision); }
+.tl li.tl-attempt::before { background: var(--attempt); } .tl li.tl-note::before { background: var(--note); }
+.tl li.tl-handoff::before { background: var(--handoff); } .tl li.tl-review::before { background: var(--review); }
+.tl li.tl-started::before { background: var(--intent); } .tl li.tl-submit::before { background: var(--decision); }
+.tl li.tl-merged::before, .tl li.tl-approve::before { background: var(--ok); }
+.tl li.tl-request_changes::before { background: var(--bad); } .tl li.tl-claim::before { background: var(--handoff); }
+.tl .ev { grid-template-columns: 64px 1fr; border-bottom: 0; }
 .owner, .who-slime { display: inline-flex; align-items: center; gap: 6px; min-inline-size: 0; }
 .slime-empty { display: flex; align-items: center; gap: 8px; }
 .slime {
@@ -235,7 +254,7 @@ const COLUMNS = [
   ["open", "Open"], ["handed_off", "Handed off"], ["in_review", "In review"],
   ["conflicted", "Conflicted"], ["merged", "Merged"],
 ];
-const S = { repo: null, tasks: [], byId: new Map(), events: [], next: 0, openTask: null, pack: null };
+const S = { repo: null, tasks: [], byId: new Map(), events: [], next: 0, openTask: null, openAgent: null, pack: null };
 
 function store(get, key, value) {
   try {
@@ -462,49 +481,100 @@ async function loadTargets() {
   fill(box, rows.length ? rows : [h("div", { class: "empty" }, "No targets. Add one with av target add.")]);
 }
 
-// One row per profile, cheapest first, then owners of open tasks who have no profile.
-// The count is open tasks in every repo (the list above, before the repo filter): status
-// "open" only, matching count_open_tasks. max_open null or absent is no limit.
+// The office: one desk per profile, cheapest first, then agents with no profile that hold work.
+// Read from /v1/office over every repo, because a team's limit on open tasks (max_open) counts
+// every repo. Each desk says what the agent is on now and what it did last; click it for its
+// timeline. States: working, quiet (open tasks, none written to within a lease), reviewing, idle.
 async function loadTeams() {
   const box = document.getElementById("teams");
-  const body = await api("/v1/agents");
-  const agents = (body.agents || []).slice().sort((a, b) =>
-    (a.cost_rank - b.cost_rank) || String(a.name).localeCompare(String(b.name)));
-  const known = new Set(agents.map(a => a.name));
-  const openOf = new Map();
-  for (const t of S.byId.values()) {
-    if (t.status !== "open" || !t.owner_agent) continue;
-    openOf.set(t.owner_agent, (openOf.get(t.owner_agent) || 0) + 1);
-  }
+  const o = await api("/v1/office");
   const skill = (label, list) => (list && list.length ? label + " " + list.join(",") : null);
-  const rows = agents.map(a => {
-    const open = openOf.get(a.name) || 0;
-    const cap = a.max_open; // null, or missing on an older daemon: no limit
-    const limited = cap != null;
-    const idle = open === 0;
-    const full = limited && open >= cap;
-    const mode = idle ? "idle" : full ? "full" : "work";
-    return h("div", { class: "bl team" },
+  const rows = (o.agents || []).map(a => {
+    const p = a.profile;
+    const open = a.open.length;
+    const cap = p ? p.max_open : null; // null: no limit
+    const full = cap != null && open >= cap;
+    const mode = a.state === "idle" || a.state === "quiet" ? "idle" : full ? "full" : "work";
+    const now = a.open[0] ? a.open[0].title
+      : a.reviewing[0] ? "reviewing " + a.reviewing[0].title
+      : a.in_review[0] ? "waiting for review: " + a.in_review[0].title
+      : null;
+    const last = a.last ? `${a.last.kind}${a.last.text ? ": " + a.last.text : " " + a.last.slug}` : null;
+    return h("button", { class: "bl team" + (a.state === "quiet" ? " quiet" : ""), type: "button",
+      title: "Timeline of " + a.name, onclick: () => openAgent(a.name) },
       slime(a.name, mode, 48),
       h("div", {},
         h("div", { class: "row" },
-          h("span", { class: idle ? "faint" : null }, a.name),
-          h("span", { class: "w" }, "cost " + a.cost_rank),
-          full && h("span", { class: "chip" }, h("span", { class: "dot" }), "full")),
+          h("span", { class: a.state === "idle" ? "faint" : null }, a.name),
+          p && h("span", { class: "w" }, "cost " + p.cost_rank),
+          full && h("span", { class: "chip" }, h("span", { class: "dot" }), "full"),
+          a.state === "quiet" && h("span", { class: "chip quiet",
+            title: "No write to its open tasks for a whole lease: next offers them to others" }, "quiet")),
         h("div", { class: "w" },
-          [skill("best", a.best), skill("can", a.can),
-           limited ? `${open}/${cap} open` : `${open} open`,
-           idle ? "idle" : null].filter(Boolean).join(" · "))));
+          [skill("best", p && p.best), skill("can", p && p.can),
+           cap != null ? `${open}/${cap} open` : `${open} open`,
+           !p ? "no profile: takes untagged work only" : null,
+           a.state === "idle" && !a.in_review.length ? "idle" : null].filter(Boolean).join(" · ")),
+        now && h("div", { class: "now" }, now),
+        last && h("div", { class: "last" }, last + " · " + ago(a.last_at))));
   });
-  for (const name of [...openOf.keys()].filter(n => !known.has(n)).sort((a, b) => a.localeCompare(b))) {
-    rows.push(h("div", { class: "bl team" },
-      slime(name, "work", 48),
-      h("div", {},
-        h("div", {}, name),
-        h("div", { class: "w" }, `${openOf.get(name)} open · no profile: takes untagged work only`))));
-  }
   fill(box, rows.length ? rows : [h("div", { class: "empty slime-empty" }, slime("pond", "idle", 36), "No teams yet.")]);
 }
+
+// ---- agent drawer: its desk and timeline ----
+
+async function openAgent(name, quiet) {
+  S.openTask = null; S.pack = null; S.openAgent = name;
+  history.replaceState(null, "", "#agent=" + encodeURIComponent(name));
+  const sheet = document.getElementById("sheet");
+  if (!quiet) { sheet.replaceChildren(h("div", { class: "muted" }, "Loading…")); drawer.classList.add("open"); }
+  try {
+    const [o, tl] = await Promise.all([
+      api("/v1/office"), api(`/v1/agents/${encodeURIComponent(name)}/timeline?limit=200`)]);
+    if (S.openAgent !== name) return;
+    renderAgent(name, (o.agents || []).find(a => a.name === name), tl.items || []);
+  } catch (e) {
+    if (!quiet) sheet.replaceChildren(h("button", { class: "close", onclick: closeDrawer }, "Close"), h("p", { class: "err" }, e.message));
+  }
+}
+
+function taskLink(t, extra) {
+  return h("button", { class: "ev", type: "button", onclick: () => openTask(t.id) },
+    h("span", { class: "k s-" + t.status }, t.status.replace("_", " ")),
+    h("span", {}, h("div", {}, t.title), h("div", { class: "w" }, [`${t.repo} / ${t.slug}`, extra].filter(Boolean).join(" · "))));
+}
+
+function renderAgent(name, a, items) {
+  const sheet = document.getElementById("sheet");
+  const p = a && a.profile;
+  const skill = (list) => (list && list.length ? list.join(", ") : "—");
+  fill(sheet,
+    h("button", { class: "close", type: "button", onclick: closeDrawer }, "Close ✕"),
+    h("div", { class: "row" },
+      a && h("span", { class: "chip" + (a.state === "quiet" ? " quiet" : "") }, a.state),
+      h("span", { class: "mono faint" }, "agent")),
+    h("h1", { id: "dTitle", class: "who-slime" }, slime(name, a && a.state === "working" ? "work" : "idle", 32), name),
+    h("div", { class: "facts" },
+      fact("Best at", p ? skill(p.best) : "no profile"),
+      fact("Can do", p ? skill(p.can) : "—"),
+      fact("Cost rank", p ? p.cost_rank : "—", "1 is the cheapest"),
+      fact("Open tasks", a ? (p && p.max_open != null ? `${a.open.length} of ${p.max_open}` : a.open.length) : 0),
+      fact("Last seen", a && a.last_at ? ago(a.last_at) : "—")),
+    a && a.open.length > 0 && [h("h3", {}, "Working on"), a.open.map(t => taskLink(t, "wrote " + ago(t.last_write)))],
+    a && a.reviewing.length > 0 && [h("h3", {}, "Reviewing"), a.reviewing.map(t => taskLink(t, `reserved ${Math.round(t.reserved_secs / 60)} min more`))],
+    a && a.in_review.length > 0 && [h("h3", {}, "Waiting for review"), a.in_review.map(t => taskLink(t))],
+    h("h3", {}, `Timeline (${items.length})`),
+    items.length ? h("ul", { class: "tl" }, items.map(i => h("li", { class: "tl-" + i.kind },
+      h("button", { class: "ev", type: "button", onclick: () => openTask(i.task_id) },
+        h("span", { class: "k " + (RECORD_KINDS.has(i.kind) ? "" : "k-" + i.kind) }, i.kind),
+        h("span", {},
+          h("div", {}, i.text || i.title),
+          h("div", { class: "w" }, [i.text ? i.title : null, `${i.repo} / ${i.slug}`, ago(i.at)].filter(Boolean).join(" · ")))))))
+      : h("div", { class: "empty" }, "Nothing yet."),
+    h("p", { class: "faint", style: "font-size:12px;margin-top:18px" },
+      "Built from what Scholion already keeps: the records this agent wrote, the tasks it started and claimed, its review verdicts, its submits and its merges."));
+}
+const RECORD_KINDS = new Set(["intent", "decision", "attempt", "note", "handoff", "review", "validation"]);
 
 // Tasks waiting for an agent: what they need, the agent each is reserved for first, and who took
 // the latest ones. The ranking is the daemon's (`best_agent`), not computed here.
@@ -611,6 +681,7 @@ async function startFeed() {
         refresh = setTimeout(() => {
           loadTasks().catch(showErr);
           if (S.openTask) openTask(S.openTask, true);
+          else if (S.openAgent) openAgent(S.openAgent, true);
         }, 300);
       }
     } catch (e) {
@@ -639,7 +710,7 @@ function renderFeed() {
 
 const drawer = document.getElementById("drawer");
 function closeDrawer() {
-  drawer.classList.remove("open"); S.openTask = null; S.pack = null;
+  drawer.classList.remove("open"); S.openTask = null; S.openAgent = null; S.pack = null;
   if (location.hash) history.replaceState(null, "", location.pathname);
 }
 drawer.addEventListener("click", e => { if (e.target.hasAttribute("data-close")) closeDrawer(); });
@@ -647,7 +718,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && drawer.cla
 
 async function openTask(id, quiet) {
   if (!quiet) S.pack = null;
-  S.openTask = id;
+  S.openTask = id; S.openAgent = null;
   history.replaceState(null, "", "#task=" + id);
   const sheet = document.getElementById("sheet");
   if (!quiet) { sheet.replaceChildren(h("div", { class: "muted" }, "Loading…")); drawer.classList.add("open"); }
@@ -683,7 +754,8 @@ function renderTask(d, records, unrec) {
     h("h1", { id: "dTitle" }, t.title),
     h("div", { class: "goal" }, t.goal),
     h("div", { class: "facts" },
-      fact("Owner", h("span", { class: "who-slime" },
+      fact("Owner", h("button", { class: "who-slime btn", type: "button", title: "Timeline of " + t.owner_agent,
+        onclick: () => openAgent(t.owner_agent) },
         slime(t.owner_agent, t.status === "open" ? "work" : "idle", 20), t.owner_agent)),
       fact("Claim generation", t.generation, "Writes under an older generation are refused"),
       fact("Lease", leaseLeft == null ? "none" : leaseLeft > 0 ? `${Math.round(leaseLeft / 60000)} min left` : "expired"),
@@ -784,6 +856,8 @@ async function boot() {
     startFeed();
     const m = location.hash.match(/^#task=([0-9a-f-]{36})$/);
     if (m) openTask(m[1]);
+    const ag = location.hash.match(/^#agent=(.+)$/);
+    if (ag) openAgent(decodeURIComponent(ag[1]));
   } catch (e) { showErr(e); }
 }
 setInterval(() => { if (S.tasks.length) renderBoard(); }, 60000); // keep "5m ago" fresh

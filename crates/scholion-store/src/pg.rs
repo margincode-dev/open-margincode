@@ -2076,3 +2076,62 @@ async fn insert_record(
     }
     Ok(record_id)
 }
+
+impl PgStore {
+    /// What `agent` did, newest first, from what the store already keeps: the records it wrote,
+    /// the tasks it started and claimed, its review verdicts, the submits it made (a submit is the task owner's, and
+    /// the owner changes only by a claim, so a submit with no later claim of its task is the
+    /// current owner's) and the merges it made. `repo` keeps one repo's entries.
+    pub async fn agent_timeline(
+        &self,
+        agent: &str,
+        repo: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<TimelineItem>> {
+        let rows = sqlx::query(
+            "SELECT x.at, x.kind, x.task_id, t.repo, t.slug, t.title, x.text FROM (
+                 SELECT r.created_at AS at, r.kind, r.task_id, r.summary AS text, r.id::text AS k
+                 FROM records r WHERE r.author_agent = $1
+               UNION ALL
+                 SELECT e.at, e.kind, e.task_id, '', e.id::text
+                 FROM events e
+                 WHERE e.kind IN ('started', 'claim') AND e.payload->>'agent' = $1
+                   AND e.task_id IS NOT NULL
+               UNION ALL
+                 SELECT e.at, e.kind, e.task_id, '', e.id::text
+                 FROM events e JOIN tasks o ON o.id = e.task_id
+                 WHERE e.kind = 'submit' AND o.owner_agent = $1
+                   AND NOT EXISTS (SELECT 1 FROM events c
+                                   WHERE c.task_id = e.task_id AND c.kind = 'claim' AND c.id > e.id)
+               UNION ALL
+                 SELECT v.created_at, v.verdict, v.task_id, '', v.id::text
+                 FROM review_verdicts v WHERE v.reviewer = $1
+               UNION ALL
+                 SELECT m.merged_at, 'merged', m.id, '', m.id::text
+                 FROM tasks m WHERE m.merged_by = $1 AND m.merged_at IS NOT NULL
+             ) x JOIN tasks t ON t.id = x.task_id
+             WHERE ($2::text IS NULL OR t.repo = $2)
+             ORDER BY x.at DESC, x.kind, x.k DESC
+             LIMIT $3",
+        )
+        .bind(agent)
+        .bind(repo)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(TimelineItem {
+                    at: r.try_get("at").map_err(serr)?,
+                    kind: r.try_get("kind").map_err(serr)?,
+                    task_id: r.try_get("task_id").map_err(serr)?,
+                    repo: r.try_get("repo").map_err(serr)?,
+                    slug: r.try_get("slug").map_err(serr)?,
+                    title: r.try_get("title").map_err(serr)?,
+                    text: r.try_get("text").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+}

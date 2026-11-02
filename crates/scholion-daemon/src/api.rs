@@ -118,6 +118,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/maintenance/prune", post(prune))
         .route("/v1/repos/{name}/outbox", get(outbox))
         .merge(crate::routing_api::routes())
+        .merge(crate::office::routes())
 }
 
 /// Sessions idle this long lose their ledger in `prune`.

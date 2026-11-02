@@ -37,23 +37,8 @@ It spends nothing.
 | 6 | Style the HTML report | ui | 0 | grok | both `can`; grok is cheaper |
 | 7 | Fix the README typos | (none) | 0 | grok | untagged → the cheapest agent |
 
-## Second project: Sunken Crown (if `~/projects/sunken-crown` exists)
-
-`setup.sh` also registers the game repo as `sunken-crown` and posts five tasks for it. The game is
-Godot/GDScript with Python tools. av indexes only the Python, so GDScript files get records and
-packs but no symbols. Every goal tells the agent to read `HANDOFF.md` and leave it unedited, and
-not to push. av imports a copy of the repo, so the original checkout is never changed.
-
-| task | needs | priority | should go to |
-|------|-------|----------|--------------|
-| Validator: every art path must exist | code,tests | 1 | claude (Grok lacks `tests`) |
-| Remove the duplicate `_is_enemy` | code | 0 | claude |
-| Review the shard icons at 48 px | image | 1 | grok |
-| Check the weak spots of art batches 6-10 | image | 0 | grok |
-| Explain the tools folder | (none) | 0 | grok (cheapest) |
-
-`start_task` with no arguments draws from every repo, so one agent session may work on both
-projects in turn. Pass `repo` to keep it on one project; `av next --repo` does the same on the
+`start_task` with no arguments draws from every repo on the daemon, so one agent session may
+work on several projects in turn. Pass `repo` to keep it on one project; `av next --repo` does the same on the
 CLI.
 
 ## Reservations

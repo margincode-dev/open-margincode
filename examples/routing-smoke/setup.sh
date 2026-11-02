@@ -53,31 +53,5 @@ else
     post --title "Fix the README typos" --goal "Proofread README.md and fix the spelling mistakes. Change nothing else."
 fi
 
-# Second project: the Sunken Crown game (Godot/GDScript, Python tools), if it is on this machine.
-# av imports it; the original checkout is never changed. GDScript gets records and packs but no
-# symbol index (av-index parses Rust, TypeScript and Python only).
-GAME=${GAME:-sunken-crown}
-GAME_SRC=${GAME_SRC:-$HOME/projects/sunken-crown}
-if [ -d "$GAME_SRC/.git" ]; then
-    "$AV" repo add "$GAME" "$GAME_SRC" 2>/dev/null || echo "(repo $GAME already registered)"
-    if has_items "$GAME"; then
-        echo "(backlog of $GAME is not empty; not posting again)"
-    else
-        rules="Read HANDOFF.md first, but do not edit it and do not push: av reviews and merges."
-        gpost() { "$AV" post --repo "$GAME" "$@"; }
-        gpost --priority 1 --needs code,tests --title "Validator: every art path must exist" \
-          --goal "tools/validate_content.py: report an error for each content/ reference to a portrait, battle picture or icon file that does not exist under assets/ or art/. Add a test under tests/ for the check (Python, no Godot). python3 tools/validate_content.py must still print Content OK. $rules"
-        gpost --needs code --title "Remove the duplicate _is_enemy" \
-          --goal "tools/validate_content.py defines _is_enemy twice (the second has noqa F811). Keep one correct version, make sure every caller still behaves the same, and say why in a decision record. $rules"
-        gpost --priority 1 --needs image --title "Review the shard icons at 48 px" \
-          --goal "Look at the six PNGs in assets/icons/shards/ shrunk to 48x48. HANDOFF says they differ mainly by colour. Write docs/art/review-shard-icons.md: for each icon, whether it is readable at 48 px and for colour-blind players, and one concrete shape change. Do not change the PNGs. $rules"
-        gpost --needs image --title "Check the weak spots of art batches 6-10" \
-          --goal "HANDOFF.md lists weak spots per art batch (e.g. kyoto_nishiki_mortar reads as a pot, siab_mortar as a hand cannon). Open each named picture and write docs/art/weak-spots-check.md: for each, confirmed or not, and how bad on a 1-3 scale. Do not change the art. $rules"
-        gpost --title "Explain the tools folder" \
-          --goal "tools/ has no README. Write tools/README.md: one line per script saying what it does and how to run it, read from each script. Change no script. $rules"
-    fi
-    "$AV" backlog --repo "$GAME"
-fi
-
 "$AV" agent list
 "$AV" backlog --repo "$REPO"

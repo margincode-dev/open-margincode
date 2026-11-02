@@ -493,7 +493,7 @@ id. The dashboard lists the teams (skill, cost, and open tasks against the limit
 `docs/superpowers/specs/2026-10-31-agent-routing-design.md`; how to measure whether it pays:
 `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md` (not yet run: no claim is made).
 To try it with real agents, run `examples/routing-smoke/setup.sh`. It sets up a small sample
-project (and your Sunken Crown checkout, if present) with profiles for Claude Code and Grok and a
+project with profiles for Claude Code and Grok and a
 tagged backlog. Each table in its README says which agent should take which task. With no
 subscription, `examples/routing-smoke/deepseek-demo.sh` runs two Claude Code agents on DeepSeek
 Flash through the same loop on its own daemon (the run checked for 0.0.2).

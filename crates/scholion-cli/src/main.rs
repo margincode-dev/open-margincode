@@ -335,8 +335,17 @@ enum Cmd {
         /// slug of its title). `av next` does not offer the item before.
         #[arg(long, value_delimiter = ',')]
         after: Vec<String>,
+        /// The target it counts toward (a target id or the slug of its title; see `av target`).
+        #[arg(long)]
+        target: Option<String>,
     },
-    /// List the backlog, or drop an item.
+    /// Targets: what a team works toward in a repo (a release, a milestone). Backlog items count
+    /// toward one, and its progress is how many of them merged.
+    Target {
+        #[command(subcommand)]
+        cmd: TargetCmd,
+    },
+    /// List the backlog, drop an item, or count one toward a target.
     #[command(args_conflicts_with_subcommands = true)]
     Backlog {
         #[command(subcommand)]
@@ -413,6 +422,53 @@ enum AgentCmd {
 enum BacklogCmd {
     /// Withdraw a queued item.
     Drop { id: String },
+    /// Count an item toward a target (an id or the slug of its title); with none, toward no
+    /// target.
+    Target { id: String, target: Option<String> },
+}
+
+#[derive(Subcommand)]
+enum TargetCmd {
+    /// Add a target to a repo.
+    Add {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        title: String,
+        /// What it means to be done.
+        #[arg(long, default_value = "")]
+        detail: String,
+        /// YYYY-MM-DD.
+        #[arg(long)]
+        due: Option<String>,
+    },
+    /// List targets with their progress (active ones unless --all).
+    List {
+        #[arg(long)]
+        repo: Option<String>,
+        /// Done and dropped targets too.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Mark a target done.
+    Done {
+        target: String,
+        /// The repo a slug is looked up in (an id needs none).
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Drop a target nobody works toward any more.
+    Drop {
+        target: String,
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Make a done or dropped target active again.
+    Reopen {
+        target: String,
+        #[arg(long)]
+        repo: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -859,6 +915,44 @@ fn waiting_suffix(waiting_on: &Value) -> String {
     } else {
         format!(" · waiting on {}", titles.join(", "))
     }
+}
+
+/// A path segment: letters, digits, `-`, `_` and `.` as they are, every other byte as `%XX`.
+fn urlencode(segment: &str) -> String {
+    segment
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// ` · for Ship v1` for an item that counts toward a target; nothing otherwise.
+fn target_suffix(target: &Value) -> String {
+    target
+        .as_str()
+        .map(|t| format!(" · for {t}"))
+        .unwrap_or_default()
+}
+
+/// `ship-v1  active  demo  Ship v1  1/3 merged · 1 working · 1 queued · due 2026-12-01`.
+fn target_line(t: &Value) -> String {
+    let mut line = format!(
+        "{}  {}  {}  {}  {}/{} merged · {} working · {} queued",
+        s(&t["slug"]),
+        s(&t["status"]),
+        s(&t["repo"]),
+        s(&t["title"]),
+        t["merged"],
+        t["items"],
+        t["working"],
+        t["queued"]
+    );
+    if let Some(due) = t["due"].as_str() {
+        line.push_str(&format!(" · due {due}"));
+    }
+    line
 }
 
 fn s(v: &Value) -> &str {
@@ -1798,20 +1892,83 @@ fn run(cli: Cli) -> Result<()> {
             priority,
             reserve,
             after,
+            target,
         } => {
             let r = client.post(
                 "/v1/backlog",
                 &json!({"repo": repo, "title": title, "goal": goal, "needs": needs,
                         "prefer": prefer, "priority": priority, "reserve_secs": reserve,
-                        "posted_by": cli.agent, "after": after}),
+                        "posted_by": cli.agent, "after": after, "target": target}),
             )?;
             println!(
-                "posted {} · {}{}{}",
+                "posted {} · {}{}{}{}",
                 s(&r["id"]),
                 s(&r["title"]),
                 tags_suffix(&r["needs"]),
-                waiting_suffix(&r["waiting_on"])
+                waiting_suffix(&r["waiting_on"]),
+                target_suffix(&r["target"])
             );
+        }
+        Cmd::Target {
+            cmd:
+                TargetCmd::Add {
+                    repo,
+                    title,
+                    detail,
+                    due,
+                },
+        } => {
+            let r = client.post(
+                "/v1/targets",
+                &json!({"repo": repo, "title": title, "detail": detail, "due": due,
+                        "created_by": cli.agent}),
+            )?;
+            println!(
+                "added {} · {} (post items with --target {})",
+                s(&r["id"]),
+                s(&r["title"]),
+                s(&r["slug"])
+            );
+        }
+        Cmd::Target {
+            cmd: TargetCmd::List { repo, all },
+        } => {
+            let mut query: Vec<(&str, &str)> = vec![];
+            if let Some(r) = &repo {
+                query.push(("repo", r));
+            }
+            if !all {
+                query.push(("status", "active"));
+            }
+            let r = client.get("/v1/targets", &query)?;
+            let targets = r["targets"].as_array().cloned().unwrap_or_default();
+            if targets.is_empty() {
+                println!("no targets: av target add --repo REPO --title TITLE");
+            }
+            for t in &targets {
+                println!("{}", target_line(t));
+            }
+        }
+        Cmd::Target {
+            cmd:
+                TargetCmd::Done { target, repo }
+                | TargetCmd::Drop { target, repo }
+                | TargetCmd::Reopen { target, repo },
+        } => {
+            let status = match &cli.cmd {
+                Cmd::Target {
+                    cmd: TargetCmd::Done { .. },
+                } => "done",
+                Cmd::Target {
+                    cmd: TargetCmd::Drop { .. },
+                } => "dropped",
+                _ => "active",
+            };
+            let r = client.put(
+                &format!("/v1/targets/{}", urlencode(target)),
+                &json!({"status": status, "repo": repo}),
+            )?;
+            println!("{} is {}", s(&r["title"]), s(&r["status"]));
         }
         Cmd::Backlog {
             cmd: Some(BacklogCmd::Drop { id }),
@@ -1819,6 +1976,20 @@ fn run(cli: Cli) -> Result<()> {
         } => {
             client.delete(&format!("/v1/backlog/{id}"))?;
             println!("dropped {id}");
+        }
+        Cmd::Backlog {
+            cmd: Some(BacklogCmd::Target { id, target }),
+            ..
+        } => {
+            let r = client.put(
+                &format!("/v1/backlog/{id}/target"),
+                &json!({ "target": target }),
+            )?;
+            let to = r["target"]
+                .as_str()
+                .map(|t| format!("counts toward {t}"))
+                .unwrap_or_else(|| "counts toward no target".into());
+            println!("{} · {} {to}", s(&r["id"]), s(&r["title"]));
         }
         Cmd::Backlog {
             cmd: None,
@@ -1849,7 +2020,7 @@ fn run(cli: Cli) -> Result<()> {
                     String::new()
                 };
                 println!(
-                    "{}  {}  {}  p{}  {}{}{}{}",
+                    "{}  {}  {}  p{}  {}{}{}{}{}",
                     s(&i["id"]),
                     s(&i["state"]),
                     s(&i["repo"]),
@@ -1857,6 +2028,7 @@ fn run(cli: Cli) -> Result<()> {
                     s(&i["title"]),
                     tags_suffix(&i["needs"]),
                     waiting,
+                    target_suffix(&i["target"]),
                     taken
                 );
             }

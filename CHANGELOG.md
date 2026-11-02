@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Targets** (Plan 10 A3): `av target add --repo R --title T [--due YYYY-MM-DD]` names something
+  the team works toward; `av post --target SLUG` (or `av backlog target ITEM SLUG`) counts a
+  backlog item toward it, and `av target list` shows how many of its items merged, are being
+  worked on or wait. `av target done|drop|reopen`. The dashboard shows each active target's
+  progress. Migration `0027_targets`. Targets do not change routing.
+
 ## 0.0.2 (2026-11-01)
 
 Several coding agents (Claude Code, Codex, Cursor, Grok Build, Gemini CLI) now share one backlog:

@@ -3010,3 +3010,105 @@ fn watch_stops_after_max_runs_and_backs_off_on_failure() {
     // after the first failure it waited twice the interval
     assert!(started.elapsed() >= std::time::Duration::from_secs(2));
 }
+
+// ---- Plan 10 A3: targets
+
+#[test]
+fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
+    let (d, scratch) = daemon_with_repo();
+    let dir = scratch.path();
+    let added = ok(av(
+        &d,
+        dir,
+        &[
+            "target",
+            "add",
+            "--repo",
+            "demo",
+            "--title",
+            "Ship v1",
+            "--due",
+            "2026-12-01",
+            "--detail",
+            "the first release",
+        ],
+    ));
+    assert!(added.contains("Ship v1"), "{added}");
+    assert!(added.contains("ship-v1"), "{added}");
+
+    ok(av(
+        &d,
+        dir,
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Louder hello",
+            "--goal",
+            "g",
+            "--target",
+            "ship-v1",
+        ],
+    ));
+    let posted = ok(av(
+        &d,
+        dir,
+        &["post", "--repo", "demo", "--title", "Second", "--goal", "g"],
+    ));
+    let id = posted
+        .split_whitespace()
+        .find(|w| w.len() == 36 && w.matches('-').count() == 4)
+        .unwrap()
+        .to_owned();
+    let linked = ok(av(&d, dir, &["backlog", "target", &id, "ship-v1"]));
+    assert!(linked.contains("Ship v1"), "{linked}");
+
+    let list = ok(av(&d, dir, &["backlog"]));
+    assert_eq!(
+        list.lines().filter(|l| l.contains("for Ship v1")).count(),
+        2,
+        "{list}"
+    );
+
+    let targets = ok(av(&d, dir, &["target", "list", "--repo", "demo"]));
+    assert!(targets.contains("Ship v1"), "{targets}");
+    assert!(targets.contains("0/2 merged"), "{targets}");
+    assert!(targets.contains("due 2026-12-01"), "{targets}");
+
+    // unlink one, then close the target: it leaves the default (active) list
+    ok(av(&d, dir, &["backlog", "target", &id]));
+    let targets = ok(av(&d, dir, &["target", "list", "--repo", "demo"]));
+    assert!(targets.contains("0/1 merged"), "{targets}");
+    ok(av(
+        &d,
+        dir,
+        &["target", "done", "ship-v1", "--repo", "demo"],
+    ));
+    let active = ok(av(&d, dir, &["target", "list", "--repo", "demo"]));
+    assert!(!active.contains("Ship v1"), "{active}");
+    let all = ok(av(&d, dir, &["target", "list", "--repo", "demo", "--all"]));
+    assert!(all.contains("done"), "{all}");
+
+    // a closed target takes no items, until it is reopened
+    let refused = av(
+        &d,
+        dir,
+        &[
+            "post", "--repo", "demo", "--title", "Third", "--goal", "g", "--target", "ship-v1",
+        ],
+    );
+    assert!(!refused.status.success(), "{}", out(&refused));
+    ok(av(
+        &d,
+        dir,
+        &["target", "reopen", "ship-v1", "--repo", "demo"],
+    ));
+    ok(av(
+        &d,
+        dir,
+        &[
+            "post", "--repo", "demo", "--title", "Third", "--goal", "g", "--target", "ship-v1",
+        ],
+    ));
+}

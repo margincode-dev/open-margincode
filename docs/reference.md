@@ -472,6 +472,11 @@ av agent set grok --best image --can ui --cost 2 --alias grok-shell-av
 av agent set cursor --best code --can tests,ui,docs --cost 3 --max-open 2   # at most 2 open tasks
 av post --repo pantry --title "Redraw the logo" --goal "..." --needs image   # to the backlog
 av post --repo pantry --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
+av target add --repo pantry --title "Ship v1" --due 2026-12-01   # something the team works toward
+av post --repo pantry --title "Price labels" --goal "..." --target ship-v1   # counts toward it
+av backlog target ITEM ship-v1                                   # or link an item later (no target: unlink)
+av target list --repo pantry               # each active target: merged/items, working, queued, due
+av target done ship-v1 --repo pantry       # also: drop, reopen
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
 av next --take review,merge                # only reviews and merges (--take work: never reviews)
@@ -504,7 +509,10 @@ quiet for a whole lease (the owner may resume its own), and backlog items. A rev
 agent is reserved for it for 10 minutes. `wait_secs` (MCP `wait`, CLI `--wait`, at most 50) holds
 the call until something fits; `dry_run` says what it would give without taking it, which is what
 `av watch` polls. The MCP task tools take a slug (`louder-hello` or `pantry/louder-hello`) as well as an
-id. The dashboard lists the teams (skill, cost, and open tasks against the limit), the queue and who each item is reserved for. Design:
+id. A **target** (a release, a milestone) groups backlog items: an item counts toward at most one
+active target of its repo, and the target's progress is how many of its items merged (a dropped
+item stops counting). Targets are never deleted; they are done or dropped and can be reopened. They
+do not change routing. The dashboard lists the teams (skill, cost, and open tasks against the limit), the queue and who each item is reserved for. Design:
 `docs/superpowers/specs/2026-10-31-agent-routing-design.md`; how to measure whether it pays:
 `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md` (not yet run: no claim is made).
 To try it with real agents, run `examples/routing-smoke/setup.sh`. It sets up a small sample
@@ -516,12 +524,15 @@ Flash through the same loop on its own daemon (the run checked for 0.0.2).
 ### Dashboard
 
 Open `http://localhost:7420/ui` to watch agents work: tasks by status, a Teams panel (each profile's
-skills and cost, how many open tasks it holds, and a full chip at its limit), the backlog, a live
+skills and cost, how many open tasks it holds, and a full chip at its limit), the repo's targets with
+their progress (overdue ones in red), the backlog, a live
 activity feed (the `/v1/events` long-poll), and for each task its records, changed files, claim and
 review state. "Build context pack" shows exactly what the next agent would receive at a given budget.
 The page is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks
 for the token once per browser tab. It reads `GET /v1/tasks` (`?repo=`, `?status=`, `?limit=`),
-`GET /v1/tasks/{id}/records` and `GET /v1/agents`.
+`GET /v1/tasks/{id}/records`, `GET /v1/agents`, `GET /v1/backlog` and `GET /v1/targets` (`?repo=`,
+`?status=active|done|dropped`). Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or
+slug}` (`{status, repo}`) and `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
 
 ## Test
 

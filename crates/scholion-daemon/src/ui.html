@@ -133,6 +133,13 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 dialog input { width: 100%; margin: 10px 0; }
 .banner { margin: 16px 16px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bad); background: var(--rubric-soft); }
 .banner[hidden] { display: none; }
+.tg { padding: 6px 4px 8px; border-bottom: 1px solid var(--line); font-size: 12.5px; overflow-wrap: anywhere; }
+.tg .row { justify-content: space-between; }
+.tg .w { color: var(--faint); font-size: 11.5px; }
+.tg .meter { margin: 5px 0 3px; }
+.tg .meter > i { background: var(--ok); }
+.tg.closed { opacity: .6; }
+.tg.late .due { color: var(--bad); }
 .toggle { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .pond { padding: 8px 12px 0; }
 .pond > h2 { margin: 0 0 6px; font-family: var(--display); font-size: 16px; font-weight: 600; }
@@ -192,7 +199,9 @@ dialog input { width: 100%; margin: 10px 0; }
 <main>
   <section class="board" id="board" aria-label="Tasks by status"></section>
   <aside class="feed" aria-label="Backlog and activity">
-    <h2>Backlog</h2>
+    <h2>Targets</h2>
+    <div id="targets"><div class="empty">No targets.</div></div>
+    <h2 class="gap">Backlog</h2>
     <div id="backlog"><div class="empty">Nothing waiting.</div></div>
     <h2 class="gap">Activity</h2>
     <div id="feed"><div class="empty">No events yet.</div></div>
@@ -421,6 +430,36 @@ async function loadTasks() {
   loadHealth();
   loadTeams().catch(() => {}); // a failing panel must not hide the board
   loadBacklog().catch(() => {}); // a failing panel must not hide the board
+  loadTargets().catch(() => {}); // an older daemon has no targets: the panel stays empty
+}
+
+// What the repo works toward: active targets with how many of their backlog items merged, then
+// the last few closed ones. Targets are added with `av target add`; this page only reads them.
+async function loadTargets() {
+  const box = document.getElementById("targets");
+  if (!S.repo) { box.replaceChildren(h("div", { class: "empty" }, "No targets.")); return; }
+  const body = await api(`/v1/targets?repo=${encodeURIComponent(S.repo)}`);
+  const all = body.targets || [];
+  const active = all.filter(t => t.status === "active");
+  const closed = all.filter(t => t.status !== "active").slice(-3).reverse();
+  const today = new Date().toISOString().slice(0, 10);
+  const row = t => {
+    const pct = t.items ? Math.round(100 * t.merged / t.items) : 0;
+    const late = t.status === "active" && t.due && t.due < today;
+    return h("div", { class: "tg" + (t.status !== "active" ? " closed" : "") + (late ? " late" : ""),
+      title: t.detail || null },
+      h("div", { class: "row" },
+        h("span", {}, t.title),
+        h("span", { class: "w" }, t.status === "active" ? `${t.merged}/${t.items}` : t.status)),
+      t.status === "active" && h("div", { class: "meter", title: `${pct}% of its items merged` },
+        h("i", { style: `width:${pct}%` })),
+      h("div", { class: "w row" },
+        h("span", {}, [t.working && `${t.working} working`, t.queued && `${t.queued} queued`,
+          !t.items && "no items yet"].filter(Boolean).join(" · ") || "all merged"),
+        t.due && h("span", { class: "due" }, (late ? "overdue " : "due ") + t.due)));
+  };
+  const rows = [...active.map(row), ...closed.map(row)];
+  fill(box, rows.length ? rows : [h("div", { class: "empty" }, "No targets. Add one with av target add.")]);
 }
 
 // One row per profile, cheapest first, then owners of open tasks who have no profile.
@@ -484,6 +523,7 @@ async function loadBacklog() {
         i.best_agent
           ? h("span", { class: "owner" }, "→", slime(i.best_agent, "idle", 16), i.best_agent)
           : h("span", {}, "no agent can do it"),
+        i.target && h("span", {}, "for " + i.target),
         h("span", {}, ago(i.created_at))))),
     ...taken.items.slice(-5).reverse().map(i => h("button", {
       class: "ev", type: "button", onclick: () => i.task_id && openTask(i.task_id) },

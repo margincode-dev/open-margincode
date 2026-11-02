@@ -67,6 +67,9 @@ pub struct NewBacklogItem {
     /// Items this one starts after, each a backlog item id or the slug of its title (same repo).
     #[serde(default)]
     pub after: Vec<String>,
+    /// The target it counts toward: a target id or the slug of its title (same repo, active).
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +118,82 @@ pub struct BacklogEntry {
     /// Titles of the items in `after` that are not merged yet; empty: nothing to wait for.
     #[serde(default)]
     pub waiting_on: Vec<String>,
+    /// The target the item counts toward, and its title.
+    #[serde(default)]
+    pub target_id: Option<Uuid>,
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+/// Something a team works toward in a repo (a release, a milestone). Backlog items count toward
+/// at most one target; its progress is what became of them. A target is never deleted: it is
+/// done or dropped, and can be made active again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Target {
+    pub id: Uuid,
+    pub repo: String,
+    pub title: String,
+    /// The slug of the title: how `--target` and the API name it besides its id.
+    pub slug: String,
+    pub detail: String,
+    pub status: TargetStatus,
+    pub due: Option<chrono::NaiveDate>,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    /// Backlog items that count toward it, dropped ones left out.
+    pub items: i64,
+    /// Of those: waiting for an agent.
+    pub queued: i64,
+    /// Taken, and their task is not merged yet.
+    pub working: i64,
+    /// Taken, and their task merged.
+    pub merged: i64,
+}
+
+/// What the user adds (`av target add`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewTarget {
+    pub repo: String,
+    pub title: String,
+    #[serde(default)]
+    pub detail: String,
+    pub due: Option<chrono::NaiveDate>,
+    pub created_by: String,
+}
+
+/// Longest target title (the same bound as the column's check).
+pub const TARGET_TITLE_MAX: usize = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetStatus {
+    Active,
+    Done,
+    Dropped,
+}
+
+impl TargetStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TargetStatus::Active => "active",
+            TargetStatus::Done => "done",
+            TargetStatus::Dropped => "dropped",
+        }
+    }
+}
+
+impl std::str::FromStr for TargetStatus {
+    type Err = crate::AvError;
+    fn from_str(s: &str) -> crate::Result<Self> {
+        match s {
+            "active" => Ok(TargetStatus::Active),
+            "done" => Ok(TargetStatus::Done),
+            "dropped" => Ok(TargetStatus::Dropped),
+            other => Err(crate::AvError::Invalid(format!(
+                "unknown target status {other:?} (active, done or dropped)"
+            ))),
+        }
+    }
 }
 
 /// A handed-off task that names what its next agent needs (`av handoff --needs`).

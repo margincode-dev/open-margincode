@@ -33,6 +33,7 @@ fn new_item(repo: &str, title: &str, needs: &[&str]) -> NewBacklogItem {
         reserve_secs: DEFAULT_RESERVE_SECS,
         posted_by: "me".into(),
         after: vec![],
+        target: None,
     }
 }
 

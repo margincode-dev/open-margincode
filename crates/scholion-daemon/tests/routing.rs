@@ -1111,3 +1111,179 @@ async fn next_routes_a_dozen_agents_at_once_with_no_cap() {
     assert_eq!(items.len(), names.len());
     assert!(items.iter().all(|it| it["state"] == "taken"), "{items:?}");
 }
+
+// ---- Plan 10 A3: targets ----
+
+async fn add_target(e: &Env, repo: &str, title: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/targets",
+        Some(json!({"repo": repo, "title": title, "detail": "why", "due": "2026-12-01"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+async fn targets(e: &Env, query: &str) -> Vec<Value> {
+    let (status, body) = call(&e.app, "GET", &format!("/v1/targets{query}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["targets"].as_array().unwrap().clone()
+}
+
+#[tokio::test]
+async fn targets_are_added_listed_and_closed_over_http() {
+    let e = env().await;
+    let t = add_target(&e, "demo", "Ship v1").await;
+    assert_eq!(t["status"], "active");
+    assert_eq!(t["due"], "2026-12-01");
+    assert_eq!(t["created_by"], "user");
+    add_target(&e, "other", "Elsewhere").await;
+    assert_eq!(targets(&e, "?repo=demo").await.len(), 1);
+    assert_eq!(targets(&e, "").await.len(), 2);
+
+    // by slug within a repo, or by id
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/targets/ship-v1",
+        Some(json!({"repo": "demo", "status": "done"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "done");
+    assert!(targets(&e, "?repo=demo&status=active").await.is_empty());
+    let id = t["id"].as_str().unwrap();
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/targets/{id}"),
+        Some(json!({"status": "active"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, _) = call(
+        &e.app,
+        "PUT",
+        "/v1/targets/ship-v1",
+        Some(json!({"repo": "demo", "status": "finished"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &e.app,
+        "PUT",
+        "/v1/targets/nope",
+        Some(json!({"repo": "demo", "status": "done"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call(
+        &e.app,
+        "POST",
+        "/v1/targets",
+        Some(json!({"repo": "demo", "title": " "})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn backlog_items_count_toward_a_target_and_merges_move_it() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 1).await;
+    add_target(&e, "demo", "Ship v1").await;
+    let (status, a) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog",
+        Some(
+            json!({"repo": "demo", "title": "Louder hello", "goal": "Make hello louder",
+                    "target": "ship-v1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{a}");
+    assert_eq!(a["target"], "Ship v1");
+    let second = post_item(&e, "demo", "Second", &[], 0).await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/backlog/{}/target", second["id"].as_str().unwrap()),
+        Some(json!({"target": "ship-v1"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["target"], "Ship v1");
+    let listed = backlog(&e, "?repo=demo").await;
+    assert!(
+        listed.iter().all(|i| i["target"] == "Ship v1"),
+        "{listed:?}"
+    );
+    let t = &targets(&e, "?repo=demo").await[0];
+    assert_eq!(
+        (t["items"].as_i64(), t["queued"].as_i64()),
+        (Some(2), Some(2))
+    );
+
+    // claude takes the first and merges it
+    let (status, t) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["task"]["title"], "Louder hello", "{t}");
+    edit_greeter(&e, &t);
+    record_decision(&e, &t).await;
+    let task = id(&t);
+    let (status, b) = task_op(&e, &task, "submit", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    approve(&e, &task, "grok").await;
+    let (status, b) = task_op(&e, &task, "merge", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let t = &targets(&e, "?repo=demo").await[0];
+    assert_eq!(
+        (
+            t["items"].as_i64(),
+            t["queued"].as_i64(),
+            t["merged"].as_i64()
+        ),
+        (Some(2), Some(1), Some(1)),
+        "{t}"
+    );
+
+    // unlinking
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/backlog/{}/target", second["id"].as_str().unwrap()),
+        Some(json!({"target": null})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["target"].is_null());
+}
+
+#[tokio::test]
+async fn a_closed_target_takes_no_items() {
+    let e = env().await;
+    add_target(&e, "demo", "Ship v1").await;
+    call(
+        &e.app,
+        "PUT",
+        "/v1/targets/ship-v1",
+        Some(json!({"repo": "demo", "status": "dropped"})),
+    )
+    .await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog",
+        Some(json!({"repo": "demo", "title": "x", "goal": "y", "target": "ship-v1"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("dropped"),
+        "{body}"
+    );
+}

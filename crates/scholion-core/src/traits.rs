@@ -256,6 +256,34 @@ pub trait IntentStore: Send + Sync {
     async fn untake_backlog(&self, id: uuid::Uuid) -> Result<()>;
     /// Names the task made for a taken item.
     async fn link_backlog_task(&self, id: uuid::Uuid, task: TaskId) -> Result<()>;
+    /// Counts a queued or taken item toward a target of its repo (`None` unlinks it). The target
+    /// is an id or the slug of its title and must be active. `NotFound` for an unknown item or
+    /// target, `IllegalState` for a dropped item or a closed target.
+    async fn set_backlog_target(
+        &self,
+        id: uuid::Uuid,
+        target: Option<&str>,
+    ) -> Result<crate::routing::BacklogEntry>;
+
+    // --- Plan 10 A3: targets.
+    /// A blank repo or title, or a title over 200 characters, is `Invalid`.
+    async fn add_target(&self, t: crate::routing::NewTarget) -> Result<crate::routing::Target>;
+    /// Oldest first, with each target's progress.
+    async fn list_targets(
+        &self,
+        repo: Option<&str>,
+        status: Option<crate::routing::TargetStatus>,
+    ) -> Result<Vec<crate::routing::Target>>;
+    /// `NotFound` for an unknown id.
+    async fn set_target_status(
+        &self,
+        id: uuid::Uuid,
+        status: crate::routing::TargetStatus,
+    ) -> Result<crate::routing::Target>;
+    /// The target `reference` names: its id, or the slug of its title. Without `repo` a slug must
+    /// be unique across repos (`Invalid` otherwise); with it, only that repo's targets count.
+    /// `NotFound` when nothing matches.
+    async fn resolve_target(&self, repo: Option<&str>, reference: &str) -> Result<uuid::Uuid>;
     /// Tags the next agent of a handed-off task must have. `IllegalState` unless it is handed off.
     async fn set_handoff_needs(
         &self,

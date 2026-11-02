@@ -9,7 +9,9 @@ use axum::extract::{Path, Query, State};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::Utc;
-use scholion_core::routing::{self, BacklogItem, BacklogState, NewBacklogItem, Profile};
+use scholion_core::routing::{
+    self, BacklogItem, BacklogState, NewBacklogItem, NewTarget, Profile, Target, TargetStatus,
+};
 use scholion_core::*;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -28,6 +30,9 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/backlog", post(post_backlog).get(list_backlog))
         .route("/v1/backlog/next", post(next))
         .route("/v1/backlog/{id}", delete(drop_backlog))
+        .route("/v1/backlog/{id}/target", put(put_backlog_target))
+        .route("/v1/targets", get(list_targets).post(post_target))
+        .route("/v1/targets/{target}", put(put_target))
 }
 
 async fn list_agents(State(st): State<AppState>) -> ApiResult<Value> {
@@ -130,6 +135,8 @@ struct PostBacklog {
     /// Items this one starts after: a backlog item id or the slug of its title.
     #[serde(default)]
     after: Vec<String>,
+    /// The target it counts toward: a target id or the slug of its title.
+    target: Option<String>,
 }
 
 async fn post_backlog(
@@ -148,6 +155,7 @@ async fn post_backlog(
             reserve_secs: b.reserve_secs.unwrap_or(routing::DEFAULT_RESERVE_SECS),
             posted_by: b.posted_by.unwrap_or_else(|| "user".into()),
             after: b.after,
+            target: b.target,
         })
         .await?;
     Ok(Json(entry))
@@ -186,6 +194,89 @@ async fn list_backlog(
 async fn drop_backlog(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
     st.store.drop_backlog(id).await?;
     Ok(Json(json!({ "id": id, "state": "dropped" })))
+}
+
+#[derive(Deserialize)]
+struct BacklogTargetBody {
+    /// A target id or the slug of its title; null unlinks the item.
+    target: Option<String>,
+}
+
+/// Counts a backlog item toward a target of its repo, or toward none.
+async fn put_backlog_target(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(b): Json<BacklogTargetBody>,
+) -> ApiResult<routing::BacklogEntry> {
+    Ok(Json(
+        st.store.set_backlog_target(id, b.target.as_deref()).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct ListTargets {
+    repo: Option<String>,
+    status: Option<String>,
+}
+
+async fn list_targets(
+    State(st): State<AppState>,
+    Query(q): Query<ListTargets>,
+) -> ApiResult<Value> {
+    let status = q
+        .status
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(str::parse::<TargetStatus>)
+        .transpose()?;
+    let repo = q.repo.as_deref().filter(|r| !r.is_empty());
+    Ok(Json(
+        json!({ "targets": st.store.list_targets(repo, status).await? }),
+    ))
+}
+
+#[derive(Deserialize)]
+struct PostTarget {
+    repo: String,
+    title: String,
+    #[serde(default)]
+    detail: String,
+    due: Option<chrono::NaiveDate>,
+    created_by: Option<String>,
+}
+
+async fn post_target(State(st): State<AppState>, Json(b): Json<PostTarget>) -> ApiResult<Target> {
+    Ok(Json(
+        st.store
+            .add_target(NewTarget {
+                repo: b.repo,
+                title: b.title,
+                detail: b.detail,
+                due: b.due,
+                created_by: b.created_by.unwrap_or_else(|| "user".into()),
+            })
+            .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct PutTarget {
+    status: String,
+    /// The repo a slug is looked up in (an id needs none).
+    repo: Option<String>,
+}
+
+/// Marks a target done, dropped or active again. The path names it by id or by the slug of its
+/// title.
+async fn put_target(
+    State(st): State<AppState>,
+    Path(target): Path<String>,
+    Json(b): Json<PutTarget>,
+) -> ApiResult<Target> {
+    let status: TargetStatus = b.status.trim().parse()?;
+    let repo = b.repo.as_deref().filter(|r| !r.is_empty());
+    let id = st.store.resolve_target(repo, &target).await?;
+    Ok(Json(st.store.set_target_status(id, status).await?))
 }
 
 #[derive(Deserialize)]

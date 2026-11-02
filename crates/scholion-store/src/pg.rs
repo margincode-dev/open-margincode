@@ -62,7 +62,8 @@ const BACKLOG_COLS: &str = "b.id, b.repo, b.title, b.goal, b.needs, b.prefer, b.
     COALESCE((SELECT array_agg(d.title ORDER BY d.created_at, d.id)
               FROM backlog d LEFT JOIN tasks t ON t.id = d.task_id
               WHERE d.id = ANY(b.after_ids) AND t.status IS DISTINCT FROM 'merged'),
-             '{}') AS waiting_on";
+             '{}') AS waiting_on, \
+    b.target_id, (SELECT g.title FROM targets g WHERE g.id = b.target_id) AS target";
 
 fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
     let state: String = r.try_get("state").map_err(serr)?;
@@ -88,7 +89,117 @@ fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
         taken_at: r.try_get("taken_at").map_err(serr)?,
         posted_by: r.try_get("posted_by").map_err(serr)?,
         waiting_on: r.try_get("waiting_on").map_err(serr)?,
+        target_id: r.try_get("target_id").map_err(serr)?,
+        target: r.try_get("target").map_err(serr)?,
     })
+}
+
+/// A target with its progress: `TARGET_SELECT ... WHERE ... TARGET_GROUP`.
+const TARGET_SELECT: &str = "SELECT g.id, g.repo, g.title, g.detail, g.status, g.due, g.created_by, \
+    g.created_at, \
+    count(b.id) FILTER (WHERE b.state <> 'dropped') AS items, \
+    count(b.id) FILTER (WHERE b.state = 'queued') AS queued, \
+    count(b.id) FILTER (WHERE b.state = 'taken' AND t.status IS DISTINCT FROM 'merged') AS working, \
+    count(b.id) FILTER (WHERE b.state = 'taken' AND t.status = 'merged') AS merged \
+    FROM targets g LEFT JOIN backlog b ON b.target_id = g.id LEFT JOIN tasks t ON t.id = b.task_id";
+const TARGET_GROUP: &str = "GROUP BY g.id";
+
+fn target_from_row(r: &PgRow) -> Result<routing::Target> {
+    let status: String = r.try_get("status").map_err(serr)?;
+    let title: String = r.try_get("title").map_err(serr)?;
+    Ok(routing::Target {
+        id: r.try_get("id").map_err(serr)?,
+        repo: r.try_get("repo").map_err(serr)?,
+        slug: slugify(&title),
+        title,
+        detail: r.try_get("detail").map_err(serr)?,
+        status: status.parse()?,
+        due: r.try_get("due").map_err(serr)?,
+        created_by: r.try_get("created_by").map_err(serr)?,
+        created_at: r.try_get("created_at").map_err(serr)?,
+        items: r.try_get("items").map_err(serr)?,
+        queued: r.try_get("queued").map_err(serr)?,
+        working: r.try_get("working").map_err(serr)?,
+        merged: r.try_get("merged").map_err(serr)?,
+    })
+}
+
+async fn get_target(pool: &PgPool, id: Uuid) -> Result<routing::Target> {
+    let row = sqlx::query(&format!("{TARGET_SELECT} WHERE g.id = $1 {TARGET_GROUP}"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(serr)?
+        .ok_or_else(|| AvError::NotFound(format!("target {id}")))?;
+    target_from_row(&row)
+}
+
+/// The target `reference` names (see `IntentStore::resolve_target`). Several targets of one slug:
+/// the only active one, else the reference is refused.
+async fn resolve_target(pool: &PgPool, repo: Option<&str>, reference: &str) -> Result<Uuid> {
+    let reference = reference.trim();
+    let within = repo.map(|r| format!(" in {r}")).unwrap_or_default();
+    if let Ok(id) = reference.parse::<Uuid>() {
+        return sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM targets WHERE id = $1 AND ($2::text IS NULL OR repo = $2)",
+        )
+        .bind(id)
+        .bind(repo)
+        .fetch_optional(pool)
+        .await
+        .map_err(serr)?
+        .ok_or_else(|| AvError::NotFound(format!("target {id}{within}")));
+    }
+    let rows = sqlx::query(
+        "SELECT id, title, status FROM targets WHERE ($1::text IS NULL OR repo = $1)
+         ORDER BY created_at, id",
+    )
+    .bind(repo)
+    .fetch_all(pool)
+    .await
+    .map_err(serr)?;
+    let mut found = Vec::new();
+    for r in &rows {
+        let title: String = r.try_get("title").map_err(serr)?;
+        if slugify(&title) == reference {
+            let status: String = r.try_get("status").map_err(serr)?;
+            found.push((r.try_get::<Uuid, _>("id").map_err(serr)?, status));
+        }
+    }
+    let active: Vec<Uuid> = found
+        .iter()
+        .filter(|(_, s)| s == "active")
+        .map(|(id, _)| *id)
+        .collect();
+    match (found.as_slice(), active.as_slice()) {
+        ([(id, _)], _) | (_, [id]) => Ok(*id),
+        ([], _) => Err(AvError::NotFound(format!(
+            "target {reference:?}{within} (a target id or the slug of its title)"
+        ))),
+        (many, _) => Err(AvError::Invalid(format!(
+            "{reference:?} names {} targets{within}; use a target id{}",
+            many.len(),
+            if repo.is_none() {
+                " or name the repo"
+            } else {
+                ""
+            }
+        ))),
+    }
+}
+
+/// The target of `repo` that `reference` names, refused unless it is active.
+async fn active_target(pool: &PgPool, repo: &str, reference: &str) -> Result<Uuid> {
+    let id = resolve_target(pool, Some(repo), reference).await?;
+    let t = get_target(pool, id).await?;
+    if t.status != routing::TargetStatus::Active {
+        return Err(AvError::IllegalState(format!(
+            "target {:?} is {}; only an active target takes items (av target reopen)",
+            t.title,
+            t.status.as_str()
+        )));
+    }
+    Ok(id)
 }
 
 /// The backlog item of `repo` that `reference` names: an id, or the slug of a title (also the
@@ -931,10 +1042,14 @@ impl IntentStore for PgStore {
                 after.push(id);
             }
         }
+        let target = match item.target.as_deref().map(str::trim) {
+            Some(t) if !t.is_empty() => Some(active_target(&self.pool, &repo, t).await?),
+            _ => None,
+        };
         let row = sqlx::query(&format!(
             "INSERT INTO backlog AS b (id, repo, title, goal, needs, prefer, priority,
-                                       reserve_secs, posted_by, after_ids)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                       reserve_secs, posted_by, after_ids, target_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              RETURNING {BACKLOG_COLS}"
         ))
         .bind(Uuid::new_v4())
@@ -947,6 +1062,7 @@ impl IntentStore for PgStore {
         .bind(item.reserve_secs)
         .bind(item.posted_by)
         .bind(after)
+        .bind(target)
         .fetch_one(&self.pool)
         .await
         .map_err(serr)?;
@@ -1032,6 +1148,101 @@ impl IntentStore for PgStore {
             return Err(backlog_refusal(&self.pool, id, "only a taken item can get a task").await);
         }
         Ok(())
+    }
+
+    async fn set_backlog_target(&self, id: Uuid, target: Option<&str>) -> Result<BacklogEntry> {
+        let repo: String = sqlx::query_scalar("SELECT repo FROM backlog WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(serr)?
+            .ok_or_else(|| AvError::NotFound(format!("backlog item {id}")))?;
+        let target = match target.map(str::trim) {
+            Some(t) if !t.is_empty() => Some(active_target(&self.pool, &repo, t).await?),
+            _ => None,
+        };
+        let row = sqlx::query(&format!(
+            "UPDATE backlog AS b SET target_id = $2 WHERE b.id = $1 AND b.state <> 'dropped'
+             RETURNING {BACKLOG_COLS}"
+        ))
+        .bind(id)
+        .bind(target)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        match row {
+            Some(row) => backlog_from_row(&row),
+            None => {
+                Err(backlog_refusal(&self.pool, id, "a dropped item counts toward no target").await)
+            }
+        }
+    }
+
+    async fn add_target(&self, t: routing::NewTarget) -> Result<routing::Target> {
+        let repo = non_blank("repo", &t.repo)?;
+        let title = non_blank("title", &t.title)?;
+        if title.chars().count() > routing::TARGET_TITLE_MAX {
+            return Err(AvError::Invalid(format!(
+                "title must be at most {} characters",
+                routing::TARGET_TITLE_MAX
+            )));
+        }
+        let created_by = non_blank("created_by", &t.created_by)?;
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO targets (id, repo, title, detail, due, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(id)
+        .bind(repo)
+        .bind(title)
+        .bind(t.detail.trim())
+        .bind(t.due)
+        .bind(created_by)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?;
+        get_target(&self.pool, id).await
+    }
+
+    async fn list_targets(
+        &self,
+        repo: Option<&str>,
+        status: Option<routing::TargetStatus>,
+    ) -> Result<Vec<routing::Target>> {
+        let rows = sqlx::query(&format!(
+            "{TARGET_SELECT}
+             WHERE ($1::text IS NULL OR g.repo = $1) AND ($2::text IS NULL OR g.status = $2)
+             {TARGET_GROUP} ORDER BY g.created_at, g.id"
+        ))
+        .bind(repo)
+        .bind(status.map(routing::TargetStatus::as_str))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter().map(target_from_row).collect()
+    }
+
+    async fn set_target_status(
+        &self,
+        id: Uuid,
+        status: routing::TargetStatus,
+    ) -> Result<routing::Target> {
+        let n = sqlx::query("UPDATE targets SET status = $2 WHERE id = $1")
+            .bind(id)
+            .bind(status.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(serr)?
+            .rows_affected();
+        if n == 0 {
+            return Err(AvError::NotFound(format!("target {id}")));
+        }
+        get_target(&self.pool, id).await
+    }
+
+    async fn resolve_target(&self, repo: Option<&str>, reference: &str) -> Result<Uuid> {
+        resolve_target(&self.pool, repo, reference).await
     }
 
     async fn set_handoff_needs(

@@ -6,6 +6,6 @@ publish.workspace = true
 
 [dependencies]
 postgresql_embedded = { version = "0.21", default-features = false, features = ["theseus", "tls-rustls-ring"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+sqlx.workspace = true
 tokio.workspace = true
 uuid.workspace = true

@@ -10,14 +10,14 @@ async-trait.workspace = true
 chrono.workspace = true
 globset = "0.4"
 serde_json.workspace = true
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "uuid", "migrate", "macros", "json"] }
+sqlx = { workspace = true, features = ["chrono", "uuid", "migrate", "macros", "json"] }
 uuid.workspace = true
 
 [dev-dependencies]
 sha2 = "0.10"
-futures = "0.3"
+futures.workspace = true
 serde_json.workspace = true
 scholion-testutil = { path = "../scholion-testutil" }
 tokio.workspace = true
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+sqlx.workspace = true
 uuid.workspace = true

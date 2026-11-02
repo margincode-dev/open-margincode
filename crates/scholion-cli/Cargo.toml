@@ -28,6 +28,6 @@ scholion-index = { path = "../scholion-index" }
 scholion-store = { path = "../scholion-store" }
 scholion-testutil = { path = "../scholion-testutil" }
 scholion-vcs = { path = "../scholion-vcs" }
-axum = "0.8"
+axum.workspace = true
 tempfile = "3"
 tokio.workspace = true

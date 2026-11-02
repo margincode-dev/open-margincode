@@ -23,9 +23,9 @@ scholion-pack = { path = "../scholion-pack" }
 scholion-semantic = { path = "../scholion-semantic" }
 scholion-store = { path = "../scholion-store" }
 scholion-vcs = { path = "../scholion-vcs" }
-axum = "0.8"
+axum.workspace = true
 chrono.workspace = true
-futures = "0.3"
+futures.workspace = true
 globset = "0.4"
 postgresql_embedded = { version = "0.21", default-features = false, features = ["theseus", "tls-rustls-ring"] }
 serde.workspace = true
@@ -34,11 +34,11 @@ similar = "2"
 sha2 = "0.10"
 subtle = "2.6"
 tower = { version = "0.5", features = ["util"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "migrate"] }
+sqlx = { workspace = true, features = ["migrate"] }
 tokio.workspace = true
 async-trait.workspace = true
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

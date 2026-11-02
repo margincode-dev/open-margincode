@@ -212,18 +212,33 @@ came from our own stress runs rather than from the article.
 
 ## Architecture
 
-```
- HOST                                  DOCKER (deploy/docker-compose.yml, all on 127.0.0.1)
- ┌───────────────────────────────┐     ┌───────────────────────────────────────────────────┐
- │ agents (Claude Code, Codex …) │     │ scholion-daemon :7420  (axum, owns all state)     │
- │   edit files in               │ HTTP│  ├─ api.rs / flow.rs   routes, lifecycle ops      │
- │   ~/ws/<repo>/<task>/  ◀──────┼bind─┼─▶├─ scholion-vcs   (jj-lib)  ─▶ volume av-store   │
- │                               │mount│  ├─ scholion-store (sqlx)    ─▶ postgres:16       │
- │ scholion / av CLI ────────────┼JSON▶│  ├─ scholion-index (tree-sitter) ─▶ postgres      │
- │   finds its task via .av-task │     │  ├─ scholion-pack  (context packer)               │
- └───────────────────────────────┘     │  └─ outbox worker ─▶ embedder (TEI / Ollama)      │
-                                       │                   ─▶ qdrant                       │
-                                       └───────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph host["Host"]
+        agents["Agents (Claude Code, Codex, …)<br/>edit files in ~/ws/{repo}/{task}/"]
+        cli["scholion / av CLI and MCP tools<br/>find their task through .av-task"]
+    end
+    subgraph docker["Docker: deploy/docker-compose.yml, all on 127.0.0.1"]
+        subgraph daemon["scholion-daemon :7420 (axum, owns all state)"]
+            api["api.rs / flow.rs<br/>routes, lifecycle ops"]
+            vcs["scholion-vcs (jj-lib)"]
+            store["scholion-store (sqlx)"]
+            index["scholion-index (tree-sitter)"]
+            pack["scholion-pack (context packer)"]
+            outbox["outbox worker"]
+        end
+        avstore[("volume av-store")]
+        pg[("postgres:16")]
+        embedder["embedder (TEI / Ollama)"]
+        qdrant[("qdrant")]
+    end
+    agents <-->|bind mount| vcs
+    cli -->|HTTP, JSON| api
+    vcs --> avstore
+    store --> pg
+    index --> pg
+    outbox --> embedder
+    outbox --> qdrant
 ```
 
 The daemon can also run on the host (`cargo run -p scholion-daemon`) against the same containers.

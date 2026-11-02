@@ -38,7 +38,9 @@ where
 /// `with_extension`, `with_merge_guard`, `with_usage_sink`, `with_mcp_tools` added, and after any
 /// `migrate_extension`) plus extra routes. Those are served through [`router_with`], behind the
 /// same token as `/v1`. An error from `customize` stops start-up before anything is served. Then
-/// the outbox worker and backups start, and the server runs.
+/// the outbox worker and backups start, and the server runs. When `shutdown` completes, every
+/// handle from [`AppState::shutdown`] turns `true` (so an extension's background tasks stop with
+/// the daemon), then open connections are drained and the server stops.
 ///
 /// The returned future is not `Send` when `customize` awaits sqlx queries (a higher-ranked
 /// lifetime limit of sqlx), so await it in `main` rather than `tokio::spawn` it.
@@ -137,6 +139,13 @@ where
         ws_host_root = %cfg.ws_host_root.display(),
         "scholion-daemon ready"
     );
+    let shutdown = {
+        let state = state.clone();
+        async move {
+            shutdown.await;
+            state.signal_shutdown();
+        }
+    };
     let served = axum::serve(listener, router_with(state, extra))
         .with_graceful_shutdown(shutdown)
         .await;

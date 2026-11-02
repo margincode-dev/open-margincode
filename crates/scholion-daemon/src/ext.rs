@@ -9,7 +9,8 @@
 //!
 //! A binary built on the daemon starts through `run_with` (`serve.rs`): the same start-up as
 //! `scholion-daemon`, with a `customize` step that gets the built `AppState`, adds the points above
-//! and returns it with its extra routes.
+//! and returns it with its extra routes. `AppState::shutdown` is a handle that turns `true` when
+//! the daemon stops, for the background tasks `customize` starts.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;

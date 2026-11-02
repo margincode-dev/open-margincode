@@ -130,3 +130,54 @@ async fn an_error_from_customize_stops_start_up_before_serving() {
     .unwrap_err();
     assert_eq!(err.to_string(), "no master key");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn customize_can_watch_for_the_daemons_shutdown() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let db = TestDb::new().await;
+    let dir = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let seen = Arc::new(AtomicBool::new(false));
+    let flag = seen.clone();
+
+    let server = serve_with(
+        config(&db, dir.path(), None),
+        listener,
+        move |state: AppState| async move {
+            // an extension's background task (a watcher, a webhook thread) stops with the daemon
+            let mut shutdown = state.shutdown();
+            assert!(!*shutdown.borrow(), "not shutting down at start-up");
+            tokio::spawn(async move {
+                shutdown.wait_for(|down| *down).await.unwrap();
+                flag.store(true, Ordering::SeqCst);
+            });
+            Ok::<_, BoxError>((state, Router::new()))
+        },
+        async move {
+            let _ = stopped.await;
+        },
+    );
+    let client = async move {
+        wait_up(addr).await;
+        assert!(!seen.load(Ordering::SeqCst), "shutdown seen while serving");
+        stop.send(()).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !seen.load(Ordering::SeqCst) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the extension task did not see the shutdown within a second"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::join!(server, client)
+    })
+    .await
+    .expect("daemon stops on the shutdown future");
+    served.unwrap();
+}

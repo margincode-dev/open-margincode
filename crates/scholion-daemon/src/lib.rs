@@ -86,6 +86,9 @@ pub struct AppState {
     pub(crate) usage: Arc<dyn ext::UsageSink>,
     extensions: ext::Extensions,
     events: ext::EventFeed,
+    /// `false` until the daemon's shutdown future completes (`serve_with`); extensions watch it
+    /// through `shutdown()`.
+    shutdown: Arc<tokio::sync::watch::Sender<bool>>,
 }
 
 impl AppState {
@@ -125,7 +128,21 @@ impl AppState {
             usage: Arc::new(ext::NoUsage),
             extensions: ext::Extensions::default(),
             events: ext::EventFeed::default(),
+            shutdown: Arc::new(tokio::sync::watch::channel(false).0),
         }
+    }
+
+    /// A handle that turns `true` when the daemon starts shutting down (its shutdown future
+    /// completed; the graceful shutdown of open connections follows), so an extension's
+    /// background task stops with the daemon: `shutdown.wait_for(|down| *down).await`. A state
+    /// not served through `serve_with` never signals it.
+    pub fn shutdown(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.shutdown.subscribe()
+    }
+
+    /// Tells every `shutdown()` handle that the daemon is stopping.
+    pub(crate) fn signal_shutdown(&self) {
+        self.shutdown.send_replace(true);
     }
 
     /// At most `n` task starts copy an index at once (`AV_MAX_CONCURRENT_STARTS`).

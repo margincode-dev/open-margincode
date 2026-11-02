@@ -12,6 +12,11 @@
   for a whole lease). Clicking a desk, or a task's owner, opens the agent's timeline: its records,
   starts, claims, review verdicts, submits and merges. New read-only routes `GET /v1/office` and
   `GET /v1/agents/{name}/timeline`, built from data Scholion already keeps (no migration).
+- **`scholion-agentrun`**: `AgentCommand::env_clear()` starts the agent from an empty environment
+  (later `env` calls still apply; `path_prepend` adds nothing after the prepended dirs when there
+  is no `PATH`), and `stop_flag(flag)` kills the run's process group as soon as another thread
+  raises the flag (`RunResult::stopped`; `process::run_until`). A runner uses them to keep host
+  credentials away from an agent and to stop it at a budget.
 
 ## 0.0.2 (2026-11-01)
 

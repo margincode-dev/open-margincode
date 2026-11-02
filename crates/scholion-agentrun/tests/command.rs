@@ -179,3 +179,51 @@ fn an_events_path_that_cannot_be_created_names_it() {
         .unwrap_err();
     assert!(err.contains("missing/dir/events.jsonl"), "{err}");
 }
+
+#[test]
+fn env_clear_drops_what_the_child_would_inherit_and_later_changes_still_apply() {
+    let dir = tempfile::tempdir().unwrap();
+    // HOME is set wherever the tests run; after the clear only FOO and the prepended PATH exist
+    let r = AgentCommand::new("/bin/sh")
+        .args(["-c", r#"echo "${HOME-unset}|${FOO-unset}|$PATH""#])
+        .cwd(dir.path())
+        .events_path(dir.path().join("events.jsonl"))
+        .env("FOO", "dropped")
+        .env_clear()
+        .env("FOO", "1")
+        .path_prepend(vec![PathBuf::from("/first/bin")])
+        .run()
+        .unwrap();
+    assert_eq!(r.exit, Some(0));
+    assert_eq!(events(dir.path()).trim(), "unset|1|/first/bin");
+}
+
+#[test]
+fn a_raised_stop_flag_kills_the_session_before_its_deadline() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let flag = Arc::new(AtomicBool::new(false));
+    let raise = flag.clone();
+    let watchdog = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        raise.store(true, Ordering::SeqCst);
+    });
+    let start = std::time::Instant::now();
+    let r = sh(
+        r#"echo '{"type":"assistant","message":{"id":"a","content":[],"usage":{"input_tokens":10,"output_tokens":5}}}'
+sleep 60"#,
+        dir.path(),
+    )
+    .stop_flag(flag)
+    .run()
+    .unwrap();
+    watchdog.join().unwrap();
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert_eq!((r.exit, r.killed, r.stopped), (None, false, true));
+    assert_eq!(
+        r.usage.counted(),
+        15,
+        "what it printed before the stop counts"
+    );
+}

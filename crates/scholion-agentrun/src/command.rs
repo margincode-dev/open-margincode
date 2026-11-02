@@ -4,15 +4,18 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use crate::events::{ParsedSession, Usage, parse_stream};
-use crate::process::run_with_timeout;
+use crate::process::run_until;
 
 /// One environment change, applied in the order it was asked for.
 enum EnvOp {
     Set(OsString, OsString),
     Remove(OsString),
+    Clear,
 }
 
 /// An agent CLI to run: program, arguments, working directory, environment, a deadline, and
@@ -29,6 +32,7 @@ pub struct AgentCommand {
     timeout: Duration,
     events_path: PathBuf,
     stderr_path: Option<PathBuf>,
+    stop: Option<Arc<AtomicBool>>,
 }
 
 /// What a finished (or killed) run left behind.
@@ -38,6 +42,8 @@ pub struct RunResult {
     pub exit: Option<i32>,
     /// It ran past the deadline and its process group was killed.
     pub killed: bool,
+    /// The stop flag was raised and its process group was killed, before the deadline.
+    pub stopped: bool,
     /// Wall time from spawn to exit or kill.
     pub wall: Duration,
     /// The file the event stream was captured to.
@@ -61,6 +67,7 @@ impl AgentCommand {
             timeout: Duration::from_secs(3600),
             events_path: PathBuf::from("events.jsonl"),
             stderr_path: None,
+            stop: None,
         }
     }
 
@@ -94,7 +101,16 @@ impl AgentCommand {
         self
     }
 
-    /// Puts `dirs` in front of the inherited `PATH`.
+    /// Drops every variable the child would inherit from this process; changes asked for after
+    /// it still apply. A runner uses it so no credential of the host reaches the agent. `PATH` is
+    /// gone too, so name the program by its path or set `PATH` again.
+    pub fn env_clear(mut self) -> Self {
+        self.env.push(EnvOp::Clear);
+        self
+    }
+
+    /// Puts `dirs` in front of the child's `PATH`: the inherited one, or the one set with `env`
+    /// (none after `env_clear`).
     pub fn path_prepend(mut self, dirs: Vec<PathBuf>) -> Self {
         self.path_prepend = dirs;
         self
@@ -118,6 +134,13 @@ impl AgentCommand {
         self
     }
 
+    /// Kills the child's process group as soon as `flag` is true (`RunResult::stopped`). Another
+    /// thread raises it, such as a watchdog reading the events file as it grows.
+    pub fn stop_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.stop = Some(flag);
+        self
+    }
+
     /// Where stderr is written; without it stderr is discarded.
     pub fn stderr_path(mut self, path: impl AsRef<Path>) -> Self {
         self.stderr_path = Some(path.as_ref().to_path_buf());
@@ -137,19 +160,34 @@ impl AgentCommand {
         if let Some(dir) = &self.cwd {
             cmd.current_dir(dir);
         }
+        // the PATH the child gets, which path_prepend builds on
+        let mut path = std::env::var_os("PATH");
         for op in &self.env {
             match op {
-                EnvOp::Set(k, v) => cmd.env(k, v),
-                EnvOp::Remove(k) => cmd.env_remove(k),
+                EnvOp::Set(k, v) => {
+                    if k == "PATH" {
+                        path = Some(v.clone());
+                    }
+                    cmd.env(k, v)
+                }
+                EnvOp::Remove(k) => {
+                    if k == "PATH" {
+                        path = None;
+                    }
+                    cmd.env_remove(k)
+                }
+                EnvOp::Clear => {
+                    path = None;
+                    cmd.env_clear()
+                }
             };
         }
         if !self.path_prepend.is_empty() {
-            let inherited = std::env::var_os("PATH").unwrap_or_default();
-            let dirs = self
-                .path_prepend
-                .iter()
-                .cloned()
-                .chain(std::env::split_paths(&inherited));
+            // no PATH means nothing after the prepended dirs (an empty entry would be the cwd)
+            let inherited: Vec<PathBuf> = path
+                .map(|p| std::env::split_paths(&p).collect())
+                .unwrap_or_default();
+            let dirs = self.path_prepend.iter().cloned().chain(inherited);
             cmd.env(
                 "PATH",
                 std::env::join_paths(dirs).map_err(|e| format!("path_prepend: {e}"))?,
@@ -159,7 +197,9 @@ impl AgentCommand {
             cmd.args(["--max-budget-usd", &format!("{cap:.2}")]);
         }
         let started = Instant::now();
-        let waited = run_with_timeout(cmd, self.timeout)?;
+        let never = AtomicBool::new(false);
+        let stop = self.stop.as_deref().unwrap_or(&never);
+        let waited = run_until(cmd, self.timeout, stop)?;
         let wall = started.elapsed();
         let text = std::fs::read(&self.events_path)
             .map(|b| String::from_utf8_lossy(&b).into_owned())
@@ -169,6 +209,7 @@ impl AgentCommand {
         Ok(RunResult {
             exit: waited.exit,
             killed: waited.killed,
+            stopped: waited.stopped,
             wall,
             events_path: self.events_path,
             usage,

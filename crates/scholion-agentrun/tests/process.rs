@@ -57,3 +57,16 @@ fn a_child_past_its_deadline_is_killed_with_everything_it_started() {
     }
     panic!("the grandchild {pid} survived the kill");
 }
+
+#[test]
+fn run_until_kills_at_once_when_the_flag_is_already_raised() {
+    use std::sync::atomic::AtomicBool;
+    let dir = tempfile::tempdir().unwrap();
+    let cmd = shell("sleep 60", dir.path(), &dir.path().join("log")).unwrap();
+    let start = Instant::now();
+    let w =
+        scholion_agentrun::process::run_until(cmd, Duration::from_secs(30), &AtomicBool::new(true))
+            .unwrap();
+    assert!(start.elapsed() < Duration::from_secs(5));
+    assert_eq!((w.exit, w.killed, w.stopped), (None, false, true));
+}

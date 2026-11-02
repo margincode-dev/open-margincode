@@ -87,12 +87,15 @@ struct UsageBody {
     task_id: Option<String>,
     session: Option<String>,
     model: Option<String>,
+    call_id: Option<String>,
     #[serde(default)]
     input_tokens: u64,
     #[serde(default)]
     output_tokens: u64,
     #[serde(default)]
     cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
     cost_usd: Option<f64>,
 }
 
@@ -108,9 +111,11 @@ async fn post_usage(
         task_id: b.task_id,
         session: b.session,
         model: b.model,
+        call_id: b.call_id,
         input_tokens: b.input_tokens,
         output_tokens: b.output_tokens,
         cache_read_tokens: b.cache_read_tokens,
+        cache_write_tokens: b.cache_write_tokens,
         cost_usd: b.cost_usd,
     };
     st.usage

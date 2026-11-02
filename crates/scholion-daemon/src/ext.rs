@@ -110,16 +110,22 @@ impl ExtTool {
     }
 }
 
-/// What an agent reports with `POST /v1/agents/{name}/usage`.
+/// What an agent reports with `POST /v1/agents/{name}/usage`: one call's usage. Every field but
+/// `agent` is optional in the body (a missing count is 0).
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageReport {
     pub agent: String,
     pub task_id: Option<String>,
     pub session: Option<String>,
     pub model: Option<String>,
+    /// The provider's id of the call (`message.id`), so a sink can tell a retried report from a
+    /// second call. `None` when the client has none.
+    pub call_id: Option<String>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
+    /// Tokens written to the prompt cache (Anthropic's `cache_creation_input_tokens`).
+    pub cache_write_tokens: u64,
     /// What the agent's CLI says the call cost, if it does.
     pub cost_usd: Option<f64>,
 }

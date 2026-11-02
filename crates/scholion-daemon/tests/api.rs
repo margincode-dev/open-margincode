@@ -3483,7 +3483,8 @@ async fn a_usage_sink_gets_the_reports_and_can_refuse_one() {
         "/v1/agents/claude/usage",
         Some(
             json!({"task_id": "t-1", "model": "opus", "input_tokens": 100,
-                    "output_tokens": 20, "cache_read_tokens": 5, "cost_usd": 0.5}),
+                    "output_tokens": 20, "cache_read_tokens": 5, "cache_write_tokens": 7,
+                    "call_id": "msg_01", "cost_usd": 0.5}),
         ),
     )
     .await;
@@ -3498,11 +3499,28 @@ async fn a_usage_sink_gets_the_reports_and_can_refuse_one() {
             (
                 got[0].input_tokens,
                 got[0].output_tokens,
-                got[0].cache_read_tokens
+                got[0].cache_read_tokens,
+                got[0].cache_write_tokens
             ),
-            (100, 20, 5)
+            (100, 20, 5, 7)
         );
+        assert_eq!(got[0].call_id.as_deref(), Some("msg_01"));
         assert_eq!(got[0].cost_usd, Some(0.5));
+    }
+    // a report without a call id or cache writes (every client before they existed) still lands
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/agents/claude/usage",
+        Some(json!({"model": "opus", "input_tokens": 1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    {
+        let got = sink.0.lock().unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[1].call_id, None);
+        assert_eq!(got[1].cache_write_tokens, 0);
     }
     let (status, body) = call(
         &e.app,
@@ -3516,7 +3534,7 @@ async fn a_usage_sink_gets_the_reports_and_can_refuse_one() {
         body["error"].as_str().unwrap().contains("over budget"),
         "{body}"
     );
-    assert_eq!(sink.0.lock().unwrap().len(), 1);
+    assert_eq!(sink.0.lock().unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]

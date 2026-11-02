@@ -1075,3 +1075,39 @@ async fn an_unknown_take_is_a_client_error() {
     let (status, _) = next_taking(&e, "claude", &["everything"]).await;
     assert!(status.is_client_error(), "{status}");
 }
+
+#[tokio::test]
+async fn next_routes_a_dozen_agents_at_once_with_no_cap() {
+    // Community never caps the number of agents: twelve CLIs, each best at its own thing,
+    // all holding a task at the same time.
+    let e = env().await;
+    let names: Vec<String> = (1..=12).map(|i| format!("agent-{i:02}")).collect();
+    for (i, name) in names.iter().enumerate() {
+        put_agent(&e, name, &[&format!("skill-{i:02}")], &[], 1 + i as i32 % 4).await;
+    }
+    for i in 0..names.len() {
+        post_item(
+            &e,
+            "demo",
+            &format!("job {i:02}"),
+            &[&format!("skill-{i:02}")],
+            600,
+        )
+        .await;
+    }
+
+    let (status, body) = call(&e.app, "GET", "/v1/agents", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["agents"].as_array().unwrap().len(), names.len());
+
+    // in reverse, so the order of asking does not decide who gets what
+    for (i, name) in names.iter().enumerate().rev() {
+        let (status, body) = next(&e, name).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["task"]["owner_agent"], name.as_str(), "{body}");
+        assert_eq!(body["task"]["title"], format!("job {i:02}"), "{body}");
+    }
+    let items = backlog(&e, "").await;
+    assert_eq!(items.len(), names.len());
+    assert!(items.iter().all(|it| it["state"] == "taken"), "{items:?}");
+}

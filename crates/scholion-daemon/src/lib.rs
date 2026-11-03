@@ -97,6 +97,11 @@ pub struct AppState {
     pub(crate) reviews: routing_api::Reviews,
     /// The longest `next` holds a call open waiting for work (`wait_secs` is clamped to it).
     pub(crate) max_wait: std::time::Duration,
+    /// How often a waiting `next` looks again when nothing woke it (`routing_api::WAIT_TICK`).
+    pub(crate) wait_tick: std::time::Duration,
+    /// Bumped when what `next` may hand out changes in a way no event records: a backlog post
+    /// or drop, a profile change. Waiting `next` calls watch it (and the event feed).
+    pub(crate) work: Arc<tokio::sync::watch::Sender<u64>>,
     /// Tools an extension adds to `/mcp`. `with_mcp_tools` refuses a name a Community tool or an
     /// earlier extension tool already has, so a clash never reaches dispatch.
     pub(crate) mcp_tools: Arc<Vec<ext::ExtTool>>,
@@ -148,6 +153,8 @@ impl AppState {
             imports: Arc::default(),
             reviews: Arc::default(),
             max_wait: std::time::Duration::from_secs(routing_api::MAX_WAIT_SECS),
+            wait_tick: routing_api::WAIT_TICK,
+            work: Arc::new(tokio::sync::watch::channel(0).0),
             mcp_tools: Arc::default(),
             usage: Arc::new(ext::NoUsage),
             extensions: ext::Extensions::default(),
@@ -220,7 +227,14 @@ impl AppState {
         &self,
         profile: &scholion_core::routing::Profile,
     ) -> scholion_core::Result<()> {
-        self.store.put_profile(profile).await
+        self.store.put_profile(profile).await?;
+        self.work_changed();
+        Ok(())
+    }
+
+    /// Wakes every waiting `next`: what it may be given changed without an event saying so.
+    pub(crate) fn work_changed(&self) {
+        self.work.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     /// Asks `guard` before every submit, approval and merge, after the lifecycle rules pass.
@@ -262,6 +276,13 @@ impl AppState {
     /// The longest `next` waits for work (default `MAX_WAIT_SECS`); shorter in tests.
     pub fn with_max_wait(mut self, max: std::time::Duration) -> Self {
         self.max_wait = max;
+        self
+    }
+
+    /// How often a waiting `next` looks again when nothing woke it (default `WAIT_TICK`, 10 s):
+    /// what only time releases (a lease running out, a review reservation ending) waits for it.
+    pub fn with_wait_tick(mut self, tick: std::time::Duration) -> Self {
+        self.wait_tick = tick;
         self
     }
 

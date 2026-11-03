@@ -655,20 +655,75 @@ async fn next_waiting(app: &Router, agent: &str, wait: u64) -> (StatusCode, Valu
     .await
 }
 
+/// A waiting `next` whose timer never fires within the test: only a wake can answer it in time.
+async fn env_no_tick() -> Env {
+    env_with(|s| s.with_wait_tick(std::time::Duration::from_secs(60))).await
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn next_waits_for_work_that_arrives() {
-    let e = env().await;
+    let e = env_no_tick().await;
     put_agent(&e, "grok", &["image"], &[], 2).await;
     let app = e.app.clone();
-    let started = std::time::Instant::now();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 10).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let posted = std::time::Instant::now();
     post_item(&e, "demo", "draw it", &["image"], 0).await;
     let (status, body) = waiting.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["from"], "backlog", "{body}");
     assert_eq!(body["task"]["title"], "draw it");
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(
+        posted.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        posted.elapsed()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_submit_wakes_an_agent_waiting_for_a_review() {
+    let e = env_no_tick().await;
+    three_agents(&e).await;
+    post_for(&e, "louder hello", &["code"], "claude").await;
+    let (_, t) = next(&e, "claude").await;
+    assert_eq!(t["from"], "backlog", "{t}");
+    edit_greeter(&e, &t);
+    record_decision(&e, &t).await;
+    let app = e.app.clone();
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let submitted = std::time::Instant::now();
+    let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let (status, body) = waiting.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["from"], "review", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+    assert!(
+        submitted.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        submitted.elapsed()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_change_wakes_an_agent_that_now_fits() {
+    let e = env_no_tick().await;
+    put_agent(&e, "grok", &["image"], &[], 2).await;
+    post_item(&e, "demo", "louder hello", &["code"], 0).await;
+    let app = e.app.clone();
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let changed = std::time::Instant::now();
+    put_agent(&e, "grok", &["image"], &["code"], 2).await;
+    let (status, body) = waiting.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["task"]["title"], "louder hello", "{body}");
+    assert!(
+        changed.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        changed.elapsed()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

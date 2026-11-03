@@ -238,12 +238,18 @@ What 1000 agents need that does not exist yet, in the order it would bite:
       runner) starts at most A = (memory − shared − B × build) / cli on a host. The daemon's
       `max_open` caps a *team's* open tasks, not a host's load; it never starts processes, so it
       cannot be the limit.
-- [ ] **`next --wait` polls.** Each waiting agent re-runs `choose` every `WAIT_STEP` (2 s), so 1000
-      waiting agents are about 500 `choose` queries a second, against a pool of
-      `AV_PG_MAX_CONNECTIONS` (default 16). Waking waiters on what changes the answer instead of on a
-      timer fixes it: an in-process `Notify` fired by the lifecycle events the daemon already
-      broadcasts (`submit`, `approve`, `merged`, `handoff`, `abandon`, …) and by backlog posts,
-      which are not events today. This breaks before memory does.
+- [x] **`next --wait` polled.** Each waiting agent re-ran `choose` every 2 s, so 1000 waiting
+      agents were about 500 `choose` queries a second against a pool of `AV_PG_MAX_CONNECTIONS`
+      (default 16). Now a waiter is woken by what can change its answer: an event of
+      `WAKING_KINDS` (`submit`, `approve`, `merged`, `handoff`, `abandon`, …, of its repo when it
+      names one) from the one in-process event feed (a single 200 ms reader of the events table
+      for all subscribers), or `AppState::work_changed` (backlog post or drop, profile change);
+      else every `WAIT_TICK` (10 s) for what only time releases. Idle waiters cost 0.1 `choose`
+      a second each instead of 0.5, and work reaches them at once instead of within 2 s. Left:
+      one waking event still makes every waiter look (N `choose` per event), so this wins only
+      while waking events come slower than one per 2 s per waiter; past that, one `choose` per
+      wake handing out to all waiters is the next step. `av watch` and the Stop hook still poll
+      a dry-run `next` from the client; they gain nothing here.
 - [ ] **More than one host.** The daemon writes every workspace under its own `ws_root`, so all
       agents build on the daemon's filesystem. Several hosts need either that root shared (slow
       over the network for builds, as 9p already is at 2×) or workspaces created on the agent's

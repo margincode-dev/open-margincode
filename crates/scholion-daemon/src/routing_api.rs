@@ -76,17 +76,17 @@ async fn put_agent(
         ))
         .into());
     }
-    st.store
-        .put_profile(&Profile {
-            name: name.clone(),
-            best: b.best,
-            can: b.can,
-            cost_rank: b.cost_rank,
-            aliases: b.aliases,
-            max_open: b.max_open,
-            managed_by: None,
-        })
-        .await?;
+    // through the state, which wakes waiting `next` calls the change may now fit
+    st.put_profile(&Profile {
+        name: name.clone(),
+        best: b.best,
+        can: b.can,
+        cost_rank: b.cost_rank,
+        aliases: b.aliases,
+        max_open: b.max_open,
+        managed_by: None,
+    })
+    .await?;
     let stored = st
         .store
         .list_profiles()
@@ -132,6 +132,7 @@ async fn delete_agent(
         .into());
     }
     st.store.delete_profile(&name, q.force).await?;
+    st.work_changed();
     Ok(Json(json!({ "removed": name })))
 }
 
@@ -216,6 +217,7 @@ async fn post_backlog(
             target: b.target,
         })
         .await?;
+    st.work_changed();
     Ok(Json(entry))
 }
 
@@ -251,6 +253,7 @@ async fn list_backlog(
 
 async fn drop_backlog(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
     st.store.drop_backlog(id).await?;
+    st.work_changed();
     Ok(Json(json!({ "id": id, "state": "dropped" })))
 }
 
@@ -386,8 +389,76 @@ impl Choice {
 /// allow a call; MCP clients' own limits were not measured (Plan 9 Task 7 Step 1).
 pub const MAX_WAIT_SECS: u64 = 50;
 
-/// How often a waiting `next` looks again.
-const WAIT_STEP: Duration = Duration::from_secs(2);
+/// How often a waiting `next` looks again when nothing woke it. Work that arrives by an event or
+/// a backlog/profile change wakes it at once (`Wake`); the tick is for what only time releases: a
+/// lease running out (an abandoned task), a review reservation ending. It also bounds a missed
+/// wake: the event feed reads by id, so an event whose transaction commits after a higher id was
+/// read is never broadcast. Keep it short.
+pub const WAIT_TICK: Duration = Duration::from_secs(10);
+
+/// Event kinds after which `next` may have something new to give: a review, a merge, a handoff,
+/// an abandoned or conflicted task, an item whose `after` is now met. Not `checkpoint` (most
+/// events; it creates no work), `started` or `claim` (they take work, never add it).
+const WAKING_KINDS: &[&str] = &[
+    "submit",
+    "approve",
+    "request_changes",
+    "merged",
+    "conflicted",
+    "resolve",
+    "handoff",
+    "abandon",
+    "undo",
+];
+
+/// What wakes a waiting `next`: an event of `WAKING_KINDS` (of its repo, when it names one) from
+/// the one in-process event feed, or a bump of `AppState::work`. Made before the first look, so
+/// work that arrives during a look still wakes the wait that follows it. With 1000 waiters one
+/// waking event makes 1000 looks; a single look handing out to all waiters is the next step.
+struct Wake {
+    work: tokio::sync::watch::Receiver<u64>,
+    events: tokio::sync::broadcast::Receiver<AvEvent>,
+    repo: Option<String>,
+}
+
+impl Wake {
+    async fn new(st: &AppState, repo: Option<String>) -> Result<Self> {
+        Ok(Self {
+            work: st.work.subscribe(),
+            events: st.subscribe_events().await?,
+            repo,
+        })
+    }
+
+    /// Returns when something may have changed, or after `tick`.
+    async fn wait(&mut self, tick: Duration) {
+        use tokio::sync::broadcast::error::RecvError;
+        let Wake { work, events, repo } = self;
+        let event = async {
+            loop {
+                match events.recv().await {
+                    Ok(ev) => {
+                        let ours = repo.as_deref().is_none_or(|r| r == ev.repo);
+                        if ours && WAKING_KINDS.contains(&ev.kind.as_str()) {
+                            return;
+                        }
+                    }
+                    Err(RecvError::Lagged(_)) => return, // missed some: look again
+                    Err(RecvError::Closed) => std::future::pending::<()>().await,
+                }
+            }
+        };
+        tokio::select! {
+            changed = work.changed() => {
+                if changed.is_err() {
+                    tokio::time::sleep(tick).await; // the state is going away; never spin
+                }
+            }
+            () = event => {}
+            () = tokio::time::sleep(tick) => {}
+        }
+    }
+}
 
 /// How long a review offered by `next` stays with the agent it was offered to.
 pub const REVIEW_RESERVE_SECS: u64 = 600;
@@ -661,6 +732,11 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         .unwrap_or(agent);
 
     let deadline = Instant::now() + Duration::from_secs(b.wait_secs.unwrap_or(0)).min(st.max_wait);
+    let mut wake = if b.dry_run || deadline <= Instant::now() {
+        None
+    } else {
+        Some(Wake::new(&st, b.repo.clone()).await?)
+    };
     loop {
         // profiles are read again on each look: one may change while an agent waits
         let profiles = st.store.list_profiles().await?;
@@ -690,7 +766,11 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         if now >= deadline {
             return Ok(Json(nothing("task")));
         }
-        tokio::time::sleep(WAIT_STEP.min(deadline - now)).await;
+        let tick = st.wait_tick.min(deadline - now);
+        match wake.as_mut() {
+            Some(w) => w.wait(tick).await,
+            None => tokio::time::sleep(tick).await,
+        }
     }
 }
 

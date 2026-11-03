@@ -865,6 +865,16 @@ fn resolve_task(cli: &Cli) -> Result<(String, String)> {
 /// The generation a write to `task` is made under: `--generation`, else the `.av-task` of this
 /// workspace when it is about `task`. When that file names another agent, this agent's claim was
 /// taken over, so the write goes out under generation 0 and the daemon refuses it.
+/// Whether a convention scope glob matches every path of the repo (`**`, `*`, `**/*`, and the
+/// like), so a required check under it runs for every change.
+fn matches_everything(scope: &str) -> bool {
+    let s = scope
+        .trim()
+        .trim_start_matches("./")
+        .trim_start_matches('/');
+    s.is_empty() || s.chars().all(|c| c == '*' || c == '/')
+}
+
 fn generation_for(cli: &Cli, task: &str) -> Option<i64> {
     if cli.generation.is_some() {
         return cli.generation;
@@ -1291,6 +1301,13 @@ fn run(cli: Cli) -> Result<()> {
                     _ => "",
                 }
             );
+            // A check scoped to every path runs for every task: a docs-only change pays the full
+            // build (dogfood run 1 paid 20 GB and 10 min for one). Say so once, where it is set.
+            if *required && check.is_some() && matches_everything(scope) {
+                println!(
+                    "hint: scope {scope:?} matches every path, so this check runs for every \n                     change; scope it to the paths it tests (e.g. --scope 'crates/**') and a \n                     change outside them skips it"
+                );
+            }
         }
         Cmd::Convention {
             cmd: ConventionCmd::Rm { id, repo },
@@ -2241,6 +2258,16 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_scope_that_matches_every_path_is_told_apart() {
+        for all in ["**", "*", "**/*", "/", "", "./**", "**/**"] {
+            assert!(super::matches_everything(all), "{all:?}");
+        }
+        for some in ["crates/**", "src/**/*.rs", "*.md", "docs/*", "**/*.rs"] {
+            assert!(!super::matches_everything(some), "{some:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -546,6 +546,40 @@ fn convention_list_and_events_feed() {
 }
 
 #[test]
+fn a_required_check_scoped_to_every_path_gets_a_hint() {
+    let (d, _ws, scratch) = started();
+    let add = |scope: &str| {
+        ok(av(
+            &d,
+            scratch.path(),
+            &[
+                "convention",
+                "add",
+                "--repo",
+                "demo",
+                "--scope",
+                scope,
+                "--required",
+                "--check",
+                "true",
+                "tests pass",
+            ],
+        ))
+    };
+    // `**` makes a docs-only change pay for the whole check: say so where it is set
+    let out = add("**");
+    assert!(out.contains("(required, check)"), "{out}");
+    assert!(
+        out.contains("hint: scope \"**\" matches every path"),
+        "{out}"
+    );
+    assert!(out.contains("--scope 'crates/**'"), "{out}");
+    // a scoped check gets no hint
+    let out = add("app/**");
+    assert!(!out.contains("hint:"), "{out}");
+}
+
+#[test]
 fn validate_runs_the_required_convention_checks() {
     let (d, ws, scratch) = started();
     let added = ok(av(

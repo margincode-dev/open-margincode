@@ -665,7 +665,7 @@ owner's workspace reuses its warm build. The snapshot never takes a workspace's 
 To spend less per task still: scope a required convention's check by its glob, so a change to
 `docs/` does not pay for the full workspace build. `av convention add --repo scholion --scope
 'crates/**' --required --check 'cargo test --workspace' 'Tests pass'` runs only when a changed
-path matches `crates/**`.
+path matches `crates/**`. `av convention add` says so when a required check's scope matches every path.
 
 **What a session leaves outside its workspace.** The Claude Code hooks (and Grok's, which run the
 same `av hook`) take a snapshot at `SessionStart`: under `$HOME`, the temp dir and

@@ -5,7 +5,6 @@ mod footprint;
 mod hook;
 mod local;
 mod runner;
-mod slots;
 mod taskfile;
 mod watch;
 
@@ -14,6 +13,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use client::{CliError, Client, Result};
+use scholion_agentrun::slots::{self, Kind};
 use scholion_core::{MAX_SUMMARY_CHARS, RecordKind};
 use serde_json::{Value, json};
 use taskfile::TaskFile;
@@ -1558,12 +1558,11 @@ fn run(cli: Cli) -> Result<()> {
             // the command and the checks are the build: they run while a host build slot is held
             let slot = max_builds
                 .map(|n| {
-                    slots::wait_for(
-                        &local::av_home().join("builds"),
-                        n,
-                        "build",
-                        std::time::Duration::from_secs(1),
-                    )
+                    let dir = Kind::Builds.host_dir();
+                    slots::wait_for(&dir, n, std::time::Duration::from_secs(1), || {
+                        eprintln!("all {n} build slots on this host are in use; waiting")
+                    })
+                    .map_err(|e| CliError::Local(format!("build slots in {}: {e}", dir.display())))
                 })
                 .transpose()?;
             let (code, tail) = run_capturing(
@@ -2163,7 +2162,7 @@ fn run(cli: Cli) -> Result<()> {
                 max_runs: *max_runs,
                 once: *once,
                 max_agents: *max_agents,
-                slots_dir: local::av_home().join("agents"),
+                slots_dir: Kind::Agents.host_dir(),
                 cmd,
             },
         )?,

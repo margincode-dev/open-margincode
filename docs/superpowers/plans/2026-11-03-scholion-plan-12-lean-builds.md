@@ -261,7 +261,7 @@ What 1000 agents need that does not exist yet, in the order it would bite:
 - [x] **Build spikes.** If B spikes (every agent re-syncs and builds after one merge to `main`), a
       per-host gate on check commands bounds it: `av validate --max-builds B` (`AV_MAX_BUILDS`)
       runs the command and the required checks only while holding one of B slots in
-      `$AV_HOME/builds` (the same lock files as `--max-agents`, `slots.rs`); the daemon takes no
+      `$AV_HOME/builds` (the same lock files as `--max-agents`, `scholion_agentrun::slots`); the daemon takes no
       part. Left: builds an agent runs outside `av validate` are not counted; whether that
       matters is for a run to measure.
 

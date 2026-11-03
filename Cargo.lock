@@ -3817,6 +3817,7 @@ version = "0.0.2"
 dependencies = [
  "axum 0.8.9",
  "clap",
+ "scholion-agentrun",
  "scholion-core",
  "scholion-daemon",
  "scholion-index",

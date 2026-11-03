@@ -5,7 +5,8 @@
 //! `av next`). This runs on the user's machine; the daemon still never starts a process.
 //!
 //! `--max-agents N` caps the agents running at once on this host, across every watch that shares
-//! `$AV_HOME`: an agent runs only while its watch holds one of N slots (`slots.rs`).
+//! `$AV_HOME`: an agent runs only while its watch holds one of N slots
+//! (`scholion_agentrun::slots`, shared with anything else that starts agents on the host).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -14,7 +15,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::client::{CliError, Client, Result};
-use crate::slots;
+use scholion_agentrun::slots;
 
 /// The longest pause after failures (the command, or the daemon).
 const MAX_BACKOFF: Duration = Duration::from_secs(300);

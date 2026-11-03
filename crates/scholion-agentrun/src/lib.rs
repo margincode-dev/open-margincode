@@ -6,10 +6,18 @@
 //! with a deadline and kills its whole process group when it runs out, and `events` parses the
 //! `claude -p --output-format stream-json` transcript into usage, tool calls and the final
 //! result. None of it knows about tasks, daemons or arms: which CLI, which variables and which
-//! prompt are the caller's.
+//! prompt are the caller's. `slots` counts what runs at once on a host (agents, builds) across
+//! every process that starts them, so `av watch`, `av validate` and any other runner on the
+//! machine share one budget.
 
+// Starting and killing process groups is Unix-only; `events` and `slots` build everywhere (the
+// CLI, which also builds on Windows, uses `slots`).
+#[cfg(unix)]
 pub mod command;
 pub mod events;
+#[cfg(unix)]
 pub mod process;
+pub mod slots;
 
+#[cfg(unix)]
 pub use command::{AgentCommand, RunResult};

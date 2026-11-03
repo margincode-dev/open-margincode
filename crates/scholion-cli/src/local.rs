@@ -18,7 +18,7 @@ const DOWN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// `$AV_HOME`, else `~/.scholion` (the daemon uses the same default).
 pub fn av_home() -> PathBuf {
-    env_path("AV_HOME").unwrap_or_else(|| home().join(".scholion"))
+    scholion_agentrun::slots::av_home()
 }
 
 fn home() -> PathBuf {
@@ -27,14 +27,7 @@ fn home() -> PathBuf {
 
 /// The user's home: `$HOME`, else `%USERPROFILE%` (Windows sets no `HOME` outside Git Bash).
 pub fn home_dir() -> Option<PathBuf> {
-    home_from(|k| std::env::var_os(k))
-}
-
-fn home_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
-    ["HOME", "USERPROFILE"]
-        .into_iter()
-        .find_map(|k| var(k).filter(|v| !v.is_empty()))
-        .map(PathBuf::from)
+    scholion_agentrun::slots::home_dir()
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {
@@ -724,28 +717,6 @@ mod tests {
             std::fs::read_to_string(&old).unwrap(),
             "more than ten bytes"
         );
-    }
-
-    #[test]
-    fn home_is_home_else_userprofile() {
-        let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| {
-                pairs
-                    .iter()
-                    .find(|(name, _)| *name == k)
-                    .map(|(_, v)| std::ffi::OsString::from(v))
-            }
-        };
-        assert_eq!(
-            home_from(env(&[("HOME", "/h"), ("USERPROFILE", r"C:\Users\u")])),
-            Some(PathBuf::from("/h"))
-        );
-        // Windows sets USERPROFILE, not HOME (Git Bash sets both)
-        assert_eq!(
-            home_from(env(&[("HOME", ""), ("USERPROFILE", r"C:\Users\u")])),
-            Some(PathBuf::from(r"C:\Users\u"))
-        );
-        assert_eq!(home_from(env(&[])), None);
     }
 
     #[test]

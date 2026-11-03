@@ -5,11 +5,9 @@
 //! and budgeting parts of the packer, not the embedding model. `bench/retrieval/README.md` says
 //! how to update the floors.
 
-mod common;
-
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use scholion_bench::retrieval::{RetrievalArgs, RetrievalTask, Row, run};
 use scholion_bench::runner::Daemon;
 use tempfile::TempDir;

@@ -1,6 +1,4 @@
-mod common;
-
-use common::*;
+use crate::common::*;
 use scholion_core::*;
 use scholion_pack::{BundleRequest, estimate_tokens};
 

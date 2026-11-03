@@ -1,11 +1,9 @@
-mod common;
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::common::*;
 use async_trait::async_trait;
-use common::*;
 use scholion_core::*;
 use scholion_index::{CodeIndex, ScopeView};
 use scholion_pack::{CodeDetail, PackRequest, Packer, estimate_tokens};

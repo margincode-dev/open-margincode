@@ -1,6 +1,4 @@
-mod common;
-
-use common::*;
+use crate::common::*;
 use scholion_core::IntentStore as _;
 use scholion_core::Vcs as _;
 
@@ -4200,7 +4198,7 @@ async fn repos_lists_every_imported_repo_with_its_main_change() {
 async fn sync_repos_backfills_repos_that_are_only_on_disk() {
     let db = scholion_testutil::TestDb::new().await;
     let store = std::sync::Arc::new(scholion_store::PgStore::connect(&db.url).await.unwrap());
-    let src = common::fixture_git_repo();
+    let src = crate::common::fixture_git_repo();
     let (store_dir, ws) = (
         tempfile::TempDir::new().unwrap(),
         tempfile::TempDir::new().unwrap(),

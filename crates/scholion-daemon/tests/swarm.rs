@@ -1,13 +1,11 @@
 //! Many agents at once against one daemon: the races a single-agent test never hits.
 //! Run with `--nocapture` to see timings.
 
-mod common;
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::common::*;
 use async_trait::async_trait;
-use common::*;
 use futures::future::join_all;
 use scholion_core::{ChangeId, IntentStore, Vcs, WorkspaceInfo};
 

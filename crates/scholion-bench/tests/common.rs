@@ -146,3 +146,11 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
         thread: Some(thread),
     }
 }
+
+/// The fake scripts read `FAKE_*` from the environment, which is process-wide, so the tests that
+/// set it run one at a time, across every module of this binary.
+pub static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}

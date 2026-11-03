@@ -1,6 +1,4 @@
-mod common;
-
-use common::*;
+use crate::common::*;
 use scholion_bench::spec::{check_spec, check_warnings, load_spec};
 use std::path::Path;
 use tempfile::TempDir;

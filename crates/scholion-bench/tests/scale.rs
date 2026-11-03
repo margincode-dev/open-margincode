@@ -1,9 +1,7 @@
 //! `scale` (Plan 6 E2) against a real daemon on a small repo: every phase runs, every agent's
 //! task merges, and the report says so.
 
-mod common;
-
-use common::*;
+use crate::common::*;
 use scholion_bench::runner::Daemon;
 use scholion_bench::scale::{self, ScaleArgs};
 use tempfile::TempDir;

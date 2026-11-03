@@ -19,6 +19,10 @@
     dashboard's Disk card shows the same.
   - The snapshot never takes a workspace's top-level `target/`, even in a repo whose `.gitignore`
     forgot it (`/.av-task` was already ignored this way).
+  - **One integration-test binary per crate** (this repo, not the product). Its `tests/*.rs` files
+    are now modules of one test binary per crate, `it` (`tests/main.rs`; `cargo test -p
+    scholion-daemon --test it api::NAME`), instead of 45 binaries that each linked every
+    dependency: a full `cargo test` build of this workspace is 2.4 GB instead of 4.3 GB.
 - **`av agent rm NAME`** (`DELETE /v1/agents/{name}`). Removes a profile. An unknown name is
   404. An agent that still owns an open, handed-off, in-review or conflicted task is 409 unless `--force`
   (`?force=true`); the tasks stay. A profile an extension manages is refused, the same way

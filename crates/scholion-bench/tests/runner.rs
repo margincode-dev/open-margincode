@@ -1,9 +1,7 @@
-mod common;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use scholion_bench::runner::{Arm, RunConfig, run_session};
 use scholion_bench::spec::{TaskSpec, load_spec};
 use tempfile::TempDir;
@@ -120,13 +118,6 @@ fn repo_state(repo: &Path) -> (String, String, String) {
         git(repo, &["status", "--porcelain", "--ignored"]),
         git(repo, &["rev-parse", "HEAD"]),
     )
-}
-
-// The fake scripts read FAKE_* from the environment, so these tests run one at a time.
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[test]

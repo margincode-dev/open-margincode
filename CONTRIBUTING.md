@@ -32,6 +32,9 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
   HTTP API in `crates/scholion-daemon/tests/api.rs` (helpers in `tests/common/mod.rs`); many
   agents at once in `tests/swarm.rs`; MCP in `tests/mcp.rs`; context-pack output against golden
   files in `crates/scholion-pack/tests/golden/`.
+  Each crate's `tests/*.rs` files are modules of one test binary, `it` (declared in `tests/main.rs`;
+  add a `mod` line for a new file): `cargo test -p scholion-daemon --test it api::NAME`. One
+  executable per crate instead of one per file keeps a task's build output small.
 - **Migrations** live in `crates/scholion-store/migrations/`, numbered `000N_*.sql`. Take the next
   number after `main`'s highest; two branches with the same number break every database test.
   A merged migration is never edited, not even a comment: databases store its checksum and refuse

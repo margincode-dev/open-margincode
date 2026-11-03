@@ -1,8 +1,6 @@
-mod common;
-
 use std::path::Path;
 
-use common::*;
+use crate::common::*;
 use scholion_bench::calibrate::cl100k_tokens;
 use scholion_bench::mine::{MineArgs, goal_from_message, housekeeping, mine};
 use scholion_bench::retrieval::{

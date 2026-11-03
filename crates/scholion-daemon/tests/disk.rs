@@ -2,8 +2,7 @@
 //! or at once with `AV_WS_RETAIN_SECS=0`), restored by undo and revert, and `GET /v1/disk` shows
 //! what is on disk.
 
-mod common;
-use common::*;
+use crate::common::*;
 
 use std::time::Duration;
 

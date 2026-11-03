@@ -1,5 +1,6 @@
 [package]
 name = "scholion-bench"
+autotests = false
 version = "0.0.2"
 edition.workspace = true
 license.workspace = true
@@ -26,3 +27,7 @@ scholion-vcs = { path = "../scholion-vcs" }
 axum.workspace = true
 tempfile = "3"
 tokio.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"

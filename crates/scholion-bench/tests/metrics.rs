@@ -1,6 +1,4 @@
-mod common;
-
-use common::*;
+use crate::common::*;
 use scholion_bench::events::parse_stream;
 use scholion_bench::metrics::compute;
 use scholion_bench::spec::load_spec;

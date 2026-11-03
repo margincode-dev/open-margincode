@@ -1,8 +1,7 @@
 //! Plan 10 A3: the office (`GET /v1/office`) and agents' timelines
 //! (`GET /v1/agents/{name}/timeline`), read by the dashboard.
 
-mod common;
-use common::*;
+use crate::common::*;
 
 async fn put_agent(e: &Env, name: &str, cost: i32) {
     let (status, body) = call(

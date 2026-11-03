@@ -1,9 +1,7 @@
 //! The MCP endpoint (`/mcp`, Plan 3 Task 8): JSON-RPC over streamable HTTP, plain JSON responses.
 
-mod common;
-
+use crate::common::*;
 use axum::body::Body;
-use common::*;
 use tower::ServiceExt;
 
 struct Reply {

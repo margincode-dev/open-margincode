@@ -1,7 +1,6 @@
 //! Plan 8 Task 4: agent profiles, the backlog and `next` over the HTTP API.
 
-mod common;
-use common::*;
+use crate::common::*;
 use scholion_core::IntentStore as _;
 
 async fn put_agent(e: &Env, name: &str, best: &[&str], can: &[&str], cost: i32) {

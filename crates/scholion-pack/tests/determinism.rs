@@ -3,12 +3,10 @@
 //! so ids or write order would show if they decided anything. Each pack gets a fresh database,
 //! where record ids are random and symbol ids follow the order files were indexed in.
 
-mod common;
-
 use std::path::Path;
 use std::sync::Arc;
 
-use common::*;
+use crate::common::*;
 use scholion_core::*;
 use scholion_index::{CodeIndex, PgIndex};
 use scholion_pack::Packer;

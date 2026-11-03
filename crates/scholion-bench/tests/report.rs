@@ -1,9 +1,7 @@
-mod common;
-
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use common::*;
+use crate::common::*;
 use scholion_bench::metrics::SessionMetrics;
 use scholion_bench::orchestrate::{RunArgs, plan, run};
 use scholion_bench::report::{Meta, Row, Status, read_rows, render_report};
@@ -257,9 +255,6 @@ fn args(s: &Setup, budget: f64, confirm: bool) -> RunArgs {
         meta: meta(),
     }
 }
-
-// FAKE_MARKER is process-wide.
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn budget_cap_skips_remaining_sessions_and_exits_nonzero() {

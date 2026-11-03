@@ -156,7 +156,7 @@ select.ctl {
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
 .brand .sub { color: var(--faint); font-weight: 500; }
 .vsep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
-.frame { max-width: 1480px; margin: 0 auto; }
+.frame { max-width: 1680px; margin: 0 auto; }
 
 /* ---- page ---- */
 .page { padding: 20px 24px 40px; display: grid; gap: 20px; }
@@ -204,11 +204,13 @@ select.ctl {
 .meter { flex: 1; min-width: 60px; height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
 .meter > i { display: block; height: 100%; border-radius: inherit; background: var(--tone, var(--accent)); transition: width .3s; }
 
-/* board + sidebar */
+/* teams + board + sidebar: the teams are a column left of the board from 1580px (five board
+   columns of 168px still fit beside the 264px and 320px sides), a row above it below that */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
 @media (max-width: 1180px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1580px) { .layout { grid-template-columns: 264px minmax(0, 1fr) 320px; } }
 .board {
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(184px, 1fr); gap: 10px;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(168px, 1fr); gap: 10px;
   overflow-x: auto; align-items: start; padding-bottom: 4px;
 }
 @media (max-width: 720px) { .board { grid-auto-flow: row; grid-auto-columns: auto; } }
@@ -232,6 +234,15 @@ select.ctl {
 
 .side { display: grid; gap: 16px; position: sticky; top: 76px; max-height: calc(100dvh - 92px); overflow-y: auto; overscroll-behavior: contain; }
 @media (max-width: 1180px) { .side { position: static; max-height: none; } }
+/* the teams: a row of desks spanning the grid, or from 1580px a sticky column of stacked desks
+   (padded, so the desks' focus rings are not clipped by its scroll box) */
+.side-left { gap: 0; grid-column: 1 / -1; position: static; max-height: none; overflow: visible; }
+@media (min-width: 1580px) {
+  .side-left { grid-column: auto; position: sticky; max-height: calc(100dvh - 92px); overflow-y: auto; padding: 4px; margin: -4px; }
+  .side-left .sec-h { flex-wrap: wrap; }
+  .side-left .sec-h .hint { flex-basis: 100%; }
+  .side-left .agents { grid-template-columns: minmax(0, 1fr); }
+}
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
 .panel-h { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .panel-h h2 { margin: 0; font-size: 13px; font-weight: 650; }
@@ -379,13 +390,12 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   <section id="summary" class="summary" aria-label="Summary"></section>
 
-  <section aria-labelledby="teamsH">
-    <div class="sec-h"><h2 id="teamsH">Teams</h2><span id="teamsCount" class="count">0</span>
-      <span class="hint">One desk per agent. Select one for its timeline.</span></div>
-    <div id="teams" class="agents"><div class="empty">No teams yet.</div></div>
-  </section>
-
   <div class="layout">
+    <aside class="side side-left" aria-labelledby="teamsH">
+      <div class="sec-h"><h2 id="teamsH">Teams</h2><span id="teamsCount" class="count">0</span>
+        <span class="hint">One desk per agent. Select one for its timeline.</span></div>
+      <div id="teams" class="agents"><div class="empty">No teams yet.</div></div>
+    </aside>
     <section aria-labelledby="boardH">
       <div class="sec-h"><h2 id="boardH">Tasks</h2><span id="tasksCount" class="count">0</span></div>
       <div class="board" id="board" aria-label="Tasks by status"></div>

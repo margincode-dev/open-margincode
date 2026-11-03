@@ -2980,10 +2980,28 @@ async fn ui_page_reads_the_team_profiles() {
         .await
         .unwrap();
     let html = String::from_utf8_lossy(&html);
-    assert!(html.contains("/v1/agents"), "the page reads team profiles");
+    assert!(
+        html.contains("/v1/office"),
+        "the page reads the office (every agent's desk, with its profile)"
+    );
     assert!(
         html.contains("max_open"),
         "the page shows a team's open-task limit"
+    );
+    // the teams are the first column of the layout, before the board, and get their own column
+    let (layout, teams, board) = (
+        html.find("class=\"layout\"").expect("a layout grid"),
+        html.find("id=\"teamsH\"").expect("the teams heading"),
+        html.find("id=\"boardH\"").expect("the board heading"),
+    );
+    assert!(
+        layout < teams && teams < board,
+        "teams inside the layout, before the board"
+    );
+    assert!(
+        html.contains("class=\"side side-left\"")
+            && html.contains("grid-template-columns: 264px minmax(0, 1fr) 320px"),
+        "the teams are a column left of the board"
     );
 }
 

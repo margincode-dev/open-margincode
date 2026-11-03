@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A redesigned dashboard** (`/ui`): a neutral, professional look in place of the pixel-slime
+  theme. It adds a row of summary figures (in progress, in review, conflicted, merged, backlog,
+  agents busy), agent cards with initials avatars, a state badge, skill tags and a load bar against
+  `max_open`, a kanban board whose columns never overflow, side panels for targets, backlog and
+  activity, and a slide-in drawer for tasks and agents. Light and dark follow the system, or pick
+  one with the theme button (kept in this browser). The page reads the same `/v1` routes as before.
 - **A `checkpoint` event**: a snapshot that moves a task's head (`POST /v1/tasks/{id}/checkpoint`,
   a submit, a sync) now lands in the event feed as kind `checkpoint` with the new head, the old one
   (`payload.from`) and how many paths the task changes (`payload.touched`), so `GET /v1/events`,

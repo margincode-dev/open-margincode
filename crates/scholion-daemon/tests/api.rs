@@ -2982,6 +2982,14 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
             && html.contains("av_days"),
         "the flow panel counts each agent's timeline over a period kept in this browser"
     );
+    assert!(
+        html.contains("/log?limit=") && html.contains("/outbox") && html.contains("/backup"),
+        "a Main panel: the log with its checks, and the daemon's state for the repo"
+    );
+    assert!(
+        html.contains("\"/v1/disk\"") && html.contains("/healthz"),
+        "a Disk panel, and a wait on /healthz while the daemon is away"
+    );
 
     let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

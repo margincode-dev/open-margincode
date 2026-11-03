@@ -335,6 +335,17 @@ pre.pack {
   margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
   overflow: auto; max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
 }
+/* main's log and the disk, under the board */
+.under { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; margin-top: 20px; }
+.status-line { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; color: var(--faint); font-size: 12px; }
+.icon-btn.sm { width: 26px; height: 26px; margin-left: auto; }
+.ws-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; padding: 7px 14px; background: none; border: 0; text-align: left; font-size: 12.5px; color: inherit; }
+.ws-row:not(:disabled):hover { background: var(--surface-2); }
+.ws-row .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-row .n { margin-left: auto; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.ws-row .paths { flex-basis: 100%; font-size: 11.5px; padding-left: 26px; }
+.ws-row + .ws-row { border-top: 1px solid var(--border); }
+.foot-note.sm { margin: 10px 14px 8px; padding-top: 0; border-top: 0; }
 /* needs attention and flow */
 .attention .list { background: var(--surface); box-shadow: var(--shadow-sm); }
 .attention .list .note { margin: 0; padding: 8px 14px; border-top: 1px solid var(--border); }
@@ -449,6 +460,17 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
     <section aria-labelledby="boardH">
       <div class="sec-h"><h2 id="boardH">Tasks</h2><span id="tasksCount" class="count">0</span></div>
       <div class="board" id="board" aria-label="Tasks by status"></div>
+      <div class="under">
+        <section class="panel">
+          <div class="panel-h" data-icon="merge"><h2>Main</h2><span id="mainStatus" class="status-line"></span></div>
+          <div class="panel-b" id="mainLog"><div class="empty">Nothing merged yet.</div></div>
+        </section>
+        <section class="panel">
+          <div class="panel-h" data-icon="disk"><h2>Disk</h2>
+            <button id="diskRefresh" class="icon-btn sm" type="button" title="Measure again" aria-label="Measure the disk again"></button></div>
+          <div class="panel-b" id="disk"><div class="empty">Not measured yet.</div></div>
+        </section>
+      </div>
     </section>
     <aside class="side" aria-label="Targets, backlog and activity">
       <section class="panel">
@@ -512,6 +534,9 @@ const KIND_TONE = {
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
   // the attention strip's own kinds
   "main red": "red", stale: "amber", unclaimed: "violet", quiet: "amber", unroutable: "amber", overdue: "red",
+  footprint: "amber",
+  // main's log
+  "check ok": "green", "check failed": "red", unchecked: "gray",
 };
 const AGENT_STATE = {
   working: ["Working", "green"], reviewing: ["Reviewing", "blue"], quiet: ["Quiet", "amber"], idle: ["Idle", "gray"],
@@ -525,6 +550,8 @@ const S = {
   // what the attention strip and the flow panel read besides the tasks and the history
   health: null, targets: [], queuedItems: [], timelines: new Map(), days: 14,
   histLoaded: false, flowRepo: null, flowAt: 0,
+  disk: null, diskAt: null, diskErr: null, repoAdded: null, liveTone: null,
+  mainDirty: false, mainRepo: null, mainAt: 0,
 };
 
 function store(get, key, value) {
@@ -584,6 +611,8 @@ const ICONS = {
   arrow: "M5 12h14M13 6l6 6-6 6",
   inbox: "M22 12h-6l-2 3h-4l-2-3H2M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z",
   chart: "M3 3v18h18M7 15l4-5 4 3 6-7",
+  disk: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  refresh: "M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6",
 };
 function icon(name, size = 16) {
   return svg("svg", {
@@ -761,6 +790,8 @@ function inStatus(t) {
 // took, a conflict nobody resolved. An open task is stuck when its lease ran out with no write
 // (what the office calls quiet).
 const STALE_SECS = { in_review: 2 * 3600, approved: 3600, handed_off: 3600, conflicted: 3600 };
+// What a session may leave outside any workspace before it is worth a row (the hooks' default).
+const FOOTPRINT_WARN = 512 * 1024 * 1024, FOOTPRINT_AGE_MS = 24 * 3600000;
 function staleness(t) {
   if (!S.histLoaded || t.repo !== S.repo) return null;
   if (t.status === "open") return t.lease_expires && new Date(t.lease_expires) < new Date() ? "no write for a whole lease" : null;
@@ -826,6 +857,7 @@ async function loadTasks() {
   sel.replaceChildren(...(repos.length ? repos : ["(no repos yet)"]).map(r => h("option", { value: r }, r)));
   S.repo = repos.includes(want) ? want : (repos[0] || null);
   if (S.repo) sel.value = S.repo;
+  S.repoAdded = (known.find(r => r.name === S.repo) || {}).added_at || null;
   S.tasks = all.tasks.filter(t => t.repo === S.repo);
   S.byId = new Map(all.tasks.map(t => [t.id, t]));
   renderBoard();
@@ -833,7 +865,145 @@ async function loadTasks() {
   loadTeams().catch(() => {}); // a failing panel must not hide the board
   loadBacklog().catch(() => {}); // a failing panel must not hide the board
   loadTargets().catch(() => {}); // an older daemon has no targets: the panel stays empty
+  // main's log needs the history (which task landed each commit): startFeed reads it once that
+  // is in, and from then on only when due
+  if (S.histLoaded && mainIsDue()) loadMain().catch(() => {});
+  renderDisk(); // the selected repo's workspaces, from the last measurement
 }
+
+// ---- main: its log, and the daemon's state for this repo ----
+// Each commit of main with its post-merge check and the task that landed it (the `merged` event
+// whose change is the commit). The header line says whether semantic search is on and how many
+// rows wait to be embedded, the backup's state, how many conventions there are, and an import
+// still running.
+const IMPORT_FRESH_MS = 10 * 60000, MAIN_EVERY = 60000;
+// Read again when main may have moved (a merge, undo or revert in the last event batch), else
+// at most once a minute: the outbox, backup and conventions rarely change.
+function mainIsDue() {
+  return S.mainDirty || S.mainRepo !== S.repo || Date.now() - S.mainAt > MAIN_EVERY;
+}
+async function loadMain() {
+  const box = document.getElementById("mainLog");
+  const line = document.getElementById("mainStatus");
+  if (!S.repo) { fill(box, empty("No repo.")); fill(line); return; }
+  const repo = S.repo, r = encodeURIComponent(repo);
+  S.mainDirty = false; S.mainRepo = repo; S.mainAt = Date.now();
+  // the import job is known only while the daemon that ran it is up, and 404 otherwise: ask only
+  // for a repo added in the last ten minutes, which is when one may still be running
+  const fresh = S.repoAdded && Date.now() - new Date(S.repoAdded).getTime() < IMPORT_FRESH_MS;
+  let log, outbox, backup, conv, imp;
+  try {
+    [log, outbox, backup, conv, imp] = await Promise.all([
+      api(`/v1/repos/${r}/log?limit=20`),
+      api(`/v1/repos/${r}/outbox`).catch(() => null),
+      api(`/v1/repos/${r}/backup`).catch(() => null),
+      api(`/v1/repos/${r}/conventions`).catch(() => null),
+      fresh ? api(`/v1/repos/${r}/import`).catch(() => null) : null,
+    ]);
+  } catch (e) {
+    if (S.repo === repo && !(e instanceof Unauthorized)) { fill(box, empty("Main: " + e.message)); fill(line); }
+    return;
+  }
+  if (S.repo !== repo) return; // the answer is the old repo's
+  const landed = new Map();
+  for (const ev of S.hist) if (ev.kind === "merged" && ev.change) landed.set(ev.change, ev.task_id);
+  const rows = (log.commits || []).map(c => {
+    const t = landed.has(c.change) ? S.byId.get(landed.get(c.change)) : null;
+    const chk = c.check;
+    const kind = !chk ? "unchecked" : chk.exit_code === 0 ? "check ok" : "check failed";
+    return evRow({ kind,
+      label: !chk ? "unchecked" : chk.exit_code === 0 ? "✓ " + chk.command : `✗ ${chk.command} exit ${chk.exit_code}`,
+      title: (c.description || "").split("\n")[0] || short(c.change),
+      meta: ["@" + short(c.change), t && `task ${t.slug} · ${t.owner_agent}`, chk && chk.runner && "run by " + chk.runner].filter(Boolean).join(" · "),
+      onclick: t ? () => openTask(t.id) : null });
+  });
+  fill(box, rows.length ? rows : empty("Nothing merged yet.", "merge"));
+  const parts = [];
+  if (outbox) parts.push(h("span", { title: "Embeddings for semantic search" }, outbox.semantic ? `semantic on · ${outbox.pending} pending` : "semantic off"));
+  if (backup && backup.remote) {
+    const scrub = s => String(s).replace(/\/\/[^/@\s]+@/g, "//"); // never show credentials, not even in git's errors
+    const remote = scrub(backup.remote);
+    const word = backup.last_error ? "backup failing" : backup.last_pushed ? "backup ok" : "backup pending";
+    parts.push(h("span", { class: backup.last_error ? "warn-text" : null,
+      title: backup.last_error ? scrub(backup.last_error) : backup.last_pushed ? `pushed to ${remote} ${ago(backup.last_pushed)}` : `nothing pushed to ${remote} yet` },
+      word + (backup.branch ? " · " + backup.branch : "")));
+  }
+  if (conv) parts.push(h("span", { title: "Rules served in packs when their path glob matches" }, `${(conv.conventions || []).length} conventions`));
+  if (imp && imp.state === "running") parts.push(h("span", { class: "warn-text" }, "import running"));
+  fill(line, parts);
+}
+
+// ---- disk ----
+// GET /v1/disk walks the filesystem, so it is read at boot, on the refresh button and every five
+// minutes, never on events. Sizes per repo, the repo's workspaces largest first with whether a
+// sweep would reclaim them, and what sessions left outside any workspace. The page never deletes.
+const DISK_EVERY = 5 * 60000;
+function bytes(n) {
+  if (n == null) return "—";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let x = n, i = 0;
+  while (x >= 1024 && i < units.length - 1) { x /= 1024; i++; }
+  return `${i && x < 10 ? x.toFixed(1) : Math.round(x)} ${units[i]}`;
+}
+// Measuring is slow, so a newer call wins over an older one still in flight, and a failed one
+// keeps the last figures and says so in the foot note.
+let diskSeq = 0;
+async function loadDisk() {
+  const btn = document.getElementById("diskRefresh");
+  const seq = ++diskSeq;
+  btn.disabled = true;
+  try {
+    const d = await api("/v1/disk");
+    if (seq !== diskSeq) return;
+    S.disk = d; S.diskAt = new Date().toISOString(); S.diskErr = null;
+    renderDisk();
+    renderAttention();
+  } catch (e) {
+    if (seq === diskSeq && !(e instanceof Unauthorized)) { S.diskErr = e.message; renderDisk(); }
+  } finally { if (seq === diskSeq) btn.disabled = false; }
+}
+function diskIsDue() { return !S.disk || Date.now() - new Date(S.diskAt).getTime() > DISK_EVERY; }
+function renderDisk() {
+  const d = S.disk;
+  const box = document.getElementById("disk");
+  if (!d) { fill(box, empty(S.diskErr ? "Disk: " + S.diskErr : "Not measured yet.")); return; }
+  const t = d.totals || {};
+  const repo = (d.repos || []).find(r => r.name === S.repo);
+  const ws = repo ? (repo.workspaces || []).slice().sort((a, b) => b.bytes - a.bytes) : [];
+  const wsRows = ws.map(w => {
+    const task = S.tasks.find(x => x.slug === w.slug);
+    // a dir no task owns has no status and no age
+    return h("button", { class: "ws-row", type: "button", onclick: task ? () => openTask(task.id) : null, disabled: !task },
+      w.status ? statusBadge(w.status) : badge("no task", "gray"), h("span", { class: "mono path" }, w.slug),
+      w.reclaimable && badge("reclaimable", "amber", { title: "Past the retention: the next sweep or av gc removes it" }),
+      h("span", { class: "mono n" }, `${bytes(w.bytes)} · ${w.age_secs == null ? "—" : span(w.age_secs)}`));
+  });
+  const outside = (d.outside || []).slice(0, 10).map(f => h("div", { class: "ws-row" },
+    person(f.agent || "?", 18, null, "sm"),
+    h("span", { class: "faint" }, f.slug ? "task " + f.slug : "no task"),
+    h("span", { class: "mono n" }, bytes(f.total_bytes) + (f.partial ? " (partial)" : "")),
+    h("div", { class: "paths" }, (f.added || []).slice(0, 3).map(a => h("div", { class: "mono faint" }, `${a.path} · ${bytes(a.bytes)}`)))));
+  fill(box,
+    h("div", { class: "figs" },
+      fig("workspaces", bytes(t.workspaces_bytes), "every task workspace of every repo"),
+      fig("build cache", bytes(t.build_cache_bytes), "one cargo target dir per repo"),
+      fig("store", bytes(t.store_bytes), "the jj store"),
+      fig("scratch", bytes(t.scratch_bytes), "the tasks' scratch dirs")),
+    repo && [h("div", { class: "sub-h" }, `${S.repo}: workspaces · store ${bytes(repo.store_bytes)} · cache ${bytes(repo.build_cache_bytes)}`),
+      wsRows.length ? wsRows : empty("No workspace on disk.")],
+    outside.length > 0 && [h("div", { class: "sub-h" }, "Left outside any workspace by sessions"), outside],
+    h("p", { class: "foot-note sm" },
+      `Retention ${d.retain_secs == null ? "never" : span(d.retain_secs)}; av gc reclaims. This page never deletes. Measured ${ago(S.diskAt)}.`,
+      S.diskErr && h("span", { class: "warn-text" }, ` Could not measure again: ${S.diskErr}.`)));
+}
+document.getElementById("diskRefresh").append(icon("refresh", 15));
+document.getElementById("diskRefresh").addEventListener("click", () => loadDisk());
+// not while the daemon is away, the token is missing, or nobody is looking; a tab coming back
+// into view catches up
+setInterval(() => { if (S.liveTone === "green" && !document.hidden) loadDisk(); }, DISK_EVERY);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.liveTone === "green" && diskIsDue()) loadDisk(); });
+// a post-merge check lands with no event, so main's log is also read when due on a timer
+setInterval(() => { if (S.liveTone === "green" && !document.hidden && S.histLoaded && mainIsDue()) loadMain().catch(() => {}); }, MAIN_EVERY);
 
 // What the repo works toward: active targets with how many of their backlog items merged, then
 // the last few closed ones. Targets are added with `av target add`; this page only reads them.
@@ -1149,6 +1319,15 @@ function renderAttention() {
   for (const t of S.targets.filter(t => t.status === "active" && t.due && t.due < today)) {
     row("overdue", "overdue", t.title, `due ${t.due} · ${t.merged}/${t.items} merged`, jumpTo("targets"));
   }
+  // footprints are daemon-wide and kept until it restarts: only this repo's tasks' (or a session
+  // with no task), only recent ones, since the files may be gone since
+  for (const f of ((S.disk && S.disk.outside) || []).filter(f => f.total_bytes >= FOOTPRINT_WARN
+      && Date.now() - new Date(f.at).getTime() < FOOTPRINT_AGE_MS
+      && (!f.task || (S.byId.get(f.task) || {}).repo === S.repo))) {
+    const task = f.task && S.byId.get(f.task);
+    row("footprint", "left outside", `${f.agent || "a session"} left ${bytes(f.total_bytes)} outside any workspace`,
+      [f.slug && "task " + f.slug, f.added && f.added[0] && f.added[0].path].filter(Boolean).join(" · "), task ? () => openTask(task.id) : null);
+  }
   sec.hidden = rows.length === 0;
   setCount("attnCount", rows.length);
   fill(document.getElementById("attnList"), rows.slice(0, ATTN_ROWS),
@@ -1280,6 +1459,7 @@ document.getElementById("repo").addEventListener("change", e => {
   S.repo = e.target.value; store(false, "av_repo", S.repo);
   // nothing of the old repo stays on the page while the new one loads
   S.events = []; S.health = null; S.targets = []; S.queuedItems = []; S.timelines = new Map();
+  fill(document.getElementById("mainLog"), empty("Reading main…")); fill(document.getElementById("mainStatus"));
   renderFeed(); loadTasks().catch(showErr); startFeed();
 });
 document.getElementById("showAbandoned").addEventListener("change", renderBoard);
@@ -1291,6 +1471,7 @@ async function startFeed() {
   const gen = ++feedGen;
   const live = document.getElementById("live");
   const setLive = (tone, text) => {
+    S.liveTone = tone;
     live.className = "pill" + (tone ? " tone-" + tone : "") + (tone === "green" ? " live" : "");
     fill(live, h("span", { class: "bdot" }), h("span", {}, text));
   };
@@ -1301,8 +1482,9 @@ async function startFeed() {
     if (next == null) return;
     S.events = S.hist.slice(-200).reverse(); S.next = next; S.histLoaded = true; renderFeed();
     renderBoard(); renderTeams();
+    loadMain().catch(() => {}); // which task landed each commit comes from the history
     if (S.openTask) openTask(S.openTask, true); // its timeline and rounds come from the history
-  } catch (e) { if (gen === feedGen) setLive("red", "Offline"); return; }
+  } catch (e) { if (gen === feedGen) { setLive("red", "Offline"); waitForDaemon(gen); } return; }
   setLive("green", "Live");
   let refresh = null;
   while (gen === feedGen) {
@@ -1313,6 +1495,7 @@ async function startFeed() {
       if (r.events.length) {
         S.next = r.next;
         remember(r.events);
+        if (r.events.some(ev => ev.kind === "merged" || ev.kind === "undo" || ev.kind === "revert")) S.mainDirty = true;
         S.events = r.events.slice().reverse().concat(S.events).slice(0, 200);
         renderFeed();
         clearTimeout(refresh);
@@ -1594,6 +1777,25 @@ function receiptEl(rc) {
 
 function showErr(e) { if (!(e instanceof Unauthorized)) banner("Could not reach the daemon: " + e.message); }
 
+// While the daemon is away, ask /healthz every five seconds and start over once it answers. One
+// waiter at a time: a second failed boot of the same generation (the token dialog, say) joins the
+// first, and a newer generation (a repo change) takes over from an older waiter.
+let waitingGen = null;
+async function waitForDaemon(gen) {
+  if (waitingGen === gen) return;
+  waitingGen = gen;
+  try {
+    while (gen === feedGen && waitingGen === gen) {
+      await new Promise(r => setTimeout(r, 5000));
+      if (waitingGen !== gen) return;
+      try {
+        const res = await fetch("/healthz");
+        if (res.ok) { if (gen === feedGen && waitingGen === gen) boot(); return; }
+      } catch (_) {}
+    }
+  } finally { if (waitingGen === gen) waitingGen = null; }
+}
+
 async function boot() {
   banner(null);
   try {
@@ -1603,7 +1805,11 @@ async function boot() {
     if (m) openTask(m[1]);
     const ag = location.hash.match(/^#agent=(.+)$/);
     if (ag) openAgent(decodeURIComponent(ag[1]));
-  } catch (e) { showErr(e); }
+    if (diskIsDue()) loadDisk(); // a boot after a reconnect keeps a fresh measurement
+  } catch (e) {
+    showErr(e);
+    if (!(e instanceof Unauthorized)) waitForDaemon(feedGen);
+  }
 }
 setInterval(() => { if (S.tasks.length) renderBoard(); }, 60000); // keep "5m ago" fresh
 renderSummary();

@@ -550,11 +550,24 @@ and overdue targets, at most eight rows. The Flow panel shows, over 7, 14 or 30 
 this browser), merges per day, the median cycle time (start to merge), the median review wait
 (submit to verdict; an approval the daemon carries over a resubmit is left out), rework (changes
 requested, conflicts, undos, reverts) and per agent what it started, merged and reviewed, from each
-agent's timeline (its newest 500 rows, read at most once a minute; "≥" marks a count cut off there). Click a desk (or a task's owner) for that agent's
+agent's timeline (its newest 500 rows, read at most once a minute; "≥" marks a count cut off there).
+Click a desk (or a task's owner) for that agent's
 timeline: the records it wrote, the tasks it started and claimed, its review verdicts, its submits
 and its merges, newest first. It is built from what Scholion already keeps; nothing extra is
 recorded, and no cost is tracked. "Build context pack" shows exactly what the next agent would
 receive at a given budget.
+Under the board, a Main panel lists main's last commits with their post-merge check and the task
+that landed each (read once the history is in, then when a merge, undo or revert arrives, and once
+a minute while the page is live, since a post-merge check lands with no event), and its header says whether semantic search is on and how many rows wait in the
+outbox, the backup's state (ok, pending, failing), how many conventions the repo has and whether an
+import is running; a Disk panel (read at start, on its button and every five minutes while the
+page is live and visible, since measuring walks the filesystem) shows what workspaces, build
+caches, the store and scratch dirs take, the repo's workspaces largest first with the ones a sweep
+would reclaim, and what sessions left outside any workspace (512 MiB or more, the hooks' default,
+by a session of this repo's tasks, or of no task, in the last day earns a "Needs attention" row). The page never deletes;
+`av gc` does. When the page cannot load (the daemon is away at start, or the history cannot be
+read) it asks `/healthz` every five seconds and starts over once it answers; a feed that drops
+mid-session keeps reconnecting every few seconds as before.
 The page is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks
 for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{name}/health`,
 `GET /v1/tasks` (`?repo=`, `?status=`, `?limit=`), `GET /v1/tasks/{id}`,
@@ -562,7 +575,9 @@ for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{na
 `GET /v1/tasks/{id}/bundle`, `GET /v1/events`, `GET /v1/backlog`, `GET /v1/targets` (`?repo=`,
 `?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
 repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
-`GET /v1/repos/{name}/diff` and `GET /v1/receipts/{id}`.
+`GET /v1/repos/{name}/diff`, `GET /v1/receipts/{id}`, `GET /v1/repos/{name}/log`,
+`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup`, `GET /v1/repos/{name}/conventions`,
+`GET /v1/repos/{name}/import`, `GET /v1/disk` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
 

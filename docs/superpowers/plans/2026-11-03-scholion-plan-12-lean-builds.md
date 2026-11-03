@@ -131,6 +131,26 @@ daemon's config in force and no `CARGO_TARGET_DIR`.
 So with this branch a Rust task's disk is its own `target/` (4.5 GB for this repo's full bar,
 2.4 GB once #72 lands), it is counted, and it is gone with the task.
 
+## Live check of main after #71–#75 (2026-11-03 15:17 UTC, daemon from 16b1dd7, build container)
+
+The same two-task run, now with every merged default in force (per-task `target/`, lean profile,
+one test binary per crate, build output removed at merge) and the default retention (3600 s).
+
+- `cargo metadata` in each workspace: `<ws_root>/scholion/<slug>/target`, two different dirs.
+- Both built at once (`cargo test --workspace --no-run` in one, `-p scholion-core` in the other),
+  416 crates, 37 s on 16 cores with a warm registry. `av disk` while both were open:
+  `full-bar-in-one-task` 2.6 GB (build 2.6 GB), `one-crate-in-another` 95 MB (build 90 MB).
+- In the first: an edit, a decision record, submit, `cargo test -p scholion-core --offline` on its
+  own binaries (23 passed), approve, merge. The merge answered `status: merged, workspace: kept,
+  build: removed`; the feed has `build:reclaimed {slug, bytes: 2884986242}`.
+- `av disk` after the merge: the merged workspace 5 MB with no build column, the open one
+  unchanged. Abandoning the second answered `workspace: kept, build: removed` too; totals then:
+  workspaces 10 MB, build output 0 B, store 6 MB.
+
+So on main a Rust task's build output is 2.6 GB for this repo's full bar (21 GB in run 1), it
+shows in `av disk` while the task is open, and it is gone the moment the task is merged or
+abandoned; the 5 MB workspace waits for the retention.
+
 ## The live stack (2026-11-03, after #71–#73 merged)
 
 - The compose daemon (`deploy/docker-compose.yml`, project `scholion`, `:7420`) was rebuilt from

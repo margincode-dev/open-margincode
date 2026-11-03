@@ -3447,6 +3447,68 @@ fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
     assert!(first.wait().unwrap().success());
 }
 
+/// Holds build slot 0 of `home`, as another `av validate` on the host would while it builds.
+fn hold_build_slot(home: &Path) -> std::fs::File {
+    std::fs::create_dir_all(home.join("builds")).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(home.join("builds/slot-0.lock"))
+        .unwrap();
+    f.lock().unwrap();
+    f
+}
+
+#[test]
+fn validate_waits_for_a_free_build_slot_on_the_host() {
+    let (d, ws, _scratch) = started();
+    let home = TempDir::new().unwrap();
+    for (flag, var) in [(Some("--max-builds"), None), (None, Some("1"))] {
+        let held = hold_build_slot(home.path());
+        let _ = std::fs::remove_file(ws.join("built"));
+        let mut c = Command::new(env!("CARGO_BIN_EXE_av"));
+        c.current_dir(&ws)
+            .env("AV_URL", &d.url)
+            .env("AV_HOME", home.path())
+            .env_remove("AV_TASK")
+            .env_remove("AV_SESSION")
+            .env_remove("AV_GENERATION")
+            .env_remove("AV_MAX_BUILDS")
+            .arg("validate");
+        if let Some(flag) = flag {
+            c.args([flag, "1"]);
+        }
+        if let Some(n) = var {
+            c.env("AV_MAX_BUILDS", n);
+        }
+        let mut child = c
+            .args(["--", "sh", "-c", "touch built"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        assert!(
+            !ws.join("built").exists(),
+            "the only build slot is held: the command must wait"
+        );
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "validate gave up instead of waiting"
+        );
+        drop(held);
+        let o = child.wait_with_output().unwrap();
+        assert!(o.status.success(), "{}", err(&o));
+        assert!(ws.join("built").exists(), "{}", out(&o));
+        assert!(
+            err(&o).contains("all 1 build slots on this host are in use; waiting"),
+            "{}",
+            err(&o)
+        );
+    }
+}
+
 // ---- Plan 10 A3: targets
 
 #[test]

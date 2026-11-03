@@ -5,6 +5,7 @@ mod footprint;
 mod hook;
 mod local;
 mod runner;
+mod slots;
 mod taskfile;
 mod watch;
 
@@ -179,6 +180,11 @@ enum Cmd {
     },
     /// Run a command in the workspace and record its result at the current head (needed to approve).
     Validate {
+        /// At most this many validations run their commands at once on this host, counted across
+        /// every `av validate` sharing $AV_HOME (one lock file per slot in $AV_HOME/builds); the
+        /// others wait for a slot. About 1.6 GB of memory per cargo build of a repo like this one.
+        #[arg(long, env = "AV_MAX_BUILDS", value_parser = clap::value_parser!(u32).range(1..))]
+        max_builds: Option<u32>,
         /// The command and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
@@ -1536,7 +1542,10 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
         }
-        Cmd::Validate { command } => {
+        Cmd::Validate {
+            max_builds,
+            command,
+        } => {
             let (task, _) = resolve_task(&cli)?;
             let cwd = std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))?;
             let root = taskfile::find(&cwd).map(|(dir, _)| dir).unwrap_or(cwd);
@@ -1546,6 +1555,17 @@ fn run(cli: Cli) -> Result<()> {
                 &json!({}),
                 generation_for(&cli, &task),
             )?;
+            // the command and the checks are the build: they run while a host build slot is held
+            let slot = max_builds
+                .map(|n| {
+                    slots::wait_for(
+                        &local::av_home().join("builds"),
+                        n,
+                        "build",
+                        std::time::Duration::from_secs(1),
+                    )
+                })
+                .transpose()?;
             let (code, tail) = run_capturing(
                 std::process::Command::new(&command[0]).args(&command[1..]),
                 &root,
@@ -1569,6 +1589,7 @@ fn run(cli: Cli) -> Result<()> {
                 checks_failed |= exit != 0;
                 checks.push(json!({"convention_id": c["convention_id"], "exit_code": exit, "output_tail": out}));
             }
+            drop(slot);
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/validate"),
                 &json!({"agent": cli.agent, "command": command.join(" "), "exit_code": code,

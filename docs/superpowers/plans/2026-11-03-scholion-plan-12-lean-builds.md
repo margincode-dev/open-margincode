@@ -258,9 +258,12 @@ What 1000 agents need that does not exist yet, in the order it would bite:
       agents build on the daemon's filesystem. Several hosts need either that root shared (slow
       over the network for builds, as 9p already is at 2×) or workspaces created on the agent's
       host by something the daemon talks to. A design question for when one host is full.
-- [ ] **Build spikes.** If B spikes (every agent re-syncs and builds after one merge to `main`), a
-      per-host gate on check commands (N build slots, taken by the CLI around a check, never by
-      the daemon) bounds it. Only worth building once a run measures B above 10% of A.
+- [x] **Build spikes.** If B spikes (every agent re-syncs and builds after one merge to `main`), a
+      per-host gate on check commands bounds it: `av validate --max-builds B` (`AV_MAX_BUILDS`)
+      runs the command and the required checks only while holding one of B slots in
+      `$AV_HOME/builds` (the same lock files as `--max-agents`, `slots.rs`); the daemon takes no
+      part. Left: builds an agent runs outside `av validate` are not counted; whether that
+      matters is for a run to measure.
 
 ## How to tell it worked
 

@@ -497,6 +497,11 @@ across every watch that shares `$AV_HOME`: a watch runs its command only while i
 N lock files in `$AV_HOME/agents`, and the OS releases a dead watch's lock. With no free slot
 `--once` exits without running and a plain watch waits. Size N from memory: about 0.8 GB per
 agent CLI plus 1.6 GB for each build running at the same moment (Plan 12, "Memory").
+`av validate --max-builds N` (or `AV_MAX_BUILDS`) does the same for builds: a validation runs
+its command and the required checks only while it holds one of N slots in `$AV_HOME/builds`, and
+the others wait (it says so once on stderr), so a burst of checks after a merge to `main` runs N
+builds at a time. Only `av validate` takes a build slot; an agent running `cargo test` itself
+does not.
 
 The dedicated writers put a fixed `X-Av-Agent` header (`grok`, `gemini`, `cursor`).
 `--for mcp-json` writes the `--agent` name into that header, so a client without its own

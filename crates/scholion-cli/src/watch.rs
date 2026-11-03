@@ -5,17 +5,16 @@
 //! `av next`). This runs on the user's machine; the daemon still never starts a process.
 //!
 //! `--max-agents N` caps the agents running at once on this host, across every watch that shares
-//! `$AV_HOME`: an agent runs only while its watch holds one of N slot files locked. The OS drops
-//! a lock when its process dies, so a killed watch never leaks a slot.
+//! `$AV_HOME`: an agent runs only while its watch holds one of N slots (`slots.rs`).
 
-use std::fs::{File, OpenOptions, TryLockError};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use crate::client::{CliError, Client, Result};
+use crate::slots;
 
 /// The longest pause after failures (the command, or the daemon).
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
@@ -32,25 +31,6 @@ pub struct Watch<'a> {
     /// Where the slot files live (`$AV_HOME/agents`).
     pub slots_dir: PathBuf,
     pub cmd: &'a [String],
-}
-
-/// Takes a free one of `n` slots in `dir`: the open, locked slot file, held while an agent runs.
-/// `None` when all `n` are held.
-fn take_slot(dir: &Path, n: u32) -> std::io::Result<Option<File>> {
-    std::fs::create_dir_all(dir)?;
-    for i in 0..n {
-        let f = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(dir.join(format!("slot-{i}.lock")))?;
-        match f.try_lock() {
-            Ok(()) => return Ok(Some(f)),
-            Err(TryLockError::WouldBlock) => {}
-            Err(TryLockError::Error(e)) => return Err(e),
-        }
-    }
-    Ok(None)
 }
 
 /// What a dry run of `next` says: `None` when nothing fits the agent.
@@ -74,7 +54,7 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
         // a slot first: while the host is full there is nothing to ask the daemon
         let slot = match w.max_agents {
             None => None,
-            Some(n) => match take_slot(&w.slots_dir, n) {
+            Some(n) => match slots::take(&w.slots_dir, n) {
                 Ok(Some(slot)) => {
                     said_full = false;
                     Some(slot)

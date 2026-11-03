@@ -608,7 +608,7 @@ av disk --json              # the same, as GET /v1/disk returns it
 av gc --dry-run             # what would be removed now
 av gc                       # remove workspaces past the retention (POST /v1/gc)
 av gc --retain 0            # every merged or abandoned task's workspace, whatever its age
-av gc --build-cache         # also each repo's shared cache (<repo>/.cache), if anything put one there
+av gc --build-cache         # also each repo's build cache (<repo>/.cache: the built dependencies new tasks start with)
 ```
 
 **Workspaces of finished tasks.** Once a task has been merged or abandoned for
@@ -662,8 +662,31 @@ the workspace root, so both produce the same names and `cargo test` in one runs 
 binary, a validation that is green or red for the wrong task. A reviewer who validates in the
 owner's workspace reuses its warm build. The snapshot never takes a workspace's top-level
 `target/`, even in a repo that forgot to ignore it. Python and Node already have global caches
-(pip, uv, npm, pnpm), so nothing is written for them. `av gc --build-cache` removes
-`<repo>/.cache`, where nothing is written today.
+(pip, uv, npm, pnpm), so nothing is written for them.
+
+**Dependencies are built once per repo.** Half of a task's `target/` is dependencies, the same in
+every task. When a task's build output is reclaimed (merge, abandon, or the whole workspace), the
+daemon first keeps the units that come from outside the repo (registry and git crates, their
+build scripts and those scripts' output) in `<ws_root>/<repo>/.cache/deps-target/`, and a new
+task's workspace starts with them in its `target/`, so cargo compiles only the repo's own crates.
+Measured on this repo: a full `cargo test` build from nothing is 2.4 GB and 38 s; seeded, it adds
+1.2 GB and takes 15 s, with no dependency recompiled. The compiled libraries (`*.rlib`, `*.rmeta`,
+proc-macros) are hard links, one copy on disk for every task: rustc replaces such a file rather
+than writing into it, so a rebuild in one workspace never changes another's. Dep-info, cargo's
+fingerprints and build-script output are copied (about 100 MB per task), because those are
+rewritten in place. A unit goes into the cache only when its dep-info lists sources from cargo's
+registry or git checkouts; the repo's own crates never do (their artifacts would be taken as
+fresh in another workspace). An entry already in the cache is kept; the cache only grows until
+`av gc --build-cache` removes `<repo>/.cache`, and workspaces keep their links. `av disk` counts a
+linked file once, under the repo's build cache. Both steps run in the background, so a merge or a
+new task answers at once: the merge moves `target/` aside into `<repo>/.cache/reclaim/` and the
+feed's `build:reclaimed` says, when the harvest is done, how much went into the cache
+(`cached_bytes`); a new task's `target/` is built in `<repo>/.cache/seed/` and moved into the
+workspace in one rename (`build:seeded`), unless the agent's first build made a `target/` first.
+While they run, `av disk` shows those dirs under the build cache; a daemon that stops in between
+removes them when it starts. Hard links need the
+workspaces and the cache on one filesystem (they are: both under `ws_root`); where linking fails,
+a workspace simply starts without them. `AV_BUILD_CACHE=off` keeps and seeds nothing.
 
 To spend less per task still: scope a required convention's check by its glob, so a change to
 `docs/` does not pay for the full workspace build. `av convention add --repo scholion --scope

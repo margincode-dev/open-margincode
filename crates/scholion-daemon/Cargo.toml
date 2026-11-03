@@ -27,6 +27,7 @@ scholion-vcs = { path = "../scholion-vcs" }
 axum.workspace = true
 chrono.workspace = true
 futures.workspace = true
+filetime = "0.2"
 globset = "0.4"
 postgresql_embedded = { version = "0.21", default-features = false, features = ["theseus", "tls-rustls-ring"] }
 serde.workspace = true

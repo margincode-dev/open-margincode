@@ -256,6 +256,8 @@ pub async fn sync_repos(st: &AppState) -> Result<usize> {
         }
         // repos imported before the build cache existed get it too
         crate::build_cache::ensure_logged(st, &name).await;
+        // build output a stopped daemon left on its way out of or into a workspace
+        crate::disk::clear_staging(st, &name).await;
     }
     Ok(added)
 }
@@ -533,6 +535,8 @@ async fn prepare_workspace(st: &AppState, task: &Task) -> Result<()> {
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)
         .await?;
+    // Plan 12 Task 5: the repo's built dependencies, so cargo compiles only its own crates
+    crate::disk::seed_dependencies(st, task);
     // Overlay on main: O empty when B = T; reconcile fills changed(B, T) when main moved.
     init_task_overlay(st, &task.repo, &task.slug, &info.base_change).await?;
     Ok(())

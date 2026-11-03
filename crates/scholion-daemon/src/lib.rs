@@ -5,6 +5,7 @@ mod auth;
 mod backup;
 mod build_cache;
 mod checks;
+mod deps_cache;
 mod derived;
 mod disk;
 mod embed_choice;

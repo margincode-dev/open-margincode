@@ -27,6 +27,15 @@
     are now modules of one test binary per crate, `it` (`tests/main.rs`; `cargo test -p
     scholion-daemon --test it api::NAME`), instead of 45 binaries that each linked every
     dependency: a full `cargo test` build of this workspace is 2.4 GB instead of 4.3 GB.
+  - **Dependencies are built once per repo** (Task 5). When a task's build output is reclaimed,
+    the units built from registry and git crates go into `<repo>/.cache/deps-target/`, and a new
+    task's `target/` starts with them: compiled libraries hard-linked (one copy on disk for every
+    task; rustc replaces them, never writes into them), dep-info, fingerprints and build-script
+    output copied (those are rewritten in place). Measured on this repo: a seeded full `cargo
+    test` build adds 1.2 GB instead of 2.4 GB and takes 15 s instead of 38 s, no dependency
+    recompiled. The repo's own crates never enter the cache. `av disk` counts a linked file
+    once; both steps run in the background (`build:reclaimed` with `cached_bytes`, `build:seeded`); `av gc
+    --build-cache` empties the cache; `AV_BUILD_CACHE=off` keeps and seeds nothing.
   - **`av convention add` warns when a required check is scoped to every path** (`**`): such a
     check runs for every task, so a docs-only change pays the full build (the run's docs-only task
     paid 20 GB and 10 min). The hint says to scope it (`--scope 'crates/**'`); a change outside

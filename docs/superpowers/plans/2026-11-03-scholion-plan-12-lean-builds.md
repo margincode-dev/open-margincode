@@ -90,14 +90,93 @@ tasks, and every build is incremental-warm (the run saw a warm review build in 4
       open task at a time (`lock_task` is per task, so a slot lock is new).
 - [ ] Measure before deciding: with Task 1, is the cold build (and its 6.7 GB) still the long pole?
 
-## Task 5: share dependencies
+## Task 5: share dependencies — done (`deps_cache.rs`)
 
-The 1.4 GB of dependency rlibs per task is the only part that is the same in every task's target
-dir. Options, in order of simplicity: hard-link the `deps/*.rlib`/`*.rmeta` of a per-repo "deps at
-main" build into a new task's `target/` (same filesystem; cargo's fingerprints are by content
-hash and path, so links are valid as long as the path-relative names match, which they do for
-registry crates), or `sccache` with a local disk backend. Measure the saving against Task 1 first:
-it is at most 1.4 of 6.7 GB.
+### Measured first (build container, main 5bea076, lean config, `cargo test --workspace --no-run`)
+
+| | on disk | time (16 cores, warm registry) |
+|---|---|---|
+| full bar, fresh `target/` | 2.4 GB | 38 s on the container fs, 76 s on the `D:\ws` 9p bind mount |
+| of which the repo's own crates (libs, bins, test binaries) | 1.1 GB | |
+| of which dependencies | 1.4 GB: 1286 MB rlib/rmeta/so, 94 MB `build/`, 3 MB `.d`, <1 MB `.fingerprint/` | |
+| the same bar in a fresh `target/` seeded from another checkout's dependencies, that checkout's `target/` deleted first | 1.2 GB | 15 s; cargo compiled the 11 own crates and 0 dependencies; `cargo test -p scholion-core` ran |
+
+What the design rests on, each checked:
+- **Which files cargo and rustc rewrite in place.** After seeding with everything hard-linked and
+  making cargo rebuild 30 dependencies in the seeded workspace, 166 of the cache's
+  `.fingerprint/` files and 39 of its `deps/*.d` files had changed through the shared inodes; its
+  `*.rlib`, `*.rmeta` and `*.so` had not (the rebuilt workspace's copies had link count 1: rustc
+  writes a new file and renames it over). So libraries are linked and everything else is copied.
+- **Build-script output needs no rewriting.** `build/<pkg>-<hash>/output` names its `out` dir by
+  the absolute path of the target dir it ran in (54 files did); cargo keeps that path in
+  `root-output` and re-points it to the current target dir. With the original checkout's
+  `target/` deleted, the seeded one built and linked (ring, psm, tree-sitter's grammars) without
+  any edit; rewriting the paths by hand made 30 dependencies rebuild. No workspace refers to the
+  cache's paths, so `av gc --build-cache` can remove it at any time.
+- **Hard links on `D:\ws`.** Through the 9p mount from the agents' container: a 512 MB file and a
+  hard link to it used 512 MB of D: (`fsutil hardlink list` names both); a copy used another
+  512 MB.
+- **What may be shared.** Cargo 1.97 records registry crates with `CheckDepInfo` like path crates,
+  so the fingerprint does not say; and a path package's fingerprint hashes its location relative
+  to the workspace root, which is how run 1's shared target dir ran another task's test binary. A
+  `deps/` group (`<crate>-<hash>.*`) is shared only when its dep-info lists at least one source
+  under cargo's `registry/src/` or `git/checkouts/` and nothing else but files under a build
+  script's `out` dir and artifacts. A build script goes by its own dep-info, its run (no
+  dep-info) with its package's scripts; a fingerprint dir when it is a lib or build-script unit
+  whose artifacts go. Executables are never shared. This needs no `Cargo.toml` parsing and keeps
+  a repo's own crates out whatever path its workspace is mounted at.
+- `sccache` would save compile time only: each `target/` still holds its own copy of every rlib.
+
+### What was built
+
+- `deps_cache.rs`: `harvest(target, cache)` and `seed(cache, target)`, file operations only (the
+  daemon still never runs cargo), with unit tests for the dep-info rule and the names.
+- `disk.rs`: both run in the background, because on `D:\ws` (9p) each took 53–73 s of small-file
+  work and the merge or `start_task` waited for it. `retire_build` renames a task's `target/` into
+  `<repo>/.cache/reclaim/<slug>-…` (one rename; the merge answers at once), then harvests from
+  there and removes it; `build:reclaimed` carries `cached_bytes` when that is done.
+  `seed_dependencies` (from `prepare_workspace` in `api.rs` and `ensure_workspace`) builds the new
+  `target/` in `<repo>/.cache/seed/<slug>-…` and, under `lock_task`, renames it into the workspace
+  only if the workspace still exists and has no `target/` (an agent that builds first keeps its
+  own); `build:seeded` says `linked`/`copied` or `skipped`. `sync_repos` removes both staging dirs
+  at start-up. `GET /v1/disk` counts a file with several links once, measuring each repo's build
+  cache (staging included) before its workspaces. All behind `AV_BUILD_CACHE` (on by default).
+- **File times.** `std::fs::copy` stamps a copy "now", and cargo takes a unit as stale when a
+  dependency's output is newer than its own, so copies keep the source's times (`filetime`). On
+  `D:\ws` that was still not enough: the mount keeps the fraction of a second of a file it
+  creates but drops it from a time that is set, so a copied build script landed up to a second
+  before the linked library it was built after, and 18 dependencies above `generic-array`
+  rebuilt (cargo's fingerprint log: `StaleDependency`, dep `…177.242` vs `…177.000`). Every file
+  the harvest places in the cache, linked or copied, is now rounded down to the whole second:
+  rounding keeps every order (`a ≤ b` stays `a ≤ b`) and cargo takes equal times as fresh.
+- Tests in `tests/disk.rs`: a cargo-like fixture `target/` (a registry crate with its build script
+  and run, the repo's own crate with its test binary and build script): the merge keeps the
+  former and never the latter; a new task gets libraries linked (same inode) and `.d`,
+  fingerprints and `build/` copied; an entry already in the cache is never replaced; retention 0
+  harvests too; `AV_BUILD_CACHE=off` keeps and seeds nothing; `av disk` counts the links once;
+  start-up removes what a stopped daemon left in `reclaim/` and `seed/`. Unit tests: copies keep
+  their times, and the cache holds whole seconds.
+
+### Live check (2026-11-03, daemon from this branch, ws root on the `D:\ws` 9p mount)
+
+Two tasks on a copy of this repo, the bar `cargo test --workspace --no-run`, 6 build jobs:
+
+| | before the background jobs and the rounding | now |
+|---|---|---|
+| task A, full build from nothing | 91 s, 416 crates, 2.4 GB | same |
+| A's merge answers | 73 s | 1–5 s; the harvest finishes 72–80 s later in the background |
+| task B's `start_task` answers | 68 s | 6–7 s; the seed finishes 60–67 s later |
+| B's full build, seeded | 49 s, 29 crates (18 of them dependencies) | 42 s, 11 crates: the repo's own, no dependency |
+| D: used by B's `target/` | 1.33 GB | 1.21 GB (2.4 GB apparent) |
+| cache | 1.3 GB, 3881 files, no own crate | same |
+| cache files changed by B's build | 0 | 0 |
+
+So run 1's 20 GB per task is 1.2 GB while a task is open and 0 B once it is merged, plus one
+1.3 GB cache per repo.
+
+Left open: a seed takes about a minute on `D:\ws`; an agent that runs cargo before it lands
+builds its own `target/` from nothing (the seed is then skipped, never mixed in). Workspace slots
+(Task 4) would keep a warm `target/` instead and need no seed.
 
 ## Task 6: scholion's own test binaries
 
@@ -160,7 +239,7 @@ abandoned; the 5 MB workspace waits for the retention.
   target dir to the lean per-task config, and the sweep reclaimed run 1's five merged workspaces.
   The old image is kept as `scholion-daemon:pre-plan12` for rollback. In bash, pass the ids
   through `env UID=… GID=… docker compose …`: `UID` is read-only in the shell.
-- **Before the next run, two things the daemon cannot do:**
+- **Two things the daemon cannot do, both done by hand on 2026-11-03 ~15:40 UTC (`sch-ws` recreated as below; the bar is now `conv:7` with the scope below, `conv:1` removed):**
   1. The agents' container `sch-ws` exports `CARGO_TARGET_DIR=/target`. The environment beats
      every cargo config, so agents there would still share one target dir. Recreate it without
      that variable (builds then land in `/ws/scholion/<slug>/target`, reclaimed with the task), or
@@ -184,6 +263,8 @@ abandoned; the 5 MB workspace waits for the retention.
        'The bar: fmt, clippy -D warnings and cargo test --workspace all green. Build in the workspace itself (its own target/); never point CARGO_TARGET_DIR at a dir another task uses.'
      av convention rm 1 --repo scholion
      ```
+  Builds on the `D:\ws` bind mount (9p) take 2× the container-fs time (76 s vs 38 s for the full
+  bar), measured in the build container; tolerable, so Task 3 stays after Task 5.
 - The live repo's trunk is run 1's import (before #72), so a task's full bar there costs about
   4.3 GB until the repo is re-imported from current `main`; after that, 2.4 GB.
 - Docker's `D:\DockerData\DockerDesktopWSL\disk\docker_data.vhdx` is 175 GB for about 15 GB of

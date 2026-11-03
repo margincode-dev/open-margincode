@@ -192,6 +192,226 @@ async fn measure(p: PathBuf) -> u64 {
         .unwrap_or(0)
 }
 
+/// Files with more than one link already counted in one `GET /v1/disk` (device, inode).
+type Seen = Arc<Mutex<HashSet<(u64, u64)>>>;
+
+/// `(device, inode)` of a file other paths link to too; `None` for a file with one link.
+#[cfg(unix)]
+fn shared_inode(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    (meta.nlink() > 1).then(|| (meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn shared_inode(_: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
+}
+
+/// `bytes_of`, but a file hard-linked elsewhere counts only the first time `seen` meets it (the
+/// deps cache links one copy into every task's `target/`), and `skip` is left out.
+fn bytes_once(p: &Path, skip: Option<&Path>, seen: &Mutex<HashSet<(u64, u64)>>) -> u64 {
+    if skip == Some(p) {
+        return 0;
+    }
+    let Ok(meta) = std::fs::symlink_metadata(p) else {
+        return 0;
+    };
+    if !meta.is_dir() {
+        return match shared_inode(&meta) {
+            Some(id) if !seen.lock().unwrap_or_else(|e| e.into_inner()).insert(id) => 0,
+            _ => meta.len(),
+        };
+    }
+    std::fs::read_dir(p)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| bytes_once(&e.path(), skip, seen))
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+async fn measure_once(p: PathBuf, skip: Option<PathBuf>, seen: &Seen) -> u64 {
+    let seen = seen.clone();
+    tokio::task::spawn_blocking(move || bytes_once(&p, skip.as_deref(), &seen))
+        .await
+        .unwrap_or(0)
+}
+
+/// `<ws_root>/<repo>/.cache/deps-target` (Plan 12 Task 5, `deps_cache.rs`).
+fn deps_cache_dir(st: &AppState, repo: &str) -> Result<PathBuf> {
+    under_ws_root(st, &[repo, BUILD_CACHE, crate::deps_cache::DIR])
+}
+
+/// Under `<repo>/.cache/`: build output on its way out of a workspace, and a seed being built.
+const RECLAIM: &str = "reclaim";
+const SEED: &str = "seed";
+
+/// A fresh staging dir `<repo>/.cache/<kind>/<slug>-<ms>-<n>`: on the workspaces' filesystem, so
+/// a `target/` moves there or back with one rename (instant on any mount, where copying the
+/// thousands of files a Rust build holds takes a minute on Docker Desktop's).
+fn staging(st: &AppState, repo: &str, kind: &str, slug: &str) -> Result<PathBuf> {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = format!("{slug}-{}-{n}", Utc::now().timestamp_millis());
+    under_ws_root(st, &[repo, BUILD_CACHE, kind, &name])
+}
+
+/// Removes the staging dirs a daemon that stopped mid-job left (start-up: no job runs then).
+pub(crate) async fn clear_staging(st: &AppState, repo: &str) {
+    for kind in [RECLAIM, SEED] {
+        let Ok(dir) = under_ws_root(st, &[repo, BUILD_CACHE, kind]) else {
+            continue;
+        };
+        if exists(&dir)
+            && let Err(e) = remove_tree(dir).await
+        {
+            tracing::warn!(%repo, error = %e, "removing leftover build output failed");
+        }
+    }
+}
+
+/// Takes `task`'s `target/` out of its workspace; says whether it had one. With the build cache
+/// on, the dir is moved aside (one rename) and a background job keeps its dependencies in the
+/// repo's deps cache, removes it and adds `build:reclaimed`; with it off, or if the move fails,
+/// it is removed here and the event added at once.
+async fn retire_build(st: &AppState, task: &Task) -> Result<bool> {
+    let target = under_ws_root(st, &[&task.repo, &task.slug, BUILD_DIR])?;
+    if !exists(&target) {
+        return Ok(false);
+    }
+    if st.build_cache {
+        let aside = staging(st, &task.repo, RECLAIM, &task.slug)?;
+        let moved = aside
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::rename(&target, &aside));
+        match moved {
+            Ok(()) => {
+                let (st, task) = (st.clone(), task.clone());
+                tokio::spawn(async move { finish_retire(&st, &task, aside).await });
+                return Ok(true);
+            }
+            Err(e) => {
+                tracing::warn!(task = %task.slug, error = %e, "moving the build output aside failed")
+            }
+        }
+    }
+    let bytes = measure(target.clone()).await;
+    remove_tree(target).await?;
+    st.store
+        .add_event(
+            &task.repo,
+            "build:reclaimed",
+            Some(task.id),
+            json!({"slug": task.slug, "bytes": bytes, "cached_bytes": 0}),
+        )
+        .await?;
+    Ok(true)
+}
+
+/// The background half of `retire_build`.
+async fn finish_retire(st: &AppState, task: &Task, aside: PathBuf) {
+    let bytes = measure(aside.clone()).await;
+    let cached_bytes = match deps_cache_dir(st, &task.repo) {
+        Ok(cache) => {
+            let from = aside.clone();
+            match tokio::task::spawn_blocking(move || crate::deps_cache::harvest(&from, &cache))
+                .await
+            {
+                Ok(Ok(placed)) => placed.bytes,
+                Ok(Err(e)) => {
+                    tracing::warn!(task = %task.slug, error = %e, "keeping the dependencies failed");
+                    0
+                }
+                Err(e) => {
+                    tracing::warn!(task = %task.slug, error = %e, "keeping the dependencies failed");
+                    0
+                }
+            }
+        }
+        Err(_) => 0,
+    };
+    if let Err(e) = remove_tree(aside).await {
+        tracing::warn!(task = %task.slug, error = %e, "removing the build output failed");
+    }
+    let payload = json!({"slug": task.slug, "bytes": bytes, "cached_bytes": cached_bytes});
+    if let Err(e) = st
+        .store
+        .add_event(&task.repo, "build:reclaimed", Some(task.id), payload)
+        .await
+    {
+        tracing::warn!(task = %task.slug, error = %e, "recording build:reclaimed failed");
+    }
+}
+
+/// Gives `task`'s new or restored workspace the repo's built dependencies, in the background:
+/// the seed is built in a staging dir and moved in whole as the workspace's `target/`, unless by
+/// then the workspace is gone or has a `target/` of its own (the agent started building), so
+/// cargo never sees half a seed. The feed gets `build:seeded`.
+pub(crate) fn seed_dependencies(st: &AppState, task: &Task) {
+    if !st.build_cache {
+        return;
+    }
+    let Ok(cache) = deps_cache_dir(st, &task.repo) else {
+        return;
+    };
+    if !exists(&cache) {
+        return;
+    }
+    let (st, task) = (st.clone(), task.clone());
+    tokio::spawn(async move {
+        if let Err(e) = seed_job(&st, &task, cache).await {
+            tracing::warn!(task = %task.slug, error = %e, "seeding the dependencies failed");
+        }
+    });
+}
+
+async fn seed_job(st: &AppState, task: &Task, cache: PathBuf) -> Result<()> {
+    let ws = under_ws_root(st, &[&task.repo, &task.slug])?;
+    let staged = staging(st, &task.repo, SEED, &task.slug)?;
+    let into = staged.clone();
+    let built = tokio::task::spawn_blocking(move || crate::deps_cache::seed(&cache, &into))
+        .await
+        .map_err(|e| AvError::Vcs(e.to_string()))?;
+    let (placed, skipped) = match built {
+        Ok(placed) => {
+            let _held = st.lock_task(task.id).await;
+            let target = ws.join(BUILD_DIR);
+            if !exists(&ws) {
+                (placed, Some("the workspace is gone"))
+            } else if exists(&target) {
+                (placed, Some("the workspace has a target/ already"))
+            } else {
+                match std::fs::rename(&staged, &target) {
+                    Ok(()) => (placed, None),
+                    Err(e) => {
+                        tracing::warn!(task = %task.slug, error = %e, "moving the seed in failed");
+                        (placed, Some("moving it in failed"))
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(task = %task.slug, error = %e, "building the seed stopped");
+            (Default::default(), Some("building it failed"))
+        }
+    };
+    if exists(&staged) {
+        remove_tree(staged).await?;
+    }
+    let payload = match skipped {
+        None => json!({"slug": task.slug, "linked": placed.linked, "copied": placed.copied,
+                       "bytes": placed.bytes}),
+        Some(why) => json!({"slug": task.slug, "skipped": why}),
+    };
+    st.store
+        .add_event(&task.repo, "build:seeded", Some(task.id), payload)
+        .await?;
+    Ok(())
+}
+
 async fn remove_tree(p: PathBuf) -> Result<()> {
     tokio::task::spawn_blocking(move || match std::fs::remove_dir_all(&p) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
@@ -232,6 +452,10 @@ async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Opt
     let bytes = measure(dir.clone()).await + measure(scratch.clone()).await;
     if !dry_run {
         if has_dir {
+            // its target/ first, so the dependencies are kept and the slow part runs apart
+            if let Err(e) = retire_build(st, task).await {
+                tracing::warn!(task = %task.slug, error = %e, "taking the build output out failed");
+            }
             st.vcs.remove_workspace(&task.repo, &task.slug).await?;
         }
         if has_scratch {
@@ -372,35 +596,15 @@ pub(crate) async fn reclaim_task(st: &AppState, task: &Task) -> (&'static str, &
             }
         },
         None => ("kept", "kept"),
-        Some(_) => match reclaim_build(st, task).await {
-            Ok(Some(_)) => ("kept", "removed"),
-            Ok(None) => ("kept", "none"),
+        Some(_) => match retire_build(st, task).await {
+            Ok(true) => ("kept", "removed"),
+            Ok(false) => ("kept", "none"),
             Err(e) => {
                 tracing::warn!(task = %task.slug, error = %e, "removing the build output failed");
                 ("kept", "kept")
             }
         },
     }
-}
-
-/// Removes the build output of `task`'s workspace and says how many bytes went; `None` when it
-/// had none. The feed gets `build:reclaimed`.
-async fn reclaim_build(st: &AppState, task: &Task) -> Result<Option<u64>> {
-    let dir = under_ws_root(st, &[&task.repo, &task.slug, BUILD_DIR])?;
-    if !exists(&dir) {
-        return Ok(None);
-    }
-    let bytes = measure(dir.clone()).await;
-    remove_tree(dir).await?;
-    st.store
-        .add_event(
-            &task.repo,
-            "build:reclaimed",
-            Some(task.id),
-            json!({"slug": task.slug, "bytes": bytes}),
-        )
-        .await?;
-    Ok(Some(bytes))
 }
 
 /// Re-creates the workspace of `task` at its head when it was reclaimed (an undo or revert
@@ -417,6 +621,7 @@ pub(crate) async fn ensure_workspace(st: &AppState, task: &Task) -> Result<&'sta
     st.vcs
         .restore_workspace(&task.repo, &task.slug, &task.head_change)
         .await?;
+    seed_dependencies(st, task);
     Ok("restored")
 }
 
@@ -483,6 +688,9 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
     names.extend(plain_dirs(&st.ws_root));
     let (mut ws_total, mut store_total, mut cache_total, mut scratch_total) = (0, 0, 0, 0);
     let mut build_total = 0;
+    // each repo's build cache is measured before its workspaces, so a dependency the deps cache
+    // links into every task's target/ counts once, under the cache
+    let seen: Seen = Arc::default();
     let mut repos = Vec::new();
     for name in names {
         let Ok(repo_dir) = under_ws_root(&st, &[&name]) else {
@@ -492,12 +700,13 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
             Some(root) => measure(root.join(&name)).await,
             None => 0,
         };
-        let build_cache_bytes = measure(repo_dir.join(BUILD_CACHE)).await;
+        let build_cache_bytes = measure_once(repo_dir.join(BUILD_CACHE), None, &seen).await;
         let scratch_bytes = measure(repo_dir.join(SCRATCH)).await;
         let mut workspaces = Vec::new();
         for slug in plain_dirs(&repo_dir) {
-            let build_bytes = measure(repo_dir.join(&slug).join(BUILD_DIR)).await;
-            let bytes = measure(repo_dir.join(&slug)).await;
+            let (ws, target) = (repo_dir.join(&slug), repo_dir.join(&slug).join(BUILD_DIR));
+            let build_bytes = measure_once(target.clone(), None, &seen).await;
+            let bytes = build_bytes + measure_once(ws, Some(target), &seen).await;
             ws_total += bytes;
             build_total += build_bytes;
             let entry = tasks.get(&(name.clone(), slug.clone()));

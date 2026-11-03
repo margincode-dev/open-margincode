@@ -2977,7 +2977,9 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         "a needs-attention strip, with the thresholds past which a task is stuck"
     );
     assert!(
-        html.contains("/timeline?repo=") && html.contains("limit=500") && html.contains("av_days"),
+        html.contains("/timeline?repo=")
+            && html.contains("TIMELINE_LIMIT = 500")
+            && html.contains("av_days"),
         "the flow panel counts each agent's timeline over a period kept in this browser"
     );
 

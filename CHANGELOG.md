@@ -34,6 +34,16 @@
   `max_open`, a kanban board whose columns never overflow, side panels for targets, backlog and
   activity, and a slide-in drawer for tasks and agents. Light and dark follow the system, or pick
   one with the theme button (kept in this browser). The page reads the same `/v1` routes as before.
+- **What needs attention, and how the work flows.** Every task card says how long it has been in
+  its status, and a card goes amber once it is stuck (a review nobody gave for 2 h, a handoff
+  nobody took for an hour, a conflict unresolved for an hour, an open task with no write for a
+  whole lease). A "Needs attention" strip above the board lists, worst first, a red main,
+  conflicted tasks, those stuck reviews, handoffs and open tasks, quiet agents, backlog items no
+  agent can do and overdue targets; it is hidden when there is nothing. A Flow panel shows, over
+  7, 14 or 30 days, merges per day as a sparkline, the median cycle time (start to merge), the
+  median review wait (submit to verdict), rework (changes requested, conflicts, undos, reverts),
+  and per agent what it started, merged and reviewed. All of it is computed in the page from the
+  event history and the agents' timelines; no cost or model usage is shown.
 - **The task drawer shows the work itself.** The diff from base to head, one file at a time with
   its added and removed lines; the task's own timeline (started, every checkpoint with how many
   paths it touched, claims, submits, verdicts, merges, conflicts); each review round (the verdict

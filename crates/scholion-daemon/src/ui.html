@@ -335,6 +335,23 @@ pre.pack {
   margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
   overflow: auto; max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
 }
+/* needs attention and flow */
+.attention .list { background: var(--surface); box-shadow: var(--shadow-sm); }
+.attention[hidden] { display: none; }
+.card.stale { border-left: 3px solid var(--amber); }
+.ctl.sm { height: 26px; font-size: 12px; padding: 0 26px 0 8px; margin-left: auto; }
+.flow-top { padding: 12px 14px 6px; }
+.spark { display: block; width: 100%; height: 44px; margin-bottom: 6px; }
+.spark .area { fill: var(--tone); opacity: .15; }
+.spark .line { fill: none; stroke: var(--tone); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1px; margin: 8px 14px 6px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.fig { background: var(--surface); padding: 8px 10px; min-width: 0; }
+.fig-v { font-size: 18px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.fig-l { color: var(--faint); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.flow-agent { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 14px; background: none; border: 0; text-align: left; font-size: 12.5px; }
+.flow-agent:hover { background: var(--surface-2); }
+.flow-agent .n { margin-left: auto; white-space: nowrap; color: var(--muted); }
+.flow-agent .ok { color: var(--green); } .flow-agent .bad { color: var(--red); }
 /* the task's diff, one <details> per file */
 .diff-box { margin-top: 10px; }
 .diff-file { border: 1px solid var(--border); border-radius: var(--radius); margin: 0 0 8px; background: var(--surface); overflow: hidden; }
@@ -416,6 +433,12 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
   <section id="summary" class="summary" aria-label="Summary"></section>
 
+  <section id="attention" class="attention" aria-labelledby="attnH" hidden>
+    <div class="sec-h"><h2 id="attnH">Needs attention</h2><span id="attnCount" class="count">0</span>
+      <span class="hint">What is stuck, red, quiet, unroutable or overdue. Select a row to open it.</span></div>
+    <div id="attnList" class="list"></div>
+  </section>
+
   <div class="layout">
     <aside class="side side-left" aria-labelledby="teamsH">
       <div class="sec-h"><h2 id="teamsH">Teams</h2><span id="teamsCount" class="count">0</span>
@@ -434,6 +457,13 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
       <section class="panel">
         <div class="panel-h" data-icon="list"><h2>Backlog</h2><span id="backlogCount" class="count">0</span></div>
         <div class="panel-b" id="backlog"><div class="empty">Nothing waiting.</div></div>
+      </section>
+      <section class="panel">
+        <div class="panel-h" data-icon="chart"><h2>Flow</h2>
+          <select id="days" class="ctl sm" aria-label="Period">
+            <option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option>
+          </select></div>
+        <div class="panel-b" id="flow"><div class="empty">No history yet.</div></div>
       </section>
       <section class="panel">
         <div class="panel-h" data-icon="activity"><h2>Activity</h2></div>
@@ -479,6 +509,8 @@ const KIND_TONE = {
   request_changes: "red", conflicted: "red", abandon: "red", undo: "red", revert: "red",
   handoff: "teal", claim: "teal", taken: "teal", checkpoint: "gray",
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
+  // the attention strip's own kinds
+  "main red": "red", stale: "amber", unclaimed: "violet", quiet: "amber", unroutable: "amber", overdue: "red",
 };
 const AGENT_STATE = {
   working: ["Working", "green"], reviewing: ["Reviewing", "blue"], quiet: ["Quiet", "amber"], idle: ["Idle", "gray"],
@@ -489,6 +521,8 @@ const S = {
   // the repo's whole event history, oldest first, and the same by task: time in status, a task's
   // timeline and its review rounds are derived from it (the daemon serves the feed, not those)
   hist: [], byTask: new Map(), histCapped: false, diff: null,
+  // what the attention strip and the flow panel read besides the tasks and the history
+  health: null, targets: [], queuedItems: [], timelines: new Map(), days: 14,
 };
 
 function store(get, key, value) {
@@ -547,6 +581,7 @@ const ICONS = {
   activity: "M22 12h-4l-3 9L9 3l-3 9H2",
   arrow: "M5 12h14M13 6l6 6-6 6",
   inbox: "M22 12h-6l-2 3h-4l-2-3H2M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z",
+  chart: "M3 3v18h18M7 15l4-5 4 3 6-7",
 };
 function icon(name, size = 16) {
   return svg("svg", {
@@ -691,6 +726,28 @@ function evTitle(ev) {
   if (ev.kind === "workspace:reclaimed") return "workspace reclaimed";
   return word(ev.kind);
 }
+// A duration without "ago": 45s, 12m, 3h, 2d.
+function span(secs) {
+  const s = Math.max(0, secs);
+  if (s < 60) return `${Math.round(s)}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+// How long a task has been in its status: "in review 3h".
+function inStatus(t) {
+  return `${(STATUS[t.status] || [t.status])[0].toLowerCase()} ${span((Date.now() - new Date(statusSince(t)).getTime()) / 1000)}`;
+}
+// Past these, a task is stuck: a review nobody gave, a handoff nobody took, a conflict nobody
+// resolved. An open task is stuck when its lease ran out with no write (what the office calls quiet).
+const STALE_SECS = { in_review: 2 * 3600, handed_off: 3600, conflicted: 3600 };
+function staleness(t) {
+  if (t.status === "open") return t.lease_expires && new Date(t.lease_expires) < new Date() ? "no write for a whole lease" : null;
+  const limit = STALE_SECS[t.status];
+  if (!limit) return null;
+  const secs = (Date.now() - new Date(statusSince(t)).getTime()) / 1000;
+  return secs > limit ? inStatus(t) : null;
+}
 // Returns the id to follow the feed from, or null when the repo changed meanwhile. The head is
 // read first; a long history is capped to the newest HIST_WINDOW ids (the oldest events are the
 // ones left out, never the newest), then read in pages up to the head.
@@ -763,6 +820,7 @@ async function loadTargets() {
   if (!S.repo) { fill(box, empty("No targets.")); setCount("targetsCount", 0); return; }
   const body = await api(`/v1/targets?repo=${encodeURIComponent(S.repo)}`);
   const all = body.targets || [];
+  S.targets = all;
   const active = all.filter(t => t.status === "active");
   const closed = all.filter(t => t.status !== "active").slice(-3).reverse();
   const today = new Date().toISOString().slice(0, 10);
@@ -784,6 +842,7 @@ async function loadTargets() {
   setCount("targetsCount", active.length);
   const rows = [...active.map(row), ...closed.map(row)];
   fill(box, rows.length ? rows : [empty("No targets. Add one with av target add.", "target")]);
+  renderAttention();
 }
 
 // The office: one desk per profile, cheapest first, then agents with no profile that hold work.
@@ -798,6 +857,8 @@ async function loadTeams() {
   renderSummary();
   fill(box, S.agents.length ? S.agents.map(agentCard)
     : [empty("No teams yet. Add one with av agent set.", "users")]);
+  renderAttention();
+  loadFlow().catch(() => {}); // per-agent counts; the panel stands without them
 }
 
 function agentCard(a) {
@@ -806,9 +867,10 @@ function agentCard(a) {
   const cap = p ? p.max_open : null; // null: no limit
   const full = cap != null && open >= cap;
   const [stateLabel, stateTone] = AGENT_STATE[a.state] || [a.state, "gray"];
+  const waiting = a.in_review[0] && S.byId.get(a.in_review[0].id);
   const now = a.open[0] ? a.open[0].title
     : a.reviewing[0] ? "reviewing " + a.reviewing[0].title
-    : a.in_review[0] ? "waiting for review: " + a.in_review[0].title
+    : a.in_review[0] ? "waiting for review: " + a.in_review[0].title + (waiting ? ` (${inStatus(waiting)})` : "")
     : null;
   const last = a.last ? `${a.last.kind}${a.last.text ? ": " + a.last.text : " " + a.last.slug}` : null;
   const tags = [...((p && p.best) || []).map(s => h("span", { class: "tag best", title: "best at" }, s)),
@@ -937,7 +999,7 @@ async function loadBacklog() {
   const q = encodeURIComponent(S.repo);
   const [queued, taken] = await Promise.all([
     api(`/v1/backlog?repo=${q}&state=queued`), api(`/v1/backlog?repo=${q}&state=taken`)]);
-  S.queued = queued.items.length; S.taken = taken.items.length;
+  S.queued = queued.items.length; S.taken = taken.items.length; S.queuedItems = queued.items;
   setCount("backlogCount", queued.items.length);
   renderSummary();
   const queuedRows = queued.items.map(i => h("div", { class: "bl" },
@@ -959,6 +1021,7 @@ async function loadBacklog() {
   fill(box,
     queuedRows.length ? queuedRows : empty("Nothing waiting.", "inbox"),
     takenRows.length > 0 && [h("div", { class: "sub-h" }, "Recently taken"), takenRows]);
+  renderAttention();
 }
 
 async function loadHealth() {
@@ -967,9 +1030,11 @@ async function loadHealth() {
   if (!S.repo) { set(null, "main: —"); return; }
   try {
     const hl = await api(`/v1/repos/${encodeURIComponent(S.repo)}/health`);
+    S.health = hl;
     const label = hl.state === "red" ? `main red since ${short(hl.since)}` : `main ${hl.state}`;
     set(hl.state === "red" ? "red" : hl.state === "green" ? "green" : null, label);
     chip.title = hl.state === "red" ? `${hl.command} exited ${hl.exit_code} (task ${hl.task || "?"})` : "Post-merge check on main";
+    renderAttention();
   } catch (e) {
     if (!(e instanceof Unauthorized)) set(null, "main: ?");
   }
@@ -979,11 +1044,13 @@ async function loadHealth() {
 
 function card(t) {
   const lease = t.status === "open" && t.lease_expires && new Date(t.lease_expires) > new Date() ? "leased" : null;
-  return h("button", { class: "card", type: "button", onclick: () => openTask(t.id) },
+  const stale = staleness(t);
+  return h("button", { class: "card" + (stale ? " stale" : ""), type: "button", onclick: () => openTask(t.id),
+      title: stale ? "Stuck: " + stale : null },
     h("div", { class: "card-title" }, t.title),
     h("div", { class: "card-sub" },
       h("span", { class: "card-slug mono", title: t.slug }, t.slug),
-      h("span", { class: "ago", title: t.created_at }, ago(t.created_at))),
+      h("span", { class: "ago", title: "started " + ago(t.created_at) }, inStatus(t))),
     h("div", { class: "card-foot" },
       person(t.owner_agent, 18, null, "sm"),
       h("span", { class: "spacer" }),
@@ -1006,7 +1073,151 @@ function renderBoard() {
       h("div", { class: "col-body" }, ts.length ? ts.map(card) : empty("Nothing here")));
   }));
   renderSummary();
+  renderAttention();
+  renderFlow();
 }
+
+// ---- needs attention ----
+// Rows from what the page already holds, worst first: a red main, conflicts, reviews and handoffs
+// nobody took, open tasks nobody writes to, quiet agents, backlog items no agent can do, overdue
+// targets. Hidden when there is nothing.
+function renderAttention() {
+  const sec = document.getElementById("attention");
+  const rows = [];
+  const row = (kind, label, title, meta, onclick) => rows.push(evRow({ kind, label, title, meta, onclick }));
+  const bySince = (a, b) => new Date(statusSince(a)) - new Date(statusSince(b));
+  const hl = S.health;
+  if (hl && hl.state === "red") {
+    row("main red", "main red", `${hl.command || "the check"} exited ${hl.exit_code ?? "?"} on main`,
+      [hl.since && "since @" + short(hl.since), hl.task && "task " + hl.task].filter(Boolean).join(" · "),
+      hl.task_id ? () => openTask(hl.task_id) : null);
+  }
+  const owner = t => t.owner_agent || "";
+  for (const t of S.tasks.filter(t => t.status === "conflicted").sort(bySince)) {
+    row("conflicted", "conflicted", t.title, `${inStatus(t)} · ${owner(t)} must sync, resolve and resubmit`, () => openTask(t.id));
+  }
+  for (const t of S.tasks.filter(t => t.status === "in_review" && staleness(t)).sort(bySince)) {
+    row("stale", "waiting for review", t.title, `${inStatus(t)} · ${owner(t)}`, () => openTask(t.id));
+  }
+  for (const t of S.tasks.filter(t => t.status === "handed_off" && staleness(t)).sort(bySince)) {
+    row("unclaimed", "nobody claimed", t.title, `${inStatus(t)} · from ${owner(t)}`, () => openTask(t.id));
+  }
+  for (const t of S.tasks.filter(t => t.status === "open" && staleness(t)).sort(bySince)) {
+    row("stale", "no write for a lease", t.title, `${inStatus(t)} · ${owner(t)}`, () => openTask(t.id));
+  }
+  for (const a of (S.agents || []).filter(a => a.state === "quiet")) {
+    row("quiet", "quiet", a.name, `${a.open.length} open task${a.open.length === 1 ? "" : "s"}, none written to within a lease`, () => openAgent(a.name));
+  }
+  for (const i of S.queuedItems.filter(i => !i.best_agent)) {
+    row("unroutable", "no agent can do it", i.title, i.needs && i.needs.length ? "needs " + i.needs.join(", ") : "", null);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  for (const t of S.targets.filter(t => t.status === "active" && t.due && t.due < today)) {
+    row("overdue", "overdue", t.title, `due ${t.due} · ${t.merged}/${t.items} merged`, null);
+  }
+  sec.hidden = rows.length === 0;
+  setCount("attnCount", rows.length);
+  fill(document.getElementById("attnList"), rows);
+}
+
+// ---- flow ----
+// Figures over the last N days, from the history: merges and starts per day, the median cycle
+// time (start to merge), the median review wait (submit to verdict), rework (changes requested,
+// conflicts, undos, reverts), and per agent what it started, merged and reviewed (its timeline).
+
+function localDay(d) {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+}
+function median(xs) {
+  if (!xs.length) return null;
+  const s = xs.slice().sort((a, b) => a - b);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+}
+function flowStats(days) {
+  const cutoff = Date.now() - days * 86400000;
+  const daily = new Map();
+  for (let i = days - 1; i >= 0; i--) daily.set(localDay(Date.now() - i * 86400000), { started: 0, merged: 0, conflicted: 0, abandon: 0, request_changes: 0 });
+  const cycles = [], waits = [];
+  let rework = 0;
+  for (const ev of S.hist) {
+    const at = new Date(ev.at).getTime();
+    if (at < cutoff) continue;
+    const d = daily.get(localDay(at));
+    if (d && ev.kind in d) d[ev.kind]++;
+    if (ev.kind === "request_changes" || ev.kind === "conflicted" || ev.kind === "undo" || ev.kind === "revert") rework++;
+    if (ev.kind === "merged") {
+      const t = S.byId.get(ev.task_id);
+      if (t) cycles.push((at - new Date(t.created_at).getTime()) / 1000);
+    } else if (ev.kind === "approve" || ev.kind === "request_changes") {
+      const sub = taskEvents(ev.task_id).filter(e => e.kind === "submit" && e.id < ev.id).pop();
+      if (sub) waits.push((at - new Date(sub.at).getTime()) / 1000);
+    }
+  }
+  const rows = [...daily.values()];
+  const sum = k => rows.reduce((n, r) => n + r[k], 0);
+  return { days: [...daily.keys()], rows, started: sum("started"), merged: sum("merged"), conflicted: sum("conflicted"),
+    cycle: median(cycles), cycles: cycles.length, wait: median(waits), waits: waits.length, rework };
+}
+// Each office agent's timeline, for the per-agent counts (one request per agent, failures skipped).
+async function loadFlow() {
+  if (!S.repo || !S.agents) return;
+  const q = encodeURIComponent(S.repo);
+  const got = await Promise.all(S.agents.map(a =>
+    api(`/v1/agents/${encodeURIComponent(a.name)}/timeline?repo=${q}&limit=500`).then(r => [a.name, r.items || []]).catch(() => [a.name, null])));
+  S.timelines = new Map(got.filter(([, items]) => items));
+  renderFlow();
+}
+// A line and its area over the values, in the tone; height from the largest value.
+function spark(values, tone, label) {
+  const W = 100, H = 28, max = Math.max(1, ...values), n = values.length, step = n > 1 ? W / (n - 1) : W;
+  const pts = values.map((v, i) => `${(i * step).toFixed(1)},${(H - 2 - (v / max) * (H - 4)).toFixed(1)}`);
+  return svg("svg", { class: "spark tone-" + tone, viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": label },
+    svg("title", {}, label),
+    svg("polygon", { class: "area", points: `0,${H} ${pts.join(" ")} ${((n - 1) * step).toFixed(1)},${H}` }),
+    svg("polyline", { class: "line", points: pts.join(" ") }));
+}
+function fig(label, value, note) {
+  return h("div", { class: "fig", title: note || null }, h("div", { class: "fig-v" }, value), h("div", { class: "fig-l" }, label));
+}
+function renderFlow() {
+  const box = document.getElementById("flow");
+  if (!S.hist.length) { fill(box, empty("No history yet.", "chart")); return; }
+  const f = flowStats(S.days);
+  const cutoff = Date.now() - S.days * 86400000;
+  const agents = [...S.timelines].map(([name, items]) => {
+    const c = { started: 0, merged: 0, approve: 0, request_changes: 0 };
+    for (const i of items) if (new Date(i.at).getTime() >= cutoff && i.kind in c) c[i.kind]++;
+    return { name, ...c };
+  }).filter(a => a.started || a.merged || a.approve || a.request_changes);
+  const per = f.merged / S.days;
+  fill(box,
+    h("div", { class: "flow-top" },
+      spark(f.rows.map(r => r.merged), "green", `merges per day over ${S.days} days`),
+      h("div", { class: "meta" },
+        h("span", {}, `${f.merged} merged`), h("span", {}, `${f.started} started`),
+        h("span", {}, per >= 1 ? `${per.toFixed(1)} a day` : `${(per * 7).toFixed(1)} a week`),
+        S.histCapped && h("span", { class: "warn-text" }, "older history not loaded"))),
+    h("div", { class: "figs" },
+      fig("cycle time", f.cycle == null ? "—" : span(f.cycle), f.cycles ? `median of ${f.cycles} merged, start to merge` : "no merge in the period"),
+      fig("review wait", f.wait == null ? "—" : span(f.wait), f.waits ? `median of ${f.waits} verdicts, submit to verdict` : "no verdict in the period"),
+      fig("rework", f.rework, "changes requested, conflicts, undos and reverts"),
+      fig("conflicts", f.conflicted, "merges that conflicted")),
+    agents.length > 0 && [h("div", { class: "sub-h" }, "Per agent · started / merged / reviews"),
+      agents.map(a => h("button", { class: "flow-agent", type: "button", onclick: () => openAgent(a.name) },
+        person(a.name, 18, null, "sm"),
+        h("span", { class: "mono n" }, `${a.started} / ${a.merged} / `,
+          h("span", { class: "ok" }, `${a.approve}✓`), " ", h("span", { class: "bad" }, `${a.request_changes}✗`))))]);
+}
+let savedDays = null;
+try { savedDays = Number(localStorage.getItem("av_days")); } catch (_) {}
+S.days = [7, 14, 30].includes(savedDays) ? savedDays : 14;
+document.getElementById("days").value = String(S.days);
+document.getElementById("days").addEventListener("change", e => {
+  S.days = Number(e.target.value);
+  try { localStorage.setItem("av_days", String(S.days)); } catch (_) {}
+  renderFlow();
+});
 
 document.getElementById("repo").addEventListener("change", e => {
   S.repo = e.target.value; store(false, "av_repo", S.repo);

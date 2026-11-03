@@ -540,8 +540,15 @@ the reviewer's findings at that head), a validation record as passed or failed w
 output, its own timeline (starts, checkpoints with how many paths they touched, claims, submits,
 verdicts, merges, conflicts) and, after "Build context pack", the pack's receipt (each item's tier,
 reason, source and tokens). The page reads the repo's event history (`GET /v1/events` in pages of
-500, the newest 10 000 ids of a long one, then followed live) and derives timelines and review
-rounds from it; nothing new is recorded. Click a desk (or a task's owner) for that agent's
+500, the newest 10 000 ids of a long one, then followed live) and derives time in status, timelines
+and review rounds from it; nothing new is recorded. Each card says how long its task has been in its
+status and goes amber once it is stuck (a review nobody gave for 2 h, a handoff nobody took or a
+conflict unresolved for an hour, an open task with no write for a whole lease); a "Needs attention"
+strip above the board lists, worst first, a red main, conflicts, those stuck tasks, quiet agents,
+backlog items no agent can do and overdue targets. The Flow panel shows, over 7, 14 or 30 days
+(kept in this browser), merges per day, the median cycle time (start to merge), the median review
+wait (submit to verdict), rework (changes requested, conflicts, undos, reverts) and per agent what
+it started, merged and reviewed, from each agent's timeline. Click a desk (or a task's owner) for that agent's
 timeline: the records it wrote, the tasks it started and claimed, its review verdicts, its submits
 and its merges, newest first. It is built from what Scholion already keeps; nothing extra is
 recorded, and no cost is tracked. "Build context pack" shows exactly what the next agent would

@@ -2972,6 +2972,14 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         html.contains("function loadHistory"),
         "the page reads the repo's whole event history (time in status, timelines, review rounds)"
     );
+    assert!(
+        html.contains("id=\"attention\"") && html.contains("STALE_SECS"),
+        "a needs-attention strip, with the thresholds past which a task is stuck"
+    );
+    assert!(
+        html.contains("/timeline?repo=") && html.contains("limit=500") && html.contains("av_days"),
+        "the flow panel counts each agent's timeline over a period kept in this browser"
+    );
 
     let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

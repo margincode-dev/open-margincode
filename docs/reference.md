@@ -262,7 +262,7 @@ The daemon can also run on the host (`cargo run -p scholion-daemon`) against the
 | Store | Holds | Notes |
 |---|---|---|
 | jj repo (volume `av-store`) | File contents, changes, operation log | Each repo is a git import (`git/` bare clone, `main/` default workspace). `ChangeId` is the jj commit id. |
-| Task workspaces (`AV_WS_ROOT`) | Each task's working copy | Bind-mounted so agents edit on the host; clients are given host paths. |
+| Task workspaces (`AV_WS_ROOT`) | Each task's working copy, its scratch dir (`<repo>/.scratch/<slug>`) and the repo's shared build cache (`<repo>/.cache`) | Bind-mounted so agents edit on the host; clients are given host paths. Removed once the task has been merged or abandoned for `AV_WS_RETAIN_SECS`. |
 | Postgres | Tasks, records, anchors, conventions, ledger, receipts, code index, outbox | Source of truth. |
 | Qdrant | Vectors for records, conventions and code chunks | Derived; filled from the outbox. |
 
@@ -337,8 +337,10 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log`, `daemon.pid` |
+| `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log` (moved to `daemon.log.1` by `av up` once over 50 MB), `daemon.pid` |
 | `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
+| `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it (see [Disk](#disk-what-agents-create-and-what-av-reclaims)) |
+| `AV_BUILD_CACHE` | `on` | `off`: write no shared cargo config for Rust repos |
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
@@ -394,6 +396,8 @@ Defaults (override with environment variables before `up`):
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
+| `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
+| `AV_BUILD_CACHE` | `on` | `off`: write no shared cargo config for Rust repos. |
 
 ### Docker Desktop without WSL integration
 
@@ -541,6 +545,82 @@ repo's tasks) and `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 50
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
 
+## Disk: what agents create and what av reclaims
+
+Coding agents make a lot of files by themselves: build output, dependencies, clones, test data,
+scratch files. Nothing used to own their lifetime. One machine filled 333 GB this way:
+
+| What the agent made | Size | Why it stayed |
+|---|---|---|
+| A cargo `target/` wherever it built: one per task workspace, plus `/tmp` and ad-hoc dirs | about 24 GB per build of this workspace | every task is a full checkout with its own target dir, and no workspace was ever removed |
+| Task workspaces | a few GB | never removed on merge, abandon, undo or revert |
+| Bench clones and venvs | about 1 GB per session | `scholion-bench` kept every clone |
+| Ad-hoc dirs outside any workspace (`~/dogfood`, `~/.grok/worktrees`, …) | tens of GB | no hook looked at them and nobody asked about them |
+
+```bash
+av disk                     # workspaces, scratch, build caches and store per repo, and what sessions left outside
+av disk --json              # the same, as GET /v1/disk returns it
+av gc --dry-run             # what would be removed now
+av gc                       # remove workspaces past the retention (POST /v1/gc)
+av gc --retain 0            # every merged or abandoned task's workspace, whatever its age
+av gc --build-cache         # also each repo's shared build cache
+```
+
+**Workspaces of finished tasks.** Once a task has been merged or abandoned for
+`AV_WS_RETAIN_SECS` (default 3600), the daemon removes its workspace `<ws_root>/<repo>/<slug>` and
+its scratch dir, and forgets the jj workspace. The task's commits stay in the store. A sweep looks
+every 60 s; `av gc` does it on demand (`--retain SECS` overrides the setting for one run).
+`AV_WS_RETAIN_SECS=0` removes the workspace with the merge or abandon itself (their answer says
+`workspace: removed`); `never` leaves it to `av gc --retain`. An undo or revert that puts a merged
+task back to work restores its workspace at the task's head. Open, handed-off, in-review and
+conflicted tasks are never touched, and the daemon deletes nothing outside `ws_root`. `av disk`
+marks the workspaces a sweep would remove as `reclaimable`.
+
+**One build cache per repo.** When a repo with a `Cargo.toml` at its root is imported (and for
+every repo at start-up), the daemon writes `<ws_root>/<repo>/.cargo/config.toml`:
+
+```toml
+# written by av: one cargo target for every task workspace of this repo.
+# Delete this file, or set AV_BUILD_CACHE=off before `av up`, to opt out.
+[build]
+target-dir = ".cache/cargo-target"
+[profile.dev]
+debug = "line-tables-only"
+```
+
+Cargo reads `.cargo/config.toml` in the current directory and every parent, so this one file
+covers every task workspace of the repo without touching the repo or any snapshot. A relative
+`target-dir` is resolved from the parent of `.cargo`, so every build lands in
+`<ws_root>/<repo>/.cache/cargo-target`. A deeper `.cargo/config.toml` (the repo's own) and
+`CARGO_TARGET_DIR` still win. A file without av's first line is never rewritten.
+`AV_BUILD_CACHE=off` writes none. The trade-off: parallel builds of one repo wait on cargo's lock
+on the shared target dir instead of each building from scratch. Python and Node already have
+global caches (pip, uv, npm, pnpm), so nothing is written for them. `av gc --build-cache` removes
+the caches; the next build fills them again.
+
+**What a session leaves outside its workspace.** The Claude Code hooks (and Grok's, which run the
+same `av hook`) take a snapshot at `SessionStart`: under `$HOME`, the temp dir and
+`AV_FOOTPRINT_ROOTS` (a path list), they measure every directory named `target`, `node_modules`,
+`.venv`, `venv`, `dist`, `build`, `.cache`, `worktrees`, `.gradle` or `.next` down to four levels.
+`AV_WS_ROOT` and `$AV_HOME` are left out. `Stop` scans again and diffs. When the session added at
+least `AV_FOOTPRINT_WARN_MB` (default 512), it blocks the stop once per session. The agent is told
+where, and asked to build inside the workspace or the repo's cache, move it to `$AV_SCRATCH`, or
+remove it, and to record where anything kept lives. Every addition is reported to the daemon, and
+`av disk` lists it under "outside any workspace" with the agent, task, time and largest paths. The
+daemon only shows these paths and never removes them. A scan stops at `AV_FOOTPRINT_SECS`
+(default 20) and is then marked `partial`, so some directories may be missing or counted as new.
+`AV_FOOTPRINT=off` turns all of this off.
+
+**`$AV_SCRATCH`.** In a task, `SessionStart` creates `<ws_root>/<repo>/.scratch/<slug>` and
+appends `export AV_SCRATCH=…` to Claude Code's `$CLAUDE_ENV_FILE`, so every later Bash command
+of the session has it. The pack ends with `Temporary files: $AV_SCRATCH (removed with the task).`
+It is removed with the workspace.
+
+**What av does not touch.** Claude Code's own data (`~/.claude`) is swept by Claude Code itself
+(`cleanupPeriodDays`, default 30 days). `scholion-bench run` removes each session's copy after verify unless
+`--keep-work` is given (see [bench/README.md](../bench/README.md)). The jj store and
+Postgres are not garbage-collected. `av up` moves a `daemon.log` over 50 MB to `daemon.log.1`.
+
 ## Test
 
 ```bash
@@ -609,6 +689,13 @@ opens with a warning naming the culprit merge.
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
   (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
+
+  **Disk.** In a task, `SessionStart` also creates a scratch dir and exports it to the session's Bash
+  commands as `$AV_SCRATCH` (through `$CLAUDE_ENV_FILE`); it is removed with the task. Task or not, it
+  measures the build, dependency and cache dirs under `$HOME` and the temp dir, and `Stop` measures
+  them again: a session that added `AV_FOOTPRINT_WARN_MB` (default 512) or more outside any task
+  workspace is stopped once and told where. `AV_FOOTPRINT=off` turns that off. See
+  [Disk](#disk-what-agents-create-and-what-av-reclaims).
 
   **Keep agents busy.** After that check, `Stop` asks the daemon for this agent's next work (a dry run of
   `POST /v1/backlog/next`, the call `av watch` polls). If something fits (queued work, a review, a handoff or an

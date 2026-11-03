@@ -276,6 +276,17 @@ async fn backlog_refusal(pool: &PgPool, id: Uuid, why: &str) -> AvError {
     }
 }
 
+/// Tasks (of repo `$1`, or all) with `since`: when each entered its current status. A
+/// transition's event carries `{"to": status}`, `set_status` writes `status:<status>`; a task with
+/// neither (older than the feed) counts from its creation.
+const STATUS_SINCE: &str = "SELECT t.*, COALESCE(
+        (SELECT max(e.at) FROM events e
+         WHERE e.task_id = t.id
+           AND (e.payload->>'to' = t.status OR e.kind = 'status:' || t.status)),
+        t.created_at) AS since
+    FROM tasks t
+    WHERE ($1::text IS NULL OR t.repo = $1)";
+
 const TASK_COLS: &str = "id, repo, slug, title, goal, status, owner_agent, base_change, head_change, \
                          workspace_path, generation, lease_expires, pack_mode";
 
@@ -1330,6 +1341,49 @@ impl IntentStore for PgStore {
                 })
             })
             .collect()
+    }
+
+    async fn reclaimable_tasks(&self, older_than_secs: u64) -> Result<Vec<Task>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS} FROM ({STATUS_SINCE}) t
+             WHERE status IN ('merged', 'abandoned')
+               AND since <= now() - make_interval(secs => $2)
+             ORDER BY since, id"
+        ))
+        .bind(None::<String>)
+        .bind(older_than_secs as f64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter().map(task_from_row).collect()
+    }
+
+    async fn tasks_with_status_since(
+        &self,
+        repo: Option<&str>,
+    ) -> Result<Vec<(Task, chrono::DateTime<chrono::Utc>)>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS}, since FROM ({STATUS_SINCE}) t ORDER BY repo, slug"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| Ok((task_from_row(r)?, r.try_get("since").map_err(serr)?)))
+            .collect()
+    }
+
+    async fn add_event(
+        &self,
+        repo: &str,
+        kind: &str,
+        task: Option<TaskId>,
+        payload: serde_json::Value,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(serr)?;
+        insert_event(&mut tx, repo, kind, task, None, payload).await?;
+        tx.commit().await.map_err(serr)
     }
 
     async fn conflicted_tasks(

@@ -24,6 +24,11 @@ it exits, run it under `integrations/generic/av-wrap.sh grok`.
 `~/.grok/hooks/*.json`). `SessionStart` prints the task pack. `Stop` is the same hook Claude Code
 runs: once per session it asks for records of changes no record explains, then, when av has work
 that fits this agent, it blocks the stop with `av: <what is waiting> - call start_task with no title`.
+Before that, once per session, it blocks when the session added `AV_FOOTPRINT_WARN_MB` (default
+512) or more of build, dependency or cache dirs outside any task workspace, and says where
+(`AV_FOOTPRINT=off` turns it off). In a task, `SessionStart` names a scratch dir that is removed
+with the task: `$AV_SCRATCH` when the CLI gives the hook a `CLAUDE_ENV_FILE`, else its path. See
+"Disk" in `docs/reference.md`.
 
 One installed command serves both CLIs. The hook acts as `--agent` or `AV_AGENT` when that is set.
 Otherwise it acts as `grok` when Grok runs it (`GROK_HOOK_EVENT` or `GROK_SESSION_ID` is in the

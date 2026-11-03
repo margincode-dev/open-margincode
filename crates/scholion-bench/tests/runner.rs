@@ -100,6 +100,8 @@ fn fixture(mode: &str) -> Fixture {
         hook_args: vec![],
         jit_hooks: false,
         prices: None,
+        // most tests look into the session's clone afterwards
+        keep_work: true,
     };
     Fixture {
         _repo: repo,
@@ -279,6 +281,61 @@ fn av_arm_runs_in_the_task_workspace_with_hooks_mcp_and_seeded_dead_ends() {
         before,
         "source repo untouched"
     );
+}
+
+#[test]
+fn a_session_removes_its_clone_after_verify_unless_keep_work() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    f.cfg.keep_work = false;
+    let o = run_session(&f.spec, Arm::Baseline, 1, "k1", &f.cfg).unwrap();
+    assert_eq!(
+        o.verify_exit,
+        Some(0),
+        "verify ran in the clone first: {o:?}"
+    );
+    assert!(!o.run_dir.join("ws").exists(), "{o:?}");
+    for kept in ["events.jsonl", "outcome.json", "verify.log"] {
+        assert!(o.run_dir.join(kept).exists(), "{kept}");
+    }
+
+    f.cfg.keep_work = true;
+    let o = run_session(&f.spec, Arm::Baseline, 1, "k2", &f.cfg).unwrap();
+    assert!(o.run_dir.join("ws").join("calc.py").exists(), "{o:?}");
+}
+
+#[test]
+fn an_av_session_removes_its_import_clone_and_abandons_its_task() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.keep_work = false;
+    let o = run_session(&f.spec, Arm::Av, 1, "k3", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    assert_eq!(o.verify_exit, Some(0), "{o:?}");
+    let clone = f.cfg.import_dir.join(format!("bk3-{}-av-1", f.spec.name));
+    assert!(!clone.exists(), "{}", clone.display());
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    let t = get(&format!("{}/v1/tasks/{}", d.url, task_of(&ws)));
+    assert_eq!(t["task"]["status"], "abandoned", "{t}");
+    assert!(o.run_dir.join("pack.md").exists());
+}
+
+#[test]
+fn an_invalid_av_session_keeps_its_clone_and_task_for_debugging() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("nohooks");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.keep_work = false;
+    let o = run_session(&f.spec, Arm::Av, 1, "k4", &f.cfg).unwrap();
+    assert!(!o.valid, "{o:?}");
+    let clone = f.cfg.import_dir.join(format!("bk4-{}-av-1", f.spec.name));
+    assert!(clone.exists(), "{}", clone.display());
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    let t = get(&format!("{}/v1/tasks/{}", d.url, task_of(&ws)));
+    assert_eq!(t["task"]["status"], "open", "{t}");
 }
 
 #[test]

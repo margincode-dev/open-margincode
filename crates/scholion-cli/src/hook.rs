@@ -2,13 +2,14 @@
 //! `PreToolUse`, `PostToolUse` and `Stop`). A hook must never break the agent, so every failure is one line on stderr and
 //! exit code 0, and a directory without a task is silent.
 
-use std::io::{IsTerminal, Read};
-use std::path::PathBuf;
+use std::io::{IsTerminal, Read, Write as _};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
 use crate::client::Client;
+use crate::footprint;
 use crate::taskfile::{self, TaskFile};
 
 /// `post-edit` checkpoints at most this often.
@@ -48,14 +49,43 @@ fn now_ms() -> u64 {
 
 /// Prints a small context pack for the task of this directory. After a compaction or `/clear`
 /// the agent has lost what it was sent, so the session starts over and everything is sent again.
+/// Then gives the task a scratch directory (`$AV_SCRATCH`, removed with the task) and, task or
+/// not, takes the footprint snapshot the Stop hook compares against (Plan 11).
 pub fn session_start(client: &Client, budget: u32, code: &str, map: bool, max_code: Option<usize>) {
     let input = hook_input();
-    let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
-        return;
-    };
+    let found = start_dir(&input).and_then(|d| taskfile::find(&d));
+    let session = input["session_id"]
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| found.as_ref().map(|(_, tf)| tf.session.clone()));
+    let task_ws_root = found
+        .as_ref()
+        .and_then(|(dir, _)| dir.parent()?.parent().map(Path::to_path_buf));
+    if let Some((dir, tf)) = found {
+        print_pack(client, &input, &dir, tf, budget, code, map, max_code);
+        if let Some(scratch) = scratch_dir(client, &dir) {
+            announce_scratch(&scratch);
+        }
+    }
+    if let Some(session) = session {
+        snapshot_footprint(client, &session, task_ws_root);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_pack(
+    client: &Client,
+    input: &Value,
+    dir: &Path,
+    mut tf: TaskFile,
+    budget: u32,
+    code: &str,
+    map: bool,
+    max_code: Option<usize>,
+) {
     if matches!(input["source"].as_str(), Some("compact" | "clear")) {
         tf.session = uuid::Uuid::new_v4().to_string();
-        if let Err(e) = taskfile::write(&dir, &tf) {
+        if let Err(e) = taskfile::write(dir, &tf) {
             eprintln!(
                 "av: hook session-start: cannot update {}: {e}",
                 taskfile::NAME
@@ -77,6 +107,270 @@ pub fn session_start(client: &Client, budget: u32, code: &str, map: bool, max_co
     match client.get(&format!("/v1/tasks/{}/context", tf.task), &query) {
         Ok(pack) => println!("{}", pack["markdown"].as_str().unwrap_or_default()),
         Err(e) => eprintln!("av: hook session-start: {e}"),
+    }
+}
+
+/// `<ws_root>/<repo>/.scratch/<slug>` for the task workspace `dir`, created; the daemon removes
+/// it with the workspace. `None` when `dir` is not the task's workspace as the daemon knows it
+/// (a `.av-task` copied elsewhere), so nothing is created beside a directory av does not own.
+fn scratch_dir(client: &Client, dir: &Path) -> Option<PathBuf> {
+    let tf = taskfile::find(dir)?.1;
+    let task = client.get(&format!("/v1/tasks/{}", tf.task), &[]).ok()?;
+    let ws = PathBuf::from(task["task"]["workspace_path"].as_str()?);
+    let same = |a: &Path, b: &Path| {
+        a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+    };
+    if !same(&ws, dir) {
+        return None;
+    }
+    let scratch = dir.parent()?.join(".scratch").join(dir.file_name()?);
+    if let Err(e) = std::fs::create_dir_all(&scratch) {
+        eprintln!(
+            "av: hook session-start: cannot create {}: {e}",
+            scratch.display()
+        );
+        return None;
+    }
+    Some(scratch)
+}
+
+/// `'…'` for sh.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Exports `AV_SCRATCH` to the session's later commands (`$CLAUDE_ENV_FILE`) and says so after
+/// the pack (in the hook, so the packs themselves do not change).
+fn announce_scratch(scratch: &Path) {
+    let exported = std::env::var_os("CLAUDE_ENV_FILE")
+        .filter(|f| !f.is_empty())
+        .is_some_and(|file| {
+            let line = format!(
+                "export AV_SCRATCH={}\n",
+                sh_quote(&scratch.to_string_lossy())
+            );
+            let written = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file)
+                .and_then(|mut f| f.write_all(line.as_bytes()));
+            if let Err(e) = &written {
+                eprintln!("av: hook session-start: cannot write CLAUDE_ENV_FILE: {e}");
+            }
+            written.is_ok()
+        });
+    if exported {
+        println!("Temporary files: $AV_SCRATCH (removed with the task).");
+    } else {
+        println!(
+            "Temporary files: {} (removed with the task).",
+            scratch.display()
+        );
+    }
+}
+
+/// `AV_FOOTPRINT=off` (or `0`, `false`, `no`) turns the footprint off.
+fn footprint_on() -> bool {
+    !matches!(
+        std::env::var("AV_FOOTPRINT")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "off" | "0" | "false" | "no"
+    )
+}
+
+fn env_dir(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `$HOME`, the temp dir and `AV_FOOTPRINT_ROOTS` (the platform's path-list separator).
+fn footprint_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = env_dir("HOME").into_iter().collect();
+    roots.push(std::env::temp_dir());
+    if let Some(more) = std::env::var_os("AV_FOOTPRINT_ROOTS") {
+        roots.extend(std::env::split_paths(&more).filter(|p| !p.as_os_str().is_empty()));
+    }
+    roots.dedup();
+    roots
+}
+
+/// What the footprint never counts: the workspace root (`AV_WS_ROOT`, else `~/ws`; reclaimed
+/// with the tasks), the task's own workspace root, and av's home (its Postgres and these files).
+fn footprint_exclude(task_ws_root: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut ex: Vec<PathBuf> = env_dir("AV_WS_ROOT")
+        .or_else(|| env_dir("HOME").map(|h| h.join("ws")))
+        .into_iter()
+        .collect();
+    ex.extend(task_ws_root);
+    ex.push(crate::local::av_home());
+    ex
+}
+
+fn footprint_deadline() -> Instant {
+    Instant::now() + Duration::from_secs(env_number("AV_FOOTPRINT_SECS", 20))
+}
+
+/// `$AV_HOME/footprint/<session>.json`, the session id reduced to a safe file name.
+fn footprint_file(session: &str) -> PathBuf {
+    let safe: String = session
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    crate::local::av_home()
+        .join("footprint")
+        .join(format!("{safe}.json"))
+}
+
+fn dirs_json(dirs: &[(PathBuf, u64)]) -> Value {
+    dirs.iter()
+        .map(|(p, b)| json!({"path": p, "bytes": b}))
+        .collect()
+}
+
+fn dirs_of(v: &Value) -> Vec<(PathBuf, u64)> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|d| Some((PathBuf::from(d["path"].as_str()?), d["bytes"].as_u64()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn paths_of(v: &Value) -> Vec<PathBuf> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Session start: the heavy directories as they are now, saved for the Stop hook. Only when the
+/// daemon answers (av is in use) and the footprint is on.
+fn snapshot_footprint(client: &Client, session: &str, task_ws_root: Option<PathBuf>) {
+    if !footprint_on() || client.get_text("/healthz").is_err() {
+        return;
+    }
+    let roots = footprint_roots();
+    let exclude = footprint_exclude(task_ws_root);
+    let scan = footprint::scan(&roots, &exclude, footprint_deadline());
+    let file = footprint_file(session);
+    let snap = json!({
+        "at": now_ms() / 1000,
+        "roots": roots,
+        "exclude": exclude,
+        "dirs": dirs_json(&scan.dirs),
+        "partial": scan.partial,
+        "warned": false,
+    });
+    let saved = file
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&file, snap.to_string()));
+    if let Err(e) = saved {
+        eprintln!(
+            "av: hook session-start: cannot save {}: {e}",
+            file.display()
+        );
+    }
+}
+
+/// Stop: what the session added since its snapshot. Blocks once per session (the snapshot's
+/// `warned`) when that is at least `AV_FOOTPRINT_WARN_MB`, and reports any addition to the
+/// daemon (`GET /v1/disk` shows it under `outside`). Returns whether it blocked.
+fn footprint_stop(
+    client: &Client,
+    agent: &str,
+    session: &str,
+    task: Option<&(PathBuf, TaskFile)>,
+) -> bool {
+    if !footprint_on() {
+        return false;
+    }
+    let file = footprint_file(session);
+    let Some(mut snap) = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    else {
+        return false;
+    };
+    let after = footprint::scan(
+        &paths_of(&snap["roots"]),
+        &paths_of(&snap["exclude"]),
+        footprint_deadline(),
+    );
+    let added = footprint::diff(&dirs_of(&snap["dirs"]), &after.dirs);
+    if added.is_empty() {
+        return false;
+    }
+    let partial = after.partial || snap["partial"] == true;
+    let total: u64 = added.iter().map(|(_, b)| b).sum();
+    let warn_at = env_number("AV_FOOTPRINT_WARN_MB", 512u64).saturating_mul(1024 * 1024);
+    let mut blocked = false;
+    if total >= warn_at && snap["warned"] != true {
+        snap["warned"] = json!(true);
+        // without the mark this would block every stop, so no mark, no block
+        match std::fs::write(&file, snap.to_string()) {
+            Ok(()) => {
+                let reason = footprint_reason(&added, total, task.map(|(dir, _)| dir.as_path()));
+                println!("{}", json!({"decision": "block", "reason": reason}));
+                blocked = true;
+            }
+            Err(e) => eprintln!("av: hook stop: cannot update {}: {e}", file.display()),
+        }
+    }
+    let body = json!({
+        "session": session,
+        "agent": agent,
+        "task": task.map(|(_, tf)| tf.task.clone()),
+        "added": dirs_json(&added),
+        "partial": partial,
+    });
+    if let Err(e) = client.post("/v1/footprint", &body) {
+        eprintln!("av: hook stop: footprint not reported: {e}");
+    }
+    blocked
+}
+
+/// Most paths the footprint block names.
+const FOOTPRINT_PATHS: usize = 5;
+
+fn footprint_reason(added: &[(PathBuf, u64)], total: u64, task_dir: Option<&Path>) -> String {
+    let mut list: Vec<String> = added
+        .iter()
+        .take(FOOTPRINT_PATHS)
+        .map(|(p, b)| format!("{} ({})", p.display(), footprint::human(*b)))
+        .collect();
+    if added.len() > FOOTPRINT_PATHS {
+        list.push(format!("and {} more", added.len() - FOOTPRINT_PATHS));
+    }
+    let what = format!(
+        "av: this session added {} outside any task workspace: {}.",
+        footprint::human(total),
+        list.join(", ")
+    );
+    match task_dir.and_then(Path::parent) {
+        Some(repo_dir) => format!(
+            "{what} Build inside the workspace (removed when the task ends) or the repo's cache \
+             {}, move it to $AV_SCRATCH, or remove it; then record where anything kept lives.",
+            repo_dir.join(".cache").display()
+        ),
+        None => format!(
+            "{what} Remove what is no longer needed, or say where anything kept lives and why."
+        ),
     }
 }
 
@@ -185,16 +479,26 @@ pub fn stop_timeout_secs() -> u64 {
 ///    work to appear. The wait costs no model tokens. `AV_HOOK_MAX_CONTINUES` caps how often one
 ///    session is continued, so the loop always ends.
 ///
+/// Before both, task or not: when the session added more than `AV_FOOTPRINT_WARN_MB` outside any
+/// task workspace since it started, block once and say where (`footprint_stop`).
+///
 /// Any failure allows the stop, and a directory without a task is silent.
 pub fn stop(client: &Client, agent: &str) {
     let input = hook_input();
-    let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
-        return;
-    };
+    let found = start_dir(&input).and_then(|d| taskfile::find(&d));
     let session = input["session_id"]
         .as_str()
-        .unwrap_or(&tf.session)
-        .to_owned();
+        .map(str::to_owned)
+        .or_else(|| found.as_ref().map(|(_, tf)| tf.session.clone()));
+    if let Some(session) = &session
+        && footprint_stop(client, agent, session, found.as_ref())
+    {
+        return;
+    }
+    let Some((dir, mut tf)) = found else {
+        return;
+    };
+    let session = session.unwrap_or_else(|| tf.session.clone());
     if input["stop_hook_active"] != true && nudge_to_record(client, agent, &dir, &mut tf, &session)
     {
         return;

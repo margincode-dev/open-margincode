@@ -134,6 +134,7 @@ where
             }
         })
     };
+    let reclaims = crate::disk::spawn_sweep(&state);
     tracing::info!(
         listen = %listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| cfg.listen.clone()),
         ws_host_root = %cfg.ws_host_root.display(),
@@ -153,6 +154,9 @@ where
         task.abort();
     }
     backups.abort();
+    if let Some(task) = reclaims {
+        task.abort();
+    }
     served?;
     Ok(())
 }

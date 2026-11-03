@@ -94,6 +94,10 @@ services:
       AV_PG_MAX_CONNECTIONS: ${AV_PG_MAX_CONNECTIONS:-16}
       AV_MAX_CONCURRENT_STARTS: ${AV_MAX_CONCURRENT_STARTS:-}
       AV_LEASE_SECS: ${AV_LEASE_SECS:-1800}
+      # Merged and abandoned tasks' workspaces are removed after this many seconds (0, or never).
+      AV_WS_RETAIN_SECS: ${AV_WS_RETAIN_SECS:-3600}
+      # off: no shared cargo build cache (<ws>/<repo>/.cargo/config.toml) for Rust repos.
+      AV_BUILD_CACHE: ${AV_BUILD_CACHE:-on}
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
       AV_TOKEN: ${AV_TOKEN:-}
       # Git backup of main after every merge: whitespace-separated repo=url pairs. SSH remotes need

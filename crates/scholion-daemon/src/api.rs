@@ -119,6 +119,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/repos/{name}/outbox", get(outbox))
         .merge(crate::routing_api::routes())
         .merge(crate::office::routes())
+        .merge(crate::disk::routes())
 }
 
 /// Sessions idle this long lose their ledger in `prune`.
@@ -214,6 +215,8 @@ pub async fn sync_repos(st: &AppState) -> Result<usize> {
             st.store.register_repo(&name, None).await?;
             added += 1;
         }
+        // repos imported before the build cache existed get it too
+        crate::build_cache::ensure_logged(st, &name).await;
     }
     Ok(added)
 }
@@ -285,6 +288,7 @@ async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(Cha
     st.store
         .register_repo(name, source.as_deref().and_then(|p| p.to_str()))
         .await?;
+    crate::build_cache::ensure_logged(st, name).await;
     let stats = index_change(st, name, "main", &main).await?;
     Ok((main, stats.parsed + stats.cached))
 }

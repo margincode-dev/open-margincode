@@ -1108,3 +1108,20 @@ async fn a_session_with_two_open_tasks_asks_which_one() {
     assert_eq!(count("first-job").await, first + 2);
     assert_eq!(count("second-job").await, second);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn abandon_says_when_the_workspace_was_removed() {
+    let e = env_with(|s| s.with_ws_retain(Some(0))).await;
+    let s = connect(&e, "claude-code").await;
+    text(
+        &tool(
+            &e,
+            &s,
+            "start_task",
+            json!({"repo": "demo", "title": "Never mind", "goal": "Nothing"}),
+        )
+        .await,
+    );
+    let abandoned = text(&tool(&e, &s, "abandon", json!({})).await);
+    assert_eq!(abandoned, "task abandoned; its workspace was removed");
+}

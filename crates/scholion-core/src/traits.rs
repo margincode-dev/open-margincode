@@ -127,6 +127,27 @@ pub trait Vcs: Send + Sync {
     ) -> Result<()> {
         Err(AvError::Vcs("undo is not supported by this Vcs".into()))
     }
+    /// Forgets the task workspace `slug` in the repo and deletes its directory. `Ok(false)` when
+    /// neither existed. The repo's own `main` workspace is refused (`Invalid`). The workspace's
+    /// commits stay in the store, so `restore_workspace` can bring it back.
+    async fn remove_workspace(&self, _repo: &str, _slug: &str) -> Result<bool> {
+        Err(AvError::Vcs(
+            "remove_workspace is not supported by this Vcs".into(),
+        ))
+    }
+    /// Re-creates the removed workspace `slug` with `head` as its working-copy commit, so its
+    /// files are `head`'s and a snapshot without edits returns `head`. `Invalid` when the
+    /// directory exists.
+    async fn restore_workspace(
+        &self,
+        _repo: &str,
+        _slug: &str,
+        _head: &ChangeId,
+    ) -> Result<WorkspaceInfo> {
+        Err(AvError::Vcs(
+            "restore_workspace is not supported by this Vcs".into(),
+        ))
+    }
 }
 
 /// `path` at `change`, or `None` when the change is absent or has no such file.
@@ -311,6 +332,30 @@ pub trait IntentStore: Send + Sync {
         repo: Option<&str>,
         lease_secs: u64,
     ) -> Result<Vec<crate::routing::Stale>>;
+    /// Merged and abandoned tasks that entered that status at least `older_than_secs` ago, oldest
+    /// first: their workspaces may be reclaimed (Plan 11). Empty unless the store keeps events.
+    async fn reclaimable_tasks(&self, _older_than_secs: u64) -> Result<Vec<Task>> {
+        Ok(vec![])
+    }
+    /// Every task (of `repo`, or all) with when it entered its current status: its newest event
+    /// into that status, or its creation when there is none. Empty unless the store keeps events.
+    async fn tasks_with_status_since(
+        &self,
+        _repo: Option<&str>,
+    ) -> Result<Vec<(Task, chrono::DateTime<chrono::Utc>)>> {
+        Ok(vec![])
+    }
+    /// Appends a feed event (`GET /v1/events`) that is not a status change, such as
+    /// `workspace:reclaimed`. Does nothing unless the store keeps events.
+    async fn add_event(
+        &self,
+        _repo: &str,
+        _kind: &str,
+        _task: Option<TaskId>,
+        _payload: serde_json::Value,
+    ) -> Result<()> {
+        Ok(())
+    }
     async fn set_workspace(&self, id: TaskId, path: &Path, base: &ChangeId) -> Result<()>;
     async fn set_pack_mode(&self, id: TaskId, mode: PackMode) -> Result<()>;
     async fn set_head(&self, id: TaskId, head: &ChangeId, touched: &[String]) -> Result<()>;

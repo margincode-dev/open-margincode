@@ -93,6 +93,9 @@ pub fn up(client: &Client, url: &str) -> Result<()> {
     std::fs::create_dir_all(&home_dir)
         .map_err(|e| local(format!("cannot create {}: {e}", home_dir.display())))?;
     let log_path = home_dir.join("daemon.log");
+    if let Err(e) = rotate_log(&log_path, LOG_MAX_BYTES) {
+        eprintln!("av: could not rotate {}: {e}", log_path.display());
+    }
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -152,6 +155,29 @@ pub fn up(client: &Client, url: &str) -> Result<()> {
         log_path.display()
     );
     Ok(())
+}
+
+/// `daemon.log` larger than this moves to `daemon.log.1` when `av up` starts a daemon.
+const LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Moves `path` to `<path>.1` (replacing an older one) when it is larger than `max` bytes; says
+/// whether it did. A missing log is not an error.
+fn rotate_log(path: &Path, max: u64) -> std::io::Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(m) if m.len() > max => {
+            let mut old = path.as_os_str().to_owned();
+            old.push(".1");
+            let old = PathBuf::from(old);
+            if old.exists() {
+                std::fs::remove_file(&old)?;
+            }
+            std::fs::rename(path, &old)?;
+            Ok(true)
+        }
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// The last 20 lines written to the log since `offset`.
@@ -665,6 +691,28 @@ fn claude_mcp(mcp_url: &str, token: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_daemon_log_over_the_limit_moves_to_dot_one() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log = dir.path().join("daemon.log");
+        let old = dir.path().join("daemon.log.1");
+        // no log yet: nothing to do
+        assert!(!rotate_log(&log, 10).unwrap());
+
+        std::fs::write(&log, "small").unwrap();
+        assert!(!rotate_log(&log, 10).unwrap());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "small");
+
+        std::fs::write(&old, "older").unwrap();
+        std::fs::write(&log, "more than ten bytes").unwrap();
+        assert!(rotate_log(&log, 10).unwrap());
+        assert!(!log.exists());
+        assert_eq!(
+            std::fs::read_to_string(&old).unwrap(),
+            "more than ten bytes"
+        );
+    }
 
     #[test]
     fn local_port_only_for_this_machine() {

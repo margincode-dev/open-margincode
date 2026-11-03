@@ -129,6 +129,9 @@ fn av_with(url: &str, cwd: &Path, args: &[&str]) -> Output {
         .env_remove("AV_TOKEN")
         // the Stop hook's keep-busy wait is off unless a test turns it on
         .env("AV_HOOK_WAIT_SECS", "0")
+        // so is the footprint (it scans $HOME), and no hook writes the real session's env file
+        .env("AV_FOOTPRINT", "off")
+        .env_remove("CLAUDE_ENV_FILE")
         // This process may be a Grok session. Those variables would make `av hook` act as grok.
         .env_remove("GROK_HOOK_EVENT")
         .env_remove("GROK_SESSION_ID")
@@ -1391,7 +1394,11 @@ fn av_stdin_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str], stdi
         .env_remove("GROK_HOOK_EVENT")
         .env_remove("GROK_SESSION_ID")
         .env("AV_HOOK_WAIT_SECS", "0")
-        .env_remove("AV_HOOK_MAX_CONTINUES");
+        .env_remove("AV_HOOK_MAX_CONTINUES")
+        .env("AV_FOOTPRINT", "off")
+        .env_remove("CLAUDE_ENV_FILE")
+        .env_remove("AV_FOOTPRINT_ROOTS")
+        .env_remove("AV_WS_ROOT");
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -1569,6 +1576,181 @@ fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
         )),
         ""
     );
+}
+
+// ---- Plan 11: a scratch dir per task, and the footprint of what a session adds
+
+/// A temp `HOME`, `TMPDIR` and `AV_HOME` for footprint tests, and the env file.
+struct Footprint {
+    home: TempDir,
+    tmp: TempDir,
+    av_home: TempDir,
+    env_file: PathBuf,
+}
+
+impl Footprint {
+    fn new() -> Self {
+        let home = TempDir::new().unwrap();
+        let env_file = home.path().join("claude-env");
+        Footprint {
+            home,
+            tmp: TempDir::new().unwrap(),
+            av_home: TempDir::new().unwrap(),
+            env_file,
+        }
+    }
+
+    fn env<'a>(&'a self, on: &'a str) -> Vec<(&'a str, &'a str)> {
+        vec![
+            ("HOME", self.home.path().to_str().unwrap()),
+            ("TMPDIR", self.tmp.path().to_str().unwrap()),
+            ("AV_HOME", self.av_home.path().to_str().unwrap()),
+            ("CLAUDE_ENV_FILE", self.env_file.to_str().unwrap()),
+            ("AV_FOOTPRINT", on),
+            ("AV_FOOTPRINT_WARN_MB", "1"),
+        ]
+    }
+
+    fn snapshot(&self, session: &str) -> PathBuf {
+        self.av_home
+            .path()
+            .join("footprint")
+            .join(format!("{session}.json"))
+    }
+}
+
+fn hook_input(ws: &Path, event: &str, session: &str) -> String {
+    serde_json::json!({"hook_event_name": event, "session_id": session, "cwd": ws,
+                       "source": "startup", "stop_hook_active": false})
+    .to_string()
+}
+
+#[test]
+fn hook_session_start_gives_the_task_a_scratch_dir_and_snapshots_the_footprint() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    std::fs::create_dir_all(fp.home.path().join("old/target")).unwrap();
+    std::fs::write(fp.home.path().join("old/target/a"), vec![0u8; 4096]).unwrap();
+    let o = av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-fp"),
+    );
+    let printed = ok(o);
+    assert!(printed.contains("## Task"), "{printed}");
+    assert!(
+        printed
+            .trim_end()
+            .ends_with("Temporary files: $AV_SCRATCH (removed with the task)."),
+        "{printed}"
+    );
+    let scratch = d.ws.join("demo/.scratch/improve-greeting");
+    assert!(scratch.is_dir());
+    assert_eq!(
+        std::fs::read_to_string(&fp.env_file).unwrap(),
+        format!("export AV_SCRATCH='{}'\n", scratch.display())
+    );
+    let snap: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fp.snapshot("cc-fp")).unwrap()).unwrap();
+    assert_eq!(snap["partial"], false, "{snap}");
+    assert_eq!(
+        snap["dirs"],
+        serde_json::json!([{"path": fp.home.path().join("old/target"), "bytes": 4096}]),
+        "{snap}"
+    );
+}
+
+#[test]
+fn hook_stop_blocks_once_when_a_session_left_a_big_build_outside_the_workspace() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-big"),
+    ));
+    let junk = fp.home.path().join("junk/target");
+    std::fs::create_dir_all(&junk).unwrap();
+    std::fs::write(junk.join("big"), vec![0u8; 2 * 1024 * 1024]).unwrap();
+    let o = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-big"),
+    ));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap_or_else(|_| panic!("{o}"));
+    assert_eq!(v["decision"], "block", "{o}");
+    let reason = v["reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with("av: this session added 2 MB outside any task workspace: "),
+        "{reason}"
+    );
+    assert!(
+        reason.contains(&format!("{} (2 MB)", junk.display())),
+        "{reason}"
+    );
+    assert!(
+        reason.contains(&d.ws.join("demo/.cache").display().to_string())
+            && reason.contains("$AV_SCRATCH"),
+        "{reason}"
+    );
+    // once per session
+    let o = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-big"),
+    ));
+    assert_eq!(o, "");
+    // and the daemon was told
+    let disk: serde_json::Value = ureq::get(&format!("{}/v1/disk", d.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    let outside = &disk["outside"][0];
+    assert_eq!(outside["session"], "cc-big", "{disk}");
+    assert_eq!(
+        outside["added"][0]["path"],
+        junk.to_str().unwrap(),
+        "{disk}"
+    );
+    assert!(
+        junk.exists(),
+        "the daemon never deletes outside its workspaces"
+    );
+}
+
+#[test]
+fn hook_footprint_off_writes_and_says_nothing() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("off"),
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-off"),
+    ));
+    assert!(!fp.av_home.path().join("footprint").exists());
+    let junk = fp.home.path().join("junk/target");
+    std::fs::create_dir_all(&junk).unwrap();
+    std::fs::write(junk.join("big"), vec![0u8; 2 * 1024 * 1024]).unwrap();
+    let o = av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("off"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-off"),
+    );
+    assert!(o.status.success());
+    assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
 }
 
 #[test]
@@ -3111,4 +3293,146 @@ fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
             "post", "--repo", "demo", "--title", "Third", "--goal", "g", "--target", "ship-v1",
         ],
     ));
+}
+
+// ---- Plan 11: av disk and av gc ----
+
+/// A stand-in daemon that answers every request with `body` (200, JSON) and keeps each request
+/// it got as "METHOD PATH BODY".
+struct Canned {
+    url: String,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+fn canned(body: &'static str) -> Canned {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            let mut len = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':')
+                    && k.eq_ignore_ascii_case("content-length")
+                {
+                    len = v.trim().parse().unwrap();
+                }
+            }
+            let mut sent = vec![0; len];
+            reader.read_exact(&mut sent).unwrap();
+            let parts: Vec<&str> = first.split_whitespace().take(2).collect();
+            log.lock().unwrap().push(format!(
+                "{} {}",
+                parts.join(" "),
+                String::from_utf8_lossy(&sent)
+            ));
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes());
+        }
+    });
+    Canned { url, seen }
+}
+
+const DISK: &str = r#"{"ws_root": "/home/u/ws", "store_root": "/home/u/.scholion/store",
+ "pg_dir": "/home/u/.scholion/pg", "retain_secs": 3600,
+ "repos": [{"name": "demo", "store_bytes": 31457280,
+   "build_cache": {"enabled": true, "config": "/home/u/ws/demo/.cargo/config.toml"},
+   "build_cache_bytes": 1288490188, "scratch_bytes": 40960,
+   "workspaces": [
+     {"slug": "improve-greeting", "status": "merged", "bytes": 12582912, "age_secs": 7200, "reclaimable": true},
+     {"slug": "fix-thing", "status": "open", "bytes": 3145728, "age_secs": 300, "reclaimable": false}]}],
+ "outside": [{"session": "s1", "agent": "claude", "task": "0b6a", "slug": "fix-thing",
+   "added": [{"path": "/home/u/.cache/huge", "bytes": 943718400},
+             {"path": "/tmp/x/target", "bytes": 209715200}],
+   "partial": false, "total_bytes": 1153433600, "at": "2026-11-02T10:15:00Z"}],
+ "totals": {"workspaces_bytes": 15728640, "store_bytes": 31457280,
+   "build_cache_bytes": 1288490188, "scratch_bytes": 40960}}"#;
+
+#[test]
+fn disk_shows_workspaces_caches_and_what_sessions_left_outside() {
+    let c = canned(DISK);
+    let dir = TempDir::new().unwrap();
+    let o = ok(av_with(&c.url, dir.path(), &["disk"]));
+    for want in [
+        "demo",
+        "improve-greeting",
+        "merged",
+        "12 MB",
+        "reclaimable",
+        "fix-thing",
+        "1.2 GB",
+        "/home/u/ws/demo/.cargo/config.toml",
+        "claude",
+        "/home/u/.cache/huge",
+        "900 MB",
+        "/home/u/.scholion/pg",
+    ] {
+        assert!(o.contains(want), "missing {want:?} in\n{o}");
+    }
+    assert!(
+        !o.lines()
+            .any(|l| l.contains("fix-thing") && l.contains("reclaimable")),
+        "{o}"
+    );
+    assert_eq!(c.seen.lock().unwrap()[0].trim(), "GET /v1/disk");
+
+    let o = ok(av_with(&c.url, dir.path(), &["disk", "--json"]));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    assert_eq!(v, serde_json::from_str::<serde_json::Value>(DISK).unwrap());
+}
+
+const GC: &str = r#"{"reclaimed": [{"repo": "demo", "slug": "improve-greeting", "status": "merged",
+   "path": "/home/u/ws/demo/improve-greeting", "bytes": 12582912}],
+ "freed_bytes": 1301073100,
+ "kept": [{"repo": "demo", "slug": "just-merged", "status": "merged",
+   "path": "/home/u/ws/demo/just-merged", "bytes": 1024, "age_secs": 60}],
+ "build_cache_bytes": 1288490188, "dry_run": true}"#;
+
+#[test]
+fn gc_dry_run_says_what_it_would_remove() {
+    let c = canned(GC);
+    let dir = TempDir::new().unwrap();
+    let o = ok(av_with(
+        &c.url,
+        dir.path(),
+        &["gc", "--dry-run", "--retain", "0", "--build-cache"],
+    ));
+    for want in [
+        "would remove",
+        "demo/improve-greeting",
+        "12 MB",
+        "build cache",
+        "1.2 GB",
+        "kept 1 (younger than retention)",
+    ] {
+        assert!(o.contains(want), "missing {want:?} in\n{o}");
+    }
+    let sent = c.seen.lock().unwrap()[0].clone();
+    assert!(sent.starts_with("POST /v1/gc "), "{sent}");
+    let body: serde_json::Value =
+        serde_json::from_str(sent.split_once(' ').unwrap().1.split_once(' ').unwrap().1).unwrap();
+    assert_eq!(body["dry_run"], true, "{body}");
+    assert_eq!(body["retain_secs"], 0, "{body}");
+    assert_eq!(body["build_cache"], true, "{body}");
+
+    let o = ok(av_with(&c.url, dir.path(), &["gc", "--json"]));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    assert_eq!(v["freed_bytes"], 1301073100u64);
+    let sent = c.seen.lock().unwrap()[1].clone();
+    assert!(sent.contains("\"dry_run\":false"), "{sent}");
+    assert!(!sent.contains("retain_secs"), "{sent}");
 }

@@ -3,8 +3,10 @@
 mod api;
 mod auth;
 mod backup;
+mod build_cache;
 mod checks;
 mod derived;
+mod disk;
 mod embed_choice;
 mod embedded_pg;
 mod error;
@@ -33,6 +35,7 @@ use scholion_store::PgStore;
 
 pub use api::{StartPackPause, router, router_with, sync_repos};
 pub use backup::{BACKUP_TICK, backoff, backup_tick, start_backups};
+pub use disk::RECLAIM_TICK;
 pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
 pub use ext::{
@@ -64,6 +67,20 @@ pub struct AppState {
     pub(crate) lease_secs: u64,
     /// `AV_TOKEN`: when set, every route but `/healthz` and `/ui` needs it as a bearer token.
     pub(crate) token: Option<String>,
+    /// `AV_WS_RETAIN_SECS`: how long a merged or abandoned task's workspace stays; `None` = for
+    /// good, `Some(0)` = removed by the merge or abandon itself.
+    pub(crate) ws_retain: Option<u64>,
+    /// How often the daemon looks for workspaces to reclaim (`disk::RECLAIM_TICK`).
+    pub(crate) reclaim_tick: std::time::Duration,
+    /// Where the jj store lives (`AV_STORE_ROOT`), for `GET /v1/disk`; `None` when not known.
+    pub(crate) store_root: Option<PathBuf>,
+    /// Lite mode's own Postgres directory (`AV_PG_DIR`), for `GET /v1/disk`.
+    pub(crate) pg_dir: Option<PathBuf>,
+    /// `AV_BUILD_CACHE`: one cargo target per repo, shared by its task workspaces.
+    pub(crate) build_cache: bool,
+    /// What sessions reported adding outside any task workspace (`POST /v1/footprint`), newest
+    /// first, one per session, in memory only.
+    pub(crate) footprints: disk::Footprints,
     /// Open MCP sessions (`/mcp`), by `Mcp-Session-Id`.
     pub(crate) mcp: mcp::Sessions,
     task_locks: Arc<Mutex<HashMap<TaskId, Arc<tokio::sync::Mutex<()>>>>>,
@@ -117,6 +134,12 @@ impl AppState {
             expand_cap: None,
             lease_secs: wiring::DEFAULT_LEASE_SECS,
             token: None,
+            ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
+            reclaim_tick: disk::RECLAIM_TICK,
+            store_root: None,
+            pg_dir: None,
+            build_cache: true,
+            footprints: Arc::default(),
             mcp: Arc::default(),
             task_locks: Arc::default(),
             guard: Arc::new(AllowAll),
@@ -238,6 +261,32 @@ impl AppState {
     /// The longest `next` waits for work (default `MAX_WAIT_SECS`); shorter in tests.
     pub fn with_max_wait(mut self, max: std::time::Duration) -> Self {
         self.max_wait = max;
+        self
+    }
+
+    /// How long a merged or abandoned task's workspace stays on disk (`AV_WS_RETAIN_SECS`):
+    /// `None` keeps it, `Some(0)` removes it with the merge or abandon.
+    pub fn with_ws_retain(mut self, secs: Option<u64>) -> Self {
+        self.ws_retain = secs;
+        self
+    }
+
+    /// How often the daemon reclaims workspaces (default `RECLAIM_TICK`); shorter in tests.
+    pub fn with_reclaim_tick(mut self, tick: std::time::Duration) -> Self {
+        self.reclaim_tick = tick;
+        self
+    }
+
+    /// The store root and lite mode's Postgres directory, reported by `GET /v1/disk`.
+    pub fn with_disk_paths(mut self, store_root: Option<PathBuf>, pg_dir: Option<PathBuf>) -> Self {
+        self.store_root = store_root;
+        self.pg_dir = pg_dir;
+        self
+    }
+
+    /// Whether a cargo repo's task workspaces share one build cache (`AV_BUILD_CACHE`, default on).
+    pub fn with_build_cache(mut self, on: bool) -> Self {
+        self.build_cache = on;
         self
     }
 

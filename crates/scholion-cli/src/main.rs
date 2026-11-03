@@ -1,5 +1,7 @@
 mod agents;
 mod client;
+mod disk;
+mod footprint;
 mod hook;
 mod local;
 mod runner;
@@ -144,6 +146,29 @@ enum Cmd {
     Reindex {
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// What the daemon's workspaces, scratch dirs, build caches and store take on disk, and what
+    /// agent sessions added outside any workspace.
+    Disk {
+        /// Print the daemon's answer as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove the workspaces of merged and abandoned tasks older than the retention
+    /// (AV_WS_RETAIN_SECS on the daemon, default 3600).
+    Gc {
+        /// Only say what would be removed.
+        #[arg(long)]
+        dry_run: bool,
+        /// Retention in seconds for this run (0: every finished task's workspace).
+        #[arg(long, value_name = "SECS")]
+        retain: Option<u64>,
+        /// Also remove each repo's shared build cache (.cache under the repo's workspaces).
+        #[arg(long)]
+        build_cache: bool,
+        /// Print the daemon's answer as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Hand the task to review (a conflicted task is rebased onto main first).
     Submit {
@@ -1358,6 +1383,31 @@ fn run(cli: Cli) -> Result<()> {
             let omitted = r["omitted"].as_array().map_or(0, Vec::len);
             if omitted > 0 {
                 println!("omitted: {omitted}");
+            }
+        }
+        Cmd::Disk { json } => {
+            let r = client.get("/v1/disk", &[])?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+            } else {
+                print!("{}", disk::render_disk(&r));
+            }
+        }
+        Cmd::Gc {
+            dry_run,
+            retain,
+            build_cache,
+            json,
+        } => {
+            let mut body = json!({"dry_run": dry_run, "build_cache": build_cache});
+            if let Some(r) = retain {
+                body["retain_secs"] = json!(r);
+            }
+            let r = client.post("/v1/gc", &body)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+            } else {
+                print!("{}", disk::render_gc(&r));
             }
         }
         Cmd::Reindex { repo } => {

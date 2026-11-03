@@ -906,6 +906,7 @@ async fn record_merge(
     drop_task_scope(st, task).await;
     let changed = st.vcs.changed_paths(&task.repo, &pre_merge, &main).await?;
     let warnings = reindex_changed(st, &task.repo, "main", &main, &changed).await?;
+    let workspace = crate::disk::reclaim_task(st, task).await;
     Ok(json!({
         "status": status.as_str(),
         "main": main,
@@ -913,6 +914,7 @@ async fn record_merge(
         "conflicts": [],
         "warnings": warnings,
         "recovered": recovered,
+        "workspace": workspace,
     }))
 }
 
@@ -935,6 +937,8 @@ pub(crate) async fn revert(
     Json(b): Json<RevertBody>,
 ) -> ApiResult<Value> {
     let _guard = MERGE_LOCK.lock().await;
+    // the workspace may come back: no reclaim of it may run alongside
+    let _task_guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     next(task.status, Event::Revert)?;
     let state = st.store.merge_state(task.id).await?;
@@ -960,6 +964,7 @@ pub(crate) async fn revert(
             .into());
         }
     };
+    let workspace = restore_workspace(&st, &task).await;
     st.store
         .set_merge_state(task.id, &MergeState::default())
         .await?;
@@ -1002,7 +1007,7 @@ pub(crate) async fn revert(
         tracing::warn!(task = %task.slug, error = %e, "rebuilding the reverted task overlay failed");
     }
     Ok(Json(
-        json!({ "status": status.as_str(), "main": main, "reverted": merged }),
+        json!({ "status": status.as_str(), "main": main, "reverted": merged, "workspace": workspace }),
     ))
 }
 
@@ -1012,6 +1017,8 @@ pub(crate) async fn undo(
     Json(b): Json<AgentBody>,
 ) -> ApiResult<Value> {
     let _guard = MERGE_LOCK.lock().await;
+    // the workspace may come back: no reclaim of it may run alongside
+    let _task_guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     next(task.status, Event::Undo)?;
     let state = st.store.merge_state(task.id).await?;
@@ -1026,6 +1033,7 @@ pub(crate) async fn undo(
         .into());
     }
     st.vcs.undo_merge(&task.repo, &pre, &merged).await?;
+    let workspace = restore_workspace(&st, &task).await;
     st.store
         .set_merge_state(task.id, &MergeState::default())
         .await?;
@@ -1049,7 +1057,9 @@ pub(crate) async fn undo(
             anchors: vec![],
         })
         .await?;
-    Ok(Json(json!({ "status": status.as_str(), "main": pre })))
+    Ok(Json(
+        json!({ "status": status.as_str(), "main": pre, "workspace": workspace }),
+    ))
 }
 
 /// Ends a task for good (any status but merged). Only its owner may; the records stay.
@@ -1072,7 +1082,22 @@ pub(crate) async fn abandon(
     }
     let status = st.store.transition(task.id, Event::Abandon).await?;
     drop_task_scope(&st, &task).await;
-    Ok(Json(json!({ "status": status.as_str() })))
+    let workspace = crate::disk::reclaim_task(&st, &task).await;
+    Ok(Json(
+        json!({ "status": status.as_str(), "workspace": workspace }),
+    ))
+}
+
+/// Brings back a reclaimed workspace when main no longer holds the task's merge (undo, revert).
+/// Main has already moved, so a failure is logged and reported (`missing`), never returned.
+async fn restore_workspace(st: &AppState, task: &Task) -> &'static str {
+    match crate::disk::ensure_workspace(st, task).await {
+        Ok(what) => what,
+        Err(e) => {
+            tracing::warn!(task = %task.slug, error = %e, "restoring the task's workspace failed");
+            "missing"
+        }
+    }
 }
 
 /// A merged or abandoned task's index scope is no longer needed. A failure only leaves rows

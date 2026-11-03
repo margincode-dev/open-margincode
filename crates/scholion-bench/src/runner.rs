@@ -118,6 +118,11 @@ pub struct RunConfig {
     /// Cost sessions from their token usage at these prices instead of Claude Code's
     /// `total_cost_usd`, and do not pass `--max-budget-usd` (it is in Claude prices).
     pub prices: Option<crate::metrics::Prices>,
+    /// Keep each session's clone after verify. Off: a valid session's clone is removed (the
+    /// git arms' `ws`, the av arms' import copy) and an av task is abandoned, so the bench
+    /// daemon reclaims its workspace; logs, events, `pack.md` and `outcome.json` stay. An
+    /// invalid session keeps everything, for debugging.
+    pub keep_work: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -442,6 +447,8 @@ struct AvTask {
     id: String,
     generation: i64,
     workspace: PathBuf,
+    /// The scrubbed copy the bench daemon imported the repo from.
+    source: PathBuf,
 }
 
 fn start_av_task(
@@ -504,6 +511,7 @@ fn start_av_task(
         id,
         generation,
         workspace,
+        source: src,
     })
 }
 
@@ -815,5 +823,34 @@ pub fn run_session(
         &dir.join("outcome.json"),
         &serde_json::to_value(&outcome).expect("json"),
     )?;
+    if !cfg.keep_work && outcome.valid {
+        remove_work(&workspace, av_task.as_ref(), daemon.as_ref());
+    }
     Ok(outcome)
+}
+
+/// After verify: the git arms' clone goes; an av task's import copy goes and the task is
+/// abandoned, so the bench daemon's retention reclaims its workspace. Failures are warnings:
+/// the session's result already stands.
+fn remove_work(workspace: &Path, av_task: Option<&AvTask>, daemon: Option<&Daemon>) {
+    let remove = |p: &Path| {
+        if p.exists()
+            && let Err(e) = std::fs::remove_dir_all(p)
+        {
+            eprintln!("warning: could not remove {}: {e}", p.display());
+        }
+    };
+    match (av_task, daemon) {
+        (Some(t), Some(daemon)) => {
+            remove(&t.source);
+            if let Err(e) = daemon.post(
+                &format!("/v1/tasks/{}/abandon", t.id),
+                json!({"agent": AGENT}),
+                Some(t.generation),
+            ) {
+                eprintln!("warning: could not abandon bench task {}: {e}", t.id);
+            }
+        }
+        _ => remove(workspace),
+    }
 }

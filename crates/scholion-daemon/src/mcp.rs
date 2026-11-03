@@ -973,7 +973,13 @@ async fn run_tool(
                     format!("/v1/tasks/{t}/abandon"),
                     Some(json!({"agent": agent})),
                     generation,
-                    |r| format!("task {}", r["status"].as_str().unwrap_or_default()),
+                    |r| match r["workspace"].as_str() {
+                        Some("removed") => format!(
+                            "task {}; its workspace was removed",
+                            r["status"].as_str().unwrap_or_default()
+                        ),
+                        _ => format!("task {}", r["status"].as_str().unwrap_or_default()),
+                    },
                 ),
                 "status" => ("GET", format!("/v1/tasks/{t}"), None, None, pretty),
                 other => return Err(invalid(format!("unknown tool: {other}"))),

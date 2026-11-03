@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Lean disk** (Plan 11). Agents' files no longer pile up:
+  - **Finished tasks give their disk back.** A task merged or abandoned for `AV_WS_RETAIN_SECS`
+    (default 3600; `0` at once, `never` to keep) loses its workspace and scratch dir; a sweep looks
+    every 60 s. The task's commits stay in the store. An undo or revert that puts a task back to
+    work restores its workspace at its head. Open, handed-off, in-review and conflicted tasks are
+    never touched, and nothing outside `ws_root` is deleted. No migration.
+  - **`av disk`** (`GET /v1/disk`): per repo, every workspace with its task's status, size, age and
+    whether a sweep would remove it, plus scratch, build cache and store, and what sessions left
+    outside any workspace. **`av gc [--dry-run] [--retain SECS] [--build-cache]`** (`POST /v1/gc`)
+    reclaims on demand. Both take `--json`.
+  - **One cargo build cache per repo.** For a repo with a root `Cargo.toml` the daemon writes
+    `<ws_root>/<repo>/.cargo/config.toml` (at import and start-up), so every task workspace builds
+    into `<ws_root>/<repo>/.cache/cargo-target` instead of its own `target/`. The repo's own cargo
+    config and `CARGO_TARGET_DIR` still win; `AV_BUILD_CACHE=off` writes nothing.
+  - **The hooks watch what a session leaves behind.** `SessionStart` gives a task a scratch dir,
+    exported as `$AV_SCRATCH` through `$CLAUDE_ENV_FILE`, and takes a snapshot of the build,
+    dependency and cache dirs under `$HOME` and the temp dir. `Stop` compares, blocks once when the
+    session added `AV_FOOTPRINT_WARN_MB` (default 512) or more outside any workspace, and reports
+    it to the daemon (`POST /v1/footprint`), which shows it in `av disk`. `AV_FOOTPRINT=off`,
+    `AV_FOOTPRINT_ROOTS`, `AV_FOOTPRINT_SECS`.
+  - `Vcs::remove_workspace` and `Vcs::restore_workspace` (jj: forget the workspace, re-create it
+    at a commit).
+  - `av up` moves a `daemon.log` over 50 MB to `daemon.log.1`.
+  - **`scholion-bench run` removes each session's copy after verify**: the git arms' clone, and
+    the av arms' import copy (their bench task is abandoned, so the bench daemon reclaims the
+    workspace). Invalid sessions keep everything; `--keep-work` keeps every copy.
 - **A redesigned dashboard** (`/ui`): a neutral, professional look in place of the pixel-slime
   theme. It adds a row of summary figures (in progress, in review, conflicted, merged, backlog,
   agents busy), agent cards with initials avatars, a state badge, skill tags and a load bar against

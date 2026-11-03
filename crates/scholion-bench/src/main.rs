@@ -96,6 +96,10 @@ struct SessionArgs {
     /// through its Anthropic API); claude's own --max-budget-usd is then not passed.
     #[arg(long, value_parser = scholion_bench::metrics::Prices::parse)]
     price_per_mtok: Option<scholion_bench::metrics::Prices>,
+    /// Keep each session's clone after verify (default: removed, and an av task abandoned;
+    /// an invalid session always keeps its work).
+    #[arg(long)]
+    keep_work: bool,
 }
 
 #[derive(Subcommand)]
@@ -298,6 +302,7 @@ fn config(s: &SessionArgs) -> RunConfig {
         prices: s.price_per_mtok,
         hook_code: s.hook_code.clone(),
         hook_args: s.hook_args.clone(),
+        keep_work: s.keep_work,
     }
 }
 
@@ -687,6 +692,12 @@ mod tests {
             Cmd::Run { session, .. } => config(&session),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn work_is_removed_unless_keep_work() {
+        assert!(!run_config(&[]).keep_work);
+        assert!(run_config(&["--keep-work"]).keep_work);
     }
 
     #[test]

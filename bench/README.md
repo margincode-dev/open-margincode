@@ -168,6 +168,11 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
    task's hidden tests are copied in (`hidden_tests` from the real fix, `local_tests` written for
    the benchmark), overwriting whatever the agent left at those paths, and `verify_cmd` runs with
    `verify_timeout_secs`. Exit 0 = accepted.
+5. **Clean up**: a valid session's copy is removed once verify has run: the git arms' `ws`, and
+   for the av arms the copy in the import folder, whose task is then abandoned so the bench
+   daemon reclaims its workspace after `AV_WS_RETAIN_SECS`. Logs, `events.jsonl`, `pack.md` and
+   `outcome.json` stay. An `invalid` session keeps everything for debugging, and `--keep-work`
+   keeps every copy.
 
 Bash is allowed, so agents can run tests; it runs inside the throwaway copies under bench-work.
 
@@ -226,8 +231,9 @@ removed):
 
 Each script writes the repo where the task files expect it (`~/bench-repos/…`). The tallyho
 tasks need a Python with pytest at `~/bench-work/venv`. The scholion tasks build Rust in every
-session: export `CARGO_TARGET_DIR` (one shared target) and `AV_TEST_DATABASE_URL`, and plan on
-about 1 GB of disk per session. The tallyho and scholion tasks use `claude-haiku-5-5`; the relay
+session: export `CARGO_TARGET_DIR` (one shared target) and `AV_TEST_DATABASE_URL`. Each
+session's copy is removed after verify unless you pass `--keep-work`, so disk use stays at
+about the sessions running at once (a scholion copy is about 1 GB). The tallyho and scholion tasks use `claude-haiku-5-5`; the relay
 tasks use DeepSeek (`bench/tasks-relay/README.md`).
 
 ```bash

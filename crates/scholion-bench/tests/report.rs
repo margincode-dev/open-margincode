@@ -231,6 +231,7 @@ fn setup() -> Setup {
         hook_args: vec![],
         jit_hooks: false,
         prices: None,
+        keep_work: true,
     };
     let out = work.path().join("results");
     Setup {

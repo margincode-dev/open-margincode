@@ -285,3 +285,132 @@ async fn list_repos_names_every_imported_repo_sorted() {
     std::fs::create_dir_all(e._store.path().join("stray")).unwrap();
     assert_eq!(e.vcs.list_repos().await.unwrap(), vec!["alpha", "demo"]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remove_workspace_deletes_the_dir_and_forgets_it() {
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "gone").await.unwrap();
+    std::fs::write(w.path.join("a.py"), "def a():\n    return 7\n").unwrap();
+    e.vcs.snapshot("demo", "gone").await.unwrap();
+
+    assert!(e.vcs.remove_workspace("demo", "gone").await.unwrap());
+    assert!(!w.path.exists());
+    let r = e.vcs.snapshot("demo", "gone").await;
+    assert!(
+        matches!(r, Err(scholion_core::AvError::NotFound(_))),
+        "{r:?}"
+    );
+    // jj forgot the name: a new workspace of the same slug starts fresh from trunk
+    let again = e.vcs.create_workspace("demo", "gone").await.unwrap();
+    assert_eq!(again.base_change, e.main);
+    assert_eq!(
+        std::fs::read_to_string(again.path.join("a.py")).unwrap(),
+        "def a():\n    return 1\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remove_workspace_twice_is_a_no_op() {
+    let e = env().await;
+    e.vcs.create_workspace("demo", "twice").await.unwrap();
+    assert!(e.vcs.remove_workspace("demo", "twice").await.unwrap());
+    assert!(!e.vcs.remove_workspace("demo", "twice").await.unwrap());
+    assert!(!e.vcs.remove_workspace("demo", "never-made").await.unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remove_workspace_refuses_the_stores_own_workspace() {
+    let e = env().await;
+    let r = e.vcs.remove_workspace("demo", "main").await;
+    assert!(
+        matches!(r, Err(scholion_core::AvError::Invalid(_))),
+        "{r:?}"
+    );
+    let r = e.vcs.remove_workspace("demo", "../escape").await;
+    assert!(
+        matches!(r, Err(scholion_core::AvError::Invalid(_))),
+        "{r:?}"
+    );
+    assert_eq!(e.vcs.trunk("demo").await.unwrap(), e.main);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_workspace_brings_back_the_head() {
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "back").await.unwrap();
+    std::fs::write(w.path.join("a.py"), "def a():\n    return 9\n").unwrap();
+    std::fs::write(w.path.join("new.txt"), "new").unwrap();
+    let head = e.vcs.snapshot("demo", "back").await.unwrap();
+    assert!(e.vcs.remove_workspace("demo", "back").await.unwrap());
+
+    let r = e
+        .vcs
+        .restore_workspace("demo", "back", &head)
+        .await
+        .unwrap();
+    assert_eq!(r.path, w.path);
+    assert_eq!(r.base_change, w.base_change, "a task head's first parent");
+    assert_eq!(
+        std::fs::read_to_string(r.path.join("a.py")).unwrap(),
+        "def a():\n    return 9\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(r.path.join("new.txt")).unwrap(),
+        "new"
+    );
+    // the working copy is the head itself: nothing changed, same head
+    assert_eq!(e.vcs.snapshot("demo", "back").await.unwrap(), head);
+    // and it keeps working
+    std::fs::write(r.path.join("more.txt"), "more").unwrap();
+    let next = e.vcs.snapshot("demo", "back").await.unwrap();
+    assert_ne!(next, head);
+    let mut changed = e
+        .vcs
+        .changed_paths("demo", &w.base_change, &next)
+        .await
+        .unwrap();
+    changed.sort();
+    assert_eq!(changed, vec!["a.py", "more.txt", "new.txt"]);
+
+    let again = e.vcs.restore_workspace("demo", "back", &head).await;
+    assert!(
+        matches!(again, Err(scholion_core::AvError::Invalid(_))),
+        "the dir exists: {again:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_workspace_after_the_dir_was_deleted_by_hand() {
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "rmrf").await.unwrap();
+    std::fs::write(w.path.join("a.py"), "def a():\n    return 5\n").unwrap();
+    let head = e.vcs.snapshot("demo", "rmrf").await.unwrap();
+    std::fs::remove_dir_all(&w.path).unwrap();
+
+    let r = e
+        .vcs
+        .restore_workspace("demo", "rmrf", &head)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(r.path.join("a.py")).unwrap(),
+        "def a():\n    return 5\n"
+    );
+    assert_eq!(e.vcs.snapshot("demo", "rmrf").await.unwrap(), head);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_workspace_works_for_an_empty_head_jj_abandoned() {
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "empty").await.unwrap();
+    let head = e.vcs.snapshot("demo", "empty").await.unwrap();
+    // forgetting an empty working-copy commit abandons it in jj; it is still in the store
+    assert!(e.vcs.remove_workspace("demo", "empty").await.unwrap());
+    let r = e
+        .vcs
+        .restore_workspace("demo", "empty", &head)
+        .await
+        .unwrap();
+    assert_eq!(r.base_change, w.base_change);
+    assert_eq!(e.vcs.snapshot("demo", "empty").await.unwrap(), head);
+}

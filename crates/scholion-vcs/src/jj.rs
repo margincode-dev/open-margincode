@@ -52,6 +52,14 @@ const AGENT_IGNORES: &[u8] = b"/.av-task\n";
 /// Largest new file the working copy will snapshot (jj's own default is 1 MiB; agents write bigger).
 const MAX_NEW_FILE_SIZE: u64 = 256 * 1024 * 1024;
 
+/// Where a new workspace's working-copy commit goes relative to the commit it is created at.
+enum WcAt {
+    /// A new empty commit on top of it (a new task).
+    ChildOf,
+    /// The commit itself (a restored task: its head).
+    Is,
+}
+
 fn verr<E: std::fmt::Display>(e: E) -> AvError {
     AvError::Vcs(e.to_string())
 }
@@ -343,6 +351,23 @@ impl Inner {
         valid_component("workspace", slug)?;
         let ro = self.head(repo)?;
         let trunk = self.trunk_commit(repo, &ro)?;
+        let path = self.create_workspace_at(repo, slug, &ro, &trunk, WcAt::ChildOf)?;
+        Ok(WorkspaceInfo {
+            path,
+            base_change: ChangeId(trunk.id().hex()),
+        })
+    }
+
+    /// Adds the jj workspace `slug` at its directory (which must not exist) with its working-copy
+    /// commit placed at `commit` as `at` says, and writes that commit's files there.
+    fn create_workspace_at(
+        &self,
+        repo: &str,
+        slug: &str,
+        ro: &Arc<ReadonlyRepo>,
+        commit: &Commit,
+        at: WcAt,
+    ) -> Result<PathBuf> {
         let dir = self.ws_dir(repo, slug);
         if dir.exists() {
             return Err(AvError::Invalid(format!("workspace {slug} already exists")));
@@ -352,19 +377,88 @@ impl Inner {
         let (mut ws, ro) = block_on(Workspace::init_workspace_with_existing_repo(
             &dir,
             &self.jj_repo_path(repo),
-            &ro,
+            ro,
             &*default_working_copy_factory(),
             name.clone(),
         ))
         .map_err(verr)?;
         let mut tx = ro.start_transaction();
-        let wc = block_on(tx.repo_mut().check_out(name, &trunk)).map_err(verr)?;
+        let (wc, op) = match at {
+            WcAt::ChildOf => (
+                block_on(tx.repo_mut().check_out(name, commit)).map_err(verr)?,
+                format!("create workspace {slug}"),
+            ),
+            WcAt::Is => {
+                block_on(tx.repo_mut().edit(name, commit)).map_err(verr)?;
+                (commit.clone(), format!("restore workspace {slug}"))
+            }
+        };
         block_on(tx.repo_mut().rebase_descendants()).map_err(verr)?;
-        let ro = block_on(tx.commit(format!("create workspace {slug}"))).map_err(verr)?;
+        let ro = block_on(tx.commit(op)).map_err(verr)?;
         block_on(ws.check_out(ro.op_id().clone(), None, &wc)).map_err(verr)?;
+        Ok(dir)
+    }
+
+    /// Task workspaces only: `main` is where the store's own workspace lives and `default` is
+    /// its name in jj; forgetting either would break the repo.
+    fn task_workspace(slug: &str) -> Result<()> {
+        valid_component("workspace", slug)?;
+        if slug == "main" || slug == "default" {
+            return Err(AvError::Invalid(format!(
+                "workspace {slug} belongs to the repo, not a task"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Removes the workspace `slug` from jj's view and workspace list; `false` when jj did not
+    /// know it. Its working-copy commit stays in the store (jj abandons it only when empty).
+    fn forget_workspace(&self, repo: &str, slug: &str) -> Result<bool> {
+        let ro = self.head(repo)?;
+        let name = WorkspaceNameBuf::from(slug);
+        if ro.view().get_wc_commit_id(&name).is_none() {
+            return Ok(false);
+        }
+        let mut tx = ro.start_transaction();
+        block_on(tx.repo_mut().remove_workspace(&name)).map_err(verr)?;
+        block_on(tx.repo_mut().rebase_descendants()).map_err(verr)?;
+        block_on(tx.commit(format!("forget workspace {slug}"))).map_err(verr)?;
+        self.loader(repo)?
+            .workspace_store()
+            .forget(&[&*name])
+            .map_err(verr)?;
+        Ok(true)
+    }
+
+    fn remove_workspace(&self, repo: &str, slug: &str) -> Result<bool> {
+        Self::task_workspace(slug)?;
+        // no `Workspace` is held open here, so nothing has the directory loaded while it goes
+        let forgot = self.forget_workspace(repo, slug)?;
+        let dir = self.ws_dir(repo, slug);
+        let had_dir = std::fs::symlink_metadata(&dir).is_ok();
+        if had_dir {
+            std::fs::remove_dir_all(&dir).map_err(verr)?;
+        }
+        Ok(forgot || had_dir)
+    }
+
+    fn restore_workspace(&self, repo: &str, slug: &str, head: &ChangeId) -> Result<WorkspaceInfo> {
+        Self::task_workspace(slug)?;
+        if std::fs::symlink_metadata(self.ws_dir(repo, slug)).is_ok() {
+            return Err(AvError::Invalid(format!("workspace {slug} already exists")));
+        }
+        // the directory was deleted by hand while jj still knows the name: forget it first
+        self.forget_workspace(repo, slug)?;
+        let ro = self.head(repo)?;
+        let commit = self.commit_in_repo(&ro, head)?;
+        let path = self.create_workspace_at(repo, slug, &ro, &commit, WcAt::Is)?;
+        // A task's head is a child of its base: `create_workspace` checks out a new commit on
+        // trunk, snapshots rewrite that commit in place and a rebase keeps its single parent. So
+        // the first parent is the base; a commit without parents is its own base.
+        let base = commit.parent_ids().first().unwrap_or(commit.id());
         Ok(WorkspaceInfo {
-            path: dir,
-            base_change: ChangeId(trunk.id().hex()),
+            path,
+            base_change: ChangeId(base.hex()),
         })
     }
 
@@ -863,6 +957,23 @@ impl Vcs for JjVcs {
     ) -> Result<()> {
         let (name, pre, merged) = (repo.to_owned(), pre_merge.clone(), merge_commit.clone());
         self.run(repo, move |i| i.undo_merge(&name, &pre, &merged))
+            .await
+    }
+
+    async fn remove_workspace(&self, repo: &str, slug: &str) -> Result<bool> {
+        let (name, slug) = (repo.to_owned(), slug.to_owned());
+        self.run(repo, move |i| i.remove_workspace(&name, &slug))
+            .await
+    }
+
+    async fn restore_workspace(
+        &self,
+        repo: &str,
+        slug: &str,
+        head: &ChangeId,
+    ) -> Result<WorkspaceInfo> {
+        let (name, slug, head) = (repo.to_owned(), slug.to_owned(), head.clone());
+        self.run(repo, move |i| i.restore_workspace(&name, &slug, &head))
             .await
     }
 }

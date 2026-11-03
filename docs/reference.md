@@ -415,6 +415,32 @@ export AV_IMPORT_ROOT=/mnt/c/Users/me/avsrc  AV_IMPORT_MOUNT='C:\Users\me\avsrc'
 in `WSLENV`, and fails builds with "Incorrect function" when `DOCKER_CONFIG` is on a WSL path.
 Enabling WSL integration for the distro in Docker Desktop avoids all of this.
 
+### Docker Desktop memory on Windows
+
+Docker Desktop runs in a WSL 2 VM that by default may grow to half the machine's RAM and keeps
+file cache until then: builds write gigabytes of `target/`, and that cache stays charged to
+`vmmemWSL` on Windows long after the build. Measured on a 32 GB machine (2026-11-03): two
+one-minute cold builds took the VM from 4.0 to 9.4 GB while its processes used 2.4 GB; dropping
+the cache brought it back to 4.1 GB. To have WSL give cache back by itself, and to cap the VM,
+create `%USERPROFILE%\.wslconfig`:
+
+```ini
+[wsl2]
+memory=12GB                 # the VM's cap; default half the RAM
+[experimental]
+autoMemoryReclaim=dropCache # give cache back when the VM is idle (or `gradual`)
+```
+
+It takes effect after `wsl --shutdown`, which stops Docker Desktop and every container in it, the
+daemon included. To return the cache once, now, without a restart:
+
+```bash
+docker run --rm --privileged rust:1.97.1 sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'
+```
+
+One cold `cargo test --workspace --no-run` of scholion needs about 1.6 GB of process memory; how
+many agents fit on one host is worked out in Plan 12 ("Memory").
+
 ## Use
 
 ```bash

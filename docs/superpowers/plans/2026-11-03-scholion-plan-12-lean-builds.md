@@ -178,12 +178,79 @@ Left open: a seed takes about a minute on `D:\ws`; an agent that runs cargo befo
 builds its own `target/` from nothing (the seed is then skipped, never mixed in). Workspace slots
 (Task 4) would keep a warm `target/` instead and need no seed.
 
-## Task 6: scholion's own test binaries
+## Task 6: scholion's own test binaries — done
 
-63 integration-test binaries, each linking everything. Merging each crate's `tests/*.rs` into one
-binary per crate (`tests/main.rs` with `mod` lines) would cut both disk and link time for the
-dogfood repo itself. A repo change, not a product change; cheap, but it changes every
-`cargo test --test NAME` invocation in `CLAUDE.md` and `CONTRIBUTING.md`.
+Each crate's `tests/*.rs` are modules of one test binary, `it` (`tests/main.rs`, `autotests =
+false`); `CLAUDE.md` and `CONTRIBUTING.md` give the `--test it` invocations. A full lean
+`cargo test --workspace --no-run` of `main` (ca3ec33) is 2.4 GB.
+
+## Memory: what an agent and a build hold (measured 2026-11-03)
+
+Run 1 ended with Windows short of memory (5.4 GB free of 31 GB, the WSL VM holding 13 GB of which
+its processes used 2.3 GB). Measured afterwards in the build container (16 cores, Rust 1.97.1,
+scholion at ca3ec33, av's lean config, a fresh target dir, `cargo test --workspace --no-run`,
+process RSS sampled every 0.25 s with the container's cgroup `memory.stat` beside it):
+
+| | jobs 16 (cargo's default here) | jobs 4 |
+|---|---|---|
+| wall time, cold | 37 s | 58 s |
+| process memory at peak (cgroup `anon`) | 1.6 GB | 1.7 GB |
+| sum of process RSS at peak (shared pages counted twice) | 3.4 GB, 19 processes | 3.0 GB, 11 processes |
+| largest single process | 1.2 GB (rustc) | 1.1 GB (rustc) |
+| file cache charged to the container at peak | 2.8 GB | 5.4 GB (started with the first run's cache) |
+
+Running the tests afterwards (`cargo test --workspace` on that warm target, against the test
+Postgres container): 97 s, 266 MB of process memory at peak, the test Postgres about 0.2 GB. So
+the build, not the test run, is what a full-bar check costs in memory.
+
+The rest of the stack, idle: daemon 15 MB, its Postgres 37 MB, Qdrant 103 MB, TEI 1.2 GB (one
+each per host, not per agent). One Claude Code CLI on Windows: 0.5 GB working set, 0.8 GB private.
+
+What this says:
+
+1. **The shortage was the WSL VM keeping page cache, not processes.** The two builds above grew
+   `vmmemWSL` on Windows from 4.0 to 9.4 GB while the VM's processes used 2.4 GB. Dropping the
+   VM's page cache (`echo 1 > /proc/sys/vm/drop_caches` from a privileged container) brought it
+   back to 4.1 GB within 20 s. Without a `.wslconfig` the VM keeps cache until it reaches its
+   cap (half the RAM, 15.5 GB here), so every build of a long day adds to it. This is host
+   configuration; `docs/reference.md` ("Docker Desktop memory on Windows") says what to set.
+2. **A cargo job limit buys no memory.** Jobs 4 is 1.6× slower for the same peak: the peak is the
+   last few large crates and the link of `it`, which run nearly alone at any job count. So av
+   writes no `build.jobs` into the repo's cargo config.
+3. **Per agent, the CLI outweighs its build.** The CLI holds 0.8 GB for the whole session; a build
+   holds 1.6 GB for about 40 s (less once the deps cache has seeded the workspace).
+
+### Sizing many agents
+
+On one host, with A agents running and B of them building at the same moment:
+
+    memory ≥ shared + A × cli + B × build        shared ≈ 1.5 GB, cli ≈ 0.8 GB, build ≈ 1.6 GB
+
+`build` is this repo's; for another, measure one cold `cargo test --no-run` (peak `anon` of the
+cgroup it runs in). B follows the duty cycle, not A: an agent builds for seconds between minutes of
+model turns. At 1000 agents and B = 10% of A, that is 0.8 TB for the CLIs plus 160 GB for builds,
+about 1 TB: eight hosts of 128 GB, not one machine. The big term is the agent process, so the
+lever at that scale is agent density, not build tuning.
+
+What 1000 agents need that does not exist yet, in the order it would bite:
+
+- [ ] **Admission where agents start.** Whoever starts agents (`av watch`, the commercial
+      runner) starts at most A = (memory − shared − B × build) / cli on a host. The daemon's
+      `max_open` caps a *team's* open tasks, not a host's load; it never starts processes, so it
+      cannot be the limit.
+- [ ] **`next --wait` polls.** Each waiting agent re-runs `choose` every `WAIT_STEP` (2 s), so 1000
+      waiting agents are about 500 `choose` queries a second, against a pool of
+      `AV_PG_MAX_CONNECTIONS` (default 16). Waking waiters on what changes the answer instead of on a
+      timer fixes it: an in-process `Notify` fired by the lifecycle events the daemon already
+      broadcasts (`submit`, `approve`, `merged`, `handoff`, `abandon`, …) and by backlog posts,
+      which are not events today. This breaks before memory does.
+- [ ] **More than one host.** The daemon writes every workspace under its own `ws_root`, so all
+      agents build on the daemon's filesystem. Several hosts need either that root shared (slow
+      over the network for builds, as 9p already is at 2×) or workspaces created on the agent's
+      host by something the daemon talks to. A design question for when one host is full.
+- [ ] **Build spikes.** If B spikes (every agent re-syncs and builds after one merge to `main`), a
+      per-host gate on check commands (N build slots, taken by the CLI around a check, never by
+      the daemon) bounds it. Only worth building once a run measures B above 10% of A.
 
 ## How to tell it worked
 

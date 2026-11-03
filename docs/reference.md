@@ -492,6 +492,11 @@ An unknown name is an error. So is removing an agent that still owns an open, ha
 in-review or conflicted task, unless `av agent rm NAME --force` (the tasks stay). A profile an extension
 manages cannot be removed here, the same as `av agent set`. `av watch`, once per agent,
 starts that CLI only when something fits it and sets `AV_AGENT` for the command.
+`av watch --max-agents N` (or `AV_MAX_AGENTS`) caps the agents running at once on the host,
+across every watch that shares `$AV_HOME`: a watch runs its command only while it holds one of
+N lock files in `$AV_HOME/agents`, and the OS releases a dead watch's lock. With no free slot
+`--once` exits without running and a plain watch waits. Size N from memory: about 0.8 GB per
+agent CLI plus 1.6 GB for each build running at the same moment (Plan 12, "Memory").
 
 The dedicated writers put a fixed `X-Av-Agent` header (`grok`, `gemini`, `cursor`).
 `--for mcp-json` writes the `--agent` name into that header, so a client without its own

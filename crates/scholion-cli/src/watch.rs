@@ -3,7 +3,13 @@
 //! when something fits, runs the given command with `AV_AGENT` and `AV_URL` set and waits for it.
 //! The command is expected to take the work itself (`start_task` with no arguments, or
 //! `av next`). This runs on the user's machine; the daemon still never starts a process.
+//!
+//! `--max-agents N` caps the agents running at once on this host, across every watch that shares
+//! `$AV_HOME`: an agent runs only while its watch holds one of N slot files locked. The OS drops
+//! a lock when its process dies, so a killed watch never leaks a slot.
 
+use std::fs::{File, OpenOptions, TryLockError};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -21,7 +27,30 @@ pub struct Watch<'a> {
     pub every: Duration,
     pub max_runs: Option<u32>,
     pub once: bool,
+    /// Agents allowed to run at once on this host; `None` = no limit.
+    pub max_agents: Option<u32>,
+    /// Where the slot files live (`$AV_HOME/agents`).
+    pub slots_dir: PathBuf,
     pub cmd: &'a [String],
+}
+
+/// Takes a free one of `n` slots in `dir`: the open, locked slot file, held while an agent runs.
+/// `None` when all `n` are held.
+fn take_slot(dir: &Path, n: u32) -> std::io::Result<Option<File>> {
+    std::fs::create_dir_all(dir)?;
+    for i in 0..n {
+        let f = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join(format!("slot-{i}.lock")))?;
+        match f.try_lock() {
+            Ok(()) => return Ok(Some(f)),
+            Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+    }
+    Ok(None)
 }
 
 /// What a dry run of `next` says: `None` when nothing fits the agent.
@@ -40,11 +69,42 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
     let shown = w.cmd.join(" ");
     let mut runs = 0u32;
     let mut pause = w.every;
+    let mut said_full = false;
     loop {
+        // a slot first: while the host is full there is nothing to ask the daemon
+        let slot = match w.max_agents {
+            None => None,
+            Some(n) => match take_slot(&w.slots_dir, n) {
+                Ok(Some(slot)) => {
+                    said_full = false;
+                    Some(slot)
+                }
+                Ok(None) => {
+                    let full = format!("watch: all {n} agent slots on this host are in use");
+                    if w.once {
+                        println!("{full}");
+                        return Ok(());
+                    }
+                    if !said_full {
+                        println!("{full}; waiting");
+                        said_full = true;
+                    }
+                    std::thread::sleep(w.every);
+                    continue;
+                }
+                Err(e) => {
+                    return Err(CliError::Local(format!(
+                        "agent slots in {}: {e}",
+                        w.slots_dir.display()
+                    )));
+                }
+            },
+        };
         let would = match peek(client, w) {
             Ok(v) => v,
             Err(e) if w.once => return Err(e),
             Err(e) => {
+                drop(slot);
                 pause = (pause * 2).min(MAX_BACKOFF);
                 eprintln!("watch: {e}; looking again in {}s", pause.as_secs());
                 std::thread::sleep(pause);
@@ -52,6 +112,7 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
             }
         };
         let Some(work) = would else {
+            drop(slot); // nothing to run: free the slot while waiting
             if w.once {
                 println!("watch: nothing for {} now", w.agent);
                 return Ok(());
@@ -70,6 +131,7 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
             .env("AV_AGENT", w.agent)
             .env("AV_URL", w.url)
             .status();
+        drop(slot); // the agent is done: another watch may start one
         runs += 1;
         let ok = match &status {
             Ok(s) if s.success() => true,

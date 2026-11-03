@@ -412,6 +412,11 @@ enum Cmd {
         /// Look once, run at most once, then exit.
         #[arg(long)]
         once: bool,
+        /// At most this many agent commands at once on this host, counted across every `av watch`
+        /// sharing $AV_HOME (one lock file per slot in $AV_HOME/agents). Size it from memory: about
+        /// 0.8 GB per agent CLI plus 1.6 GB per build running at the same moment.
+        #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
+        max_agents: Option<u32>,
         /// The agent command, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
@@ -2125,6 +2130,7 @@ fn run(cli: Cli) -> Result<()> {
             every,
             max_runs,
             once,
+            max_agents,
             cmd,
         } => watch::run(
             &client,
@@ -2135,6 +2141,8 @@ fn run(cli: Cli) -> Result<()> {
                 every: std::time::Duration::from_secs((*every).max(1)),
                 max_runs: *max_runs,
                 once: *once,
+                max_agents: *max_agents,
+                slots_dir: local::av_home().join("agents"),
                 cmd,
             },
         )?,

@@ -3291,6 +3291,162 @@ fn watch_stops_after_max_runs_and_backs_off_on_failure() {
     assert!(started.elapsed() >= std::time::Duration::from_secs(2));
 }
 
+/// `av watch` as `agent` with its own `$AV_HOME`, so the host's agent slots are the test's.
+fn watch_in(d: &Daemon, cwd: &Path, home: &Path, args: &[&str]) -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_av"));
+    c.current_dir(cwd)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", "grok")
+        .arg("watch")
+        .args(args);
+    c
+}
+
+#[test]
+fn watch_starts_no_more_agents_than_the_host_has_slots() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+    // the first watch takes the only slot and holds it while its agent runs
+    let mut first = watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &[
+            "--once",
+            "--max-agents",
+            "1",
+            "--",
+            "sh",
+            "-c",
+            "touch first; sleep 4",
+        ],
+    )
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .spawn()
+    .unwrap();
+    let t = std::time::Instant::now();
+    while !dir.path().join("first").exists() {
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(20),
+            "first never ran"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // another watch on the same host finds no free slot and does not start its agent
+    let o = watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &[
+            "--once",
+            "--max-agents",
+            "1",
+            "--",
+            "sh",
+            "-c",
+            "touch second",
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(!dir.path().join("second").exists(), "{}", out(&o));
+    assert!(
+        out(&o).contains("all 1 agent slots on this host are in use"),
+        "{}",
+        out(&o)
+    );
+    // the env var does the same as the flag
+    let o = watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &["--once", "--", "sh", "-c", "touch second"],
+    )
+    .env("AV_MAX_AGENTS", "1")
+    .output()
+    .unwrap();
+    assert!(!dir.path().join("second").exists(), "{}", out(&o));
+    // once the first agent is done its slot is free again
+    assert!(first.wait().unwrap().success());
+    ok(watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &[
+            "--once",
+            "--max-agents",
+            "1",
+            "--",
+            "sh",
+            "-c",
+            "touch second",
+        ],
+    )
+    .output()
+    .unwrap());
+    assert!(dir.path().join("second").exists());
+}
+
+#[test]
+fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+    let mut first = watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &[
+            "--once",
+            "--max-agents",
+            "1",
+            "--",
+            "sh",
+            "-c",
+            "touch first; sleep 3; touch first-done",
+        ],
+    )
+    .spawn()
+    .unwrap();
+    let t = std::time::Instant::now();
+    while !dir.path().join("first").exists() {
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(20),
+            "first never ran"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // without --once it waits for the slot instead of giving up, and its agent starts only
+    // after the first one is done
+    let o = watch_in(
+        &d,
+        dir.path(),
+        home.path(),
+        &[
+            "--every",
+            "1",
+            "--max-runs",
+            "1",
+            "--max-agents",
+            "1",
+            "--",
+            "sh",
+            "-c",
+            "test -f first-done && touch second",
+        ],
+    )
+    .output()
+    .unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(dir.path().join("second").exists(), "{}", out(&o));
+    assert!(first.wait().unwrap().success());
+}
+
 // ---- Plan 10 A3: targets
 
 #[test]

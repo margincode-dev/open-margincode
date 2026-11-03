@@ -234,10 +234,14 @@ lever at that scale is agent density, not build tuning.
 
 What 1000 agents need that does not exist yet, in the order it would bite:
 
-- [ ] **Admission where agents start.** Whoever starts agents (`av watch`, the commercial
-      runner) starts at most A = (memory − shared − B × build) / cli on a host. The daemon's
-      `max_open` caps a *team's* open tasks, not a host's load; it never starts processes, so it
-      cannot be the limit.
+- [x] **Admission where agents start.** Whoever starts agents starts at most
+      A = (memory − shared − B × build) / cli on a host. The daemon's `max_open` caps a *team's*
+      open tasks, not a host's load; it never starts processes, so it cannot be the limit.
+      `av watch --max-agents A` (`AV_MAX_AGENTS`) does it for Community: A slot files in
+      `$AV_HOME/agents`, each held with an OS file lock while a watch's agent runs, so every
+      watch on the host counts against the same A and a killed watch frees its slot. A is set,
+      not computed from free memory (other programs' use varies; the formula picks it). Left:
+      the commercial runner takes the same slots or its own equivalent.
 - [x] **`next --wait` polled.** Each waiting agent re-ran `choose` every 2 s, so 1000 waiting
       agents were about 500 `choose` queries a second against a pool of `AV_PG_MAX_CONNECTIONS`
       (default 16). Now a waiter is woken by what can change its answer: an event of

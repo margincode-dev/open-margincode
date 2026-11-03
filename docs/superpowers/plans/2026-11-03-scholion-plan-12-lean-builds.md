@@ -130,3 +130,43 @@ daemon's config in force and no `CARGO_TARGET_DIR`.
 
 So with this branch a Rust task's disk is its own `target/` (4.5 GB for this repo's full bar,
 2.4 GB once #72 lands), it is counted, and it is gone with the task.
+
+## The live stack (2026-11-03, after #71–#73 merged)
+
+- The compose daemon (`deploy/docker-compose.yml`, project `scholion`, `:7420`) was rebuilt from
+  `main` (ae19a2b) and recreated with the run's mounts (`AV_WS_MOUNT='D:\ws'`,
+  `AV_IMPORT_MOUNT='C:\Users\vinhq\projects'`, `AV_WS_ROOT='D:/ws'` for the host root, the same
+  `UID:GID`). At start-up it rewrote `D:\ws\scholion\.cargo\config.toml` from Plan 11's shared
+  target dir to the lean per-task config, and the sweep reclaimed run 1's five merged workspaces.
+  The old image is kept as `scholion-daemon:pre-plan12` for rollback. In bash, pass the ids
+  through `env UID=… GID=… docker compose …`: `UID` is read-only in the shell.
+- **Before the next run, two things the daemon cannot do:**
+  1. The agents' container `sch-ws` exports `CARGO_TARGET_DIR=/target`. The environment beats
+     every cargo config, so agents there would still share one target dir. Recreate it without
+     that variable (builds then land in `/ws/scholion/<slug>/target`, reclaimed with the task), or
+     give each agent `CARGO_TARGET_DIR=/target/ws-<slug>` as run 1's lead did (then `av disk`
+     does not see those dirs: Task 3):
+     ```
+     docker rm -f sch-ws
+     docker run -d --init --name sch-ws --network sch-test --add-host host.docker.internal:host-gateway \
+       -v sch-cargo:/usr/local/cargo/registry -v sch-target:/target -v 'D:\ws:/ws' \
+       -e AV_TEST_DATABASE_URL=postgres://postgres:pg@sch-test-pg:5432/postgres \
+       -e AV_URL=http://host.docker.internal:7420 -e AV_FOOTPRINT=off -w /ws rust:1.97.1 sleep infinity
+     ```
+  2. The live repo's required full-bar convention (`conv:1`) is scoped to `**`, so a docs-only
+     task runs the whole bar. Replace it with one scoped to the code
+     (`{crates/**,Cargo.toml,Cargo.lock,rust-toolchain.toml}`; globset takes braces), and drop the
+     old one:
+     ```
+     av convention add --repo scholion --required \
+       --scope '{crates/**,Cargo.toml,Cargo.lock,rust-toolchain.toml}' \
+       --check 'cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace' \
+       'The bar: fmt, clippy -D warnings and cargo test --workspace all green. Build in the workspace itself (its own target/); never point CARGO_TARGET_DIR at a dir another task uses.'
+     av convention rm 1 --repo scholion
+     ```
+- The live repo's trunk is run 1's import (before #72), so a task's full bar there costs about
+  4.3 GB until the repo is re-imported from current `main`; after that, 2.4 GB.
+- Docker's `D:\DockerData\DockerDesktopWSL\disk\docker_data.vhdx` is 175 GB for about 15 GB of
+  volumes. It shrinks only with Docker Desktop stopped: `wsl --shutdown`, then in an elevated
+  shell `diskpart` → `select vdisk file=…` → `attach vdisk readonly` → `compact vdisk` →
+  `detach vdisk`. Needs someone at the machine for the UAC prompt.

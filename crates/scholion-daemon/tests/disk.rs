@@ -289,11 +289,87 @@ async fn disk_marks_a_merged_workspace_reclaimable_past_the_retention() {
 async fn retain_zero_removes_the_workspace_with_the_merge() {
     let e = env_with(|s| s.with_ws_retain(Some(0))).await;
     let (t, merge) = merged(&e, "Wave hello").await;
+    assert_eq!(merge["build"], "removed", "{merge}");
     assert_eq!(merge["workspace"], "removed", "{merge}");
     assert!(!ws_dir(&e, &t).exists());
     // nothing left for gc
     let out = gc(&e, json!({})).await;
     assert_eq!(out["reclaimed"], json!([]), "{out}");
+}
+
+// ---- Plan 12: build output goes with the merge, the workspace waits for the retention ----
+
+/// Puts 8 KiB of "build output" in the task's workspace.
+fn build_in(e: &Env, t: &Value) -> PathBuf {
+    let built = ws_dir(e, t).join("target/debug/deps");
+    std::fs::create_dir_all(&built).unwrap();
+    std::fs::write(built.join("wave-0123"), vec![0u8; 8192]).unwrap();
+    ws_dir(e, t).join("target")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_removes_the_build_output_and_keeps_the_workspace() {
+    let e = env().await; // retention 3600
+    let t = approved(&e, "Wave hello").await;
+    let target = build_in(&e, &t);
+    let (status, merge) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{merge}");
+    assert_eq!(merge["workspace"], "kept", "{merge}");
+    assert_eq!(merge["build"], "removed", "{merge}");
+    assert!(!target.exists());
+    assert!(ws_dir(&e, &t).join("app/greeter.py").exists());
+    let (_, events) = call(
+        &e.app,
+        "GET",
+        "/v1/events?repo=demo&since=0&limit=500",
+        None,
+    )
+    .await;
+    let ev = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|ev| ev["kind"] == "build:reclaimed")
+        .unwrap_or_else(|| panic!("{events}"));
+    assert_eq!(ev["payload"]["bytes"], 8192, "{events}");
+    // the workspace still follows the retention
+    let (_, disk) = call(&e.app, "GET", "/v1/disk", None).await;
+    let w = listed(&disk["repos"][0]["workspaces"], &t).unwrap_or_else(|| panic!("{disk}"));
+    assert_eq!(w["build_bytes"], 0, "{disk}");
+    assert_eq!(w["reclaimable"], false, "{disk}");
+    // an undo gets a workspace that simply rebuilds
+    let (status, body) = post(&e, &t, "undo", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["workspace"], "kept", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_abandon_removes_the_build_output_too_and_says_none_without_any() {
+    let e = env().await;
+    let t = start_task(&e, "Never mind").await;
+    let target = build_in(&e, &t);
+    let (status, body) = post(&e, &t, "abandon", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["workspace"], "kept", "{body}");
+    assert_eq!(body["build"], "removed", "{body}");
+    assert!(!target.exists());
+    assert!(ws_dir(&e, &t).exists());
+
+    let t = start_task(&e, "Nothing built").await;
+    let (_, body) = post(&e, &t, "abandon", json!({"agent": "claude"})).await;
+    assert_eq!(body["build"], "none", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retain_never_keeps_the_build_output() {
+    let e = env_with(|s| s.with_ws_retain(None)).await;
+    let t = approved(&e, "Wave hello").await;
+    let target = build_in(&e, &t);
+    let (status, merge) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{merge}");
+    assert_eq!(merge["workspace"], "kept", "{merge}");
+    assert_eq!(merge["build"], "kept", "{merge}");
+    assert!(target.exists());
 }
 
 // ---- Task 3 (Plan 11), reworked by Plan 12: lean builds, one target dir per workspace ----

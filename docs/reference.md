@@ -616,7 +616,10 @@ av gc --build-cache         # also each repo's shared cache (<repo>/.cache), if 
 its scratch dir, and forgets the jj workspace. The task's commits stay in the store. A sweep looks
 every 60 s; `av gc` does it on demand (`--retain SECS` overrides the setting for one run).
 `AV_WS_RETAIN_SECS=0` removes the workspace with the merge or abandon itself (their answer says
-`workspace: removed`); `never` leaves it to `av gc --retain`. An undo or revert that puts a merged
+`workspace: removed`); `never` leaves it to `av gc --retain`. Whatever the retention (but `never`), the merge
+or abandon removes the workspace's build output (`target/`) at once: it is the bulk of a Rust
+task's disk and rebuilds on demand, while the small workspace stays for an undo or a reviewer's
+look (the answer says `build: removed`, `none` or `kept`; the feed gets `build:reclaimed`). An undo or revert that puts a merged
 task back to work restores its workspace at the task's head. Open, handed-off, in-review and
 conflicted tasks are never touched, and the daemon deletes nothing outside `ws_root`. `av disk`
 marks the workspaces a sweep would remove as `reclaimable`.

@@ -14,6 +14,10 @@
     `cargo test` in one workspace ran another task's test binary (a false green or red
     validation; hit twice in the run). An av-written config from before is rewritten at start-up.
     A test runs `cargo metadata` in two workspaces of one repo and checks their target dirs differ.
+  - **Build output goes with the merge.** A merge or abandon removes the workspace's `target/` at
+    once (the answer says `build: removed|none|kept`; the feed gets `build:reclaimed` with the
+    bytes) while the workspace itself waits for `AV_WS_RETAIN_SECS` as before, for an undo or a
+    reviewer's look; `never` keeps both. A finished task no longer holds gigabytes for an hour.
   - `GET /v1/disk` and `av disk` show each workspace's build output apart (`build_bytes`, a `BUILD`
     column, a total); `av gc` says how much of a reclaimed workspace was build output. The
     dashboard's Disk card shows the same.

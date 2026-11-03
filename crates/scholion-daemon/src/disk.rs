@@ -356,20 +356,51 @@ async fn reclaim_with(
     Ok(out)
 }
 
-/// With `AV_WS_RETAIN_SECS=0`, removes the workspace of `task`, which was just merged or
-/// abandoned; the caller holds its `lock_task`. Says what the client is told under `workspace`:
-/// `removed`, or `kept` (retention is not 0, or the removal failed: logged, and the sweep retries).
-pub(crate) async fn reclaim_task(st: &AppState, task: &Task) -> &'static str {
-    if st.ws_retain != Some(0) {
-        return "kept";
+/// What `task`, just merged or abandoned, gives back at once; the caller holds its `lock_task`.
+/// With `AV_WS_RETAIN_SECS=0` the whole workspace goes. Otherwise its build output (`target/`,
+/// the bulk of a Rust task's disk, rebuilt on demand) goes now and the workspace itself waits
+/// for the retention (an undo, a reviewer's look); `never` keeps both. Says what the client is
+/// told under `workspace` and `build`: `removed`, `kept` (or the removal failed: logged, and the
+/// sweep retries the workspace), and for the build `none` when there was none.
+pub(crate) async fn reclaim_task(st: &AppState, task: &Task) -> (&'static str, &'static str) {
+    match st.ws_retain {
+        Some(0) => match reclaim_locked(st, task, false).await {
+            Ok(_) => ("removed", "removed"),
+            Err(e) => {
+                tracing::warn!(task = %task.slug, error = %e, "removing the workspace failed");
+                ("kept", "kept")
+            }
+        },
+        None => ("kept", "kept"),
+        Some(_) => match reclaim_build(st, task).await {
+            Ok(Some(_)) => ("kept", "removed"),
+            Ok(None) => ("kept", "none"),
+            Err(e) => {
+                tracing::warn!(task = %task.slug, error = %e, "removing the build output failed");
+                ("kept", "kept")
+            }
+        },
     }
-    match reclaim_locked(st, task, false).await {
-        Ok(_) => "removed",
-        Err(e) => {
-            tracing::warn!(task = %task.slug, error = %e, "removing the workspace failed");
-            "kept"
-        }
+}
+
+/// Removes the build output of `task`'s workspace and says how many bytes went; `None` when it
+/// had none. The feed gets `build:reclaimed`.
+async fn reclaim_build(st: &AppState, task: &Task) -> Result<Option<u64>> {
+    let dir = under_ws_root(st, &[&task.repo, &task.slug, BUILD_DIR])?;
+    if !exists(&dir) {
+        return Ok(None);
     }
+    let bytes = measure(dir.clone()).await;
+    remove_tree(dir).await?;
+    st.store
+        .add_event(
+            &task.repo,
+            "build:reclaimed",
+            Some(task.id),
+            json!({"slug": task.slug, "bytes": bytes}),
+        )
+        .await?;
+    Ok(Some(bytes))
 }
 
 /// Re-creates the workspace of `task` at its head when it was reclaimed (an undo or revert

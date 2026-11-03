@@ -37,9 +37,10 @@ hands it to whichever agent comes next.
 - **One backlog for all your agents.** Claude Code, Codex, Gemini, Cursor and Grok share it. Each
   takes the work it's best at, another agent reviews it, and the reviewer merges.
 - **A dashboard** at `http://localhost:7420/ui` to watch them work.
-- **A disk that stays lean.** Workspaces of merged and abandoned tasks are removed after an hour,
-  every task of a Rust repo shares one cargo build cache, and the hooks tell an agent what it left
-  outside its workspace. `av disk` shows where the space went; `av gc` reclaims it.
+- **A disk that stays lean.** Workspaces of merged and abandoned tasks are removed after an hour
+  with their build output, a Rust repo's tasks build lean (a fifth of the disk of a default
+  `cargo test`, each task in its own target dir), and the hooks tell an agent what it left outside
+  its workspace. `av disk` shows where the space went; `av gc` reclaims it.
 
 It runs on your machine. No Docker and no account, and it never sees your model keys.
 

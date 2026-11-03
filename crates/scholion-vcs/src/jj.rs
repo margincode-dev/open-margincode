@@ -46,8 +46,11 @@ use scholion_core::{
     AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
 };
 
-/// Scholion's own per-workspace metadata (written by the `av` CLI); never part of a task's changes.
-const AGENT_IGNORES: &[u8] = b"/.av-task\n";
+/// Never part of a task's changes: scholion's own per-workspace metadata (written by the `av`
+/// CLI), and a workspace's build output (`target/`, where cargo and maven build by default; a
+/// repo that forgot to ignore it would otherwise put gigabytes of binaries in the store). Like a
+/// `.gitignore`, this only applies to untracked files: a tracked `target/` stays tracked.
+const AGENT_IGNORES: &[u8] = b"/.av-task\n/target/\n";
 
 /// Largest new file the working copy will snapshot (jj's own default is 1 MiB; agents write bigger).
 const MAX_NEW_FILE_SIZE: u64 = 256 * 1024 * 1024;

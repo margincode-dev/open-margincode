@@ -1,7 +1,8 @@
 //! Plan 11: what agents leave on disk. The workspace of a merged or abandoned task is removed
 //! once it has been in that status for `AV_WS_RETAIN_SECS` (by the sweep, `POST /v1/gc`, or with
 //! the merge or abandon itself when that is 0), and comes back when an undo or revert returns the
-//! task to work. `GET /v1/disk` shows what is where. The daemon deletes only under `ws_root`.
+//! task to work. `GET /v1/disk` shows what is where, a workspace's own build output (`target/`,
+//! Plan 12) counted apart. The daemon deletes only under `ws_root`.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -24,8 +25,12 @@ pub const RECLAIM_TICK: Duration = Duration::from_secs(60);
 
 /// `<ws_root>/<repo>/.scratch/<slug>`: a task's temporary files, removed with its workspace.
 const SCRATCH: &str = ".scratch";
-/// `<ws_root>/<repo>/.cache`: the build cache every workspace of a repo shares.
+/// `<ws_root>/<repo>/.cache`: a cache every workspace of a repo shares (none is written today;
+/// Plan 11's shared cargo target lived here and `av gc --build-cache` still removes one).
 const BUILD_CACHE: &str = ".cache";
+/// `<ws_root>/<repo>/<slug>/target`: a task's own build output (cargo's default target dir;
+/// Plan 12), counted apart so storage per task is a number of its own.
+const BUILD_DIR: &str = "target";
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
@@ -113,7 +118,10 @@ struct Gone {
     slug: String,
     status: String,
     path: PathBuf,
+    /// Workspace, its build output and its scratch dir together.
     bytes: u64,
+    /// The part of `bytes` that was the workspace's `target/`.
+    build_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -123,6 +131,7 @@ struct Kept {
     status: String,
     path: PathBuf,
     bytes: u64,
+    build_bytes: u64,
     age_secs: u64,
 }
 
@@ -219,6 +228,7 @@ async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Opt
     if !has_dir && !has_scratch {
         return Ok(None);
     }
+    let build_bytes = measure(dir.join(BUILD_DIR)).await;
     let bytes = measure(dir.clone()).await + measure(scratch.clone()).await;
     if !dry_run {
         if has_dir {
@@ -232,7 +242,7 @@ async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Opt
                 &task.repo,
                 "workspace:reclaimed",
                 Some(task.id),
-                json!({"slug": task.slug, "bytes": bytes}),
+                json!({"slug": task.slug, "bytes": bytes, "build_bytes": build_bytes}),
             )
             .await?;
     }
@@ -242,6 +252,7 @@ async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Opt
         status: task.status.as_str().to_owned(),
         path: st.to_host_path(&dir),
         bytes,
+        build_bytes,
     }))
 }
 
@@ -321,6 +332,7 @@ async fn reclaim_with(
                 slug: task.slug.clone(),
                 status: task.status.as_str().to_owned(),
                 path: st.to_host_path(&dir),
+                build_bytes: measure(dir.join(BUILD_DIR)).await,
                 bytes: measure(dir).await,
                 age_secs: (now - since).num_seconds().max(0) as u64,
             });
@@ -439,6 +451,7 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         .collect();
     names.extend(plain_dirs(&st.ws_root));
     let (mut ws_total, mut store_total, mut cache_total, mut scratch_total) = (0, 0, 0, 0);
+    let mut build_total = 0;
     let mut repos = Vec::new();
     for name in names {
         let Ok(repo_dir) = under_ws_root(&st, &[&name]) else {
@@ -452,8 +465,10 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         let scratch_bytes = measure(repo_dir.join(SCRATCH)).await;
         let mut workspaces = Vec::new();
         for slug in plain_dirs(&repo_dir) {
+            let build_bytes = measure(repo_dir.join(&slug).join(BUILD_DIR)).await;
             let bytes = measure(repo_dir.join(&slug)).await;
             ws_total += bytes;
+            build_total += build_bytes;
             let entry = tasks.get(&(name.clone(), slug.clone()));
             let age = entry.map(|(_, since)| (now - *since).num_seconds().max(0) as u64);
             let reclaimable = entry.is_some_and(|(t, _)| ended(t.status))
@@ -462,6 +477,7 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
                 "slug": slug,
                 "status": entry.map(|(t, _)| t.status.as_str()),
                 "bytes": bytes,
+                "build_bytes": build_bytes,
                 "age_secs": age,
                 "reclaimable": reclaimable,
             }));
@@ -498,6 +514,7 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         "outside": outside,
         "totals": {
             "workspaces_bytes": ws_total,
+            "build_bytes": build_total,
             "store_bytes": store_total,
             "build_cache_bytes": cache_total,
             "scratch_bytes": scratch_total,

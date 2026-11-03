@@ -262,7 +262,7 @@ The daemon can also run on the host (`cargo run -p scholion-daemon`) against the
 | Store | Holds | Notes |
 |---|---|---|
 | jj repo (volume `av-store`) | File contents, changes, operation log | Each repo is a git import (`git/` bare clone, `main/` default workspace). `ChangeId` is the jj commit id. |
-| Task workspaces (`AV_WS_ROOT`) | Each task's working copy, its scratch dir (`<repo>/.scratch/<slug>`) and the repo's shared build cache (`<repo>/.cache`) | Bind-mounted so agents edit on the host; clients are given host paths. Removed once the task has been merged or abandoned for `AV_WS_RETAIN_SECS`. |
+| Task workspaces (`AV_WS_ROOT`) | Each task's working copy with its own build output (`target/`), its scratch dir (`<repo>/.scratch/<slug>`) and a cache every workspace of a repo may share (`<repo>/.cache`) | Bind-mounted so agents edit on the host; clients are given host paths. Removed once the task has been merged or abandoned for `AV_WS_RETAIN_SECS`. |
 | Postgres | Tasks, records, anchors, conventions, ledger, receipts, code index, outbox | Source of truth. |
 | Qdrant | Vectors for records, conventions and code chunks | Derived; filled from the outbox. |
 
@@ -340,7 +340,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log` (moved to `daemon.log.1` by `av up` once over 50 MB), `daemon.pid` |
 | `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it (see [Disk](#disk-what-agents-create-and-what-av-reclaims)) |
-| `AV_BUILD_CACHE` | `on` | `off`: write no shared cargo config for Rust repos |
+| `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos |
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
@@ -397,7 +397,7 @@ Defaults (override with environment variables before `up`):
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
-| `AV_BUILD_CACHE` | `on` | `off`: write no shared cargo config for Rust repos. |
+| `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
 
 ### Docker Desktop without WSL integration
 
@@ -603,12 +603,12 @@ scratch files. Nothing used to own their lifetime. One machine filled 333 GB thi
 | Ad-hoc dirs outside any workspace (`~/dogfood`, `~/.grok/worktrees`, …) | tens of GB | no hook looked at them and nobody asked about them |
 
 ```bash
-av disk                     # workspaces, scratch, build caches and store per repo, and what sessions left outside
+av disk                     # workspaces (build output apart), scratch, caches and store per repo, and what sessions left outside
 av disk --json              # the same, as GET /v1/disk returns it
 av gc --dry-run             # what would be removed now
 av gc                       # remove workspaces past the retention (POST /v1/gc)
 av gc --retain 0            # every merged or abandoned task's workspace, whatever its age
-av gc --build-cache         # also each repo's shared build cache
+av gc --build-cache         # also each repo's shared cache (<repo>/.cache), if anything put one there
 ```
 
 **Workspaces of finished tasks.** Once a task has been merged or abandoned for
@@ -621,27 +621,51 @@ task back to work restores its workspace at the task's head. Open, handed-off, i
 conflicted tasks are never touched, and the daemon deletes nothing outside `ws_root`. `av disk`
 marks the workspaces a sweep would remove as `reclaimable`.
 
-**One build cache per repo.** When a repo with a `Cargo.toml` at its root is imported (and for
-every repo at start-up), the daemon writes `<ws_root>/<repo>/.cargo/config.toml`:
+**Lean builds, one target dir per task.** Build output is where the disk goes: in the first
+dogfood run, a Rust task's `cargo test` left about 20 GB (14 GB of test binaries that were 73%
+debug info, 4 GB of incremental cache, 3 GB of dependencies), against about 3 MB of Scholion's
+own state per task. When a repo with a `Cargo.toml` at its root is imported (and for every repo at
+start-up), the daemon writes `<ws_root>/<repo>/.cargo/config.toml`:
 
 ```toml
-# written by av: one cargo target for every task workspace of this repo.
+# written by av: lean builds for every task workspace of this repo.
 # Delete this file, or set AV_BUILD_CACHE=off before `av up`, to opt out.
+# Each workspace builds into its own target/ (removed with the workspace); never share a
+# target dir between workspaces of one repo: cargo would run another task's test binary.
 [build]
-target-dir = ".cache/cargo-target"
+incremental = false
 [profile.dev]
 debug = "line-tables-only"
+# Dependencies carry no debug info at all; the repo's own crates keep file:line.
+[profile.dev.package."*"]
+debug = false
 ```
 
 Cargo reads `.cargo/config.toml` in the current directory and every parent, so this one file
-covers every task workspace of the repo without touching the repo or any snapshot. A relative
-`target-dir` is resolved from the parent of `.cargo`, so every build lands in
-`<ws_root>/<repo>/.cache/cargo-target`. A deeper `.cargo/config.toml` (the repo's own) and
-`CARGO_TARGET_DIR` still win. A file without av's first line is never rewritten.
-`AV_BUILD_CACHE=off` writes none. The trade-off: parallel builds of one repo wait on cargo's lock
-on the shared target dir instead of each building from scratch. Python and Node already have
-global caches (pip, uv, npm, pnpm), so nothing is written for them. `av gc --build-cache` removes
-the caches; the next build fills them again.
+covers every task workspace of the repo without touching the repo or any snapshot. Measured on
+scholion's own workspace, a full `cargo test` build is 4.3 GB with it against 21 GB without
+(6.7 GB with line tables for dependencies too): line tables keep file:line in panics and
+backtraces of the repo's own code at a fraction of full debug info, a panic inside a dependency
+still names the dependency's frames, and the incremental cache only pays off for an editor's
+rebuild loop, not for validations. A deeper
+`.cargo/config.toml` (the repo's own) and `CARGO_*` in the environment still win. A file whose
+first line is not av's is never rewritten. `AV_BUILD_CACHE=off` writes none.
+
+The file sets no `target-dir`: every workspace builds into its own `target/`, which `av disk`
+shows apart (`build_bytes`) and which goes with the workspace when the task is reclaimed, so the
+disk a repo takes is bounded by the tasks in flight. Never point two workspaces of one repo at
+one target dir (an earlier av did): cargo names a path package's artifacts by its path relative to
+the workspace root, so both produce the same names and `cargo test` in one runs the other's test
+binary, a validation that is green or red for the wrong task. A reviewer who validates in the
+owner's workspace reuses its warm build. The snapshot never takes a workspace's top-level
+`target/`, even in a repo that forgot to ignore it. Python and Node already have global caches
+(pip, uv, npm, pnpm), so nothing is written for them. `av gc --build-cache` removes
+`<repo>/.cache`, where nothing is written today.
+
+To spend less per task still: scope a required convention's check by its glob, so a change to
+`docs/` does not pay for the full workspace build. `av convention add --repo scholion --scope
+'crates/**' --required --check 'cargo test --workspace' 'Tests pass'` runs only when a changed
+path matches `crates/**`.
 
 **What a session leaves outside its workspace.** The Claude Code hooks (and Grok's, which run the
 same `av hook`) take a snapshot at `SessionStart`: under `$HOME`, the temp dir and

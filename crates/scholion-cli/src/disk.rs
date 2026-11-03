@@ -54,8 +54,8 @@ pub fn render_disk(v: &Value) -> String {
                 .max(4);
             let _ = writeln!(
                 o,
-                "  {:width$}  {:10} {:>8}  {:>5}",
-                "SLUG", "STATUS", "SIZE", "AGE"
+                "  {:width$}  {:10} {:>8} {:>8}  {:>5}",
+                "SLUG", "STATUS", "SIZE", "BUILD", "AGE"
             );
             for w in &workspaces {
                 let status = w["status"].as_str().unwrap_or("-");
@@ -68,8 +68,12 @@ pub fn render_disk(v: &Value) -> String {
                 } else {
                     ""
                 };
+                let build = match w["build_bytes"].as_u64() {
+                    Some(0) | None => "-".to_owned(),
+                    Some(b) => human(b),
+                };
                 let line = format!(
-                    "  {:width$}  {status:10} {:>8}  {age:>5}{mark}",
+                    "  {:width$}  {status:10} {:>8} {build:>8}  {age:>5}{mark}",
                     s(&w["slug"]),
                     bytes(&w["bytes"])
                 );
@@ -129,8 +133,9 @@ pub fn render_disk(v: &Value) -> String {
     let t = &v["totals"];
     let _ = writeln!(
         o,
-        "\ntotal: workspaces {}, scratch {}, build cache {}, store {}",
+        "\ntotal: workspaces {} (build output {}), scratch {}, build cache {}, store {}",
         bytes(&t["workspaces_bytes"]),
+        bytes(&t["build_bytes"]),
         bytes(&t["scratch_bytes"]),
         bytes(&t["build_cache_bytes"]),
         bytes(&t["store_bytes"])
@@ -145,9 +150,13 @@ pub fn render_gc(v: &Value) -> String {
     let verb = if dry { "would remove" } else { "removed" };
     let reclaimed = v["reclaimed"].as_array().cloned().unwrap_or_default();
     for g in &reclaimed {
+        let build = match g["build_bytes"].as_u64() {
+            Some(b) if b > 0 => format!(" ({} of it build output)", human(b)),
+            _ => String::new(),
+        };
         let _ = writeln!(
             o,
-            "{verb} {}/{} ({})  {}",
+            "{verb} {}/{} ({})  {}{build}",
             s(&g["repo"]),
             s(&g["slug"]),
             s(&g["status"]),

@@ -3417,13 +3417,13 @@ const DISK: &str = r#"{"ws_root": "/home/u/ws", "store_root": "/home/u/.scholion
    "build_cache": {"enabled": true, "config": "/home/u/ws/demo/.cargo/config.toml"},
    "build_cache_bytes": 1288490188, "scratch_bytes": 40960,
    "workspaces": [
-     {"slug": "improve-greeting", "status": "merged", "bytes": 12582912, "age_secs": 7200, "reclaimable": true},
-     {"slug": "fix-thing", "status": "open", "bytes": 3145728, "age_secs": 300, "reclaimable": false}]}],
+     {"slug": "improve-greeting", "status": "merged", "bytes": 12582912, "build_bytes": 0, "age_secs": 7200, "reclaimable": true},
+     {"slug": "fix-thing", "status": "open", "bytes": 7516192768, "build_bytes": 7193231360, "age_secs": 300, "reclaimable": false}]}],
  "outside": [{"session": "s1", "agent": "claude", "task": "0b6a", "slug": "fix-thing",
    "added": [{"path": "/home/u/.cache/huge", "bytes": 943718400},
              {"path": "/tmp/x/target", "bytes": 209715200}],
    "partial": false, "total_bytes": 1153433600, "at": "2026-11-02T10:15:00Z"}],
- "totals": {"workspaces_bytes": 15728640, "store_bytes": 31457280,
+ "totals": {"workspaces_bytes": 7528775680, "build_bytes": 7193231360, "store_bytes": 31457280,
    "build_cache_bytes": 1288490188, "scratch_bytes": 40960}}"#;
 
 #[test]
@@ -3438,6 +3438,9 @@ fn disk_shows_workspaces_caches_and_what_sessions_left_outside() {
         "12 MB",
         "reclaimable",
         "fix-thing",
+        "BUILD",
+        "6.7 GB",
+        "build output 6.7 GB",
         "1.2 GB",
         "/home/u/ws/demo/.cargo/config.toml",
         "claude",
@@ -3460,7 +3463,7 @@ fn disk_shows_workspaces_caches_and_what_sessions_left_outside() {
 }
 
 const GC: &str = r#"{"reclaimed": [{"repo": "demo", "slug": "improve-greeting", "status": "merged",
-   "path": "/home/u/ws/demo/improve-greeting", "bytes": 12582912}],
+   "path": "/home/u/ws/demo/improve-greeting", "bytes": 12582912, "build_bytes": 10485760}],
  "freed_bytes": 1301073100,
  "kept": [{"repo": "demo", "slug": "just-merged", "status": "merged",
    "path": "/home/u/ws/demo/just-merged", "bytes": 1024, "age_secs": 60}],
@@ -3478,7 +3481,7 @@ fn gc_dry_run_says_what_it_would_remove() {
     for want in [
         "would remove",
         "demo/improve-greeting",
-        "12 MB",
+        "12 MB (10 MB of it build output)",
         "build cache",
         "1.2 GB",
         "kept 1 (younger than retention)",

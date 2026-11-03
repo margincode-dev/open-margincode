@@ -193,6 +193,26 @@ async fn agent_metadata_file_is_never_snapshotted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn build_output_is_never_snapshotted_even_when_the_repo_does_not_ignore_it() {
+    let e = env().await;
+    // the fixture's .gitignore names only node_modules
+    let w = e.vcs.create_workspace("demo", "built").await.unwrap();
+    std::fs::create_dir_all(w.path.join("target/debug/deps")).unwrap();
+    std::fs::write(w.path.join("target/debug/deps/big-1234"), vec![0u8; 8192]).unwrap();
+    // only a workspace's own top-level target/ is build output
+    std::fs::create_dir_all(w.path.join("pkg/target")).unwrap();
+    std::fs::write(w.path.join("pkg/target/kept.py"), "x = 1\n").unwrap();
+    let head = e.vcs.snapshot("demo", "built").await.unwrap();
+    assert_eq!(
+        e.vcs
+            .changed_paths("demo", &w.base_change, &head)
+            .await
+            .unwrap(),
+        vec!["pkg/target/kept.py"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn unsafe_repo_and_slug_names_are_rejected_without_touching_the_filesystem() {
     let e = env().await;
     let outside = e._store.path().parent().unwrap().to_path_buf();

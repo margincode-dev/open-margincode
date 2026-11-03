@@ -147,8 +147,8 @@ enum Cmd {
         #[arg(long)]
         repo: Option<String>,
     },
-    /// What the daemon's workspaces, scratch dirs, build caches and store take on disk, and what
-    /// agent sessions added outside any workspace.
+    /// What the daemon's workspaces (and their build output), scratch dirs, caches and store
+    /// take on disk, and what agent sessions added outside any workspace.
     Disk {
         /// Print the daemon's answer as JSON.
         #[arg(long)]
@@ -163,7 +163,8 @@ enum Cmd {
         /// Retention in seconds for this run (0: every finished task's workspace).
         #[arg(long, value_name = "SECS")]
         retain: Option<u64>,
-        /// Also remove each repo's shared build cache (.cache under the repo's workspaces).
+        /// Also remove each repo's shared cache (.cache under the repo's workspaces; a task's own
+        /// build output goes with its workspace).
         #[arg(long)]
         build_cache: bool,
         /// Print the daemon's answer as JSON.

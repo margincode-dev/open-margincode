@@ -297,15 +297,19 @@ async fn retain_zero_removes_the_workspace_with_the_merge() {
     assert_eq!(out["reclaimed"], json!([]), "{out}");
 }
 
-// ---- Task 3: one cargo build cache per repo ----
+// ---- Task 3 (Plan 11), reworked by Plan 12: lean builds, one target dir per workspace ----
 
-const CARGO_CONFIG: &str =
-    "# written by av: one cargo target for every task workspace of this repo.
+const CARGO_CONFIG: &str = "# written by av: lean builds for every task workspace of this repo.
 # Delete this file, or set AV_BUILD_CACHE=off before `av up`, to opt out.
+# Each workspace builds into its own target/ (removed with the workspace); never share a
+# target dir between workspaces of one repo: cargo would run another task's test binary.
 [build]
-target-dir = \".cache/cargo-target\"
+incremental = false
 [profile.dev]
 debug = \"line-tables-only\"
+# Dependencies carry no debug info at all; the repo's own crates keep file:line.
+[profile.dev.package.\"*\"]
+debug = false
 ";
 
 /// A git repo with a root `Cargo.toml`.
@@ -451,6 +455,85 @@ async fn start_up_gives_repos_imported_earlier_their_build_cache() {
         std::fs::read_to_string(cargo_config(&e, "crab")).unwrap(),
         CARGO_CONFIG
     );
+}
+
+/// Where cargo, run in `dir` with av's config in force (no `CARGO_TARGET_DIR` from this test's
+/// own environment), would put its build.
+fn cargo_target_dir(dir: &Path) -> PathBuf {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let out = std::process::Command::new(cargo)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+        ])
+        .current_dir(dir)
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("CARGO_BUILD_TARGET_DIR")
+        .output()
+        .expect("cargo runs");
+    assert!(
+        out.status.success(),
+        "cargo metadata in {}: {}",
+        dir.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let meta: Value = serde_json::from_slice(&out.stdout).unwrap();
+    PathBuf::from(meta["target_directory"].as_str().unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_workspaces_of_one_repo_never_share_a_target_dir() {
+    let e = env().await;
+    let src = cargo_git_repo();
+    import(&e, "crab", src.path()).await;
+    let mut dirs = Vec::new();
+    for title in ["Pinch harder", "Walk sideways"] {
+        let (status, t) = call(
+            &e.app,
+            "POST",
+            "/v1/tasks",
+            Some(json!({"repo": "crab", "title": title, "goal": title,
+                        "agent": "claude", "session": "s-1"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{t}");
+        let ws = e.ws.path().join("crab").join(slug(&t));
+        let target = cargo_target_dir(&ws);
+        // its own target/, inside the workspace, so it goes when the workspace is reclaimed
+        assert!(
+            target.ends_with(Path::new(slug(&t)).join("target")),
+            "{}",
+            target.display()
+        );
+        dirs.push(target);
+    }
+    assert_ne!(dirs[0], dirs[1]);
+    assert!(!e.ws.path().join("crab/.cache").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disk_and_gc_count_a_workspaces_build_output_apart() {
+    let e = env().await;
+    let (t, _) = merged(&e, "Wave hello").await;
+    let built = ws_dir(&e, &t).join("target/debug/deps");
+    std::fs::create_dir_all(&built).unwrap();
+    std::fs::write(built.join("wave-0123"), vec![0u8; 8192]).unwrap();
+
+    let (status, disk) = call(&e.app, "GET", "/v1/disk", None).await;
+    assert_eq!(status, StatusCode::OK, "{disk}");
+    let w = listed(&disk["repos"][0]["workspaces"], &t).unwrap_or_else(|| panic!("{disk}"));
+    assert_eq!(w["build_bytes"], 8192, "{disk}");
+    assert!(w["bytes"].as_u64().unwrap() > 8192, "{disk}");
+    assert_eq!(disk["totals"]["build_bytes"], 8192, "{disk}");
+
+    let out = gc(&e, json!({"retain_secs": 0})).await;
+    let gone = listed(&out["reclaimed"], &t).unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(gone["build_bytes"], 8192, "{out}");
+    assert!(gone["bytes"].as_u64().unwrap() > 8192, "{out}");
+    assert!(!ws_dir(&e, &t).exists());
 }
 
 // ---- Task 4: what sessions added outside any workspace ----

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Lean builds, one target dir per task** (Plan 12). Build output was 99.99% of the disk the
+  first dogfood run took: about 20 GB per Rust task (14 GB of test binaries that were 73% debug
+  info, 4 GB of incremental cache) against 3 MB of Scholion's own state.
+  - The per-repo cargo config the daemon writes now sets `incremental = false`,
+    `debug = "line-tables-only"` (no debug info at all for dependencies) and **no `target-dir`**:
+    every task workspace builds into its own `target/`, removed with the workspace. Measured on
+    this repo, a full `cargo test` build is 4.3 GB instead of 21 GB.
+  - **Fixes Plan 11's shared build cache**, which pointed every workspace of a repo at one target
+    dir: cargo names a path package's artifacts by its path relative to the workspace root, so
+    `cargo test` in one workspace ran another task's test binary (a false green or red
+    validation; hit twice in the run). An av-written config from before is rewritten at start-up.
+    A test runs `cargo metadata` in two workspaces of one repo and checks their target dirs differ.
+  - `GET /v1/disk` and `av disk` show each workspace's build output apart (`build_bytes`, a `BUILD`
+    column, a total); `av gc` says how much of a reclaimed workspace was build output. The
+    dashboard's Disk card shows the same.
+  - The snapshot never takes a workspace's top-level `target/`, even in a repo whose `.gitignore`
+    forgot it (`/.av-task` was already ignored this way).
 - **`av agent rm NAME`** (`DELETE /v1/agents/{name}`). Removes a profile. An unknown name is
   404. An agent that still owns an open, handed-off, in-review or conflicted task is 409 unless `--force`
   (`?force=true`); the tasks stay. A profile an extension manages is refused, the same way
@@ -16,10 +33,11 @@
     whether a sweep would remove it, plus scratch, build cache and store, and what sessions left
     outside any workspace. **`av gc [--dry-run] [--retain SECS] [--build-cache]`** (`POST /v1/gc`)
     reclaims on demand. Both take `--json`.
-  - **One cargo build cache per repo.** For a repo with a root `Cargo.toml` the daemon writes
-    `<ws_root>/<repo>/.cargo/config.toml` (at import and start-up), so every task workspace builds
-    into `<ws_root>/<repo>/.cache/cargo-target` instead of its own `target/`. The repo's own cargo
-    config and `CARGO_TARGET_DIR` still win; `AV_BUILD_CACHE=off` writes nothing.
+  - **A cargo config per Rust repo.** For a repo with a root `Cargo.toml` the daemon writes
+    `<ws_root>/<repo>/.cargo/config.toml` (at import and start-up), which every task workspace
+    inherits (what it holds: see Plan 12 above; the shared target dir it first set was withdrawn
+    before release). The repo's own cargo config and `CARGO_*` still win; `AV_BUILD_CACHE=off`
+    writes nothing.
   - **The hooks watch what a session leaves behind.** `SessionStart` gives a task a scratch dir,
     exported as `$AV_SCRATCH` through `$CLAUDE_ENV_FILE`, and takes a snapshot of the build,
     dependency and cache dirs under `$HOME` and the temp dir. `Stop` compares, blocks once when the

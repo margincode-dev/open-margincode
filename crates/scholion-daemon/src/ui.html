@@ -335,6 +335,32 @@ pre.pack {
   margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
   overflow: auto; max-height: 60vh; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
 }
+/* the task's diff, one <details> per file */
+.diff-box { margin-top: 10px; }
+.diff-file { border: 1px solid var(--border); border-radius: var(--radius); margin: 0 0 8px; background: var(--surface); overflow: hidden; }
+.diff-file > summary { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; list-style: none; min-width: 0; }
+.diff-file > summary::-webkit-details-marker { display: none; }
+.diff-file > summary .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-file .counts { font-size: 11.5px; white-space: nowrap; }
+.diff-file .counts .add, pre.diff .add { color: var(--green); }
+.diff-file .counts .del, pre.diff .del { color: var(--red); }
+pre.diff { margin: 0; padding: 8px 0; border-top: 1px solid var(--border); background: var(--code-bg); overflow: auto; max-height: 50vh; font-size: 12px; line-height: 1.5; }
+pre.diff span { display: block; padding: 0 12px; }
+pre.diff .add { background: color-mix(in srgb, var(--green) 10%, transparent); }
+pre.diff .del { background: color-mix(in srgb, var(--red) 10%, transparent); }
+pre.diff .hunk { color: var(--accent); background: var(--surface-2); }
+pre.diff .meta { color: var(--faint); }
+/* a validation record and a pack's receipt */
+.rec-body.val { white-space: normal; }
+.rec-body.val code { font-family: var(--mono); font-size: 12px; }
+.rec-body.val details { margin-top: 6px; }
+.rec-body.val summary { cursor: pointer; font-size: 12px; }
+pre.out { margin: 6px 0 0; padding: 8px 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 30vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.rcpt { margin: 0 0 10px; }
+.rcpt > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.rcpt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; }
+.rcpt-row + .rcpt-row { border-top: 1px solid var(--border); }
+.rcpt-row .n { margin-left: auto; white-space: nowrap; }
 .tl { list-style: none; margin: 0; padding: 0; position: relative; }
 .tl::before { content: ""; position: absolute; left: 17px; top: 14px; bottom: 14px; width: 1px; background: var(--border); }
 .tl .ev { padding-left: 14px; position: relative; border-radius: 8px; }
@@ -450,7 +476,7 @@ const STATUS = {
 // One color per kind of event or record, so the feed, the timeline and the records read alike.
 const KIND_TONE = {
   started: "violet", submit: "blue", approve: "green", merged: "green", resolve: "green",
-  request_changes: "red", conflicted: "red", abandon: "red", undo: "red",
+  request_changes: "red", conflicted: "red", abandon: "red", undo: "red", revert: "red",
   handoff: "teal", claim: "teal", taken: "teal", checkpoint: "gray",
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
 };
@@ -460,6 +486,9 @@ const AGENT_STATE = {
 const S = {
   repo: null, tasks: [], byId: new Map(), events: [], next: 0, openTask: null, openAgent: null, pack: null,
   agents: null, queued: null, taken: null,
+  // the repo's whole event history, oldest first, and the same by task: time in status, a task's
+  // timeline and its review rounds are derived from it (the daemon serves the feed, not those)
+  hist: [], byTask: new Map(), histCapped: false, diff: null,
 };
 
 function store(get, key, value) {
@@ -622,6 +651,63 @@ function ago(iso) {
   return `${Math.round(s / 86400)}d ago`;
 }
 function short(id) { return id ? String(id).slice(0, 8) : "—"; }
+
+// ---- the repo's event history ----
+// Everything below the feed is derived from it: when a task entered its status, a task's own
+// timeline and review rounds. The daemon serves the feed from any id, so the page reads it from
+// the first event, in pages, and then follows it live.
+
+const HIST_PAGE = 500, HIST_PAGES = 20, HIST_WINDOW = HIST_PAGE * HIST_PAGES;
+function who(ev) { const p = ev.payload || {}; return p.agent || p.reviewer || p.by || ""; }
+function taskEvents(id) { return S.byTask.get(id) || []; }
+function remember(evs) {
+  for (const ev of evs) {
+    S.hist.push(ev);
+    if (!ev.task_id) continue;
+    const l = S.byTask.get(ev.task_id);
+    if (l) l.push(ev); else S.byTask.set(ev.task_id, [ev]);
+  }
+  // the live feed keeps the window's size: the oldest go (each task's own list stays whole)
+  if (S.hist.length > HIST_WINDOW) { S.hist.splice(0, S.hist.length - HIST_WINDOW); S.histCapped = true; }
+}
+// When the task entered its status: its newest transition into it (`payload.to`, or a
+// `status:<status>` event), else its creation. The daemon reckons "since" the same way.
+function statusSince(t) {
+  const evs = taskEvents(t.id);
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const ev = evs[i];
+    if ((ev.payload && ev.payload.to === t.status) || ev.kind === "status:" + t.status) return ev.at;
+  }
+  return t.created_at;
+}
+function evTitle(ev) {
+  const p = ev.payload || {};
+  const word = s => String(s).replace(/_/g, " ");
+  if (ev.kind === "checkpoint") return p.touched == null ? "checkpoint" : `checkpoint: ${p.touched} path${p.touched === 1 ? "" : "s"} touched`;
+  // an approve keeps the status: say only the kind then
+  if (p.from && p.to && p.from !== p.to) return `${word(ev.kind)}: ${word(p.from)} → ${word(p.to)}`;
+  if (ev.kind === "started") return "started" + (p.slug ? " as " + p.slug : "");
+  if (ev.kind === "claim") return `claimed (generation ${p.generation ?? "?"})`;
+  if (ev.kind === "workspace:reclaimed") return "workspace reclaimed";
+  return word(ev.kind);
+}
+// Returns the id to follow the feed from, or null when the repo changed meanwhile. The head is
+// read first; a long history is capped to the newest HIST_WINDOW ids (the oldest events are the
+// ones left out, never the newest), then read in pages up to the head.
+async function loadHistory(gen) {
+  const q = `repo=${encodeURIComponent(S.repo)}`;
+  S.hist = []; S.byTask = new Map(); S.histCapped = false;
+  const head = (await api(`/v1/events?${q}&limit=1`)).next; // no `since`: nothing old, just the head
+  if (gen !== feedGen) return null;
+  let since = Math.max(0, head - HIST_WINDOW);
+  S.histCapped = since > 0;
+  for (;;) {
+    const r = await api(`/v1/events?${q}&since=${since}&limit=${HIST_PAGE}`);
+    if (gen !== feedGen) return null;
+    remember(r.events); since = r.next;
+    if (r.events.length < HIST_PAGE) return since;
+  }
+}
 function banner(msg) {
   const b = document.getElementById("banner");
   b.hidden = !msg;
@@ -768,7 +854,7 @@ function sheetLoading() { showSheet(sheetHead(), h("div", { class: "sheet-body" 
 function sheetError(msg) { showSheet(sheetHead(), h("div", { class: "sheet-body" }, h("p", { class: "err" }, msg))); }
 function closeDrawer() {
   drawer.classList.remove("open"); document.body.classList.remove("locked");
-  S.openTask = null; S.openAgent = null; S.pack = null;
+  S.openTask = null; S.openAgent = null; S.pack = null; S.diff = null;
   if (location.hash) history.replaceState(null, "", location.pathname);
 }
 drawer.addEventListener("click", e => { if (e.target.hasAttribute("data-close")) closeDrawer(); });
@@ -941,10 +1027,11 @@ async function startFeed() {
   if (!S.repo) { setLive(null, "Idle"); return; }
   const q = `repo=${encodeURIComponent(S.repo)}`;
   try {
-    const head = await api(`/v1/events?${q}`);
-    const back = await api(`/v1/events?${q}&since=${Math.max(0, head.next - 40)}&limit=40`);
-    if (gen !== feedGen) return;
-    S.events = back.events.reverse(); S.next = head.next; renderFeed();
+    const next = await loadHistory(gen);
+    if (next == null) return;
+    S.events = S.hist.slice(-200).reverse(); S.next = next; renderFeed();
+    renderBoard();
+    if (S.openTask) openTask(S.openTask, true); // its timeline and rounds come from the history
   } catch (e) { if (gen === feedGen) setLive("red", "Offline"); return; }
   setLive("green", "Live");
   let refresh = null;
@@ -955,6 +1042,7 @@ async function startFeed() {
       setLive("green", "Live");
       if (r.events.length) {
         S.next = r.next;
+        remember(r.events);
         S.events = r.events.slice().reverse().concat(S.events).slice(0, 200);
         renderFeed();
         clearTimeout(refresh);
@@ -1010,10 +1098,12 @@ function renderTask(d, records, unrec) {
   const leaseLeft = t.status === "open" && t.lease_expires ? new Date(t.lease_expires) - new Date() : null;
   const verdict = d.verdict ? `${d.verdict.verdict} by ${d.verdict.reviewer}` : null;
   const conflicts = d.merge && d.merge.conflicts && d.merge.conflicts.length ? d.merge.conflicts : null;
-  // keep the pack's budget choice and scroll position when a live refresh redraws the drawer
+  // keep the pack's budget choice, which details are open and the scroll position when a live
+  // refresh redraws the drawer
   const sheet = document.getElementById("sheet");
   const scroll = sheet.scrollTop;
   const prevBudget = sheet.querySelector("select")?.value;
+  const wasOpen = new Map([...sheet.querySelectorAll("details[data-key]")].map(el => [el.dataset.key, el.open]));
   showSheet(
     sheetHead(statusBadge(t.status), h("span", { class: "mono", title: `${t.repo} / ${t.slug}` }, `${t.repo} / ${t.slug}`)),
     h("div", { class: "sheet-body" },
@@ -1031,28 +1121,122 @@ function renderTask(d, records, unrec) {
         d.backup && d.backup.remote && fact("Backup", d.backup.last_error ? "failing" : "ok", d.backup.last_error || "pushes are succeeding")),
       conflicts && section("Conflicts", conflicts.length, h("ul", { class: "files" }, conflicts.map(p => h("li", { class: "err" }, p)))),
       section("Changed files", d.changed.length,
-        d.changed.length ? h("ul", { class: "files" }, d.changed.map(p => h("li", {}, p))) : empty("No changes yet.")),
+        d.changed.length ? h("ul", { class: "files" }, d.changed.map(p => h("li", {}, p))) : empty("No changes yet."),
+        d.changed.length > 0 && diffBlock(t)),
+      roundsEl(t, records, d.verdict),
       t.status === "open" && unrec && unrec.unrecorded_symbols.length > 0 && section(
         "Changes no record explains", unrec.unrecorded_symbols.length,
         h("p", { class: "note" },
           "Submit lists these, and the Stop hook asks the agent once to record the decision or dead end behind them."),
         h("ul", { class: "files" }, unrec.unrecorded_symbols.map(s => h("li", {}, s)))),
       section("Records", records.length, records.length ? records.map(recordEl) : empty("No records.")),
+      timelineEl(t),
       section("What the next agent gets", null,
         packControls(t),
         h("div", { id: "packOut" }, S.pack ? packEl(S.pack) : null)),
       h("p", { class: "foot-note" }, "Workspace: ", h("span", { class: "mono" }, t.workspace_path || "—"))));
   if (prevBudget) { const sel = sheet.querySelector("select"); if (sel) sel.value = prevBudget; }
+  for (const el of sheet.querySelectorAll("details[data-key]")) if (wasOpen.has(el.dataset.key)) el.open = wasOpen.get(el.dataset.key);
   sheet.scrollTop = scroll;
+}
+
+// The task's diff, base to head: fetched when asked for; the rendered files are kept, and moved
+// back into each redraw, while the head stays.
+function diffBlock(t) {
+  const box = h("div", { class: "diff-box" });
+  if (S.diff && S.diff.task === t.id && S.diff.head === t.head_change) { fill(box, S.diff.el); return box; }
+  const btn = h("button", { class: "btn", type: "button" }, "Show diff");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const r = await api(`/v1/repos/${encodeURIComponent(t.repo)}/diff?from=${t.base_change}&to=${t.head_change}`);
+      S.diff = { task: t.id, head: t.head_change, el: diffEl(r.files || []) };
+      fill(box, S.diff.el);
+    } catch (e) { fill(box, h("p", { class: "err" }, e.message)); btn.disabled = false; }
+  };
+  fill(box, h("div", { class: "toolbar" }, btn));
+  return box;
+}
+function diffEl(files) {
+  if (!files.length) return empty("Base and head hold the same files.");
+  return files.map(f => {
+    let add = 0, del = 0, inHunk = false;
+    const lines = f.binary ? [] : String(f.diff || "").split("\n");
+    if (lines.length && lines[lines.length - 1] === "") lines.pop(); // the diff ends with a newline
+    const rows = lines.map(l => {
+      // only the `---`/`+++` lines before the first hunk are headers: a removed `-- comment`
+      // or an added `++i` is a change like any other
+      if (l.startsWith("@@")) inHunk = true;
+      const cls = !inHunk ? "meta" : l.startsWith("@@") ? "hunk"
+        : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "ctx";
+      if (cls === "add") add++; else if (cls === "del") del++;
+      return h("span", { class: cls }, l + "\n");
+    });
+    const tone = f.status === "added" ? "green" : f.status === "deleted" ? "red" : "blue";
+    return h("details", { class: "diff-file", open: files.length <= 3, "data-key": "diff:" + f.path },
+      h("summary", {},
+        badge(f.status, tone), h("span", { class: "mono path" }, f.path),
+        f.binary ? h("span", { class: "faint" }, "binary") : h("span", { class: "mono counts" },
+          h("span", { class: "add" }, `+${add}`), " ", h("span", { class: "del" }, `−${del}`))),
+      !f.binary && h("pre", { class: "diff" }, rows));
+  });
+}
+
+// Each verdict with the review records written at that head: one round of review. A verdict
+// event names no reviewer; the round at the current head takes it from the latest verdict, the
+// others from their findings.
+function roundsEl(t, records, latest) {
+  const verdicts = taskEvents(t.id).filter(ev => ev.kind === "approve" || ev.kind === "request_changes");
+  if (!verdicts.length) return null;
+  return section("Review rounds", verdicts.length, h("div", { class: "list" }, verdicts.map((ev, i) => {
+    const notes = records.filter(r => r.kind === "review" && r.change_id === ev.change);
+    const by = who(ev) || (latest && ev.change === t.head_change && latest.reviewer) || (notes[0] && notes[0].author_agent) || "";
+    return evRow({ kind: ev.kind, label: ev.kind === "approve" ? "approved" : "changes requested",
+      title: `Round ${i + 1}` + (notes.length ? ": " + notes.map(r => r.summary).join(" · ") : ""),
+      meta: [by, ev.change && "@" + short(ev.change), ago(ev.at)].filter(Boolean).join(" · ") });
+  })));
+}
+
+// What happened to the task, newest first: starts, checkpoints (with how many paths they touch),
+// claims, submits, verdicts, merges, conflicts.
+const TIMELINE_ROWS = 200;
+function timelineEl(t) {
+  const evs = taskEvents(t.id);
+  const shown = evs.slice(-TIMELINE_ROWS).reverse();
+  return section("Timeline", evs.length, evs.length
+    ? [h("ul", { class: "tl" }, shown.map(ev => h("li", {}, evRow({ kind: ev.kind, title: evTitle(ev),
+        meta: [who(ev), ev.change && "@" + short(ev.change), ago(ev.at)].filter(Boolean).join(" · ") })))),
+      evs.length > shown.length && h("p", { class: "note" }, `The newest ${shown.length} of ${evs.length}.`)]
+    : empty(t.repo !== S.repo ? "Only the selected repo's events are loaded." : S.histCapped ? "Only the newest events are loaded." : "No events yet."));
+}
+
+// A validation record's body: {command, exit_code, output_tail, checks}. Pass or fail, the
+// command, each convention's check (with its own output on request), and the output on request.
+function validationEl(body, key) {
+  let b = null;
+  try { b = JSON.parse(body); } catch (_) { return null; }
+  if (!b || typeof b !== "object" || b.exit_code == null) return null;
+  const exit = Number(b.exit_code), ok = exit === 0;
+  const checks = Array.isArray(b.checks) ? b.checks.filter(c => c && typeof c === "object") : [];
+  const outEl = (text, k, label) => h("details", { "data-key": k }, h("summary", {}, label), h("pre", { class: "out" }, text));
+  return h("div", { class: "rec-body val" },
+    h("div", { class: "toolbar" },
+      badge(ok ? "passed" : `failed: exit ${b.exit_code}`, ok ? "green" : "red"),
+      b.command && h("code", {}, String(b.command))),
+    checks.map((c, i) => h("div", { class: "faint" },
+      `convention ${short(String(c.convention_id ?? "?"))}: exit ${c.exit_code ?? "?"}`,
+      c.output_tail && outEl(String(c.output_tail), `${key}:${i}`, "output"))),
+    b.output_tail && outEl(String(b.output_tail), key, "output"));
 }
 
 function recordEl(r) {
   const tone = KIND_TONE[r.kind] || "gray";
+  const val = r.kind === "validation" && r.body ? validationEl(r.body, "out:" + r.id) : null;
   return h("div", { class: `rec tone-${tone}` + (r.superseded_by ? " superseded" : "") },
     h("div", { class: "rec-h" },
       badge(r.kind, tone),
       h("span", { class: "rec-sum" }, r.summary)),
-    r.body && bodyEl(r.body),
+    r.body && (val || bodyEl(r.body)),
     r.anchors?.length > 0 && h("div", { class: "rec-anc" },
       r.anchors.map(a => h("code", {}, a.symbol ? `${a.path}:${a.symbol}` : a.path))),
     h("div", { class: "rec-who" },
@@ -1079,8 +1263,14 @@ function packControls(t) {
     btn.disabled = true;
     try {
       const p = await api(path(budget.value));
-      S.pack = kind === "bundle" ? { ...p.bundle || p, kind } : { ...p, kind };
-      out().replaceChildren(packEl(S.pack));
+      const pack = kind === "bundle" ? { ...p.bundle || p, kind } : { ...p, kind };
+      S.pack = pack;
+      out().replaceChildren(packEl(pack));
+      // then its receipt: what was sent, at which tier, and why (an older daemon may lack it)
+      if (pack.receipt) {
+        const rc = await api(`/v1/receipts/${encodeURIComponent(pack.receipt)}`).catch(() => null);
+        if (rc && S.pack === pack) { pack.receiptData = rc; out().replaceChildren(packEl(pack)); }
+      }
     } catch (e) { out().replaceChildren(h("p", { class: "err" }, e.message)); }
     finally { btn.disabled = false; }
   };
@@ -1108,7 +1298,26 @@ function packEl(p) {
       p.degraded?.length > 0 && badge("degraded: " + p.degraded.length, "amber", { title: p.degraded.join("\n") })),
     p.omitted && p.omitted.length ? h("p", { class: "note" },
       `${p.omitted.length} item(s) did not fit; an agent can pull them with av expand.`) : null,
+    p.receiptData && receiptEl(p.receiptData),
     h("pre", { class: "pack" }, md));
+}
+
+// The pack's manifest: tokens per tier, then each item with its tier, why it is there, where it
+// comes from and what it cost.
+const TIER_TONE = { full: "blue", summary: "teal", handle: "gray" };
+function receiptEl(rc) {
+  const items = rc.items || [];
+  const tiers = { full: 0, summary: 0, handle: 0 };
+  for (const it of items) tiers[it.tier] = (tiers[it.tier] || 0) + (it.tokens || 0);
+  return h("details", { class: "rcpt", "data-key": "rcpt:" + (rc.id || "") },
+    h("summary", {}, `${items.length} items in this pack: `,
+      Object.entries(tiers).map(([k, v]) => `${k} ${v}`).join(" · ") + " tokens"),
+    h("div", { class: "list" }, items.map(it => h("div", { class: "rcpt-row" },
+      badge(it.tier, TIER_TONE[it.tier] || "gray"), h("span", { class: "mono" }, it.id),
+      h("span", { class: "faint" }, it.reason),
+      it.source && h("span", { class: "mono faint" }, `${it.source[0]}:${it.source[1]}-${it.source[2]}`),
+      h("span", { class: "mono n" }, `${it.tokens} tok`)))),
+    rc.omitted?.length > 0 && h("p", { class: "note" }, "Omitted: " + rc.omitted.join(", ")));
 }
 
 // ---- boot ----

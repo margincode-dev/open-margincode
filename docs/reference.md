@@ -532,19 +532,28 @@ as an office (one desk per agent: its skills and cost, how many open tasks it ho
 limit, what it is on now, what it did last, and whether it is working, reviewing, idle or *quiet*:
 holding open tasks it has not written to for a whole lease, so `next` offers them to others), tasks
 by status in the middle, and on the right the repo's targets with their progress (overdue ones in
-red), the backlog and a live activity feed (the `/v1/events` long-poll); for each task its records,
-changed files, claim and review state. The three columns need a window 1580 px wide; narrower, the
-desks are a row above the board, and below 1180 px everything stacks. Click a desk (or a task's owner) for that agent's timeline: the records it wrote, the
-tasks it started and claimed, its review verdicts, its submits and its merges, newest first. It is
-built from what Scholion already keeps; nothing extra is recorded, and no cost is tracked. "Build
-context pack" shows exactly what the next agent would receive at a given budget.
+red), the backlog and a live activity feed (the `/v1/events` long-poll). The three columns need a
+window 1580 px wide; narrower, the desks are a row above the board, and below 1180 px everything
+stacks. A task's drawer shows its records, changed files and the diff from base to head (on
+request, one file at a time), its claim and review state and every review round (each verdict with
+the reviewer's findings at that head), a validation record as passed or failed with its command and
+output, its own timeline (starts, checkpoints with how many paths they touched, claims, submits,
+verdicts, merges, conflicts) and, after "Build context pack", the pack's receipt (each item's tier,
+reason, source and tokens). The page reads the repo's event history (`GET /v1/events` in pages of
+500, the newest 10 000 ids of a long one, then followed live) and derives timelines and review
+rounds from it; nothing new is recorded. Click a desk (or a task's owner) for that agent's
+timeline: the records it wrote, the tasks it started and claimed, its review verdicts, its submits
+and its merges, newest first. It is built from what Scholion already keeps; nothing extra is
+recorded, and no cost is tracked. "Build context pack" shows exactly what the next agent would
+receive at a given budget.
 The page is read-only and built into the daemon (no Node, no build step); with `AV_TOKEN` set it asks
 for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{name}/health`,
 `GET /v1/tasks` (`?repo=`, `?status=`, `?limit=`), `GET /v1/tasks/{id}`,
 `GET /v1/tasks/{id}/records`, `GET /v1/tasks/{id}/unrecorded`, `GET /v1/tasks/{id}/context`,
 `GET /v1/tasks/{id}/bundle`, `GET /v1/events`, `GET /v1/backlog`, `GET /v1/targets` (`?repo=`,
 `?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
-repo's tasks) and `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100).
+repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
+`GET /v1/repos/{name}/diff` and `GET /v1/receipts/{id}`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
 

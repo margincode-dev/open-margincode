@@ -2960,6 +2960,18 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         "the preview defaults to the agents' 800-token budget"
     );
     assert!(!html.contains("|| 4000"), "no stale 4000 fallback");
+    assert!(
+        html.contains("/diff?from="),
+        "the task drawer shows the task's diff, base to head"
+    );
+    assert!(
+        html.contains("/v1/receipts/"),
+        "the pack preview shows its receipt's items"
+    );
+    assert!(
+        html.contains("function loadHistory"),
+        "the page reads the repo's whole event history (time in status, timelines, review rounds)"
+    );
 
     let (status, _) = call(&e.app, "GET", "/v1/tasks", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);

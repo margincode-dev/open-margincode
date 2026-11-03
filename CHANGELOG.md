@@ -34,6 +34,14 @@
   `max_open`, a kanban board whose columns never overflow, side panels for targets, backlog and
   activity, and a slide-in drawer for tasks and agents. Light and dark follow the system, or pick
   one with the theme button (kept in this browser). The page reads the same `/v1` routes as before.
+- **The task drawer shows the work itself.** The diff from base to head, one file at a time with
+  its added and removed lines; the task's own timeline (started, every checkpoint with how many
+  paths it touched, claims, submits, verdicts, merges, conflicts); each review round (the verdict
+  with the reviewer's findings at that head); a validation record as passed or failed, with its
+  command and output; and, after "Build context pack", the pack's receipt: every item with its
+  tier, why it is there, where it comes from and its tokens. The page reads the repo's event
+  history (`GET /v1/events` in pages of 500, the newest 10 000 ids of a long one) and derives
+  these from it; the daemon records nothing new.
 - **The teams stand left of the board.** From 1580 px wide the dashboard is three columns: the
   agents' desks on the left, tasks by status in the middle, targets, backlog and activity on the
   right. Narrower, the desks are a row above the board, as before; below 1180 px everything stacks.

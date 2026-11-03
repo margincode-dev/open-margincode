@@ -55,13 +55,52 @@ pub fn router_with(state: AppState, extra: Router<AppState>) -> Router {
             state.clone(),
             crate::auth::require_token,
         ));
-    open.merge(api).with_state(state)
+    open.merge(api)
+        .layer(axum::middleware::map_response(stamp_version))
+        .with_state(state)
+}
+
+/// The daemon's crate version, sent on every response (`X-Av-Version`) and by `/v1/version`, so
+/// a client can tell it is talking to a daemon of another build.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Route families `/v1` serves (the first path segment after `/v1`, plus `mcp`).
+const ROUTE_FAMILIES: &[&str] = &[
+    "repos",
+    "reindex",
+    "tasks",
+    "receipts",
+    "events",
+    "maintenance",
+    "agents",
+    "backlog",
+    "targets",
+    "office",
+    "disk",
+    "gc",
+    "footprint",
+    "version",
+    "mcp",
+];
+
+async fn stamp_version(mut res: axum::response::Response) -> axum::response::Response {
+    res.headers_mut().insert(
+        "x-av-version",
+        axum::http::HeaderValue::from_static(VERSION),
+    );
+    res
+}
+
+/// `GET /v1/version`: the daemon's version and the route families it serves.
+async fn version() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "version": VERSION, "routes": ROUTE_FAMILIES }))
 }
 
 /// Every `/v1` route, without the token check: `router` adds it, and the MCP tools call these
 /// in-process after `/mcp` itself passed it.
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .route("/v1/version", get(version))
         .route("/v1/repos", get(list_repos).post(add_repo))
         .route("/v1/repos/{name}/import", get(get_import))
         .route("/v1/reindex", post(crate::reindex::reindex))
@@ -225,6 +264,8 @@ async fn add_repo(
     State(st): State<AppState>,
     Json(req): Json<AddRepo>,
 ) -> std::result::Result<(axum::http::StatusCode, Json<ImportJob>), crate::error::ApiError> {
+    // before any job, so `wait: false` (what `av repo add` sends) gets the hint as its answer
+    visible_source(&req.git_source)?;
     let job = ImportJob {
         name: req.name.clone(),
         state: "running",
@@ -279,6 +320,31 @@ async fn add_repo(
         Ok(Err(e)) => Err(e.into()),
         Err(e) => Err(AvError::Index(format!("import of {} stopped: {e}", req.name)).into()),
     }
+}
+
+/// Refuses a `git_source` the daemon cannot see: missing, not a directory, or a directory that
+/// is neither a git work tree (`.git`) nor a bare repo (`HEAD` and `objects/`). The path is read
+/// where the daemon runs, which in Docker is not where the client runs, so the message says so.
+/// Only a quick look at the directory: git itself still decides whether it can be cloned.
+fn visible_source(src: &std::path::Path) -> Result<()> {
+    let why = match src.canonicalize() {
+        Ok(p)
+            if p.join(".git").exists()
+                || (p.join("HEAD").is_file() && p.join("objects").is_dir()) =>
+        {
+            return Ok(());
+        }
+        Ok(p) if p.is_dir() => "is not a git repository (no .git, and not a bare repo)",
+        Ok(_) => "is not a directory",
+        Err(_) => "does not exist (or cannot be read)",
+    };
+    Err(AvError::Invalid(format!(
+        "git_source {} {why} on the daemon's side: the daemon reads the path where it runs, not \
+         where `av repo add` runs. With the Docker stack (deploy/docker-compose.yml) it sees only \
+         the /import mount (the host's AV_IMPORT_ROOT, default ~/projects, read-only): put the \
+         repo there and pass /import/<dir>",
+        src.display()
+    )))
 }
 
 async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(ChangeId, usize)> {

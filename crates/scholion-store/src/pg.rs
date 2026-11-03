@@ -1026,6 +1026,44 @@ impl IntentStore for PgStore {
             .collect()
     }
 
+    async fn delete_profile(&self, name: &str, force: bool) -> Result<()> {
+        let name = non_blank("an agent name", name)?;
+        let mut tx = self.pool.begin().await.map_err(serr)?;
+        let deleted = sqlx::query(
+            "DELETE FROM agent_profiles
+             WHERE name = $1
+               AND ($2 OR NOT EXISTS (
+                   SELECT 1 FROM tasks
+                   WHERE owner_agent = $1
+                     AND status IN ('open', 'handed_off', 'in_review', 'conflicted')))",
+        )
+        .bind(&name)
+        .bind(force)
+        .execute(&mut *tx)
+        .await
+        .map_err(serr)?
+        .rows_affected();
+        if deleted == 0 {
+            // either there is no such profile or live work kept it; tell which, in the same
+            // transaction
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM agent_profiles WHERE name = $1)")
+                    .bind(&name)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(serr)?;
+            return Err(if exists {
+                AvError::Conflict(format!(
+                    "agent {name} owns open, handed-off, in-review or conflicted tasks; pass force=true to remove the profile anyway"
+                ))
+            } else {
+                AvError::NotFound(format!("agent {name}"))
+            });
+        }
+        tx.commit().await.map_err(serr)?;
+        Ok(())
+    }
+
     async fn count_open_tasks(&self, owner: &str) -> Result<i64> {
         sqlx::query_scalar("SELECT count(*) FROM tasks WHERE owner_agent = $1 AND status = 'open'")
             .bind(owner)

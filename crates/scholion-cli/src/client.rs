@@ -28,6 +28,9 @@ impl fmt::Display for CliError {
     }
 }
 
+/// This build's version, compared with the daemon's `X-Av-Version`.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub type Result<T> = std::result::Result<T, CliError>;
 
 pub struct Client {
@@ -35,6 +38,8 @@ pub struct Client {
     agent: ureq::Agent,
     /// `Authorization: Bearer …` on every request when set.
     token: Option<String>,
+    /// The version warning is printed once per process.
+    warned: std::cell::Cell<bool>,
 }
 
 impl Client {
@@ -47,6 +52,7 @@ impl Client {
             base: base.trim_end_matches('/').to_owned(),
             agent,
             token: token.filter(|t| !t.trim().is_empty()),
+            warned: std::cell::Cell::new(false),
         }
     }
 
@@ -119,21 +125,53 @@ impl Client {
         }
     }
 
+    /// Warn once on stderr when the daemon (`X-Av-Version`) is another build than this av.
+    fn check_version(&self, resp: &ureq::Response) {
+        if let Some(v) = resp.header("x-av-version")
+            && v != VERSION
+            && !self.warned.replace(true)
+        {
+            eprintln!(
+                "av: warning: the daemon at {} is version {v} but this av is {VERSION}; some commands may not work until they match",
+                self.base
+            );
+        }
+    }
+
     fn finish(
         &self,
-        _path: &str,
+        path: &str,
         res: std::result::Result<ureq::Response, ureq::Error>,
     ) -> Result<Value> {
+        match &res {
+            Ok(resp) | Err(ureq::Error::Status(_, resp)) => self.check_version(resp),
+            Err(_) => {}
+        }
         match res {
             Ok(resp) => resp
                 .into_json::<Value>()
                 .map_err(|e| CliError::Local(format!("bad response from daemon: {e}"))),
             Err(ureq::Error::Status(status, resp)) => {
+                let daemon = resp.header("x-av-version").map(str::to_owned);
                 let message = resp
                     .into_json::<Value>()
                     .ok()
-                    .and_then(|v| v["error"].as_str().map(str::to_owned))
-                    .unwrap_or_else(|| "request failed".to_owned());
+                    .and_then(|v| v["error"].as_str().map(str::to_owned));
+                // A 404 the daemon's own handlers send carries an `error`; a bare one means the
+                // route does not exist there, and every route this av calls exists in this av.
+                let message = match (message, status) {
+                    (Some(m), _) => m,
+                    (None, 404) => {
+                        let theirs = daemon
+                            .map(|v| format!("version {v}"))
+                            .unwrap_or_else(|| "an unknown version".to_owned());
+                        format!(
+                            "the daemon at {} does not serve {path}: it is probably older than this av (daemon {theirs}, av {VERSION}); update the daemon",
+                            self.base
+                        )
+                    }
+                    (None, _) => "request failed".to_owned(),
+                };
                 Err(CliError::Api { status, message })
             }
             Err(ureq::Error::Transport(t)) => Err(CliError::Unreachable {

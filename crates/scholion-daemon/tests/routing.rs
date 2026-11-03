@@ -2,6 +2,7 @@
 
 mod common;
 use common::*;
+use scholion_core::IntentStore as _;
 
 async fn put_agent(e: &Env, name: &str, best: &[&str], can: &[&str], cost: i32) {
     let (status, body) = call(
@@ -1379,4 +1380,145 @@ async fn a_profile_put_through_the_api_is_not_managed_and_can_be_overwritten() {
     let a = agent(&e, "claude").await;
     assert_eq!(a["best"], json!(["docs"]), "{a}");
     assert_eq!(a["cost_rank"], 1, "{a}");
+}
+
+fn names(body: &Value) -> Vec<String> {
+    body["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+async fn start_as(e: &Env, agent_name: &str, title: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "agent": agent_name, "session": format!("s-{agent_name}")}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn an_agent_profile_can_be_removed_unless_it_owns_work_or_an_extension_manages_it() {
+    let (e, st) = env_and_state().await;
+
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/nobody", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("agent nobody"),
+        "{body}"
+    );
+
+    put_agent(&e, "muse", &[], &["docs"], 1).await;
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/muse", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["removed"], "muse", "{body}");
+    let (status, listed) = call(&e.app, "GET", "/v1/agents", None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert!(!names(&listed).contains(&"muse".to_owned()), "{listed}");
+
+    // an open task blocks; force removes the profile and leaves the task
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    let open = start_task(&e, "Make hello louder").await;
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/claude", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("force=true"),
+        "{body}"
+    );
+    assert_eq!(agent(&e, "claude").await["name"], "claude");
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/claude?force=true", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, still) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&open)), None).await;
+    assert_eq!(still["task"]["status"], "open", "{still}");
+    assert_eq!(still["task"]["owner_agent"], "claude", "{still}");
+
+    // in review blocks. Before the handoff below: `next` would claim that handed-off task
+    // ahead of the backlog item this uses to reach in_review.
+    put_agent(&e, "bea", &["code"], &[], 4).await;
+    let _review = take_and_submit(&e, "bea", "louder hello", &["code"]).await;
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/bea", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    // handed off blocks too; an abandoned task does not
+    put_agent(&e, "ada", &["code"], &[], 3).await;
+    let handed = start_as(&e, "ada", "Pass it on").await;
+    edit_greeter(&e, &handed);
+    record_decision(&e, &handed).await;
+    let (status, body) = handoff(&e, &handed, "ada").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/ada", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    put_agent(&e, "cy", &["code"], &[], 2).await;
+    let done = start_as(&e, "cy", "Never mind").await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/abandon", id(&done)),
+        Some(json!({"agent": "cy"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/cy", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["removed"], "cy", "{body}");
+
+    st.put_profile(&managed("reviewer", Some("ee")))
+        .await
+        .unwrap();
+    let (status, body) = call(&e.app, "DELETE", "/v1/agents/reviewer?force=true", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("agent reviewer is managed by ee; change it there"),
+        "{body}"
+    );
+    assert_eq!(agent(&e, "reviewer").await["managed_by"], "ee");
+}
+
+/// A conflicted task goes back to its owner (`next` offers it first), so removing the owner's
+/// profile would strand it: 409 unless forced, and the profile is still there after the refusal.
+#[tokio::test]
+async fn a_conflicted_task_keeps_its_owners_profile_unless_forced() {
+    let e = env().await;
+    let t = conflicted_task(&e).await;
+    let owner = t["task"]["owner_agent"].as_str().unwrap().to_owned();
+    let (status, body) = call(&e.app, "DELETE", &format!("/v1/agents/{owner}"), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("conflicted"),
+        "{body}"
+    );
+    assert_eq!(agent(&e, &owner).await["name"], owner.as_str());
+    let uri = format!("/v1/agents/{owner}?force=true");
+    let (status, body) = call(&e.app, "DELETE", &uri, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// The check and the delete are one statement: with a task the owner holds, `delete_profile`
+/// refuses without touching the row, and an unknown name is told apart from a held one.
+#[tokio::test]
+async fn delete_profile_refuses_a_held_profile_and_names_an_unknown_one_in_one_step() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    let _open = start_task(&e, "Make hello louder").await;
+    let err = e.store.delete_profile("claude", false).await.unwrap_err();
+    assert!(matches!(err, scholion_core::AvError::Conflict(_)), "{err}");
+    assert_eq!(agent(&e, "claude").await["name"], "claude");
+    let err = e.store.delete_profile("nobody", false).await.unwrap_err();
+    assert!(matches!(err, scholion_core::AvError::NotFound(_)), "{err}");
+    let err = e.store.delete_profile("nobody", true).await.unwrap_err();
+    assert!(matches!(err, scholion_core::AvError::NotFound(_)), "{err}");
+    e.store.delete_profile("claude", true).await.unwrap();
 }

@@ -25,7 +25,7 @@ use crate::flow::{claim_as, resume_as};
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/agents", get(list_agents))
-        .route("/v1/agents/{name}", put(put_agent))
+        .route("/v1/agents/{name}", put(put_agent).delete(delete_agent))
         .route("/v1/agents/{name}/usage", post(post_usage))
         .route("/v1/backlog", post(post_backlog).get(list_backlog))
         .route("/v1/backlog/next", post(next))
@@ -94,6 +94,45 @@ async fn put_agent(
         .into_iter()
         .find(|p| p.name == name);
     Ok(Json(json!({ "agent": stored })))
+}
+
+#[derive(Deserialize)]
+struct DeleteAgentQuery {
+    /// Drop the profile even when the agent still owns open, handed-off, in-review or conflicted
+    /// tasks.
+    #[serde(default)]
+    force: bool,
+}
+
+/// Removes a profile. Unknown name is 404. A profile an extension manages is a conflict, as
+/// `PUT` is. An agent that still owns open, handed-off, in-review or conflicted work is a
+/// conflict unless `force=true` (the tasks themselves stay).
+async fn delete_agent(
+    State(st): State<AppState>,
+    Path(name): Path<String>,
+    Query(q): Query<DeleteAgentQuery>,
+) -> ApiResult<Value> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err(AvError::Invalid("an agent name must not be blank".into()).into());
+    }
+    let stored = st
+        .store
+        .list_profiles()
+        .await?
+        .into_iter()
+        .find(|p| p.name == name);
+    let Some(profile) = stored else {
+        return Err(AvError::NotFound(format!("agent {name}")).into());
+    };
+    if let Some(manager) = profile.managed_by {
+        return Err(AvError::Conflict(format!(
+            "agent {name} is managed by {manager}; change it there"
+        ))
+        .into());
+    }
+    st.store.delete_profile(&name, q.force).await?;
+    Ok(Json(json!({ "removed": name })))
 }
 
 #[derive(Deserialize)]

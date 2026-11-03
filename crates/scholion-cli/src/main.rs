@@ -439,6 +439,14 @@ enum AgentCmd {
         #[arg(long)]
         max_open: Option<i32>,
     },
+    /// Remove a profile. Refused while the agent owns open, handed-off, in-review or conflicted tasks,
+    /// unless `--force`.
+    Rm {
+        name: String,
+        /// Remove it even when it still owns that work. The tasks stay.
+        #[arg(long)]
+        force: bool,
+    },
     /// List the profiles, cheapest first.
     List,
 }
@@ -1905,6 +1913,17 @@ fn run(cli: Cli) -> Result<()> {
                         "max_open": max_open}),
             )?;
             println!("{}", agent_line(&r["agent"]));
+        }
+        Cmd::Agent {
+            cmd: AgentCmd::Rm { name, force },
+        } => {
+            let path = if *force {
+                format!("/v1/agents/{name}?force=true")
+            } else {
+                format!("/v1/agents/{name}")
+            };
+            let r = client.delete(&path)?;
+            println!("removed {}", s(&r["removed"]));
         }
         Cmd::Repo { cmd: RepoCmd::List } => {
             let r = client.get("/v1/repos", &[])?;

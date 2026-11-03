@@ -22,7 +22,19 @@ pub fn av_home() -> PathBuf {
 }
 
 fn home() -> PathBuf {
-    env_path("HOME").unwrap_or_else(|| PathBuf::from("."))
+    home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The user's home: `$HOME`, else `%USERPROFILE%` (Windows sets no `HOME` outside Git Bash).
+pub fn home_dir() -> Option<PathBuf> {
+    home_from(|k| std::env::var_os(k))
+}
+
+fn home_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    ["HOME", "USERPROFILE"]
+        .into_iter()
+        .find_map(|k| var(k).filter(|v| !v.is_empty()))
+        .map(PathBuf::from)
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {
@@ -712,6 +724,28 @@ mod tests {
             std::fs::read_to_string(&old).unwrap(),
             "more than ten bytes"
         );
+    }
+
+    #[test]
+    fn home_is_home_else_userprofile() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(name, _)| *name == k)
+                    .map(|(_, v)| std::ffi::OsString::from(v))
+            }
+        };
+        assert_eq!(
+            home_from(env(&[("HOME", "/h"), ("USERPROFILE", r"C:\Users\u")])),
+            Some(PathBuf::from("/h"))
+        );
+        // Windows sets USERPROFILE, not HOME (Git Bash sets both)
+        assert_eq!(
+            home_from(env(&[("HOME", ""), ("USERPROFILE", r"C:\Users\u")])),
+            Some(PathBuf::from(r"C:\Users\u"))
+        );
+        assert_eq!(home_from(env(&[])), None);
     }
 
     #[test]

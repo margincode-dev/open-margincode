@@ -435,6 +435,12 @@ scholion log                                       # main's history, newest firs
 scholion abandon                                   # end a task for good (owner only)
 ```
 
+The path given to `repo add` is read by the daemon, not the client: the daemon clones it where it runs. With
+the Docker stack (`deploy/docker-compose.yml`) the daemon sees only the `/import` mount, which is the
+host's `AV_IMPORT_ROOT` (default `~/projects`, read-only), so put the repo under it and pass
+`/import/<dir>`. A path the daemon cannot see (missing, or a directory that is not a git repository)
+is refused at once with `400` and that hint, before any import starts.
+
 ### Many agents at once
 
 Run as many agents as you like on one daemon. There is no seat cap: each distinct agent
@@ -455,8 +461,11 @@ av --agent muse watch -- muse
 
 `--agent NAME` (or `AV_AGENT`) is that CLI's name when it calls `next`. `av agent set NAME
 --best …` is how `next` routes by strength: an item goes first to the agent whose `best`
-tags cover what it needs. `av watch`, once per agent, starts that CLI only when something
-fits it and sets `AV_AGENT` for the command.
+tags cover what it needs. `av agent rm NAME` removes a profile (`DELETE /v1/agents/{name}`).
+An unknown name is an error. So is removing an agent that still owns an open, handed-off,
+in-review or conflicted task, unless `av agent rm NAME --force` (the tasks stay). A profile an extension
+manages cannot be removed here, the same as `av agent set`. `av watch`, once per agent,
+starts that CLI only when something fits it and sets `AV_AGENT` for the command.
 
 The dedicated writers put a fixed `X-Av-Agent` header (`grok`, `gemini`, `cursor`).
 `--for mcp-json` writes the `--agent` name into that header, so a client without its own

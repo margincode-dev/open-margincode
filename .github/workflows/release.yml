@@ -2,6 +2,8 @@ name: release
 
 # Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`scholion` and its alias `av`) and
 # `scholion-daemon` for Linux and macOS and publish them, with SHA-256 sums, as a GitHub release.
+# Windows gets the CLI only (`scholion.exe`, `av.exe` in a zip), to talk to a daemon elsewhere
+# (Docker, WSL, another machine): the daemon stays Linux and macOS.
 # The daemon carries its own Postgres (lite mode, `av up`); deploy/docker-compose.yml still works.
 
 on:
@@ -34,6 +36,7 @@ jobs:
           - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, cli_only: true }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -46,9 +49,14 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - name: Build
-        run: >-
-          cargo build --release --locked --target ${{ matrix.target }}
-          -p scholion-cli -p scholion-daemon --features scholion-daemon/bundled-postgres
+        shell: bash
+        run: |
+          if [ "${{ matrix.cli_only }}" = true ]; then
+            cargo build --release --locked --target ${{ matrix.target }} -p scholion-cli
+          else
+            cargo build --release --locked --target ${{ matrix.target }} \
+              -p scholion-cli -p scholion-daemon --features scholion-daemon/bundled-postgres
+          fi
       - name: Package
         shell: bash
         run: |
@@ -56,16 +64,33 @@ jobs:
           ver="${TAG#release/}"; ver="v${ver#v}"
           name="scholion-${ver}-${{ matrix.target }}"
           mkdir "$name"
-          for bin in scholion av scholion-daemon; do
-            cp "target/${{ matrix.target }}/release/$bin" "$name/"
+          bins="scholion av"
+          [ "${{ matrix.cli_only }}" = true ] || bins="$bins scholion-daemon"
+          exe=""
+          [ "${{ runner.os }}" = Windows ] && exe=".exe"
+          for bin in $bins; do
+            cp "target/${{ matrix.target }}/release/$bin$exe" "$name/"
           done
           cp LICENSE README.md "$name/"
-          tar czf "$name.tar.gz" "$name"
-          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          if [ "${{ runner.os }}" = Windows ]; then
+            archive="$name.zip"
+            7z a -tzip "$archive" "$name" >/dev/null
+          else
+            archive="$name.tar.gz"
+            tar czf "$archive" "$name"
+          fi
+          # same "hash  file" line either way; Git Bash on Windows has sha256sum, macOS shasum
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: scholion-*.tar.gz*
+          path: |
+            scholion-*.tar.gz*
+            scholion-*.zip*
 
   publish:
     needs: build
@@ -81,7 +106,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" scholion-*.tar.gz* --clobber
+            gh release upload "$TAG" scholion-*.tar.gz* scholion-*.zip* --clobber
           else
-            gh release create "$TAG" scholion-*.tar.gz* --generate-notes --title "Scholion ${TAG#release/}"
+            gh release create "$TAG" scholion-*.tar.gz* scholion-*.zip* --generate-notes --title "Scholion ${TAG#release/}"
           fi

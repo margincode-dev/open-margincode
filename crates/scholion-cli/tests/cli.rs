@@ -795,9 +795,27 @@ fn unreachable_server_exits_nonzero_with_clear_message() {
 fn repo_add_reports_a_failed_import() {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();
-    let o = av(&d, scratch.path(), &["repo", "add", "x", "/nowhere"]);
+    // passes the daemon's quick look (it has a .git), then git cannot clone it
+    std::fs::create_dir(scratch.path().join(".git")).unwrap();
+    let src = scratch.path().to_str().unwrap();
+    let o = av(&d, scratch.path(), &["repo", "add", "x", src]);
     assert!(!o.status.success());
     assert!(err(&o).contains("import of x failed"), "{}", err(&o));
+}
+
+#[test]
+fn repo_add_of_a_path_the_daemon_cannot_see_says_where_it_looks() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let o = av(&d, scratch.path(), &["repo", "add", "x", "/nowhere"]);
+    assert!(!o.status.success());
+    let e = err(&o);
+    assert!(
+        e.contains("/nowhere does not exist")
+            && e.contains("daemon's side")
+            && e.contains("/import"),
+        "{e}"
+    );
 }
 
 #[test]
@@ -2793,6 +2811,52 @@ fn agent_set_and_list_show_the_profiles_cheapest_first() {
 }
 
 #[test]
+fn agent_rm_removes_a_profile_and_force_clears_one_that_owns_work() {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "muse", "--can", "docs", "--cost", "1"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "agent", "--can", "code", "--cost", "3"],
+    ));
+    // the default agent owns this task, so its profile stays until --force
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Still open",
+            "--goal",
+            "g",
+        ],
+    ));
+    let blocked = av(&d, scratch.path(), &["agent", "rm", "agent"]);
+    assert!(!blocked.status.success(), "{}", out(&blocked));
+    let msg = err(&blocked);
+    assert!(msg.contains("HTTP 409"), "{msg}");
+    assert!(msg.contains("force=true"), "{msg}");
+    let forced = ok(av(&d, scratch.path(), &["agent", "rm", "agent", "--force"]));
+    assert!(forced.contains("removed agent"), "{forced}");
+    let rm = ok(av(&d, scratch.path(), &["agent", "rm", "muse"]));
+    assert!(rm.contains("removed muse"), "{rm}");
+    let missing = av(&d, scratch.path(), &["agent", "rm", "muse"]);
+    assert!(!missing.status.success());
+    let msg = err(&missing);
+    assert!(msg.contains("not found: agent muse"), "{msg}");
+    assert!(msg.contains("HTTP 404"), "{msg}");
+    let list = ok(av(&d, scratch.path(), &["agent", "list"]));
+    assert!(list.contains("no profiles"), "{list}");
+}
+
+#[test]
 fn post_after_shows_waiting_on_in_the_backlog() {
     let (d, scratch) = daemon_with_repo();
     let post = |title: &str, extra: &[&str]| {
@@ -3435,4 +3499,75 @@ fn gc_dry_run_says_what_it_would_remove() {
     let sent = c.seen.lock().unwrap()[1].clone();
     assert!(sent.contains("\"dry_run\":false"), "{sent}");
     assert!(!sent.contains("retain_secs"), "{sent}");
+}
+
+/// A stand-in daemon that answers every request with `status_line` and an `X-Av-Version` header.
+fn canned_daemon(status_line: &'static str, body: &'static str, version: &'static str) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let _ = write!(
+                s,
+                "HTTP/1.1 {status_line}\r\nx-av-version: {version}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    url
+}
+
+#[test]
+fn a_daemon_of_another_version_is_warned_about_once() {
+    let url = canned_daemon("200 OK", "[]", "0.0.1");
+    let dir = TempDir::new().unwrap();
+    let o = av_with(&url, dir.path(), &["repo", "list"]);
+    assert!(o.status.success(), "{}", err(&o));
+    let e = err(&o);
+    assert_eq!(e.matches("warning: the daemon").count(), 1, "{e}");
+    assert!(
+        e.contains("0.0.1") && e.contains(env!("CARGO_PKG_VERSION")),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_daemon_of_the_same_version_is_not_warned_about() {
+    let url = canned_daemon("200 OK", "[]", env!("CARGO_PKG_VERSION"));
+    let dir = TempDir::new().unwrap();
+    let o = av_with(&url, dir.path(), &["repo", "list"]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(!err(&o).contains("warning"), "{}", err(&o));
+}
+
+#[test]
+fn a_bare_404_says_the_daemon_is_probably_older() {
+    let url = canned_daemon("404 Not Found", "", "0.0.1");
+    let dir = TempDir::new().unwrap();
+    let o = av_with(&url, dir.path(), &["repo", "list"]);
+    assert!(!o.status.success());
+    let e = err(&o);
+    assert!(e.contains("probably older than this av"), "{e}");
+    assert!(
+        e.contains("0.0.1") && e.contains(env!("CARGO_PKG_VERSION")),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_404_the_daemon_explains_is_left_alone() {
+    let url = canned_daemon(
+        "404 Not Found",
+        r#"{"error":"no such task"}"#,
+        env!("CARGO_PKG_VERSION"),
+    );
+    let dir = TempDir::new().unwrap();
+    let o = av_with(&url, dir.path(), &["repo", "list"]);
+    assert!(!o.status.success());
+    let e = err(&o);
+    assert!(e.contains("no such task") && !e.contains("older"), "{e}");
 }

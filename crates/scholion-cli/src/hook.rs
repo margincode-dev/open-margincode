@@ -187,9 +187,9 @@ fn env_dir(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// `$HOME`, the temp dir and `AV_FOOTPRINT_ROOTS` (the platform's path-list separator).
+/// The home dir, the temp dir and `AV_FOOTPRINT_ROOTS` (the platform's path-list separator).
 fn footprint_roots() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = env_dir("HOME").into_iter().collect();
+    let mut roots: Vec<PathBuf> = crate::local::home_dir().into_iter().collect();
     roots.push(std::env::temp_dir());
     if let Some(more) = std::env::var_os("AV_FOOTPRINT_ROOTS") {
         roots.extend(std::env::split_paths(&more).filter(|p| !p.as_os_str().is_empty()));
@@ -202,7 +202,7 @@ fn footprint_roots() -> Vec<PathBuf> {
 /// with the tasks), the task's own workspace root, and av's home (its Postgres and these files).
 fn footprint_exclude(task_ws_root: Option<PathBuf>) -> Vec<PathBuf> {
     let mut ex: Vec<PathBuf> = env_dir("AV_WS_ROOT")
-        .or_else(|| env_dir("HOME").map(|h| h.join("ws")))
+        .or_else(|| crate::local::home_dir().map(|h| h.join("ws")))
         .into_iter()
         .collect();
     ex.extend(task_ws_root);

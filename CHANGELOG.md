@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`av agent rm NAME`** (`DELETE /v1/agents/{name}`). Removes a profile. An unknown name is
+  404. An agent that still owns an open, handed-off, in-review or conflicted task is 409 unless `--force`
+  (`?force=true`); the tasks stay. A profile an extension manages is refused, the same way
+  `av agent set` is.
 - **Lean disk** (Plan 11). Agents' files no longer pile up:
   - **Finished tasks give their disk back.** A task merged or abandoned for `AV_WS_RETAIN_SECS`
     (default 3600; `0` at once, `never` to keep) loses its workspace and scratch dir; a sweep looks

@@ -256,6 +256,11 @@ pub trait IntentStore: Send + Sync {
     async fn put_profile(&self, p: &crate::routing::Profile) -> Result<()>;
     /// Cheapest first, then by name.
     async fn list_profiles(&self) -> Result<Vec<crate::routing::Profile>>;
+    /// Removes the profile `name` in one statement. `NotFound` when there is none. Unless `force`,
+    /// `Conflict` while its agent owns a task in `open`, `handed_off`, `in_review` or `conflicted`
+    /// (a conflicted task goes back to its owner); the check and the delete cannot be split by a
+    /// task started in between. The agent's tasks stay.
+    async fn delete_profile(&self, name: &str, force: bool) -> Result<()>;
     /// How many tasks `owner` holds open (in every repo). Tasks in review wait on other agents
     /// and do not count.
     async fn count_open_tasks(&self, owner: &str) -> Result<i64>;

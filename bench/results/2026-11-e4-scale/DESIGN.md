@@ -1,7 +1,7 @@
 # E4 at scale: design (Plan 13, Phase 1)
 
-Status: **harness ready, not run.** No session has been paid for. The full sweep waits for the
-owner's budget OK; the smoke run did not happen either (see "To run").
+Status: **harness ready; smoke run 2026-11-04 passed** (`smoke/README.md`, 3 sessions, $0.027 at peak
+prices). The full sweep has not been run and still waits for the owner's budget OK.
 
 ## The question
 
@@ -151,7 +151,10 @@ expensive and the most informative), check the balance, then the rest.
 
 ## To run
 
-### What was missing on 2026-11-04 (why the smoke run did not happen)
+### What was missing on 2026-11-04 (why the smoke run did not happen at first)
+
+Later the same day the smoke ran without a Linux host, entirely in Docker Desktop containers
+(harness, daemon, Postgres, Qdrant, TEI on one network). `smoke/README.md` has the setup to reuse.
 
 `DEEPSEEK_API_KEY` is set in the environment this branch was written in. The rest of what
 `bench/README.md` and `bench/tasks-relay/README.md` require is not there, and was not worked around:

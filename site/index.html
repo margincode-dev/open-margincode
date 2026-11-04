@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scholion · version control for coding agents</title>
 <meta name="description" content="Scholion is open-source, context-first version control for coding agents: decisions and dead ends kept next to the code, isolated tasks, and a deterministic context pack that gives any agent what it needs without blowing up its context window or token budget.">
-<link rel="canonical" href="https://openevaluations.si/">
+<link rel="canonical" href="https://scholion.openevaluations.si/">
 <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://openevaluations.si/">
+<meta property="og:url" content="https://scholion.openevaluations.si/">
 <meta property="og:title" content="Scholion: Git remembers what changed. Scholion remembers why.">
 <meta property="og:description" content="Open-source version control for coding agents: the right context, anchored to code, always within the token budget.">
-<meta property="og:image" content="https://openevaluations.si/og.png">
+<meta property="og:image" content="https://scholion.openevaluations.si/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="text/markdown" href="/llms.txt" title="Scholion for agents (llms.txt)">
@@ -529,7 +529,7 @@ h1 .why { position: relative; display: inline-block; }
    "softwareVersion": "0.0.2",
    "applicationCategory": "DeveloperApplication",
    "operatingSystem": "Linux, macOS",
-   "url": "https://openevaluations.si/",
+   "url": "https://scholion.openevaluations.si/",
    "downloadUrl": "https://github.com/vinhqbui/scholion/releases",
    "codeRepository": "https://github.com/vinhqbui/scholion",
    "license": "https://opensource.org/licenses/MIT",
@@ -545,7 +545,7 @@ h1 .why { position: relative; display: inline-block; }
   {
    "@type": "WebSite",
    "name": "Scholion",
-   "url": "https://openevaluations.si/"
+   "url": "https://scholion.openevaluations.si/"
   }
  ]
 }
@@ -1104,7 +1104,7 @@ av post --repo api --title "Add retry" --goal "…" --needs code
     if (on && !loaded) {
       fetch('/llms.txt').then(function (r) { if (!r.ok) throw 0; return r.text(); })
         .then(function (t) { pre.textContent = t; loaded = true; })
-        .catch(function () { pre.textContent = 'Could not load /llms.txt here. It is served next to this page on openevaluations.si.'; });
+        .catch(function () { pre.textContent = 'Could not load /llms.txt here. It is served next to this page on scholion.openevaluations.si.'; });
     }
   });
 

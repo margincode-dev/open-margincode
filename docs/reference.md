@@ -10,12 +10,12 @@ Context-first version control for coding agents: tasks in isolated jj workspaces
 dead ends recorded next to the code, and a token-budgeted context pack for any agent that picks the
 work up.
 
-**[Watch a recorded run](https://openevaluations.si/demo)**: Claude records a decision and a dead
+**[Watch a recorded run](https://scholion.openevaluations.si/demo)**: Claude records a decision and a dead
 end, hands off; Codex picks the task up from a context pack instead of re-reading the repo; Gemini
 reviews. On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same
 cost** ([benchmark](../bench/results/2026-10-27-haiku/), including where it did not help).
 
-[![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://openevaluations.si/demo)
+[![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://scholion.openevaluations.si/demo)
 
 **New in 0.0.2: one backlog for all your agents.** Post work with tags; each agent (Claude Code,
 Codex, Cursor, Grok, Gemini) takes what fits it, another agent reviews it, and the reviewer merges

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://openevaluations.si/sitemap.xml
+Sitemap: https://scholion.openevaluations.si/sitemap.xml

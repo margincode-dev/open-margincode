@@ -1,5 +1,5 @@
 {
-  // Static site for openevaluations.si: serves site/ as is, no Worker code.
+  // Static site for scholion.openevaluations.si: serves site/ as is, no Worker code.
   "name": "scholion-deploy",
   "compatibility_date": "2026-10-28",
   "assets": {
@@ -8,5 +8,14 @@
   },
   // Cloudflare's Git integration runs `wrangler preview` for non-production branches; it needs
   // this block, even empty.
-  "previews": {}
+  "previews": {},
+  // Custom domain (the zone openevaluations.si is on Cloudflare). Since 2026-11-04 the Scholion site
+  // lives on the subdomain; the root belongs to the openevaluations site (vinhqbui/openevaluations).
+  "routes": [
+    { "pattern": "scholion.openevaluations.si", "custom_domain": true }
+    // The root openevaluations.si is attached to this worker in the dashboard, not here. The owner
+    // removes it there at the cutover (site/README.md, "Cutover"); do not add it to this file.
+    // If the cutover is rolled back, re-attach it by adding (after a comma above):
+    // { "pattern": "openevaluations.si", "custom_domain": true }
+  ]
 }

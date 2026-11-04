@@ -24,9 +24,9 @@ starts where Claude stopped. Gemini reviews the work, and the reviewer merges it
 Git remembers **what** changed. Scholion also remembers **why**, and **what didn't work**, and
 hands it to whichever agent comes next.
 
-[![A recorded run: Codex's brief leads with Claude's decision and dead end](docs/img/demo-replay.png)](https://openevaluations.si/demo)
+[![A recorded run: Codex's brief leads with Claude's decision and dead end](docs/img/demo-replay.png)](https://scholion.openevaluations.si/demo)
 
-**[Watch the recorded run](https://openevaluations.si/demo)**
+**[Watch the recorded run](https://scholion.openevaluations.si/demo)**
 
 ## Why it exists
 

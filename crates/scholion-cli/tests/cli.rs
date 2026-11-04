@@ -4063,3 +4063,247 @@ fn a_404_the_daemon_explains_is_left_alone() {
     let e = err(&o);
     assert!(e.contains("no such task") && !e.contains("older"), "{e}");
 }
+
+/// `started()` plus a decision of the task on the greeter, an edit to it, and a note another
+/// task (codex's) anchored to the same file. Returns (daemon, workspace, scratch, task id).
+fn notes_fixture() -> (Daemon, PathBuf, TempDir, String) {
+    let (d, ws, scratch) = started();
+    let other = ok(av_as(
+        &d,
+        scratch.path(),
+        "codex",
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Earlier",
+            "--goal",
+            "earlier work",
+        ],
+    ));
+    let other_ws = PathBuf::from(
+        other
+            .lines()
+            .next()
+            .unwrap()
+            .trim_start_matches("workspace: "),
+    );
+    ok(av_as(
+        &d,
+        &other_ws,
+        "codex",
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            "hello must stay pure: the CLI caches it",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    ok(av(&d, &ws, &["checkpoint"]));
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "upper() in hello, no flag",
+            "--anchor",
+            "app/greeter.py:Greeter.hello",
+        ],
+    ));
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    let id = file["task"].as_str().unwrap().to_owned();
+    (d, ws, scratch, id)
+}
+
+#[test]
+fn notes_renders_the_task_records_and_what_others_recorded_about_its_files() {
+    let (d, ws, scratch, id) = notes_fixture();
+    let md = ok(av(&d, &ws, &["notes"]));
+    assert!(
+        md.starts_with(&format!("<!-- scholion:notes v1 task={id} -->")),
+        "{md}"
+    );
+    assert!(md.trim_end().ends_with("<!-- /scholion:notes -->"), "{md}");
+    assert!(
+        md.contains("**Decisions**") && md.contains("upper() in hello, no flag"),
+        "{md}"
+    );
+    assert!(
+        md.contains("`app/greeter.py`") && md.contains("hello must stay pure"),
+        "the other task's note on the changed file: {md}"
+    );
+    // by slug from anywhere, the same block
+    let by_slug = ok(av(&d, scratch.path(), &["notes", "improve-greeting"]));
+    assert_eq!(by_slug, md);
+    let by_repo_slug = ok(av(&d, scratch.path(), &["notes", "demo/improve-greeting"]));
+    assert_eq!(by_repo_slug, md);
+    let j: serde_json::Value = serde_json::from_str(&ok(av(
+        &d,
+        scratch.path(),
+        &["notes", &id, "--format", "json"],
+    )))
+    .unwrap();
+    assert_eq!(j["task"], id.as_str());
+    assert_eq!(j["markdown"], md.as_str());
+    assert_eq!(j["files"], serde_json::json!(["app/greeter.py"]));
+    // reading notes sends nothing to any session: the pre-read hook still has the note to tell
+    let input = serde_json::json!({"tool_input": {"file_path": ws.join("app/greeter.py")}});
+    let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input.to_string());
+    assert!(out(&o).contains("hello must stay pure"), "{}", out(&o));
+}
+
+#[test]
+fn notes_exit_codes() {
+    let (d, ws, scratch, _) = notes_fixture();
+    // 1: an unknown task, a slug no task has, no task here, a daemon that is down
+    let o = av(
+        &d,
+        scratch.path(),
+        &["notes", "00000000-0000-4000-8000-000000000000"],
+    );
+    assert_eq!(o.status.code(), Some(1), "{}", err(&o));
+    let o = av(&d, scratch.path(), &["notes", "no-such-task"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("no task \"no-such-task\""), "{}", err(&o));
+    let o = av(&d, scratch.path(), &["notes"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("no task"), "{}", err(&o));
+    let o = av_with("http://127.0.0.1:1", &ws, &["notes"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("cannot reach"), "{}", err(&o));
+    // 2: usage
+    let o = av(&d, &ws, &["notes", "--format", "yaml"]);
+    assert_eq!(o.status.code(), Some(2));
+    let o = av(&d, &ws, &["notes", "--gh-repo", "o/r"]);
+    assert_eq!(o.status.code(), Some(2), "--gh-repo needs --pr");
+}
+
+/// A fake `gh`: logs each call's argv to `<dir>/calls` and its stdin to `<dir>/stdin-<n>`
+/// (`n` counts from 0); `api --paginate` prints `<dir>/comments` (default `[]`), `pr view`
+/// prints 42, and with `<dir>/fail` present every call fails.
+fn fake_gh(dir: &Path) -> PathBuf {
+    let script = dir.join("gh");
+    std::fs::write(
+        &script,
+        concat!(
+            "#!/bin/sh\n",
+            "d=\"$(dirname \"$0\")\"\n",
+            "n=$(cat \"$d/calls\" 2>/dev/null | wc -l)\n",
+            "echo \"$*\" >> \"$d/calls\"\n",
+            "if [ -e \"$d/fail\" ]; then echo 'HTTP 401: Bad credentials' >&2; exit 1; fi\n",
+            "case \"$*\" in\n",
+            "  'pr view'*) echo 42 ;;\n",
+            "  *--paginate*) if [ -e \"$d/comments\" ]; then cat \"$d/comments\"; else echo '[]'; fi ;;\n",
+            "  *) cat > \"$d/stdin-$n\"; echo '{}' ;;\n",
+            "esac\n",
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    script
+}
+
+fn av_gh(d: &Daemon, cwd: &Path, gh: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(cwd)
+        .env("AV_URL", &d.url)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_AGENT")
+        .env_remove("AV_TOKEN")
+        .env("AV_GH", gh)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn notes_pr_posts_once_then_updates_the_same_comment_in_place() {
+    let (d, ws, _scratch, id) = notes_fixture();
+    let ghd = TempDir::new().unwrap();
+    let gh = fake_gh(ghd.path());
+    let calls = || std::fs::read_to_string(ghd.path().join("calls")).unwrap_or_default();
+    let stdin_of = |n: usize| -> String {
+        let sent: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(ghd.path().join(format!("stdin-{n}"))).unwrap(),
+        )
+        .unwrap();
+        sent["body"].as_str().unwrap().to_owned()
+    };
+
+    let o = ok(av_gh(
+        &d,
+        &ws,
+        &gh,
+        &["notes", "--pr", "7", "--gh-repo", "o/r"],
+    ));
+    assert!(o.contains("notes posted on pull request #7"), "{o}");
+    let log = calls();
+    assert!(
+        log.contains("api --paginate repos/{owner}/{repo}/issues/7/comments")
+            && log.contains("api -X POST repos/{owner}/{repo}/issues/7/comments --input -"),
+        "{log}"
+    );
+    let body = stdin_of(1);
+    assert!(body.contains(&format!("task={id}")), "{body}");
+
+    // GitHub now has that comment, after a human's, with CRLF line ends
+    let comments = serde_json::json!([
+        {"id": 11, "body": "LGTM"},
+        {"id": 55, "body": body.replace('\n', "\r\n")},
+    ]);
+    std::fs::write(ghd.path().join("comments"), comments.to_string()).unwrap();
+    let o = ok(av_gh(&d, &ws, &gh, &["notes", "--pr", "7"]));
+    assert!(o.contains("up to date (comment 55)"), "{o}");
+    assert_eq!(calls().lines().count(), 3, "only the listing: {}", calls());
+
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "attempt",
+            "--summary",
+            "tried a --loud flag",
+        ],
+    ));
+    let o = ok(av_gh(&d, &ws, &gh, &["notes", "--pr"]));
+    assert!(
+        o.contains("notes updated on pull request #42 (comment 55)"),
+        "{o}"
+    );
+    let log = calls();
+    assert!(
+        log.contains("pr view --json number --jq .number")
+            && log.contains("api -X PATCH repos/{owner}/{repo}/issues/comments/55 --input -"),
+        "{log}"
+    );
+    let updated = stdin_of(log.lines().count() - 1);
+    assert!(updated.contains("tried a --loud flag"), "{updated}");
+    assert_eq!(updated.matches(&format!("task={id}")).count(), 1);
+
+    // gh failing is exit 1, with gh's message
+    std::fs::write(ghd.path().join("fail"), "").unwrap();
+    let o = av_gh(&d, &ws, &gh, &["notes", "--pr", "7"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(err(&o).contains("Bad credentials"), "{}", err(&o));
+}

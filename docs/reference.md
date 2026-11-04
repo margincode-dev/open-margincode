@@ -814,6 +814,27 @@ scholion why app/util.py:42 --repo myrepo    # the task, goal and decisions behi
 `scholion why` reads derived data in the Scion style: per path, a blame computed from each commit's
 parent blame and cached by commit id, so it is computed once and never needs invalidating.
 
+### Records on the pull request
+
+```bash
+av notes                        # the task's records as a Markdown block (this workspace's task)
+av notes --pr                   # post it on the current branch's pull request, or update it
+av notes demo/atomic-save --pr 123 --gh-repo owner/name
+```
+
+`av notes [TASK]` renders a task's decisions, dead ends, notes, review findings, handoffs and
+checks, and what other tasks recorded about the files it changes (`records/at` for the first 20,
+with no session, so nothing counts as sent), between `<!-- scholion:notes v1 task=<id> -->` and
+`<!-- /scholion:notes -->`. It only reads `/v1`. `TASK` is an id, a slug (`--repo` when two repos
+share one) or `repo/slug`; without it, `--task` or the nearest `.av-task`. `--format json` adds the
+task id, record ids and files. `--pr [N]` posts the block as a comment through `gh` (`AV_GH` names
+another program), or edits the comment that already holds this task's block; an unchanged block is
+not sent. Exit codes: `0` done (or up to date), `1` daemon, task or `gh` failure, `2` usage. The
+daemon runs on the developer's machine, out of a GitHub-hosted runner's reach, so the CLI posts;
+`integrations/github/` has the marker format and a workflow for a self-hosted runner that can
+reach the daemon. Before a merge `av why` has nothing to blame on main, so the block's records on
+the changed files are the pre-merge answer.
+
 The daemon never runs commands. `scholion runner` fetches each new main through the read API (no
 checkout), runs the command, and posts the result. Because that command comes from the daemon's
 database, the runner refuses to start without `--trust`. While main is red, every context pack
@@ -887,6 +908,9 @@ opens with a warning naming the culprit merge.
   it with the token taken from the environment.
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
   command and checkpoints.
+- **GitHub pull requests**: `av notes --pr` posts the task's records as one comment, updated in place
+  (see [Records on the pull request](#records-on-the-pull-request) and `integrations/github/README.md`).
+  `integrations/README.md` lists every integration.
 - **Maintenance**: `POST /v1/maintenance/prune` deletes the ledgers of sessions idle for 30 days and parse-cache
   entries no index scope uses. A task's index scope is dropped when it merges or is abandoned (re-indexed on undo).
 

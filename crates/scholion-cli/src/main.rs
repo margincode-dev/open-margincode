@@ -5,6 +5,7 @@ mod disk;
 mod footprint;
 mod hook;
 mod local;
+mod notes;
 mod runner;
 mod target_dir;
 mod taskfile;
@@ -306,6 +307,26 @@ enum Cmd {
         target: String,
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// A task's decisions, dead ends, notes and review findings, and what other tasks recorded
+    /// about the files it changes, as a Markdown block for its pull request. Only reads the
+    /// daemon; with --pr, posts the block through `gh` (or updates the comment it posted before).
+    Notes {
+        /// Task id or slug (default: --task, else the nearest .av-task).
+        task_ref: Option<String>,
+        /// The repo a slug is looked up in.
+        #[arg(long)]
+        repo: Option<String>,
+        /// `markdown`: the block; `json`: the block with the task id, record ids and files.
+        #[arg(long, default_value = "markdown", value_parser = ["markdown", "json"])]
+        format: String,
+        /// Post the block as a comment on pull request N (or the current branch's, without N);
+        /// a comment that already holds this task's block is updated in place.
+        #[arg(long, value_name = "N", num_args = 0..=1)]
+        pr: Option<Option<u64>>,
+        /// OWNER/NAME of the GitHub repository (default: the one gh finds from this directory).
+        #[arg(long, requires = "pr")]
+        gh_repo: Option<String>,
     },
     /// Print a file at a commit, read from the daemon (no workspace needed).
     Show {
@@ -914,6 +935,50 @@ fn write_taskfile(workspace: &std::path::Path, tf: &TaskFile) {
 }
 
 /// `--repo`, else the repo of the current task.
+/// The task `av notes` is about: an id, a slug (looked up in `repo`, else in every repo), or
+/// `--task` / the nearest `.av-task`.
+fn notes_task(
+    cli: &Cli,
+    client: &Client,
+    task_ref: Option<&str>,
+    repo: Option<&str>,
+) -> Result<String> {
+    let Some(r) = task_ref else {
+        return Ok(resolve_task(cli)?.0);
+    };
+    if uuid::Uuid::parse_str(r).is_ok() {
+        return Ok(r.to_owned());
+    }
+    let (repo, slug) = match (repo, r.split_once('/')) {
+        (None, Some((repo, slug))) => (Some(repo), slug),
+        _ => (repo, r),
+    };
+    let mut q = vec![("limit", "500")];
+    if let Some(repo) = repo {
+        q.push(("repo", repo));
+    }
+    let list = client.get("/v1/tasks", &q)?;
+    let found: Vec<&Value> = list["tasks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| s(&t["slug"]) == slug)
+        .collect();
+    match found[..] {
+        [t] => Ok(s(&t["id"]).to_owned()),
+        [] => Err(CliError::Local(format!("no task {r:?}; pass its id"))),
+        _ => Err(CliError::Local(format!(
+            "{} tasks are called {slug:?} (repos {}); pass --repo or the id",
+            found.len(),
+            found
+                .iter()
+                .map(|t| s(&t["repo"]))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
 fn repo_for(cli: &Cli, client: &Client, repo: &Option<String>) -> Result<String> {
     if let Some(r) = repo {
         return Ok(r.clone());
@@ -1851,6 +1916,64 @@ fn run(cli: Cli) -> Result<()> {
                     s(&h["checked"]).chars().take(12).collect::<String>()
                 ),
                 _ => println!("main is unchecked (run `av runner --trust`)"),
+            }
+        }
+        Cmd::Notes {
+            task_ref,
+            repo,
+            format,
+            pr,
+            gh_repo,
+        } => {
+            let id = notes_task(&cli, &client, task_ref.as_deref(), repo.as_deref())?;
+            let task = client.get(&format!("/v1/tasks/{id}"), &[])?;
+            let records = client.get(&format!("/v1/tasks/{id}/records"), &[])?;
+            let records = records["records"].as_array().cloned().unwrap_or_default();
+            let mut files = vec![];
+            for path in task["changed"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .take(notes::MAX_FILES)
+            {
+                // no session: a read that leaves the ledger alone
+                let at = client.get(&format!("/v1/tasks/{id}/records/at"), &[("path", path)])?;
+                files.extend(notes::FileNotes::from_records_at(path, &at));
+            }
+            let block = notes::render(&task, &records, &files);
+            match pr {
+                None if format == "json" => {
+                    let ids: Vec<String> = records
+                        .iter()
+                        .filter(|r| r["superseded_by"].is_null())
+                        .map(|r| format!("rec:{}", short(s(&r["id"]))))
+                        .collect();
+                    let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "task": id, "markdown": block, "records": ids, "files": paths,
+                        }))
+                        .unwrap_or_default()
+                    );
+                }
+                None => print!("{block}"),
+                Some(n) => {
+                    let n = match n {
+                        Some(n) => *n,
+                        None => notes::current_pr(gh_repo.as_deref())?,
+                    };
+                    match notes::post(n, gh_repo.as_deref(), &id, &block)? {
+                        notes::Posted::Created => println!("notes posted on pull request #{n}"),
+                        notes::Posted::Updated(c) => {
+                            println!("notes updated on pull request #{n} (comment {c})")
+                        }
+                        notes::Posted::Unchanged(c) => {
+                            println!("notes on pull request #{n} are up to date (comment {c})")
+                        }
+                    }
+                }
             }
         }
         Cmd::Why { target, repo } => {

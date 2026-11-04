@@ -131,7 +131,7 @@ qname or is dropped.
 
 The overlay does not fix this one, so it lands first, on its own branch.
 
-- [ ] `POST /v1/repos` runs inside the request, so a client disconnect cancels a large import
+- [x] `POST /v1/repos` runs inside the request, so a client disconnect cancels a large import
   half done. E2 lost the rust-lang/rust import this way. Make it a job:
   - `POST` returns `202 {job}` at once and runs the import on a spawned task;
   - `GET /v1/repos/{name}/import` returns `{state: running|done|failed, indexed, total, error}`;
@@ -139,6 +139,8 @@ The overlay does not fix this one, so it lands first, on its own branch.
   - a failed import removes the half-made repo, as `init_repo` does today.
 
   Tests: a disconnect does not stop the import; a failure is reported, not hung.
+  Done: `api::add_repo` spawns the import as a job (`202` unless `wait`),
+  `GET /v1/repos/{name}/import` reports it (`AppState.imports`).
 - [ ] Re-run `scholion-bench scale` on tokio and django with today's code. Keep the reports as
   the "before" (the 2026-10-30 runs are already this).
 

@@ -87,8 +87,43 @@ tasks, and every build is incremental-warm (the run saw a warm review build in 4
 
 - [ ] Design note: the workspace path is today `<ws_root>/<repo>/<slug>` and stored per task; a
       slot means a stable path and a task ↔ slot mapping, plus the invariant that a slot holds one
-      open task at a time (`lock_task` is per task, so a slot lock is new).
-- [ ] Measure before deciding: with Task 1, is the cold build (and its 6.7 GB) still the long pole?
+      open task at a time (`lock_task` is per task, so a slot lock is new). **Deferred**, see below.
+- [x] Measure before deciding: with Task 1, is the cold build (and its 6.7 GB) still the long pole?
+      No: since Task 5 seeds dependencies, the test run is.
+
+### Measured (2026-11-03, build container, 16 cores, ext4 volume, scholion at 12e1e4b)
+
+A clone of `main` with av's cargo config (`build_cache.rs`) and its own target dir; "seeded" is a
+target that holds the dependencies but none of the repo's 11 own crates (`cargo clean -p` of each
+member after a full build), which is what `deps_cache` gives a new workspace; "warm slot" is a
+target that already built the full bar, after `touch` of one crate's sources.
+
+| full bar, `cargo test --workspace --no-run` | time | compiled | target size |
+|---|---|---|---|
+| cold (empty target) | 34.5 s | 405 deps + 11 own | 2.4 GB |
+| seeded (Task 5) | 13.6–15.1 s | 0 deps + 11 own | 1.3 GB before, 2.4 GB after |
+| warm slot, `scholion-cli` touched | 1.5–1.9 s | 1 own | 2.4 GB |
+| warm slot, `scholion-pack` touched | 10.3 s | its dependants | 2.4 GB |
+| warm slot, `scholion-core` touched | 13.8 s | nearly all own | 2.4 GB |
+| **the test run itself** (849 tests, warm target) | **103.6 s** | | |
+
+With `{crates}` (#84): seeded `-p scholion-cli` 8.4 s (10 own crates: its path dependencies),
+seeded `-p` for a `scholion-pack` change 12.8 s; warm `-p scholion-cli` 2.5 s and the test run of
+`-p scholion-cli` 24.7 s. Choosing packages rebuilt 2 dependency units with other features on the
+first `-p` build (feature unification over fewer packages), then 0; going back to the full bar
+rebuilt one own crate. So `{crates}` costs the deps cache next to nothing.
+
+What it says: a full check is about 15 s of build and 104 s of tests on a seeded target, so a
+warm slot saves at most about 13 s (≈ 10%), and nothing for a change in a crate everything depends
+on. It would hold N × 2.4 GB for good, against 1.2–1.3 GB per *open* task now and 0 B after the
+merge, and it changes a stable invariant (one workspace path per task). The bigger lever for check
+time is running fewer tests (`{crates}`: 24.7 s instead of 104 s for a change in `scholion-cli`).
+Caveats: this is the container's ext4 volume, not `D:\ws` over 9p (Task 5 measured about 2× there,
+so 30 s seeded against a few seconds warm), and both columns are best cases (a slot moving between
+tasks after several merges touches more files; a seed can land after the agent's first build).
+
+**Decision: slots deferred.** Revisit if a run shows the seed landing late (agents building before
+it) on many tasks, or for repos whose own crates, not their dependencies, dominate the build.
 
 ## Task 5: share dependencies — done (`deps_cache.rs`)
 

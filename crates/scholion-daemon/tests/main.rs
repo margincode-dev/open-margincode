@@ -9,6 +9,7 @@ mod embedded_pg;
 mod history;
 mod mcp;
 mod office;
+mod remote;
 mod routing;
 mod serve;
 mod swarm;

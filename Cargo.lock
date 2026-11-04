@@ -3968,11 +3968,13 @@ name = "scholion-vcs"
 version = "0.0.2"
 dependencies = [
  "async-trait",
+ "flate2",
  "futures",
  "jj-lib",
  "pollster 0.4.0",
  "proptest",
  "scholion-core",
+ "sha1",
  "tempfile",
  "tokio",
 ]

@@ -153,6 +153,32 @@ pub trait Vcs: Send + Sync {
             "restore_workspace is not supported by this Vcs".into(),
         ))
     }
+    /// Plan 14, remote checkpoints: applies a git-format patch (`git diff --binary --full-index
+    /// --no-renames`) to the files of task workspace `slug`, whole or not at all, and returns the
+    /// paths it wrote or deleted, in patch order. It only writes files: no snapshot, no command.
+    /// A malformed or unsafe patch, or one made against other content, is `Invalid`.
+    async fn apply_patch(&self, _repo: &str, _slug: &str, _patch: &[u8]) -> Result<Vec<String>> {
+        Err(AvError::Vcs(
+            "apply_patch is not supported by this Vcs".into(),
+        ))
+    }
+    /// Plan 14: a git-format patch from `from` (`None`: the empty tree) to `to`, which `git apply`
+    /// accepts; conflicted files carry their markers, as in a workspace. Empty when equal.
+    async fn diff_patch(
+        &self,
+        _repo: &str,
+        _from: Option<&ChangeId>,
+        _to: &ChangeId,
+    ) -> Result<Vec<u8>> {
+        Err(AvError::Vcs(
+            "diff_patch is not supported by this Vcs".into(),
+        ))
+    }
+    /// Plan 14: the git tree id of `change`'s files (what `git write-tree` gives for the same
+    /// files). A conflicted tree has none: its jj tree ids joined by `+`, never 40 hex digits.
+    async fn tree_id(&self, _repo: &str, _change: &ChangeId) -> Result<String> {
+        Err(AvError::Vcs("tree_id is not supported by this Vcs".into()))
+    }
 }
 
 /// `path` at `change`, or `None` when the change is absent or has no such file.

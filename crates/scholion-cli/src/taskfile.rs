@@ -28,6 +28,19 @@ pub struct TaskFile {
     pub continue_session: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub continues: u32,
+    /// Plan 14: set in a checkout on another host than the daemon's (`av remote clone`), whose
+    /// checkpoints go to the daemon as patches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<Remote>,
+}
+
+/// Where a remote checkout last agreed with the daemon.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Remote {
+    /// The daemon's head (a change id) the checkout was last synced to.
+    pub base: String,
+    /// The checkout's own git commit with exactly that head's files.
+    pub commit: String,
 }
 
 fn is_zero(n: &u32) -> bool {

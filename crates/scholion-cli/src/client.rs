@@ -5,8 +5,16 @@ use serde_json::Value;
 
 #[derive(Debug)]
 pub enum CliError {
-    Unreachable { url: String, detail: String },
-    Api { status: u16, message: String },
+    Unreachable {
+        url: String,
+        detail: String,
+    },
+    /// `body` is the daemon's whole JSON answer (a stale remote checkpoint's `head_change`).
+    Api {
+        status: u16,
+        message: String,
+        body: Value,
+    },
     NoTask,
     Local(String),
 }
@@ -18,7 +26,9 @@ impl fmt::Display for CliError {
                 f,
                 "cannot reach the Scholion daemon at {url} ({detail}). Start one with `av up` (or `docker compose up -d`), or set AV_URL to point elsewhere."
             ),
-            CliError::Api { status, message } => write!(f, "{message} (HTTP {status})"),
+            CliError::Api {
+                status, message, ..
+            } => write!(f, "{message} (HTTP {status})"),
             CliError::NoTask => write!(
                 f,
                 "no task here: run `av task start --repo R --title T --goal G`, or pass --task <id> / set AV_TASK"
@@ -108,6 +118,52 @@ impl Client {
         }
     }
 
+    /// `post_as` with a raw body (a remote checkpoint's patch) and query parameters.
+    pub fn post_bytes(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        body: &[u8],
+        generation: Option<i64>,
+    ) -> Result<Value> {
+        let mut req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
+        for (k, v) in query {
+            req = req.query(k, v);
+        }
+        if let Some(g) = generation {
+            req = req.set("x-av-generation", &g.to_string());
+        }
+        let req = req.set("content-type", "text/x-diff");
+        self.finish(path, req.send_bytes(body))
+    }
+
+    /// `get` of a raw body with the response headers named in `want`, in that order.
+    pub fn get_bytes_with(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        want: &[&str],
+    ) -> Result<(Vec<u8>, Vec<Option<String>>)> {
+        let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
+        for (k, v) in query {
+            req = req.query(k, v);
+        }
+        match req.call() {
+            Ok(resp) => {
+                self.check_version(&resp);
+                let headers = want
+                    .iter()
+                    .map(|h| resp.header(h).map(str::to_owned))
+                    .collect();
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes)
+                    .map_err(|e| CliError::Local(format!("reading {path}: {e}")))?;
+                Ok((bytes, headers))
+            }
+            other => self.finish(path, other).map(|_| (Vec::new(), Vec::new())),
+        }
+    }
+
     /// `get` of a raw (non-JSON) body.
     pub fn get_bytes(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<u8>> {
         let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
@@ -153,10 +209,8 @@ impl Client {
                 .map_err(|e| CliError::Local(format!("bad response from daemon: {e}"))),
             Err(ureq::Error::Status(status, resp)) => {
                 let daemon = resp.header("x-av-version").map(str::to_owned);
-                let message = resp
-                    .into_json::<Value>()
-                    .ok()
-                    .and_then(|v| v["error"].as_str().map(str::to_owned));
+                let body = resp.into_json::<Value>().unwrap_or(Value::Null);
+                let message = body["error"].as_str().map(str::to_owned);
                 // A 404 the daemon's own handlers send carries an `error`; a bare one means the
                 // route does not exist there, and every route this av calls exists in this av.
                 let message = match (message, status) {
@@ -172,7 +226,11 @@ impl Client {
                     }
                     (None, _) => "request failed".to_owned(),
                 };
-                Err(CliError::Api { status, message })
+                Err(CliError::Api {
+                    status,
+                    message,
+                    body,
+                })
             }
             Err(ureq::Error::Transport(t)) => Err(CliError::Unreachable {
                 url: self.base.clone(),

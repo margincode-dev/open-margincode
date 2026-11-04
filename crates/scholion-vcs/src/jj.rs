@@ -22,9 +22,15 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::{AsyncReadExt as _, StreamExt as _};
-use jj_lib::backend::TreeValue;
+use jj_lib::backend::{MergedTreeValue, MergedTreeValueExt as _, TreeValue};
 use jj_lib::commit::Commit;
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
+use jj_lib::conflict_labels::ConflictLabels;
+use jj_lib::conflicts::{
+    ConflictMarkerStyle, ConflictMaterializeOptions, MaterializedTreeValue,
+    choose_materialized_conflict_marker_len, materialize_merge_result_to_bytes,
+    materialize_tree_value,
+};
 use jj_lib::default_backend_factories::{default_backend_factories, default_working_copy_factory};
 use jj_lib::git::{self, GitImportOptions};
 use jj_lib::gitignore::GitIgnoreFile;
@@ -45,6 +51,8 @@ use pollster::block_on;
 use scholion_core::{
     AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
 };
+
+use crate::patch::{self, Blob, EXECUTABLE, FILE, FileDiff, SYMLINK};
 
 /// Never part of a task's changes: scholion's own per-workspace metadata (written by the `av`
 /// CLI), and a workspace's build output (`target/`, where cargo and maven build by default; a
@@ -515,6 +523,72 @@ impl Inner {
         Ok(ChangeId(head.hex()))
     }
 
+    /// Plan 14: writes what `patch` does into the workspace's files (deletions first). Every
+    /// file of the patch is worked out against the files on disk before any is written.
+    fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> Result<Vec<String>> {
+        Self::task_workspace(slug)?;
+        let dir = self.ws_dir(repo, slug);
+        if !dir.is_dir() {
+            return Err(AvError::NotFound(format!("workspace {slug}")));
+        }
+        let applied = patch::apply(patch, |path| read_ws_file(&dir, path))?;
+        for a in applied.iter().filter(|a| a.after.is_none()) {
+            let file = dir.join(&a.path);
+            std::fs::remove_file(&file).map_err(verr)?;
+            prune_empty_dirs(&dir, &file);
+        }
+        for a in &applied {
+            let Some(b) = &a.after else { continue };
+            let file = dir.join(&a.path);
+            if let Some(parent) = file.parent() {
+                std::fs::create_dir_all(parent).map_err(verr)?;
+            }
+            std::fs::write(&file, &b.bytes).map_err(verr)?;
+            set_executable(&file, b.mode == EXECUTABLE)?;
+        }
+        Ok(applied.into_iter().map(|a| a.path).collect())
+    }
+
+    /// Plan 14: `from` (the empty tree when `None`) to `to` as a git-format patch.
+    fn diff_patch(&self, repo: &str, from: Option<&ChangeId>, to: &ChangeId) -> Result<Vec<u8>> {
+        let store = self.store(repo)?;
+        let to_tree = self.commit(&store, to)?.tree();
+        let from_tree = match from {
+            Some(c) => self.commit(&store, c)?.tree(),
+            None => store.empty_merged_tree(),
+        };
+        // the style the working copy writes conflicts in, so a patch shows what a workspace has
+        let style: ConflictMarkerStyle =
+            settings()?.get("ui.conflict-marker-style").map_err(verr)?;
+        block_on(async {
+            let mut stream = from_tree.diff_stream(&to_tree, &EverythingMatcher);
+            let mut diffs = vec![];
+            while let Some(entry) = stream.next().await {
+                let values = entry.values.map_err(verr)?;
+                let path = entry.path.as_ref();
+                let before =
+                    blob_of(&store, path, values.before, from_tree.labels(), style).await?;
+                let after = blob_of(&store, path, values.after, to_tree.labels(), style).await?;
+                diffs.push(FileDiff {
+                    path: path.as_internal_file_string().to_owned(),
+                    before,
+                    after,
+                });
+            }
+            Ok(patch::render(&diffs))
+        })
+    }
+
+    fn tree_id(&self, repo: &str, change: &ChangeId) -> Result<String> {
+        let store = self.store(repo)?;
+        let commit = self.commit(&store, change)?;
+        let ids = commit.tree_ids();
+        Ok(match ids.as_resolved() {
+            Some(id) => id.hex(),
+            None => ids.iter().map(|id| id.hex()).collect::<Vec<_>>().join("+"),
+        })
+    }
+
     fn changed_paths(&self, repo: &str, base: &ChangeId, head: &ChangeId) -> Result<Vec<String>> {
         let store = self.store(repo)?;
         let (b, h) = (self.commit(&store, base)?, self.commit(&store, head)?);
@@ -565,6 +639,133 @@ impl Inner {
             })
         };
         Ok(paths.iter().map(|p| (p.clone(), read_one(p))).collect())
+    }
+}
+
+/// One side of a path for a patch, as a workspace would hold it: conflicts with their markers,
+/// a symlink as its target. A submodule (or a tree) is not part of a patch.
+async fn blob_of(
+    store: &Arc<Store>,
+    path: &RepoPath,
+    value: MergedTreeValue,
+    labels: &ConflictLabels,
+    style: ConflictMarkerStyle,
+) -> Result<Option<Blob>> {
+    let value = materialize_tree_value(store, path, value, labels)
+        .await
+        .map_err(verr)?;
+    Ok(match value {
+        MaterializedTreeValue::Absent
+        | MaterializedTreeValue::GitSubmodule(_)
+        | MaterializedTreeValue::Tree(_) => None,
+        MaterializedTreeValue::AccessDenied(e) => return Err(verr(e)),
+        MaterializedTreeValue::File(mut f) => Some(Blob {
+            mode: if f.executable { EXECUTABLE } else { FILE },
+            bytes: f.read_all(path).await.map_err(verr)?,
+        }),
+        MaterializedTreeValue::Symlink { target, .. } => Some(Blob {
+            mode: SYMLINK,
+            bytes: target.into_bytes(),
+        }),
+        MaterializedTreeValue::FileConflict(f) => {
+            let options = ConflictMaterializeOptions {
+                marker_style: style,
+                marker_len: Some(choose_materialized_conflict_marker_len(&f.contents)),
+                merge: store.merge_options().clone(),
+            };
+            let bytes = materialize_merge_result_to_bytes(&f.contents, &f.labels, &options);
+            Some(Blob {
+                mode: if f.executable.unwrap_or(false) {
+                    EXECUTABLE
+                } else {
+                    FILE
+                },
+                bytes: bytes.to_vec(),
+            })
+        }
+        MaterializedTreeValue::OtherConflict { id, labels } => Some(Blob {
+            mode: FILE,
+            bytes: id.describe(&labels).into_bytes(),
+        }),
+    })
+}
+
+/// The file `path` of the workspace at `dir` for `patch::apply`: `None` when absent. A symlink,
+/// a directory, or a parent that is not a plain directory is refused, so a patch never writes
+/// outside the workspace.
+fn read_ws_file(dir: &Path, path: &str) -> Result<Option<Blob>> {
+    let refuse = |why: String| AvError::Invalid(format!("patch: {path}: {why}"));
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut at = dir.to_path_buf();
+    for (i, part) in parts.iter().enumerate() {
+        at.push(part);
+        let meta = match std::fs::symlink_metadata(&at) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(verr(e)),
+            Ok(m) => m,
+        };
+        if meta.file_type().is_symlink() {
+            return Err(refuse(format!("{} is a symlink", parts[..=i].join("/"))));
+        }
+        if i + 1 < parts.len() {
+            if !meta.is_dir() {
+                return Err(refuse(format!(
+                    "{} is not a directory",
+                    parts[..=i].join("/")
+                )));
+            }
+            continue;
+        }
+        if !meta.is_file() {
+            return Err(refuse("is not a file".into()));
+        }
+        return Ok(Some(Blob {
+            mode: if is_executable(&meta) {
+                EXECUTABLE
+            } else {
+                FILE
+            },
+            bytes: std::fs::read(&at).map_err(verr)?,
+        }));
+    }
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn is_executable(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_meta: &std::fs::Metadata) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn set_executable(file: &Path, exec: bool) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = std::fs::metadata(file).map_err(verr)?.permissions().mode();
+    let want = if exec { mode | 0o111 } else { mode & !0o111 };
+    if want != mode {
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(want)).map_err(verr)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_executable(_file: &Path, _exec: bool) -> Result<()> {
+    Ok(())
+}
+
+/// Removes the directories above `file` that a deletion left empty, up to (not including) `root`.
+fn prune_empty_dirs(root: &Path, file: &Path) {
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if d == root || !d.starts_with(root) || std::fs::remove_dir(d).is_err() {
+            break;
+        }
+        dir = d.parent();
     }
 }
 
@@ -1020,5 +1221,27 @@ impl Vcs for JjVcs {
         let (name, slug, head) = (repo.to_owned(), slug.to_owned(), head.clone());
         self.run(repo, move |i| i.restore_workspace(&name, &slug, &head))
             .await
+    }
+
+    async fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> Result<Vec<String>> {
+        let (name, slug, patch) = (repo.to_owned(), slug.to_owned(), patch.to_vec());
+        self.run(repo, move |i| i.apply_patch(&name, &slug, &patch))
+            .await
+    }
+
+    async fn diff_patch(
+        &self,
+        repo: &str,
+        from: Option<&ChangeId>,
+        to: &ChangeId,
+    ) -> Result<Vec<u8>> {
+        let (name, from, to) = (repo.to_owned(), from.cloned(), to.clone());
+        self.read(repo, move |i| i.diff_patch(&name, from.as_ref(), &to))
+            .await
+    }
+
+    async fn tree_id(&self, repo: &str, change: &ChangeId) -> Result<String> {
+        let (name, change) = (repo.to_owned(), change.clone());
+        self.read(repo, move |i| i.tree_id(&name, &change)).await
     }
 }

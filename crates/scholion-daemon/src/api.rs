@@ -110,7 +110,12 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/reindex", post(crate::reindex::reindex))
         .route("/v1/tasks", post(start_task).get(list_tasks))
         .route("/v1/tasks/{id}", get(get_task))
-        .route("/v1/tasks/{id}/checkpoint", post(checkpoint))
+        .route(
+            "/v1/tasks/{id}/checkpoint",
+            post(checkpoint).layer(axum::extract::DefaultBodyLimit::max(
+                crate::remote::MAX_PATCH_BYTES,
+            )),
+        )
         .route("/v1/tasks/{id}/submit", post(crate::flow::submit))
         .route("/v1/tasks/{id}/unrecorded", get(crate::flow::unrecorded))
         .route("/v1/tasks/{id}/validate", post(crate::flow::validate))
@@ -163,6 +168,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::routing_api::routes())
         .merge(crate::office::routes())
         .merge(crate::disk::routes())
+        .merge(crate::remote::routes())
 }
 
 /// Sessions idle this long lose their ledger in `prune`.
@@ -662,18 +668,33 @@ async fn records_at(
     ))
 }
 
+#[derive(Deserialize)]
+struct CheckpointQuery {
+    /// Plan 14: the head a remote checkout's patch (the body) was made against.
+    base: Option<String>,
+}
+
+/// Snapshots the workspace. With `?base=`, the body is a remote checkout's patch, applied first
+/// (`remote::checkpoint`); without it the body is ignored, as it always was.
 async fn checkpoint(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
+    Query(q): Query<CheckpointQuery>,
     headers: HeaderMap,
-) -> ApiResult<Value> {
+    body: axum::body::Bytes,
+) -> std::result::Result<axum::response::Response, crate::error::ApiError> {
+    use axum::response::IntoResponse;
     let _guard = st.lock_task(task_id(id)).await;
     let task = st.store.get_task(task_id(id)).await?;
     fence(&st, &task, &headers).await?;
+    if let Some(base) = q.base.as_deref().filter(|b| !b.trim().is_empty()) {
+        return crate::remote::checkpoint(&st, task, base, &body).await;
+    }
     let (head, changed, warnings) = snapshot_and_index(&st, &task).await?;
-    Ok(Json(
-        json!({ "head_change": head, "changed": changed, "warnings": warnings }),
-    ))
+    Ok(
+        Json(json!({ "head_change": head, "changed": changed, "warnings": warnings }))
+            .into_response(),
+    )
 }
 
 /// Snapshot the workspace, update the task overlay for what changed, and record the new head.
@@ -682,8 +703,18 @@ pub(crate) async fn snapshot_and_index(
     st: &AppState,
     task: &Task,
 ) -> Result<(ChangeId, Vec<String>, Vec<String>)> {
-    let old_head = task.head_change.clone();
     let head = st.vcs.snapshot(&task.repo, &task.slug).await?;
+    index_head(st, task, head).await
+}
+
+/// The rest of `snapshot_and_index` for a `head` just snapshotted: the overlay and the task's
+/// recorded head follow it.
+pub(crate) async fn index_head(
+    st: &AppState,
+    task: &Task,
+    head: ChangeId,
+) -> Result<(ChangeId, Vec<String>, Vec<String>)> {
+    let old_head = task.head_change.clone();
     let changed = st
         .vcs
         .changed_paths(&task.repo, &task.base_change, &head)

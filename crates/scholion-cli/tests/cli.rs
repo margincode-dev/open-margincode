@@ -4377,3 +4377,181 @@ fn notes_pr_posts_once_then_updates_the_same_comment_in_place() {
     assert_eq!(o.status.code(), Some(1));
     assert!(err(&o).contains("Bad credentials"), "{}", err(&o));
 }
+
+// --- Plan 14: a checkout on another host. A second directory stands in for the other host: it
+// shares nothing with the daemon's workspace but the HTTP API.
+
+fn task_of(ws: &Path) -> String {
+    let file = std::fs::read_to_string(ws.join(".av-task")).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&file).unwrap();
+    json["task"].as_str().unwrap().to_owned()
+}
+
+/// `started()`, plus a remote checkout of its task in a directory of its own.
+fn cloned() -> (Daemon, PathBuf, TempDir, PathBuf) {
+    let (d, ws, _scratch) = started();
+    let task = task_of(&ws);
+    let host = TempDir::new().unwrap();
+    let dir = host.path().join("co");
+    let o = ok(av(
+        &d,
+        host.path(),
+        &["remote", "clone", &task, dir.to_str().unwrap()],
+    ));
+    assert!(o.contains("checkout:") && o.contains(&task), "{o}");
+    (d, ws, host, dir)
+}
+
+#[test]
+fn a_checkout_on_another_host_checkpoints_through_a_patch() {
+    let (d, ws, _host, dir) = cloned();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app/greeter.py")).unwrap(),
+        std::fs::read_to_string(ws.join("app/greeter.py")).unwrap()
+    );
+    assert!(dir.join("README.md").exists());
+    let tf = std::fs::read_to_string(dir.join(".av-task")).unwrap();
+    assert!(tf.contains("\"remote\""), "{tf}");
+
+    let louder = "class Greeter:\n    def hello(self, name):\n        return name.upper()\n";
+    std::fs::write(dir.join("app/greeter.py"), louder).unwrap();
+    std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 1\n").unwrap();
+    std::fs::remove_file(dir.join("README.md")).unwrap();
+    let img: Vec<u8> = (0..2000u32)
+        .map(|i| (i * 7 % 256) as u8)
+        .chain([0])
+        .collect();
+    std::fs::write(dir.join("logo.bin"), &img).unwrap();
+    // build output and the task file stay out of the patch, as they stay out of a snapshot
+    std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+    std::fs::write(dir.join("target/debug/big"), [0u8; 64]).unwrap();
+
+    let cp = ok(av(&d, &dir, &["checkpoint"]));
+    assert!(
+        cp.contains("changed (4): README.md, app/greeter.py, app/wave.py, logo.bin"),
+        "{cp}"
+    );
+    // it landed in the daemon's workspace, and the daemon's snapshot holds it
+    assert_eq!(
+        std::fs::read_to_string(ws.join("app/greeter.py")).unwrap(),
+        louder
+    );
+    assert!(!ws.join("README.md").exists());
+    assert_eq!(std::fs::read(ws.join("logo.bin")).unwrap(), img);
+    assert!(!ws.join("target").exists());
+    let shown = ok(av(
+        &d,
+        &dir,
+        &["show", "app/wave.py", "--at", "task:improve-greeting"],
+    ));
+    assert!(shown.contains("def wave"), "{shown}");
+    let st = ok(av(&d, &dir, &["status"]));
+    assert!(st.contains("app/wave.py"), "{st}");
+
+    // the next checkpoint sends only what changed since
+    std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 2\n").unwrap();
+    let cp = ok(av(&d, &dir, &["checkpoint"]));
+    assert!(cp.contains("app/wave.py"), "{cp}");
+    assert_eq!(
+        std::fs::read_to_string(ws.join("app/wave.py")).unwrap(),
+        "def wave():\n    return 2\n"
+    );
+
+    // someone checkpoints on the daemon's host; the checkout's next checkpoint is refused as
+    // stale, pulls, and goes through with both changes
+    std::fs::write(ws.join("app/other.py"), "X = 1\n").unwrap();
+    ok(av(&d, &ws, &["checkpoint"]));
+    std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 3\n").unwrap();
+    let cp = ok(av(&d, &dir, &["checkpoint"]));
+    assert!(cp.contains("app/wave.py"), "{cp}");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app/other.py")).unwrap(),
+        "X = 1\n",
+        "pulled"
+    );
+    assert_eq!(
+        std::fs::read_to_string(ws.join("app/wave.py")).unwrap(),
+        "def wave():\n    return 3\n"
+    );
+    // a pull with nothing new says so
+    let p = ok(av(&d, &dir, &["remote", "pull"]));
+    assert!(p.contains("up to date"), "{p}");
+}
+
+#[test]
+fn a_pull_that_meets_a_local_edit_of_the_same_lines_leaves_markers() {
+    let (d, ws, _host, dir) = cloned();
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    ok(av(&d, &ws, &["checkpoint"]));
+    std::fs::write(
+        dir.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name + '!'\n",
+    )
+    .unwrap();
+    let o = av(&d, &dir, &["checkpoint"]);
+    assert!(!o.status.success(), "{}", out(&o));
+    assert!(err(&o).contains("app/greeter.py"), "{}", err(&o));
+    let text = std::fs::read_to_string(dir.join("app/greeter.py")).unwrap();
+    assert!(
+        text.contains("<<<<<<<") && text.contains("name.upper()") && text.contains("'!'"),
+        "{text}"
+    );
+    // resolved by hand, the checkpoint goes through
+    let both = "class Greeter:\n    def hello(self, name):\n        return name.upper() + '!'\n";
+    std::fs::write(dir.join("app/greeter.py"), both).unwrap();
+    ok(av(&d, &dir, &["checkpoint"]));
+    assert_eq!(
+        std::fs::read_to_string(ws.join("app/greeter.py")).unwrap(),
+        both
+    );
+}
+
+#[test]
+fn submit_from_a_checkout_sends_its_edits_first() {
+    let (d, ws, _host, dir) = cloned();
+    std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 1\n").unwrap();
+    ok(av(
+        &d,
+        &dir,
+        &["submit", "--record", "decision: add wave @ app/wave.py"],
+    ));
+    assert!(ws.join("app/wave.py").exists());
+}
+
+#[test]
+fn task_start_with_checkout_makes_the_checkout_instead_of_using_the_workspace() {
+    let d = start_daemon();
+    let host = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        host.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    let dir = host.path().join("mine");
+    let o = ok(av(
+        &d,
+        host.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Far away",
+            "--goal",
+            "g",
+            "--checkout",
+            // relative to where `av` runs, as typed
+            "mine",
+        ],
+    ));
+    assert!(o.contains("## Task"), "{o}");
+    assert!(dir.join("app/greeter.py").exists());
+    std::fs::write(dir.join("app/far.py"), "F = 1\n").unwrap();
+    ok(av(&d, &dir, &["checkpoint"]));
+    assert!(d.ws.join("demo/far-away/app/far.py").exists());
+}

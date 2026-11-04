@@ -43,8 +43,10 @@ Each item names what it waits on.
    left pack scores unchanged but for one task at one budget and cut edges 40% / 54%
    (`bench/results/2026-11-03-e1-fanout-cap/`). Waits on the owner's choice of N and of a
    default, and on a rust-lang/rust import under the cap (it stalled at ~4 GB uncapped).
-5. **Sparse checkouts** and **checkpoint by patch**: not planned; only if workspace disk or
-   snapshot time becomes the limiter (build output, not checkouts, was 99.99% of a task's disk).
+5. **Sparse checkouts**: not planned; only if workspace disk or snapshot time becomes the limiter
+   (build output, not checkouts, was 99.99% of a task's disk). **Checkpoint by patch** (remote
+   workspaces, Plan 13 Phase 3) is Plan 14, on branch `remote-checkpoint`
+   (`docs/superpowers/plans/2026-11-04-scholion-plan-14-remote-workspaces.md`).
 6. **Adapter verification against the real CLIs.** `av init --for codex|gemini|cursor` is tested
    against fixtures only (`integrations/*/README.md`); it waits on those CLIs being installed.
    Muse Code's settings path is still unknown (`integrations/muse/README.md`). Grok is verified.

@@ -18,6 +18,7 @@ mod indexing;
 mod mcp;
 mod office;
 mod reindex;
+mod remote;
 mod routing_api;
 mod serve;
 mod ui;
@@ -44,6 +45,7 @@ pub use ext::{
     AllowAll, ExtTool, Guarded, MergeGuard, NoUsage, ToolHandler, UsageReport, UsageSink,
 };
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
+pub use remote::MAX_PATCH_BYTES;
 pub use serve::{BoxError, run_with, serve_with, shutdown_signal};
 pub use wiring::{Config, build_state, embed_authorization};
 pub use worker::{DrainStats, OutboxWorker};

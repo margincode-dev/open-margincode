@@ -464,11 +464,8 @@ pub fn post_edit(client: &Client, agent: &str) {
         eprintln!("av: hook post-edit: cannot update {}: {e}", taskfile::NAME);
     }
     let generation = generation(&tf, agent);
-    if let Err(e) = client.post_as(
-        &format!("/v1/tasks/{}/checkpoint", tf.task),
-        &json!({}),
-        generation,
-    ) {
+    // a remote checkout (Plan 14) sends its changes as a patch
+    if let Err(e) = crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
         eprintln!("av: hook post-edit: checkpoint failed: {e}");
     }
 }
@@ -554,11 +551,7 @@ fn nudge_to_record(
         return false;
     }
     // the last edits may be inside post-edit's debounce
-    if let Err(e) = client.post_as(
-        &format!("/v1/tasks/{}/checkpoint", tf.task),
-        &json!({}),
-        generation(tf, agent),
-    ) {
+    if let Err(e) = crate::remote::checkpoint_task(client, &tf.task, generation(tf, agent), dir) {
         eprintln!("av: hook stop: checkpoint failed: {e}");
         return false;
     }

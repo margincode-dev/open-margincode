@@ -434,3 +434,188 @@ async fn restore_workspace_works_for_an_empty_head_jj_abandoned() {
     assert_eq!(r.base_change, w.base_change);
     assert_eq!(e.vcs.snapshot("demo", "empty").await.unwrap(), head);
 }
+
+// --- Plan 14: remote checkpoints (a patch applied to a workspace, a workspace's state as a patch)
+
+fn git_out(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "core.autocrlf=false"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn text_blob(s: &str) -> scholion_vcs::patch::Blob {
+    scholion_vcs::patch::Blob {
+        mode: scholion_vcs::patch::FILE,
+        bytes: s.as_bytes().to_vec(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_patch_writes_the_workspace_and_a_snapshot_records_it() {
+    use scholion_vcs::patch::{Blob, EXECUTABLE, FileDiff, render};
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "remote").await.unwrap();
+    let p = render(&[
+        FileDiff {
+            path: "a.py".into(),
+            before: Some(text_blob("def a():\n    return 1\n")),
+            after: Some(text_blob("def a():\n    return 42\n")),
+        },
+        FileDiff {
+            path: "pkg/b.py".into(),
+            before: Some(text_blob("def b():\n    return 2\n")),
+            after: None,
+        },
+        FileDiff {
+            path: "tools/run.sh".into(),
+            before: None,
+            after: Some(Blob {
+                mode: EXECUTABLE,
+                bytes: b"#!/bin/sh\necho hi\n".to_vec(),
+            }),
+        },
+    ]);
+    let mut touched = e.vcs.apply_patch("demo", "remote", &p).await.unwrap();
+    touched.sort();
+    assert_eq!(touched, vec!["a.py", "pkg/b.py", "tools/run.sh"]);
+    assert!(
+        !w.path.join("pkg").exists(),
+        "an emptied directory goes too"
+    );
+    let head = e.vcs.snapshot("demo", "remote").await.unwrap();
+    assert_eq!(
+        e.vcs.read_file("demo", &head, "a.py").await.unwrap(),
+        b"def a():\n    return 42\n"
+    );
+    assert_eq!(
+        e.vcs
+            .changed_paths("demo", &w.base_change, &head)
+            .await
+            .unwrap(),
+        vec!["a.py", "pkg/b.py", "tools/run.sh"]
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let m = std::fs::metadata(w.path.join("tools/run.sh")).unwrap();
+        assert_eq!(m.permissions().mode() & 0o111, 0o111);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_patch_applies_whole_or_not_at_all() {
+    use scholion_vcs::patch::{FileDiff, render};
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "whole").await.unwrap();
+    let p = render(&[
+        FileDiff {
+            path: "a.py".into(),
+            before: Some(text_blob("def a():\n    return 1\n")),
+            after: Some(text_blob("def a():\n    return 7\n")),
+        },
+        FileDiff {
+            // not what the workspace holds
+            path: "pkg/b.py".into(),
+            before: Some(text_blob("def b():\n    return 99\n")),
+            after: Some(text_blob("def b():\n    return 3\n")),
+        },
+    ]);
+    let r = e.vcs.apply_patch("demo", "whole", &p).await;
+    assert!(
+        matches!(r, Err(scholion_core::AvError::Invalid(_))),
+        "{r:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(w.path.join("a.py")).unwrap(),
+        "def a():\n    return 1\n",
+        "nothing was written"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_patch_never_writes_through_a_symlink() {
+    use scholion_vcs::patch::{FileDiff, render};
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "link").await.unwrap();
+    let outside = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(outside.path(), w.path.join("out")).unwrap();
+    std::os::unix::fs::symlink(w.path.join("a.py"), w.path.join("a-link.py")).unwrap();
+    for path in ["out/evil.txt", "a-link.py"] {
+        let before = (path == "a-link.py").then(|| text_blob("def a():\n    return 1\n"));
+        let p = render(&[FileDiff {
+            path: path.into(),
+            before,
+            after: Some(text_blob("pwned\n")),
+        }]);
+        let r = e.vcs.apply_patch("demo", "link", &p).await;
+        assert!(
+            matches!(r, Err(scholion_core::AvError::Invalid(_))),
+            "{path}: {r:?}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+    assert_eq!(
+        std::fs::read_to_string(w.path.join("a.py")).unwrap(),
+        "def a():\n    return 1\n"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diff_patch_from_nothing_rebuilds_the_tree_git_has() {
+    let e = env().await;
+    let p = e.vcs.diff_patch("demo", None, &e.main).await.unwrap();
+    let dir = TempDir::new().unwrap();
+    git_out(dir.path(), &["init", "-q"]);
+    let file = dir.path().join(".git/p.diff");
+    std::fs::write(&file, &p).unwrap();
+    git_out(dir.path(), &["apply", "--cached", file.to_str().unwrap()]);
+    let tree = git_out(dir.path(), &["write-tree"]);
+    assert_eq!(tree, git_out(e._src.path(), &["rev-parse", "HEAD^{tree}"]));
+    assert_eq!(e.vcs.tree_id("demo", &e.main).await.unwrap(), tree);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diff_patch_between_two_heads_applies_with_git() {
+    let e = env().await;
+    let w = e.vcs.create_workspace("demo", "two").await.unwrap();
+    std::fs::write(w.path.join("a.py"), "def a():\n    return 2\n").unwrap();
+    let h1 = e.vcs.snapshot("demo", "two").await.unwrap();
+    std::fs::write(w.path.join("a.py"), "def a():\n    return 3\n").unwrap();
+    std::fs::write(w.path.join("img.bin"), [0u8, 1, 2, 255, 0, 7]).unwrap();
+    std::fs::remove_file(w.path.join("pkg/b.py")).unwrap();
+    let h2 = e.vcs.snapshot("demo", "two").await.unwrap();
+
+    let dir = TempDir::new().unwrap();
+    git_out(dir.path(), &["init", "-q"]);
+    let file = dir.path().join(".git/p.diff");
+    std::fs::write(&file, e.vcs.diff_patch("demo", None, &h1).await.unwrap()).unwrap();
+    git_out(dir.path(), &["apply", "--index", file.to_str().unwrap()]);
+    assert_eq!(
+        git_out(dir.path(), &["write-tree"]),
+        e.vcs.tree_id("demo", &h1).await.unwrap()
+    );
+    let step = e.vcs.diff_patch("demo", Some(&h1), &h2).await.unwrap();
+    std::fs::write(&file, &step).unwrap();
+    git_out(dir.path(), &["apply", "--index", file.to_str().unwrap()]);
+    assert_eq!(
+        git_out(dir.path(), &["write-tree"]),
+        e.vcs.tree_id("demo", &h2).await.unwrap()
+    );
+    assert!(
+        e.vcs
+            .diff_patch("demo", Some(&h2), &h2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

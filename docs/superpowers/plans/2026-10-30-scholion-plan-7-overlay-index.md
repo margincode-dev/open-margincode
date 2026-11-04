@@ -222,7 +222,8 @@ start on large repos, sparse checkouts are the next plan. They are not this one.
 - **Name fan-out stays in `main`.** One copy of `main`'s edges is still about 900k rows for tokio
   and millions for rust-lang/rust. That is a one-time cost now, not one per task. Capping fan-out
   (for example, not linking names with more than N candidates) is a separate retrieval change,
-  measured with E1.
+  measured with E1. *Since built, off by default (`AV_INDEX_MAX_FANOUT`); E1 found no loss at
+  N = 64 or 16 but for one task at one budget: `bench/results/2026-11-03-e1-fanout-cap/`.*
 
 ## Out of scope
 

@@ -191,11 +191,25 @@ pub trait CodeIndex: Send + Sync {
 #[derive(Clone)]
 pub struct PgIndex {
     pool: PgPool,
+    max_fanout: Option<u32>,
 }
 
 impl PgIndex {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            max_fanout: None,
+        }
+    }
+
+    /// Caps name fan-out: a reference whose name more than `cap` other symbols of the scope
+    /// define links to none of them (`None`, the default, links every one). Stored edges follow
+    /// the cap they were built with, so set it before a repo is imported: reindexing skips
+    /// unchanged files and relinks only what changes. Overlay views apply it to the names as the
+    /// view sees them.
+    pub fn with_max_fanout(mut self, cap: Option<u32>) -> Self {
+        self.max_fanout = cap;
+        self
     }
 
     /// Paths the overlay hides from `main`. `None` means no overlay row (or the scope is `main`):
@@ -552,7 +566,12 @@ impl PgIndex {
 
         if write_edges {
             rebuild.extend(dependents_of(&mut tx, repo, scope, &touched_names).await?);
-            rebuild_edges(&mut tx, &rebuild.into_iter().collect::<Vec<_>>()).await?;
+            rebuild_edges(
+                &mut tx,
+                &rebuild.into_iter().collect::<Vec<_>>(),
+                self.max_fanout,
+            )
+            .await?;
         }
         tx.commit().await.map_err(ierr)?;
         Ok(stats)
@@ -615,9 +634,85 @@ fn degree_of_weights() -> String {
     )
 }
 
+/// CTEs `view_syms`, `overlay_syms` and `pairs` (src, dst) for an overlay view; binds `$1` repo,
+/// `$2` scope, `$3` masked paths. Pairs: (1) main→main stored refs with both ends unmasked;
+/// (2) out-edges of overlay symbols via their refs[]; (3) in-edges onto overlay symbols via view
+/// refs. Stored task-scope symbol_refs are ignored (Task 4 stops writing them).
+///
+/// With `max_fanout`, a full index of the view's tree would link a name only if at most that
+/// many other symbols define it, counted in the view. The stored edges were capped by main's
+/// count, so two kinds of edge differ: a name the overlay defines more often is over the cap
+/// here (filtered below), and a name a masked main file defined is defined less often here and
+/// may fall under it (its main→main pairs are computed again, (4)).
+fn view_pairs(max_fanout: Option<u32>) -> String {
+    let base = "view_syms AS (
+                     SELECT id, name, refs, path, scope FROM symbols
+                     WHERE repo = $1 AND (
+                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($3)))
+                     )
+                 ),
+                 overlay_syms AS (
+                     SELECT id, name, refs FROM view_syms WHERE scope = $2
+                 )";
+    let raw = "SELECT e.src, e.dst
+                     FROM symbol_refs e
+                     JOIN symbols s ON s.id = e.src
+                     JOIN symbols d ON d.id = e.dst
+                     WHERE s.repo = $1 AND d.repo = $1
+                       AND s.scope = 'main' AND d.scope = 'main'
+                       AND NOT (s.path = ANY($3)) AND NOT (d.path = ANY($3))
+                     UNION
+                     SELECT o.id, v.id
+                     FROM overlay_syms o
+                     CROSS JOIN LATERAL unnest(o.refs) AS r(name)
+                     JOIN view_syms v ON v.name = r.name AND v.id <> o.id
+                     UNION
+                     SELECT v.id, o.id
+                     FROM overlay_syms o
+                     JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id";
+    match max_fanout {
+        None => format!("{base},\n pairs AS ({raw})"),
+        Some(cap) => format!(
+            "{base},
+                 name_k AS (SELECT name, count(*) AS k FROM view_syms GROUP BY name),
+                 -- only names few enough here to pass the filter below; `new` defined in a
+                 -- masked file stays over the cap and is not recomputed
+                 masked_names AS (
+                     SELECT DISTINCT m.name FROM symbols m
+                     JOIN name_k n ON n.name = m.name
+                     WHERE m.repo = $1 AND m.scope = 'main' AND m.path = ANY($3)
+                       AND n.k <= {cap} + 1
+                 ),
+                 raw_pairs AS (
+                     {raw}
+                     UNION
+                     SELECT s.id, d.id
+                     FROM view_syms s
+                     CROSS JOIN LATERAL unnest(s.refs) AS r(name)
+                     JOIN masked_names m ON m.name = r.name
+                     JOIN view_syms d ON d.name = r.name AND d.id <> s.id
+                     WHERE s.scope = 'main' AND d.scope = 'main'
+                 ),
+                 pairs AS (
+                     SELECT p.src, p.dst
+                     FROM raw_pairs p
+                     JOIN view_syms s ON s.id = p.src
+                     JOIN view_syms d ON d.id = p.dst
+                     JOIN name_k n ON n.name = d.name
+                     WHERE n.k - (s.name = d.name)::int <= {cap}
+                 )"
+        ),
+    }
+}
+
 /// Recomputes outgoing edges of `ids`. An identifier in `refs` links to every other symbol in the
-/// same scope whose last qname segment equals it; k candidates each get weight 1/k.
-async fn rebuild_edges(conn: &mut PgConnection, ids: &[i64]) -> Result<()> {
+/// same scope whose last qname segment equals it; k candidates each get weight 1/k. With a
+/// `max_fanout`, a name with more than that many candidates links to none.
+async fn rebuild_edges(
+    conn: &mut PgConnection,
+    ids: &[i64],
+    max_fanout: Option<u32>,
+) -> Result<()> {
     if ids.is_empty() {
         return Ok(());
     }
@@ -634,10 +729,11 @@ async fn rebuild_edges(conn: &mut PgConnection, ids: &[i64]) -> Result<()> {
          JOIN symbols d ON d.repo = s.repo AND d.scope = s.scope AND d.name = r.name AND d.id <> s.id
          JOIN LATERAL (SELECT count(*)::real AS k FROM symbols d2
                        WHERE d2.repo = s.repo AND d2.scope = s.scope AND d2.name = r.name AND d2.id <> s.id) cnt ON true
-         WHERE s.id = ANY($1)
+         WHERE s.id = ANY($1) AND ($2::real IS NULL OR cnt.k <= $2)
          ON CONFLICT (src, dst) DO UPDATE SET weight = GREATEST(symbol_refs.weight, EXCLUDED.weight)",
     )
     .bind(ids)
+    .bind(max_fanout.map(|c| c as f32))
     .execute(&mut *conn)
     .await
     .map_err(ierr)?;
@@ -1010,7 +1106,7 @@ impl CodeIndex for PgIndex {
             enqueue_symbol(&mut tx, &ctx, OutboxOp::Delete, id, None).await?;
         }
         let dependents = dependents_of(&mut tx, repo, scope, &names).await?;
-        rebuild_edges(&mut tx, &dependents).await?;
+        rebuild_edges(&mut tx, &dependents, self.max_fanout).await?;
         tx.commit().await.map_err(ierr)
     }
 
@@ -1389,49 +1485,21 @@ impl CodeIndex for PgIndex {
             .await
             .map_err(ierr)?
         } else {
-            // View edges: (1) main→main stored refs with both ends unmasked; (2) out-edges of
-            // overlay symbols via their refs[]; (3) in-edges onto overlay symbols via view refs.
-            // Stored task-scope symbol_refs are ignored (Task 4 stops writing them).
             let masked = mask.as_ref().expect("non-plain has a mask");
-            sqlx::query(
+            sqlx::query(&format!(
                 "WITH RECURSIVE
-                 view_syms AS (
-                     SELECT id, name, refs, path, scope FROM symbols
-                     WHERE repo = $1 AND (
-                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($3)))
-                     )
-                 ),
-                 overlay_syms AS (
-                     SELECT id, name, refs FROM view_syms WHERE scope = $2
-                 ),
-                 edges AS (
-                     SELECT e.src, e.dst
-                     FROM symbol_refs e
-                     JOIN symbols s ON s.id = e.src
-                     JOIN symbols d ON d.id = e.dst
-                     WHERE s.repo = $1 AND d.repo = $1
-                       AND s.scope = 'main' AND d.scope = 'main'
-                       AND NOT (s.path = ANY($3)) AND NOT (d.path = ANY($3))
-                     UNION
-                     SELECT o.id, v.id
-                     FROM overlay_syms o
-                     CROSS JOIN LATERAL unnest(o.refs) AS r(name)
-                     JOIN view_syms v ON v.name = r.name AND v.id <> o.id
-                     UNION
-                     SELECT v.id, o.id
-                     FROM overlay_syms o
-                     JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id
-                 ),
+                 {},
                  walk(id, hops) AS (
                      SELECT unnest($4::bigint[]), 0
                    UNION
                      SELECT CASE WHEN e.src = w.id THEN e.dst ELSE e.src END, w.hops + 1
-                     FROM walk w JOIN edges e ON (e.src = w.id OR e.dst = w.id)
+                     FROM walk w JOIN pairs e ON (e.src = w.id OR e.dst = w.id)
                      WHERE w.hops < $5
                  )
                  SELECT id, MIN(hops) AS hops FROM walk WHERE NOT (id = ANY($4))
                  GROUP BY id ORDER BY MIN(hops), id",
-            )
+                view_pairs(self.max_fanout)
+            ))
             .bind(repo)
             .bind(scope)
             .bind(masked)
@@ -1540,33 +1608,7 @@ impl CodeIndex for PgIndex {
             let masked = mask.as_ref().expect("non-plain has a mask");
             sqlx::query_as(&format!(
                 "WITH
-                 view_syms AS (
-                     SELECT id, name, refs, path, scope FROM symbols
-                     WHERE repo = $1 AND (
-                         scope = $2 OR (scope = 'main' AND NOT (path = ANY($3)))
-                     )
-                 ),
-                 overlay_syms AS (
-                     SELECT id, name, refs FROM view_syms WHERE scope = $2
-                 ),
-                 pairs AS (
-                     SELECT e.src, e.dst
-                     FROM symbol_refs e
-                     JOIN symbols s ON s.id = e.src
-                     JOIN symbols d ON d.id = e.dst
-                     WHERE s.repo = $1 AND d.repo = $1
-                       AND s.scope = 'main' AND d.scope = 'main'
-                       AND NOT (s.path = ANY($3)) AND NOT (d.path = ANY($3))
-                     UNION
-                     SELECT o.id, v.id
-                     FROM overlay_syms o
-                     CROSS JOIN LATERAL unnest(o.refs) AS r(name)
-                     JOIN view_syms v ON v.name = r.name AND v.id <> o.id
-                     UNION
-                     SELECT v.id, o.id
-                     FROM overlay_syms o
-                     JOIN view_syms v ON o.name = ANY(v.refs) AND v.id <> o.id
-                 ),
+                 {},
                  -- a name several symbols share weighs 1/k per edge, as the stored edges do, so
                  -- a rebuilt scope and an overlay view count alike
                  edges AS (
@@ -1576,6 +1618,7 @@ impl CodeIndex for PgIndex {
                      FROM pairs p JOIN view_syms d ON d.id = p.dst
                  )
                  SELECT dst, {} FROM edges WHERE dst = ANY($4) GROUP BY dst",
+                view_pairs(self.max_fanout),
                 degree_of_weights()
             ))
             .bind(repo)

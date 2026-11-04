@@ -98,6 +98,8 @@ services:
       AV_WS_RETAIN_SECS: ${AV_WS_RETAIN_SECS:-3600}
       # off: no shared cargo build cache (<ws>/<repo>/.cargo/config.toml) for Rust repos.
       AV_BUILD_CACHE: ${AV_BUILD_CACHE:-on}
+      # A call whose name more than N other symbols define links to none (empty: no cap).
+      AV_INDEX_MAX_FANOUT: ${AV_INDEX_MAX_FANOUT:-}
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
       AV_TOKEN: ${AV_TOKEN:-}
       # Git backup of main after every merge: whitespace-separated repo=url pairs. SSH remotes need

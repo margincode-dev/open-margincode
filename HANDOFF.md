@@ -28,10 +28,9 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
 Each item names what it waits on.
 
 1. **Plan 12, lean builds** (`docs/superpowers/plans/2026-11-03-scholion-plan-12-lean-builds.md`).
-   Tasks 1, 5 and 6 are merged. Task 2 (`{crates}` in a check) is #84 and Task 3 (a task's builds
-   in its own `target/` whatever `CARGO_TARGET_DIR` says) is #85; both wait on a merge. Task 4,
-   workspace slots with warm targets, waits on a measurement run: is the cold build still the
-   long pole now that dependencies are seeded?
+   Tasks 1, 2 (`{crates}` in a check, #84), 3 (a task's builds in its own `target/`, #85), 5 and 6
+   are merged. Task 4 was measured (#87): the test run, not the build, is the long pole, so
+   workspace slots are deferred until a measurement says otherwise.
 2. **Plan 6 evaluation**: E4-at-scale (the DeepSeek relay run, the product claim) and E5-E7
    (swarm against a git baseline, planted-defect review, Plan 5 features under load). They spend
    API money, so they wait on the owner's go.
@@ -40,11 +39,10 @@ Each item names what it waits on.
    2026-10-31 (`bench/results/2026-10-31-routing-grok/conformance.md`); the routing runs (G1 and
    later) spend money and wait on the owner's go.
    `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md`.
-4. **Name fan-out cap** (rust-lang/rust import stalled at ~4 GB of `main`'s edges). A retrieval
-   change: not linking names with more than N candidates touches `rebuild_edges` and both view
-   edge queries, and can move the `overlay_equiv` proptest and the pack goldens. It waits on an
-   E1 run (no API cost; a bench daemon and the six repos of `bench/retrieval/README.md`) and on a
-   choice of N. Plan 7's Risks section.
+4. **Name fan-out cap**: built, off by default (`AV_INDEX_MAX_FANOUT=N`). E1 at caps 64 and 16
+   left pack scores unchanged but for one task at one budget and cut edges 40% / 54%
+   (`bench/results/2026-11-03-e1-fanout-cap/`). Waits on the owner's choice of N and of a
+   default, and on a rust-lang/rust import under the cap (it stalled at ~4 GB uncapped).
 5. **Sparse checkouts** and **checkpoint by patch**: not planned; only if workspace disk or
    snapshot time becomes the limiter (build output, not checkouts, was 99.99% of a task's disk).
 6. **Adapter verification against the real CLIs.** `av init --for codex|gemini|cursor` is tested

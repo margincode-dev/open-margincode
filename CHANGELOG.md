@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Name fan-out cap** (`AV_INDEX_MAX_FANOUT=N`, off by default). The code graph links a call by its
+  bare name to every symbol of that name, so `new` alone gave tokio 500k of its 896k edges. With a
+  cap, a name more than N other symbols define links to none of them; overlay views apply it to
+  the names as the task sees them, and the overlay equivalence proptest runs under a cap of 1 too.
+  E1 on the public task set: pack scores unchanged at caps 64 and 16 but for one task at one
+  budget, edges −40% / −54%; on tokio a cap of 64 drops 71% of the edges
+  (`bench/results/2026-11-03-e1-fanout-cap/`). It applies to repos imported after it is set.
 - **Lean builds, one target dir per task** (Plan 12). Build output was 99.99% of the disk the
   first dogfood run took: about 20 GB per Rust task (14 GB of test binaries that were 73% debug
   info, 4 GB of incremental cache) against 3 MB of Scholion's own state.

@@ -35,6 +35,10 @@ pub struct Config {
     pub qdrant_url: Option<String>,
     /// `AV_EXPAND_CAP_TOKENS`: per-session cap on tokens pulled through `expand`; unset = unlimited.
     pub expand_cap: Option<u64>,
+    /// `AV_INDEX_MAX_FANOUT`: a call whose name more than this many other symbols define links
+    /// to none of them in the code graph; unset = every one. Stored edges keep the cap they were
+    /// built with: set it before a repo is imported (reindex skips unchanged files).
+    pub index_max_fanout: Option<u32>,
     /// `AV_PG_MAX_CONNECTIONS` (default 16): Postgres pool size. Every concurrent agent request
     /// holds a connection while it runs, so raise it with the number of agents.
     pub pg_max_connections: u32,
@@ -108,6 +112,14 @@ impl Config {
             expand_cap: match get("AV_EXPAND_CAP_TOKENS") {
                 Some(v) => Some(v.trim().parse().map_err(|_| {
                     AvError::Invalid(format!("AV_EXPAND_CAP_TOKENS must be a number, got {v}"))
+                })?),
+                None => None,
+            },
+            index_max_fanout: match get("AV_INDEX_MAX_FANOUT") {
+                Some(v) => Some(v.trim().parse().ok().filter(|n| *n > 0).ok_or_else(|| {
+                    AvError::Invalid(format!(
+                        "AV_INDEX_MAX_FANOUT must be a positive number, got {v}"
+                    ))
                 })?),
                 None => None,
             },
@@ -211,7 +223,7 @@ pub fn embed_authorization(api_key: Option<&str>) -> Option<String> {
 /// `database_url` is `cfg.database_url`, or the lite-mode server's when that is unset.
 pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     let store = Arc::new(PgStore::connect_with(database_url, cfg.pg_max_connections).await?);
-    let index = Arc::new(PgIndex::new(store.pool().clone()));
+    let index = Arc::new(PgIndex::new(store.pool().clone()).with_max_fanout(cfg.index_max_fanout));
     let vcs = Arc::new(JjVcs::new(cfg.store_root.clone(), cfg.ws_root.clone()));
     let state = AppState::new(
         vcs,

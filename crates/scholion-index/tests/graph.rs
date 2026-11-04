@@ -493,3 +493,44 @@ async fn in_degree_counts_the_symbols_that_reference_each_one() {
     assert_eq!(deg.get(&core), Some(&6));
     assert_eq!(deg.get(&lonely).copied().unwrap_or(0), 0);
 }
+
+#[tokio::test]
+async fn a_name_more_symbols_share_than_the_fanout_cap_links_to_none() {
+    let (_db, idx, _) = setup().await;
+    let idx = idx.with_max_fanout(Some(2));
+    // `load` is defined twice (at the cap), `save` three times (over it)
+    idx.index_paths(
+        "demo",
+        "main",
+        vec![
+            f("caller.py", "def caller():\n    load()\n    save()\n"),
+            f("l1.py", "def load():\n    pass\n"),
+            f("l2.py", "def load():\n    pass\n"),
+            f("s1.py", "def save():\n    pass\n"),
+            f("s2.py", "def save():\n    pass\n"),
+            f("s3.py", "def save():\n    pass\n"),
+        ],
+    )
+    .await
+    .unwrap();
+    let main = ScopeView::new("demo", "main");
+    let caller = sym(&idx, "main", "caller.py", "caller").await;
+    let loads = [
+        sym(&idx, "main", "l1.py", "load").await,
+        sym(&idx, "main", "l2.py", "load").await,
+    ];
+    let near = sorted(idx.neighbors(&main, &[caller], 1).await.unwrap());
+    let mut want: Vec<(i64, u8)> = loads.iter().map(|l| (l.0, 1)).collect();
+    want.sort();
+    assert_eq!(
+        near, want,
+        "load's two definitions linked, save's three not"
+    );
+
+    // one `save` goes: the name is under the cap again and its callers are relinked
+    idx.remove_paths("demo", "main", &["s3.py".to_owned()])
+        .await
+        .unwrap();
+    let near = idx.neighbors(&main, &[caller], 1).await.unwrap();
+    assert_eq!(near.len(), 4, "load twice and save twice: {near:?}");
+}

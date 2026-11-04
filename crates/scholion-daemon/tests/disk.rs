@@ -675,6 +675,7 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
         embed: None,
         qdrant_url: None,
         expand_cap: None,
+        index_max_fanout: None,
         pg_max_connections: 4,
         max_concurrent_starts: None,
         lease_secs: 1800,

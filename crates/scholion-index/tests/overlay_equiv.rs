@@ -439,7 +439,7 @@ fn config(cases: u32) -> Config {
     c
 }
 
-fn run(overlay: bool, cases: u32) {
+fn run(overlay: bool, cases: u32, max_fanout: Option<u32>) {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -451,7 +451,7 @@ fn run(overlay: bool, cases: u32) {
         .pool()
         .clone();
     let ctx = Ctx {
-        idx: PgIndex::new(pool.clone()),
+        idx: PgIndex::new(pool.clone()).with_max_fanout(max_fanout),
         pool,
         n: AtomicUsize::new(0),
     };
@@ -470,10 +470,17 @@ fn run(overlay: bool, cases: u32) {
 /// harness (or the index's determinism), not the overlay, is wrong.
 #[test]
 fn two_full_indexes_of_a_tree_read_the_same() {
-    run(false, 8);
+    run(false, 8, None);
 }
 
 #[test]
 fn overlay_reads_match_a_full_index() {
-    run(true, 16);
+    run(true, 16, None);
+}
+
+/// With a fan-out cap of 1, a name two files define links to neither, so every shared name
+/// crosses the cap as the task and main add, edit and delete its definitions.
+#[test]
+fn overlay_reads_match_a_full_index_under_a_fanout_cap() {
+    run(true, 16, Some(1));
 }

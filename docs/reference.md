@@ -398,6 +398,7 @@ Defaults (override with environment variables before `up`):
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
+| `AV_INDEX_MAX_FANOUT` | (none) | a call whose bare name more than N other symbols define (`new`, `get`) links to none of them in the code graph. Cuts the edges of big repos (tokio: 71% at 64) without a measured loss in packs (`bench/results/2026-11-03-e1-fanout-cap/`). Set it before importing: stored edges keep the cap they were built with, and `reindex` skips unchanged files. |
 
 ### Docker Desktop without WSL integration
 

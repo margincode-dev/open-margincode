@@ -26,6 +26,7 @@ fn config(db: &TestDb, dir: &std::path::Path, token: Option<&str>) -> Config {
         embed: None,
         qdrant_url: None,
         expand_cap: None,
+        index_max_fanout: None,
         pg_max_connections: 4,
         max_concurrent_starts: None,
         lease_secs: 1800,

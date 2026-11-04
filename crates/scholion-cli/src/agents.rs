@@ -65,12 +65,17 @@ fn local(m: impl Into<String>) -> CliError {
     CliError::Local(m.into())
 }
 
-/// Codex: `[mcp_servers.av] url = …`; with a token, Codex reads it from `AV_TOKEN` at start
-/// (`bearer_token_env_var`), so the file never holds the secret.
+/// Codex: `[mcp_servers.av] url = …` (streamable HTTP); with a token, Codex reads it from
+/// `AV_TOKEN` at start (`bearer_token_env_var`), so the file never holds the secret. Codex calls
+/// itself `codex-mcp-client` in `initialize`, so a static `http_headers` entry names it `codex`
+/// for routing (checked against Codex CLI 0.166.0 on 2026-11-04, `integrations/codex/README.md`).
 pub fn install_codex(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     edit_toml(path, |doc| {
         let mut server = toml_edit::Table::new();
         server["url"] = toml_edit::value(mcp_url);
+        let mut headers = toml_edit::InlineTable::new();
+        headers.insert("X-Av-Agent", "codex".into());
+        server["http_headers"] = toml_edit::value(headers);
         if token {
             server["bearer_token_env_var"] = toml_edit::value("AV_TOKEN");
         }
@@ -246,12 +251,35 @@ mod tests {
         assert!(dir.path().join("config.toml.bak").exists());
     }
 
+    /// What Codex CLI 0.166.0 parsed from this file (`codex mcp get av --json`, 2026-11-04):
+    /// `streamable_http` with `http_headers {"X-Av-Agent": "codex"}`; it sent that header and
+    /// `Authorization: Bearer $AV_TOKEN` on `initialize`, with clientInfo `codex-mcp-client`.
     #[test]
-    fn codex_without_a_token_writes_only_the_url() {
+    fn codex_without_a_token_writes_the_url_and_names_itself() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("codex/config.toml");
         install_codex(&path, URL, false).unwrap();
-        assert_eq!(read(&path), format!("[mcp_servers.av]\nurl = \"{URL}\"\n"));
+        assert_eq!(
+            read(&path),
+            format!(
+                "[mcp_servers.av]\nurl = \"{URL}\"\nhttp_headers = {{ X-Av-Agent = \"codex\" }}\n"
+            )
+        );
+    }
+
+    #[test]
+    fn codex_names_itself_in_a_static_header_with_or_without_a_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for token in [false, true] {
+            install_codex(&path, URL, token).unwrap();
+            let doc: toml_edit::DocumentMut = read(&path).parse().unwrap();
+            let av = &doc["mcp_servers"]["av"];
+            assert_eq!(av["http_headers"]["X-Av-Agent"].as_str(), Some("codex"));
+            // the token travels through `bearer_token_env_var`, never as a header in the file
+            assert!(av["http_headers"].get("Authorization").is_none());
+            assert_eq!(av.get("bearer_token_env_var").is_some(), token);
+        }
     }
 
     #[test]

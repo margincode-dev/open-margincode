@@ -2879,7 +2879,13 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
                 assert_eq!(var, "AV_TOKEN");
                 headers.push(("Authorization".into(), format!("Bearer {token}")));
             }
-            if let Some(h) = av.get("headers").and_then(|h| h.as_inline_table()) {
+            // Codex 0.166.0 reads static headers from `http_headers`; Grok from `headers`
+            let key = if agent == "codex" {
+                "http_headers"
+            } else {
+                "headers"
+            };
+            if let Some(h) = av.get(key).and_then(|h| h.as_inline_table()) {
                 for (k, v) in h.iter() {
                     headers.push((k.to_owned(), expand(v.as_str().unwrap())));
                 }
@@ -2987,10 +2993,18 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
             headers,
             session: None,
         };
+        // the name each CLI gives itself, which is not the agent's name: the config's
+        // `X-Av-Agent` header must win (Codex's checked against Codex CLI 0.166.0 on 2026-11-04,
+        // Grok's against Grok Build 1.0.70; Gemini's and Cursor's are stand-ins)
+        let client = match agent {
+            "codex" => "codex-mcp-client",
+            "grok" => "grok-shell-av",
+            _ => "some-mcp-client",
+        };
         let init = c.send(
             serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                       "clientInfo": {"name": agent, "version": "1"}}}),
+                       "clientInfo": {"name": client, "version": "1"}}}),
         );
         assert!(
             init["result"]["capabilities"]["tools"].is_object(),
@@ -3006,6 +3020,11 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
             .lines()
             .find_map(|l| l.strip_prefix("workspace: "))
             .unwrap_or_else(|| panic!("{agent}: no workspace line in {started}"));
+        let status = c.tool("status", serde_json::json!({}));
+        assert!(
+            status.contains(&format!("\"owner_agent\": \"{agent}\"")),
+            "{agent}: {status}"
+        );
         // the agent edits its workspace, as it would with its own file tools
         std::fs::write(
             Path::new(ws.trim()).join("app/greeter.py"),

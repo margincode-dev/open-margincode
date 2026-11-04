@@ -3796,6 +3796,7 @@ dependencies = [
  "globset",
  "regex",
  "scholion-agentrun",
+ "scholion-core",
  "scholion-daemon",
  "scholion-index",
  "scholion-store",
@@ -3839,6 +3840,7 @@ version = "0.0.2"
 dependencies = [
  "async-trait",
  "chrono",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

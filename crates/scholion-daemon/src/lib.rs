@@ -13,6 +13,7 @@ mod embedded_pg;
 mod error;
 mod ext;
 mod flow;
+mod history;
 mod indexing;
 mod mcp;
 mod office;

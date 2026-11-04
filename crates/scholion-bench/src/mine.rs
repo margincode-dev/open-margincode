@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use regex::Regex;
+use scholion_core::history;
 
 use crate::Result;
 use crate::retrieval::{RetrievalTask, indexable, is_test_path};
@@ -41,40 +41,10 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// The commit message as a goal: trailers, sign-offs and URLs dropped, blank runs collapsed.
 pub fn goal_from_message(subject: &str, body: &str) -> String {
-    let trailer = Regex::new(r"^[A-Z][A-Za-z-]+: .*(@|https?://)|^(Co-Authored-By|Signed-off-by|Claude-Session|Change-Id|Reviewed-by|Acked-by):").unwrap();
-    let url = Regex::new(r"https?://\S+").unwrap();
-    let mut lines = vec![subject.trim().to_owned(), String::new()];
-    for l in body.lines() {
-        if trailer.is_match(l.trim()) {
-            continue;
-        }
-        let l = url.replace_all(l, "").trim_end().to_owned();
-        if l.trim().is_empty() && lines.last().is_some_and(|p: &String| p.is_empty()) {
-            continue;
-        }
-        lines.push(l);
-    }
-    let mut goal = lines.join("\n").trim().to_owned();
-    if goal.len() > MAX_GOAL {
-        let cut = goal
-            .char_indices()
-            .take_while(|(i, _)| *i < MAX_GOAL)
-            .last()
-            .map(|(i, c)| i + c.len_utf8())
-            .unwrap_or(0);
-        goal.truncate(cut);
-    }
-    goal
+    history::clean_message(subject, body, MAX_GOAL)
 }
 
-/// Whether a subject looks like housekeeping rather than a change with a goal.
-pub fn housekeeping(subject: &str) -> bool {
-    let re = Regex::new(
-        r"(?i)^(merge|revert|bump|release|chore|docs?|style|ci|build|deps|format|fmt|lint|typo|wip)\b|^(update|upgrade) (dependency|dependencies|deps)|\b(typo|clippy|rustfmt|prettier|black|ruff|formatter|eslint)\b",
-    )
-    .unwrap();
-    re.is_match(subject.trim())
-}
+pub use scholion_core::history::housekeeping;
 
 pub fn mine(repo: &Path, args: &MineArgs) -> Result<Vec<RetrievalTask>> {
     let mut log_args = vec!["log", "--no-merges", "--format=%H%x00%P%x00%s%x00%b%x1e"];
@@ -93,9 +63,12 @@ pub fn mine(repo: &Path, args: &MineArgs) -> Result<Vec<RetrievalTask>> {
         let [sha, parents, subject, body] = f[..] else {
             continue;
         };
-        if parents.split_whitespace().count() != 1 || housekeeping(subject) {
+        // the same rules the import's cold start uses (`scholion_core::history`)
+        let Some(goal) =
+            history::worth_mining(parents.split_whitespace().count(), subject, body, MAX_GOAL)
+        else {
             continue;
-        }
+        };
         let numstat = git(
             repo,
             &["diff", "--numstat", "--no-renames", &format!("{sha}^"), sha],
@@ -129,10 +102,6 @@ pub fn mine(repo: &Path, args: &MineArgs) -> Result<Vec<RetrievalTask>> {
             })
             .sum();
         if lines > args.max_lines {
-            continue;
-        }
-        let goal = goal_from_message(subject, body);
-        if goal.len() < 20 {
             continue;
         }
         out.push(RetrievalTask {

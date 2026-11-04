@@ -92,6 +92,10 @@ pub fn convention_score(semantic: f32) -> f32 {
 pub const TEST_CODE_FACTOR: f32 = 0.6;
 /// Records whose anchored code changed since they were written rank lower (Plan 2b).
 pub const CHANGED_FACTOR: f32 = 0.7;
+/// Records mined from git history (`scholion_core::history::MINED_AUTHOR`) rank below what agents
+/// wrote: a commit message says what changed more often than why, and on import every one of
+/// them is brand new, so recency alone would put them first.
+pub const MINED_FACTOR: f32 = 0.5;
 /// Another task's intent restates that task's goal, which is often worded like ours, so
 /// semantic search ranks it high; it is rarely what an agent needs, so it ranks lower.
 pub const FOREIGN_INTENT_FACTOR: f32 = 0.4;

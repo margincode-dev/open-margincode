@@ -6,6 +6,7 @@ mod api;
 mod common;
 mod disk;
 mod embedded_pg;
+mod history;
 mod mcp;
 mod office;
 mod routing;

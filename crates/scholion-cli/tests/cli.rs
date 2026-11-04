@@ -4083,6 +4083,57 @@ fn a_404_the_daemon_explains_is_left_alone() {
     assert!(e.contains("no such task") && !e.contains("older"), "{e}");
 }
 
+#[test]
+fn repo_add_mines_history_and_why_names_the_mined_commit() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    std::fs::write(
+        d.src.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return f'hello {name}'\n",
+    )
+    .unwrap();
+    git(
+        &d.src,
+        &[
+            "commit",
+            "-q",
+            "-am",
+            "Greet by name so the log reads as a sentence",
+        ],
+    );
+    let o = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "repo",
+            "add",
+            "demo",
+            d.src.to_str().unwrap(),
+            "--mine-history",
+            "10",
+        ],
+    ));
+    assert!(
+        o.contains("mined 1 records from git history (demo/git-history)"),
+        "the root commit is not mined: {o}"
+    );
+    let o = ok(av(&d, scratch.path(), &["repo", "mine", "demo"]));
+    assert!(
+        o.contains("mined 0 records") && o.contains("1 mined before"),
+        "{o}"
+    );
+    let o = ok(av(
+        &d,
+        scratch.path(),
+        &["why", "app/greeter.py:3", "--repo", "demo"],
+    ));
+    assert!(
+        o.contains("imported history")
+            && o.contains("note from git history: Greet by name so the log reads as a sentence"),
+        "{o}"
+    );
+}
+
 /// `started()` plus a decision of the task on the greeter, an edit to it, and a note another
 /// task (codex's) anchored to the same file. Returns (daemon, workspace, scratch, task id).
 fn notes_fixture() -> (Daemon, PathBuf, TempDir, String) {

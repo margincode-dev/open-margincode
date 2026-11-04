@@ -12,6 +12,18 @@
   developer's machine, out of a GitHub runner's reach; `integrations/github/` has the format and a
   sample workflow for a self-hosted runner that can reach it. `integrations/README.md` lists every
   integration.
+- **Cold start from git history** (Plan 13 Phase 2). `av repo add NAME PATH --mine-history N`,
+  `av init --mine-history N` and `av repo mine NAME [--limit N]` (`POST /v1/repos/{name}/history`)
+  turn at most N commits of the repo's history (every ancestor of main, newest first) into
+  records: one `note` by the agent `git` per commit with one parent, a subject that is not
+  housekeeping, a message that says something (trailers and links dropped) and at most 25 files,
+  anchored to the files it touched, with the commit as its `change_id`. They live on one merged
+  task per repo, `<repo>/git-history`; no migration. Mining again skips what was mined. Packs rank
+  them at half weight (`MINED_FACTOR`, packer version 5), `records/at` lists them after agents'
+  records, every rendering names the commit (`note (git 1a2b3c4)`), and `av why` on imported
+  history prints the blamed commit's mined record. The commit rules (`housekeeping`, the message
+  cleaning) moved from `scholion-bench mine` to `scholion_core::history`, which both use; `Vcs`
+  gains `history` (all ancestors, default `trunk_log`).
 - **Bench: E4 at scale, `run --noise N`** (Plan 13 Phase 1, harness only; nothing run yet). Adds N
   deterministic irrelevant notes to every relay task, the same ones in the `notes` arm's
   `NOTES.md` and as the `av` arm's anchored records: a seeded generator over the base tree's own

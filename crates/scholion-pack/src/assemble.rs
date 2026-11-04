@@ -136,7 +136,15 @@ pub(crate) fn record_texts(rec: &Record, stale: bool, changed: bool) -> (String,
     } else {
         ""
     };
-    let kind = rec.kind.as_str();
+    // a mined record names its commit, so its origin shows wherever it is printed
+    let kind = match &rec.change_id {
+        Some(c) if history::is_mined(&rec.author_agent) => format!(
+            "{} (git {})",
+            rec.kind.as_str(),
+            c.0.chars().take(7).collect::<String>()
+        ),
+        _ => rec.kind.as_str().to_owned(),
+    };
     let handle = format!("- {id} {kind}: {}{flag}", clip(&rec.summary, 70));
     let mut summary = format!("- {id} {kind}: {}{flag}", rec.summary);
     if !rec.anchors.is_empty() {
@@ -1394,6 +1402,9 @@ fn record_factor(rec: &Record, task: &Task, changed: bool) -> f32 {
     if rec.kind == RecordKind::Intent && rec.task_id != task.id {
         f *= score::FOREIGN_INTENT_FACTOR;
     }
+    if history::is_mined(&rec.author_agent) {
+        f *= score::MINED_FACTOR;
+    }
     f
 }
 
@@ -1481,6 +1492,59 @@ fn repo_tree_item(files: &[String], skeletons: &BTreeSet<String>) -> Option<Item
 #[cfg(test)]
 mod tests {
     use super::line_ranges;
+    use scholion_core::*;
+
+    fn rec(author: &str) -> Record {
+        Record {
+            id: RecordId(uuid::Uuid::nil()),
+            created_at: chrono::Utc::now(),
+            task_id: TaskId(uuid::Uuid::nil()),
+            kind: RecordKind::Note,
+            summary: "Parse config files as TOML".into(),
+            body: String::new(),
+            change_id: Some(ChangeId("1a2b3c4d5e6f7a8b".into())),
+            supersedes: None,
+            superseded_by: None,
+            author_agent: author.into(),
+            anchors: vec![],
+            anchor_hashes: vec![],
+        }
+    }
+
+    #[test]
+    fn mined_records_rank_below_agent_records_and_say_where_they_come_from() {
+        let task = Task {
+            id: TaskId(uuid::Uuid::from_u128(1)),
+            repo: "r".into(),
+            slug: "s".into(),
+            title: "t".into(),
+            goal: "g".into(),
+            status: TaskStatus::Open,
+            owner_agent: "claude".into(),
+            base_change: ChangeId(String::new()),
+            head_change: ChangeId(String::new()),
+            workspace_path: Default::default(),
+            generation: 0,
+            lease_expires: None,
+            pack_mode: PackMode::Full,
+        };
+        let mined = super::record_factor(&rec(history::MINED_AUTHOR), &task, false);
+        let agent = super::record_factor(&rec("claude"), &task, false);
+        assert_eq!(agent, 1.0);
+        assert_eq!(mined, crate::score::MINED_FACTOR);
+        let (_, texts) = super::record_texts(&rec(history::MINED_AUTHOR), false, false);
+        assert!(
+            texts[1].starts_with("- rec:00000000 note (git 1a2b3c4): Parse config"),
+            "{}",
+            texts[1]
+        );
+        let (_, texts) = super::record_texts(&rec("claude"), false, false);
+        assert!(
+            texts[1].starts_with("- rec:00000000 note: Parse"),
+            "{}",
+            texts[1]
+        );
+    }
 
     #[test]
     fn insertions_replacements_and_deletions_map_to_head_lines() {

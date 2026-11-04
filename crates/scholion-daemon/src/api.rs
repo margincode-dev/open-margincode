@@ -103,6 +103,10 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/version", get(version))
         .route("/v1/repos", get(list_repos).post(add_repo))
         .route("/v1/repos/{name}/import", get(get_import))
+        .route(
+            "/v1/repos/{name}/history",
+            post(crate::history::post_history),
+        )
         .route("/v1/reindex", post(crate::reindex::reindex))
         .route("/v1/tasks", post(start_task).get(list_tasks))
         .route("/v1/tasks/{id}", get(get_task))
@@ -195,6 +199,10 @@ struct AddRepo {
     /// that disconnects does not stop it.
     #[serde(default = "yes")]
     wait: bool,
+    /// Cold start: after the index, mine at most this many records from the repo's git history
+    /// (`history::mine`; 0, the default, mines nothing).
+    #[serde(default)]
+    mine_history: usize,
 }
 
 fn yes() -> bool {
@@ -213,6 +221,9 @@ pub(crate) struct ImportJob {
     main_change: Option<ChangeId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     indexed_files: Option<usize>,
+    /// Records mined from git history (`mine_history` > 0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mined_records: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     started_at: chrono::DateTime<chrono::Utc>,
@@ -273,6 +284,7 @@ async fn add_repo(
         state: "running",
         main_change: None,
         indexed_files: None,
+        mined_records: None,
         error: None,
         started_at: chrono::Utc::now(),
         finished_at: None,
@@ -290,17 +302,18 @@ async fn add_repo(
     }
     let run = {
         let st = st.clone();
-        let (name, src) = (req.name.clone(), req.git_source.clone());
+        let (name, src, mine) = (req.name.clone(), req.git_source.clone(), req.mine_history);
         tokio::spawn(async move {
-            let done = import(&st, &name, &src).await;
+            let done = import(&st, &name, &src, mine).await;
             let mut jobs = st.imports.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(job) = jobs.get_mut(&name) {
                 job.finished_at = Some(chrono::Utc::now());
                 match &done {
-                    Ok((main, files)) => {
+                    Ok((main, files, mined)) => {
                         job.state = "done";
                         job.main_change = Some(main.clone());
                         job.indexed_files = Some(*files);
+                        job.mined_records = *mined;
                     }
                     Err(e) => {
                         job.state = "failed";
@@ -349,7 +362,12 @@ fn visible_source(src: &std::path::Path) -> Result<()> {
     )))
 }
 
-async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(ChangeId, usize)> {
+async fn import(
+    st: &AppState,
+    name: &str,
+    src: &std::path::Path,
+    mine_history: usize,
+) -> Result<(ChangeId, usize, Option<usize>)> {
     let main = st.vcs.init_repo(name, src).await?;
     // the path as imported: init_repo has checked it is an existing directory
     let source = src.canonicalize().ok();
@@ -358,7 +376,20 @@ async fn import(st: &AppState, name: &str, src: &std::path::Path) -> Result<(Cha
         .await?;
     crate::build_cache::ensure_logged(st, name).await;
     let stats = index_change(st, name, "main", &main).await?;
-    Ok((main, stats.parsed + stats.cached))
+    // the repo is imported and indexed whatever mining does: a failure is logged, not fatal
+    // (`av repo mine` can try again)
+    let mined = if mine_history > 0 {
+        match crate::history::mine(st, name, mine_history).await {
+            Ok(m) => Some(m.records),
+            Err(e) => {
+                tracing::warn!(repo = name, error = %e, "mining git history failed");
+                Some(0)
+            }
+        }
+    } else {
+        None
+    };
+    Ok((main, stats.parsed + stats.cached, mined))
 }
 
 fn import_job(st: &AppState, name: &str) -> Result<ImportJob> {

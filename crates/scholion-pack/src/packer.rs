@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use scholion_core::{
     AgentFamily, AvError, IntentStore, NewReceipt, PackMode, ReceiptItem, Result, Semantic, TaskId,
-    Tier, Vcs,
+    Tier, Vcs, history,
 };
 use scholion_index::{CodeIndex, ScopeView};
 use serde::{Deserialize, Serialize};
@@ -85,7 +85,7 @@ pub struct RecordsAt {
 pub const RECORDS_AT_TOKENS: u32 = 400;
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 4;
+pub const PACKER_VERSION: u32 = 5;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -373,11 +373,16 @@ impl Packer {
                     scholion_core::RecordKind::Intent | scholion_core::RecordKind::Validation
                 )
         });
+        // agents' records first, then what was mined from git history
         recs.sort_by(|a, b| {
-            crate::score::kind_priority(b.kind)
-                .total_cmp(&crate::score::kind_priority(a.kind))
-                .then_with(|| b.created_at.cmp(&a.created_at))
-                .then_with(|| a.id.0.cmp(&b.id.0))
+            history::is_mined(&a.author_agent)
+                .cmp(&history::is_mined(&b.author_agent))
+                .then_with(|| {
+                    crate::score::kind_priority(b.kind)
+                        .total_cmp(&crate::score::kind_priority(a.kind))
+                        .then_with(|| b.created_at.cmp(&a.created_at))
+                        .then_with(|| a.id.0.cmp(&b.id.0))
+                })
         });
         let sent = match session {
             Some(s) => self.store.ledger_get(s).await?,

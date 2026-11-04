@@ -193,7 +193,22 @@ pub(crate) async fn why(
                             "kind": r.kind.as_str(), "summary": r.summary, "by": r.author_agent})
             })
             .collect(),
-        None => vec![],
+        // imported history: what was mined from that commit (`av repo add --mine-history`)
+        None => match crate::history::history_task(&st, &repo).await? {
+            Some(h) => st
+                .store
+                .task_records(h.id)
+                .await?
+                .into_iter()
+                .filter(|r| r.change_id.as_ref().is_some_and(|c| c.0 == change))
+                .map(|r| {
+                    json!({"id": format!("rec:{}", &r.id.0.simple().to_string()[..8]),
+                           "kind": r.kind.as_str(), "summary": r.summary, "by": r.author_agent,
+                           "origin": "git history"})
+                })
+                .collect(),
+            None => vec![],
+        },
     };
     Ok(Json(json!({
         "path": q.path,

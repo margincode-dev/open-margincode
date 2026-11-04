@@ -644,6 +644,43 @@ impl Inner {
         Ok(out)
     }
 
+    /// All ancestors of trunk, newest committer time first (ties by id), at most `limit`.
+    fn history(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {
+        let (_ws, ro) = self.load_main(repo)?;
+        let root = ro.store().root_commit_id().clone();
+        let key = |c: &Commit| (c.committer().timestamp.timestamp.0, c.id().hex());
+        let mut seen = std::collections::HashSet::new();
+        let mut heap = std::collections::BinaryHeap::new();
+        let trunk = self.trunk_commit(repo, &ro)?;
+        seen.insert(trunk.id().clone());
+        heap.push((key(&trunk), trunk));
+        let mut out = vec![];
+        while out.len() < limit {
+            let Some((_, commit)) = heap.pop() else {
+                break;
+            };
+            if commit.id() == &root {
+                continue;
+            }
+            out.push(LogEntry {
+                change: ChangeId(commit.id().hex()),
+                parents: commit
+                    .parent_ids()
+                    .iter()
+                    .map(|p| ChangeId(p.hex()))
+                    .collect(),
+                description: commit.description().to_owned(),
+            });
+            for p in commit.parent_ids() {
+                if p != &root && seen.insert(p.clone()) {
+                    let parent = ro.store().get_commit(p).map_err(verr)?;
+                    heap.push((key(&parent), parent));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Points trunk at `target`, exports it to the bare git dir and commits the operation.
     fn move_trunk(
         &self,
@@ -933,6 +970,11 @@ impl Vcs for JjVcs {
     async fn trunk_log(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {
         let name = repo.to_owned();
         self.run(repo, move |i| i.trunk_log(&name, limit)).await
+    }
+
+    async fn history(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {
+        let name = repo.to_owned();
+        self.run(repo, move |i| i.history(&name, limit)).await
     }
 
     async fn rebase_workspace(&self, repo: &str, slug: &str) -> Result<RebaseOutcome> {

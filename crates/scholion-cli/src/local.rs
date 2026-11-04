@@ -296,7 +296,7 @@ pub fn init(
     agents: &[Agent],
     mcp_json: Option<&Path>,
     agent_name: &str,
-) -> Result<()> {
+) -> Result<String> {
     let root = git_root()?;
     if !healthy(client) {
         if local_port(url).is_none() {
@@ -392,7 +392,7 @@ pub fn init(
          Dashboard: {}/ui",
         url.trim_end_matches('/')
     );
-    Ok(())
+    Ok(name)
 }
 
 fn git_root() -> Result<PathBuf> {

@@ -79,6 +79,11 @@ pub trait Vcs: Send + Sync {
             "trunk_log is not supported by this Vcs".into(),
         ))
     }
+    /// Every ancestor of trunk (merged branches too, not only first parents), newest commit time
+    /// first, at most `limit`. What the import's cold start mines; the default is `trunk_log`.
+    async fn history(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {
+        self.trunk_log(repo, limit).await
+    }
     /// The trunk commits (newest first, at most `limit`) whose first parent had different content
     /// at `path`, including the commits that created or deleted it. Walks at most `scan`
     /// commits of `trunk_log`.

@@ -1,4 +1,5 @@
 mod error;
+pub mod history;
 pub mod lifecycle;
 pub mod routing;
 mod traits;

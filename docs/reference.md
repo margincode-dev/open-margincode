@@ -468,6 +468,39 @@ host's `AV_IMPORT_ROOT` (default `~/projects`, read-only), so put the repo under
 `/import/<dir>`. A path the daemon cannot see (missing, or a directory that is not a git repository)
 is refused at once with `400` and that hint, before any import starts.
 
+### Cold start from git history
+
+A newly added repo has no records, so its first agents learn nothing from its past. Mining is
+opt-in and capped:
+
+```bash
+av repo add myrepo /import/myrepo --mine-history 500   # import, then mine at most 500 records
+av init --mine-history 500                             # the same for the repo of this directory
+av repo mine myrepo --limit 2000                       # later, or for a repo imported before
+```
+
+The daemon walks every ancestor of main in its own jj store (merged branches too), newest commit
+first, and keeps a commit when it has one parent, its subject is not housekeeping (merges,
+reverts, bumps, `chore`/`docs`/`ci`/`style`, formatting, typos, `wip`), its message minus trailers
+(`Co-Authored-By`, `Signed-off-by`, …) and links is at least 20 characters, and it touched at
+most 25 files (more is a sweep: a rename, a reformat). Each becomes one `note` by the agent `git`:
+the subject is its summary, the rest of the message its body (with `Mined from git commit
+<sha>`), the commit its `change_id`, and the files the commit touched its anchors. They belong to
+one task per repo, `<repo>/git-history`, owned by `git` and merged from the start (it has no
+workspace and is never offered as work). A commit mined before is skipped, so mining again only
+adds what is new; `N` counts records written, not commits looked at. The rules are
+`scholion_core::history`, which `scholion-bench mine` shares. `git` is reserved for these records:
+an agent using that name would have its records ranked as mined ones.
+
+Mined records rank below what agents wrote (`MINED_FACTOR` 0.5 in packs; after agents' records in
+`records/at`, so the Claude Code `PreToolUse` hook shows them last), and they say where they come
+from wherever they are printed: `- rec:… note (git 1a2b3c4): <subject>`. They reach agents through
+their anchors (the hook on opening a file, a pack once the task changes that file) and through
+semantic search when it is on. `av why path:line` on imported history prints the mined record of
+the commit it blames. A blame of imported history does not go back commit by commit: it stops at
+the newest imported commit that changed the file and gives it every line, so that record is the
+file's latest commit, not necessarily the commit that wrote that line.
+
 ### Many agents at once
 
 Run as many agents as you like on one daemon. There is no seat cap: each distinct agent
@@ -810,6 +843,9 @@ scholion bisect --repo myrepo --trust        # which merge broke main, and its t
 scholion revert <task> --reason "..."        # take one merge out of main, even an older one
 scholion why app/util.py:42 --repo myrepo    # the task, goal and decisions behind a line
 ```
+
+For a line of imported history, `scholion why` prints the record mined from the commit it blames,
+if the repo's history was mined (see [Cold start from git history](#cold-start-from-git-history)).
 
 `scholion why` reads derived data in the Scion style: per path, a blame computed from each commit's
 parent blame and cached by commit id, so it is computed once and never needs invalidating.

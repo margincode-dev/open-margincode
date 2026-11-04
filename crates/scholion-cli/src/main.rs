@@ -78,6 +78,10 @@ enum Cmd {
         /// JSON file for `--for mcp-json`. Merges `mcpServers.av` into it.
         #[arg(long, value_name = "FILE")]
         path: Option<PathBuf>,
+        /// Cold start: mine at most N records from the repo's git history (newest commits
+        /// first; commits mined before are skipped, so running it again only adds new ones).
+        #[arg(long, value_name = "N", default_value_t = 0)]
+        mine_history: usize,
     },
     /// Register a git repository (path as seen by the daemon).
     Repo {
@@ -605,6 +609,18 @@ enum RepoCmd {
     Add {
         name: String,
         git_source: String,
+        /// Cold start: after the import, mine at most N records from the repo's git history
+        /// (one note per commit with a message worth keeping, anchored to the files it touched).
+        #[arg(long, value_name = "N", default_value_t = 0)]
+        mine_history: usize,
+    },
+    /// Mine (more of) an imported repo's git history into records: one note per commit worth
+    /// keeping, newest first, by `git`; commits mined before are skipped.
+    Mine {
+        name: String,
+        /// Most records to write.
+        #[arg(long, default_value_t = 500)]
+        limit: usize,
     },
     /// Show the git backup of main; --set a remote (URL or path, also spelled --remote) and
     /// optionally the --branch main is pushed to (default: its own name), --clear it, or --push now.
@@ -934,7 +950,22 @@ fn write_taskfile(workspace: &std::path::Path, tf: &TaskFile) {
     }
 }
 
-/// `--repo`, else the repo of the current task.
+/// `POST /v1/repos/{repo}/history`, printed.
+fn mine_history_of(client: &Client, repo: &str, limit: usize) -> Result<()> {
+    let r = client.post(
+        &format!("/v1/repos/{repo}/history"),
+        &json!({ "limit": limit }),
+    )?;
+    println!(
+        "mined {} records from git history ({}; {} commits looked at, {} mined before)",
+        r["records"],
+        s(&r["task"]),
+        r["scanned"],
+        r["already"]
+    );
+    Ok(())
+}
+
 /// The task `av notes` is about: an id, a slug (looked up in `repo`, else in every repo), or
 /// `--task` / the nearest `.av-task`.
 fn notes_task(
@@ -979,6 +1010,7 @@ fn notes_task(
     }
 }
 
+/// `--repo`, else the repo of the current task.
 fn repo_for(cli: &Cli, client: &Client, repo: &Option<String>) -> Result<String> {
     if let Some(r) = repo {
         return Ok(r.clone());
@@ -1130,6 +1162,7 @@ fn run(cli: Cli) -> Result<()> {
             agents,
             no_claude,
             path,
+            mine_history,
         } => {
             let mut agents = if agents.is_empty() {
                 vec![agents::Agent::Claude]
@@ -1146,7 +1179,7 @@ fn run(cli: Cli) -> Result<()> {
             if path.is_some() && !agents.contains(&agents::Agent::McpJson) {
                 return Err(CliError::Local("--path is only for --for mcp-json".into()));
             }
-            local::init(
+            let repo = local::init(
                 &client,
                 &cli.url,
                 cli.token.as_deref(),
@@ -1154,15 +1187,24 @@ fn run(cli: Cli) -> Result<()> {
                 &agents,
                 path.as_deref(),
                 &cli.agent,
-            )?
+            )?;
+            if *mine_history > 0 {
+                mine_history_of(&client, &repo, *mine_history)?;
+            }
         }
         Cmd::Repo {
-            cmd: RepoCmd::Add { name, git_source },
+            cmd:
+                RepoCmd::Add {
+                    name,
+                    git_source,
+                    mine_history,
+                },
         } => {
             // a large repo takes longer than any request timeout: start the import, then poll it
             client.post(
                 "/v1/repos",
-                &json!({"name": name, "git_source": git_source, "wait": false}),
+                &json!({"name": name, "git_source": git_source, "wait": false,
+                        "mine_history": mine_history}),
             )?;
             let r = wait_import(&client, name)?;
             println!(
@@ -1171,7 +1213,13 @@ fn run(cli: Cli) -> Result<()> {
                 s(&r["main_change"]).chars().take(12).collect::<String>(),
                 r["indexed_files"]
             );
+            if let Some(n) = r["mined_records"].as_u64() {
+                println!("mined {n} records from git history ({name}/git-history)");
+            }
         }
+        Cmd::Repo {
+            cmd: RepoCmd::Mine { name, limit },
+        } => mine_history_of(&client, name, *limit)?,
         Cmd::Repo {
             cmd:
                 RepoCmd::Settings {
@@ -2004,6 +2052,14 @@ fn run(cli: Cli) -> Result<()> {
                 }
             } else {
                 println!("(not from an av task: imported history)");
+                for rec in r["records"].as_array().into_iter().flatten() {
+                    println!(
+                        "- {} {} from git history: {}",
+                        s(&rec["id"]),
+                        s(&rec["kind"]),
+                        s(&rec["summary"])
+                    );
+                }
             }
         }
         Cmd::Show { path, at, repo } => {

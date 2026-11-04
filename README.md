@@ -84,6 +84,14 @@ av init --for codex --for gemini --for cursor # the same for other agents
 Restart your agent, then ask it to *"start an av task to …"*. Open `http://localhost:7420/ui` to
 watch.
 
+Other channels ([details](docs/install.md)):
+
+```bash
+cargo binstall --git https://github.com/vinhqbui/scholion scholion-cli   # prebuilt, no compile
+brew tap vinhqbui/scholion https://github.com/vinhqbui/scholion && brew install scholion
+docker run -d -p 127.0.0.1:7420:7420 -v scholion:/data ghcr.io/vinhqbui/scholion
+```
+
 ## ⭐ If it helps, star it
 
 Scholion is a small open-source project. If it saved your agents a re-read, a

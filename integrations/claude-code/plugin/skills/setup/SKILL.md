@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Install Scholion and connect it to the current git repository and to Claude Code (and, if installed, Codex, Gemini CLI, Grok Build or Cursor Agent). Use when the user asks to set up, install or try Scholion or `av`, or wants their coding agents to share memory of decisions and dead ends.
+description: Install Scholion and connect it to the current git repository and to Claude Code. One agent is enough; another vendor's agent can be added afterwards. Use when the user asks to set up, install or try Scholion or `av`, or wants their coding agents to share memory of decisions and dead ends.
 ---
 
 # Set up Scholion
@@ -41,11 +41,11 @@ If `~/.local/bin` is not on `PATH`, run `export PATH="$HOME/.local/bin:$PATH"` b
 command in this session. Then offer to add that line to the user's shell profile. Ask before you
 edit the profile.
 
-## 3. Choose which agents to connect
+## 3. Connect Claude Code
 
-Claude Code is always connected. Check which other agent CLIs are installed:
-`command -v codex gemini grok cursor-agent`. Connect the ones that are found, unless the user
-asked for Claude Code only.
+Scholion works with one agent. Connect Claude Code only, and do not ask about other agents yet;
+step 6 mentions them once it works. If the user asked for other agents by name, add a
+`--for` for each in step 4.
 
 Before you run `av init`, tell the user what it changes:
 
@@ -56,14 +56,14 @@ Before you run `av init`, tell the user what it changes:
 - In `~/.claude/settings.json` it adds four hooks (`SessionStart`, `PreToolUse`, `PostToolUse`,
   `Stop`) and keeps the previous file as `settings.json.bak`. It also registers the `av` MCP
   server with `claude mcp add`.
-- For each other agent, it adds the `av` server to that agent's config file and keeps the
+- If other agents were named, it adds the `av` server to each one's config file and keeps the
   previous file as `*.bak`.
 
 ## 4. Run it
 
 ```bash
 av init                                              # Claude Code only
-av init --for claude --for codex --for gemini        # name every agent, including claude
+av init --for claude --for codex --for gemini        # only if the user named more agents
 ```
 
 If any `--for` is given, Claude Code is only connected when `--for claude` is in the list too. A
@@ -82,12 +82,15 @@ Keep it short:
 
 1. **Restart Claude Code** (exit, then run `claude` again). This session started before the
    hooks and the `av` server existed, so it cannot use them.
-2. In the new session, ask: *"start an av task to <the goal>"*. The agent gets its own workspace
-   under `~/ws/<repo>/<task>`. It records its decisions and dead ends as it works and submits
-   when it is done. Any agent that picks the task up later gets those notes in its brief.
+2. In the new session, ask: *"start an av task to <the goal>"*. Claude gets its own workspace
+   under `~/ws/<repo>/<task>`, records its decisions and dead ends as it works and submits when
+   it is done. That is the first checkpoint: the next session on this repo, or on the same task,
+   starts from those notes instead of from zero.
 3. Watch the work at `http://localhost:7420/ui`.
-4. To have several agents share one backlog and review each other's work, use `/scholion:team`.
-5. `av down` stops the daemon. `av up`, or the next `av init`, starts it again.
+4. `av down` stops the daemon. `av up`, or the next `av init`, starts it again.
+5. Only now, one line: if they also use another vendor's agent (`command -v codex gemini grok
+   cursor-agent`), `av init --for claude --for codex` connects it to the same memory, and
+   `/scholion:team` shares one backlog between agents. Do not push this if they use one agent.
 
 ## 7. Ask for a star, once
 

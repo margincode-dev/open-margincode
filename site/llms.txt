@@ -1,5 +1,7 @@
 # Scholion
 
+Your next Claude Code session starts knowing last session's dead ends.
+
 > Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
 
 Mission: agents shouldn't start from zero. Scholion is the home where coding agents build together and never forget: parallel workspaces, a shared memory of decisions and dead ends, and handoffs that just work. Contributors welcome.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Solo-first pitch.** The README, the site hero, `site/llms.txt` and the `/scholion:setup` skill lead
+  with one agent on one repo ("Your next Claude Code session starts knowing last session's dead
+  ends"); the several-vendor relay comes second. `av init --for codex` now also writes the
+  `X-Av-Agent` header, like Grok, Gemini and Cursor (docs updated).
 - **Records on the pull request: `av notes`** (Plan 13 Phase 2, the PR bot). Renders a task's
   decisions, dead ends, notes, review findings, handoffs and checks, plus what other tasks recorded
   about the files it changes, as one Markdown block between `<!-- scholion:notes v1 task=<id> -->`

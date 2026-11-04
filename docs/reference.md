@@ -542,7 +542,7 @@ the others wait (it says so once on stderr), so a burst of checks after a merge 
 builds at a time. Only `av validate` takes a build slot; an agent running `cargo test` itself
 does not.
 
-The dedicated writers put a fixed `X-Av-Agent` header (`grok`, `gemini`, `cursor`).
+The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`).
 `--for mcp-json` writes the `--agent` name into that header, so a client without its own
 writer still routes as itself. Set a profile under that same name.
 
@@ -977,7 +977,7 @@ opens with a warning naming the culprit merge.
   `~/.gemini/settings.json` or `~/.cursor/mcp.json`, keeps everything else in the file and the
   previous one as `*.bak`. With `AV_TOKEN` set, the file only names the variable (Codex
   `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}`, Cursor `${env:AV_TOKEN}` in a header),
-  never the token. Codex, Gemini and Cursor get no hooks: they call `start_task`/`claim_task` and
+  never the token. All four also get a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`). Codex, Gemini and Cursor get no hooks: they call `start_task`/`claim_task` and
   `get_context` themselves. Grok gets `SessionStart` and `Stop` in `~/.grok/hooks/av.json` unless
   `~/.claude/settings.json` already loads them (Grok runs both; see `integrations/grok/README.md`
   for the 8-continuation cap and folder trust). The instructions to give an agent are in

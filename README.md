@@ -1,5 +1,13 @@
 # Scholion
 
+**Your next Claude Code session starts knowing last session's dead ends.** Scholion pins one-line notes (decisions, and what didn't work) to the code they
+are about, and hands the next session a small brief built from them. One agent, one repo, no
+second subscription needed. On a small Python repo that meant 12.9 % fewer turns at the same cost
+([benchmark](bench/results/2026-10-27-haiku/)).
+
+Use more than one agent and the same memory crosses vendors: Claude Code starts a job, Codex
+picks it up from the brief, Gemini reviews it, and the reviewer merges.
+
 *σχόλιον (scholion): a note written in the margin of a manuscript. Scholion keeps notes in the
 margins of your code, so your AI agents stop forgetting.*
 

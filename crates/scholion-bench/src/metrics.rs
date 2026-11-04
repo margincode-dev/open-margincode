@@ -20,6 +20,10 @@ pub struct SessionMetrics {
     pub tool_calls: u32,
     pub repeated_dead_ends: u32,
     pub truncated: bool,
+    /// Every input token the model read over the session, cache reads included (what a large
+    /// `NOTES.md` or pack costs in context, turn after turn); 0 in rows written before it.
+    #[serde(default)]
+    pub input_tokens: u64,
 }
 
 /// The `result` event's usage, or the sum over messages when there is none.
@@ -172,5 +176,6 @@ pub fn compute_priced(
         tool_calls,
         repeated_dead_ends: repeated,
         truncated: s.truncated(),
+        input_tokens: session_usage(s).all_input(),
     }
 }

@@ -89,7 +89,7 @@ pub struct DeadEnd {
 }
 
 /// One thing an earlier agent learned (`[[note]]` in a relay pool).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelayNote {
     /// The task that needs it. Noise notes use a pair no task selects (e.g. `noise-0042`).
@@ -107,7 +107,7 @@ pub struct RelayNote {
     /// Irrelevant filler for E4-at-scale: still written into `NOTES.md` and seeded as av
     /// records, but not as its own empty git commit (so setup stays cheap and the baseline
     /// `git log` channel is unchanged).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub noise: bool,
 }
 

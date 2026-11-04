@@ -40,6 +40,10 @@ pub struct Row {
     /// Money spent, whether or not the session counts.
     #[serde(default)]
     pub cost_usd: f64,
+    /// cl100k tokens of what the arm's channel hands over before the agent starts: `NOTES.md` in
+    /// `notes`, the pack the av task starts with (`pack.md`) in the av arms (E4 at scale).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -55,6 +59,13 @@ pub struct Meta {
     /// Arguments the session-start hook ran with beyond its budget; empty = its defaults.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hook_args: Vec<String>,
+    /// E4 at scale: the irrelevant notes `run --noise N` added to every relay task; `None` when
+    /// none were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise: Option<usize>,
+    /// The seed the noise notes were generated with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_seed: Option<u64>,
 }
 
 fn valid<'a>(rows: &'a [Row], arm: &str) -> Vec<&'a Row> {
@@ -135,7 +146,7 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# scholion-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {}{}{} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{}{}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
@@ -151,6 +162,9 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         } else {
             format!(" · hook: {}", meta.hook_args.join(" "))
         },
+        meta.noise
+            .map(|n| format!(" · noise {n}"))
+            .unwrap_or_default(),
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)
             .count(),
@@ -248,6 +262,10 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         }
     }
 
+    if let Some(noise) = meta.noise {
+        memory_section(&mut out, rows, &arms, noise);
+    }
+
     let tasks: BTreeSet<&str> = rows.iter().map(|r| r.task.as_str()).collect();
     let _ = writeln!(out, "\n## Per task\n");
     let _ = writeln!(
@@ -294,6 +312,45 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         }
     }
     out
+}
+
+/// E4 at scale: how much each arm's memory weighs, for the run's noise level.
+fn memory_section(out: &mut String, rows: &[Row], arms: &[&str], noise: usize) {
+    let _ = writeln!(out, "\n## Memory at scale (noise {noise})\n");
+    let _ = writeln!(
+        out,
+        "Every relay task's pool had {noise} irrelevant notes added, the same ones in `notes` \
+         (`NOTES.md`) and the av arms (records anchored to the base tree's files). Input tokens \
+         include cache reads: the whole context the model read, turn after turn. Memory tokens \
+         (cl100k) are what the channel hands over before the agent starts: `NOTES.md` in `notes`, \
+         the pack the av task starts with in the av arms (what the pre-read hook adds later is in \
+         the input tokens).\n"
+    );
+    let _ = writeln!(
+        out,
+        "| arm | n | solved | median input tokens | median memory tokens | median turns |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|");
+    for arm in arms {
+        let v = valid(rows, arm);
+        let metrics: Vec<&SessionMetrics> = v.iter().filter_map(|r| r.metrics.as_ref()).collect();
+        let input: Vec<f64> = metrics.iter().map(|m| m.input_tokens as f64).collect();
+        let memory: Vec<f64> = v
+            .iter()
+            .filter_map(|r| r.memory_tokens.map(|t| t as f64))
+            .collect();
+        let turns: Vec<f64> = metrics.iter().map(|m| m.turns as f64).collect();
+        let _ = writeln!(
+            out,
+            "| {arm} | {} | {}/{} | {} | {} | {} |",
+            v.len(),
+            v.iter().filter(|r| r.success).count(),
+            v.len(),
+            int(median(&input)),
+            int(median(&memory)),
+            int(median(&turns)),
+        );
+    }
 }
 
 pub fn read_rows(path: &std::path::Path) -> crate::Result<Vec<Row>> {

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -737,4 +738,114 @@ fn without_path_prepend_the_agents_path_is_inherited_unchanged() {
     run_session(&f.spec, Arm::Baseline, 1, "pp-none", &f.cfg).unwrap();
     let path = std::fs::read_to_string(format!("{}.path", f.marker.display())).unwrap();
     assert_eq!(path.trim_end(), std::env::var("PATH").unwrap());
+}
+
+// ---- E4 at scale: `--noise N` irrelevant notes, the same in the notes and av arms ----
+
+/// `relay_fixture` with `n` noise notes added the way `run --noise` adds them.
+fn noisy_relay_fixture(n: usize) -> Fixture {
+    let mut f = relay_fixture("fix");
+    let mut specs = vec![f.spec.clone()];
+    scholion_bench::noise::add_noise(&mut specs, n, 1).unwrap();
+    f.spec = specs.pop().unwrap();
+    f
+}
+
+/// The summary of each `## ` section of a NOTES.md: the first non-empty line after its heading.
+fn notes_md_summaries(md: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut lines = md.lines();
+    while let Some(l) = lines.next() {
+        if l.starts_with("## ") {
+            let s = lines.by_ref().find(|l| !l.trim().is_empty()).unwrap();
+            out.push(s.to_owned());
+        }
+    }
+    out
+}
+
+#[test]
+fn noise_adds_n_sections_to_notes_md_and_no_commits() {
+    let _g = serial();
+    let plain = relay_fixture("fix");
+    let o = run_session(&plain.spec, Arm::Notes, 1, "z0", &plain.cfg).unwrap();
+    let plain_ws = o.run_dir.join("ws");
+    let plain_md = std::fs::read_to_string(plain_ws.join("NOTES.md")).unwrap();
+    let plain_tokens = o.memory_tokens.expect("NOTES.md is measured");
+
+    let f = noisy_relay_fixture(50);
+    let o = run_session(&f.spec, Arm::Notes, 1, "z50", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let md = std::fs::read_to_string(ws.join("NOTES.md")).unwrap();
+    assert_eq!(
+        notes_md_summaries(&md).len(),
+        notes_md_summaries(&plain_md).len() + 50,
+        "{md}"
+    );
+    assert_eq!(
+        git(&ws, &["rev-list", "--all", "--count"]),
+        git(&plain_ws, &["rev-list", "--all", "--count"]),
+        "noise is never a commit of its own"
+    );
+    assert!(o.memory_tokens.unwrap() > plain_tokens, "{o:?}");
+}
+
+#[test]
+fn zero_noise_writes_the_same_notes_md_as_no_noise() {
+    let _g = serial();
+    let plain = relay_fixture("fix");
+    let a = run_session(&plain.spec, Arm::Notes, 1, "n0a", &plain.cfg).unwrap();
+    let f = noisy_relay_fixture(0);
+    let b = run_session(&f.spec, Arm::Notes, 1, "n0b", &f.cfg).unwrap();
+    assert_eq!(
+        std::fs::read(a.run_dir.join("ws/NOTES.md")).unwrap(),
+        std::fs::read(b.run_dir.join("ws/NOTES.md")).unwrap()
+    );
+}
+
+#[test]
+fn noise_reaches_the_av_arm_as_n_more_records_with_the_notes_arms_text() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = noisy_relay_fixture(50);
+    f.cfg.av_url = Some(d.url.clone());
+
+    let o = run_session(&f.spec, Arm::Notes, 1, "za", &f.cfg).unwrap();
+    let md = std::fs::read_to_string(o.run_dir.join("ws/NOTES.md")).unwrap();
+    let in_notes: BTreeSet<String> = notes_md_summaries(&md).into_iter().collect();
+
+    let o = run_session(&f.spec, Arm::Av, 1, "za", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    assert!(
+        o.memory_tokens.is_some(),
+        "the start pack is measured: {o:?}"
+    );
+    let ws = PathBuf::from(
+        std::fs::read_to_string(&f.marker)
+            .unwrap()
+            .lines()
+            .last()
+            .unwrap(),
+    );
+    let task = task_of(&ws);
+    let t = get(&format!("{}/v1/tasks/{task}", d.url));
+    let repo = t["task"]["repo"].as_str().unwrap();
+    let hits = get(&format!("{}/v1/repos/{repo}/search?q=swapping", d.url));
+    let earlier = hits["records"][0]["task_id"].as_str().unwrap();
+    assert_ne!(earlier, task);
+    let recs = get(&format!("{}/v1/tasks/{earlier}/records", d.url));
+    let in_av: BTreeSet<String> = recs["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] != "intent")
+        .map(|r| r["summary"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(in_av.len(), f.spec.relay_notes.len(), "{recs}");
+    assert_eq!(in_av.len(), 2 + 50);
+    assert_eq!(
+        in_av, in_notes,
+        "both arms carry the same notes, word for word"
+    );
 }

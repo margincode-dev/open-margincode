@@ -139,6 +139,10 @@ pub struct RunOutcome {
     pub wall_secs: f64,
     pub claude_killed: bool,
     pub claude_exit: Option<i32>,
+    /// cl100k tokens of `NOTES.md` (`notes`) or of the pack the av task starts with (`pack.md`,
+    /// av arms), measured before the session; `None` in the other arms.
+    #[serde(default)]
+    pub memory_tokens: Option<u64>,
 }
 
 impl RunOutcome {
@@ -256,6 +260,12 @@ pub fn relay_commits(dest: &Path, notes: &[RelayNote]) -> Result<()> {
 /// E4, `notes` arm: every relay note in `NOTES.md`, and a `CLAUDE.md` that points at it,
 /// committed by the earlier agent.
 pub fn write_notes_md(dest: &Path, notes: &[RelayNote]) -> Result<()> {
+    std::fs::write(dest.join("NOTES.md"), notes_md(notes)).map_err(|e| e.to_string())?;
+    commit_notes_md(dest)
+}
+
+/// The `NOTES.md` of the `notes` arm: every relay note, in pool order.
+pub fn notes_md(notes: &[RelayNote]) -> String {
     let mut md = String::from(
         "# Notes\n\nWhat earlier agents learned about this code: decisions to follow and \
          approaches that failed.\n",
@@ -270,7 +280,11 @@ pub fn write_notes_md(dest: &Path, notes: &[RelayNote]) -> Result<()> {
             md.push_str(&format!("\n{}\n", n.body.trim()));
         }
     }
-    std::fs::write(dest.join("NOTES.md"), md).map_err(|e| e.to_string())?;
+    md
+}
+
+/// The `CLAUDE.md` that points at `NOTES.md`, and one commit of both by the earlier agent.
+fn commit_notes_md(dest: &Path) -> Result<()> {
     std::fs::write(
         dest.join("CLAUDE.md"),
         "Read NOTES.md before you change code: it records decisions to follow and approaches \
@@ -671,6 +685,7 @@ pub fn run_session(
         wall_secs: 0.0,
         claude_killed: false,
         claude_exit: None,
+        memory_tokens: None,
     };
 
     let (workspace, av_task, daemon) = if arm.uses_av() {
@@ -696,6 +711,15 @@ pub fn run_session(
         )?;
         (ws, None, None)
     };
+
+    let memory = match arm {
+        Arm::Notes => Some(workspace.join("NOTES.md")),
+        a if a.uses_av() => Some(dir.join("pack.md")),
+        _ => None,
+    };
+    outcome.memory_tokens = memory
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|t| crate::calibrate::cl100k_tokens(&t));
 
     let settings_path = dir.join("settings.json");
     let mcp_path = dir.join("mcp.json");

@@ -29,6 +29,8 @@ fn first_edit_counts_only_tokens_before_it_excluding_cache_reads() {
     assert_eq!(m.tokens_to_first_edit, Some(115 + 28 + 40));
     // the result event's usage: 14 + 155 + 90
     assert_eq!(m.tokens_total, 259);
+    // every input token the model read, cache reads included: 14 + 155 + 4600
+    assert_eq!(m.input_tokens, 4769);
     assert_eq!(m.cost_usd, 0.12);
     assert_eq!(m.turns, 4);
     assert_eq!(m.tool_calls, 3);

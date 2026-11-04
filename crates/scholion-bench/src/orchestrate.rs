@@ -97,6 +97,13 @@ pub fn plan_text(
     models.sort();
     models.dedup();
     let _ = writeln!(t, "model: {}", models.join(", "));
+    if let Some(n) = args.meta.noise {
+        let _ = writeln!(
+            t,
+            "noise: {n} irrelevant notes per relay task (seed {}), in NOTES.md and as av records",
+            args.meta.noise_seed.unwrap_or_default()
+        );
+    }
     for arm in &args.arms {
         let n = sessions.iter().filter(|p| p.arm == *arm).count();
         let warn = if n < 30 {
@@ -161,6 +168,33 @@ fn append_row(path: &Path, row: &Row) -> Result<()> {
     writeln!(f, "{}", serde_json::to_string(row).expect("json")).map_err(|e| e.to_string())
 }
 
+/// Rows do not say which noise level (and seed) they ran at, so a results directory holds one: a
+/// run that would resume into another level's rows is refused.
+fn check_noise_level(out: &Path, meta: &Meta) -> Result<()> {
+    let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
+        return Ok(());
+    };
+    let Ok(old) = serde_json::from_slice::<Meta>(&bytes) else {
+        return Ok(());
+    };
+    if (old.noise, old.noise_seed) == (meta.noise, meta.noise_seed)
+        || !out.join("rows.jsonl").exists()
+    {
+        return Ok(());
+    }
+    let level = |m: &Meta| match (m.noise, m.noise_seed) {
+        (Some(n), Some(s)) => format!("noise {n} (seed {s})"),
+        (Some(n), None) => format!("noise {n}"),
+        (None, _) => "no noise".to_owned(),
+    };
+    Err(format!(
+        "{} holds results at {}, this run is at {}: use one --out per noise level",
+        out.display(),
+        level(&old),
+        level(meta)
+    ))
+}
+
 /// The whole run. Sessions already in `out/rows.jsonl` (an interrupted run) are not repeated and
 /// their cost counts toward the budget.
 pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunReport> {
@@ -207,6 +241,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| "run".into())
         .to_lowercase();
+    check_noise_level(&args.out, &args.meta)?;
     std::fs::write(
         args.out.join("meta.json"),
         serde_json::to_vec_pretty(&args.meta).expect("json"),
@@ -233,6 +268,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
                 metrics: None,
                 wall_secs: 0.0,
                 cost_usd: 0.0,
+                memory_tokens: None,
             }
         } else {
             eprintln!(
@@ -265,6 +301,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
                 cost_usd: m.cost_usd,
                 metrics: Some(m),
                 wall_secs: o.wall_secs,
+                memory_tokens: o.memory_tokens,
             }
         };
         append_row(&rows_path, &row)?;

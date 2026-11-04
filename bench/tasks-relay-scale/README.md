@@ -1,5 +1,10 @@
 # E4 at scale: hundreds of notes, most irrelevant
 
+> **Superseded for the Plan 13 sweep** by `scholion-bench run bench/tasks-relay --noise N`
+> (`bench/results/2026-11-e4-scale/DESIGN.md`): any N, generated from the repo's own files, and
+> anchored on the lessons' files too. This pool keeps its noise off those files, which spares av
+> the choice the run is meant to test. It stays for the record.
+
 Same ten relay tasks as [`../tasks-relay`](../tasks-relay), but the pool is
 [`../tasks-relay/pool/notes-scale.toml`](../tasks-relay/pool/notes-scale.toml): the ten real
 lessons plus **290 noise notes**. The question lean E4 left open:

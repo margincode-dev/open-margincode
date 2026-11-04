@@ -7,10 +7,11 @@ use clap::{Args, Parser, Subcommand};
 use scholion_bench::calibrate::{Probe, cl100k_tokens, estimate_error, recommended_factor};
 use scholion_bench::events::parse_stream;
 use scholion_bench::mine::{MineArgs, mine};
+use scholion_bench::noise::{add_noise, anchors_at, generate};
 use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
 use scholion_bench::retrieval::{self, RetrievalArgs};
-use scholion_bench::runner::{Arm, Daemon, RunConfig};
+use scholion_bench::runner::{Arm, Daemon, RunConfig, notes_md};
 use scholion_bench::scale::{self, ScaleArgs};
 use scholion_bench::spec::{TaskSpec, check_spec, check_warnings, load_spec_with_root, spec_files};
 
@@ -140,6 +141,27 @@ enum Cmd {
         /// Only these tasks (by name).
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
+        /// E4 at scale: add this many irrelevant notes to every relay task's pool, the same ones
+        /// in `NOTES.md` and as av records (see `scholion-bench noise`). One `--out` per level.
+        #[arg(long)]
+        noise: Option<usize>,
+        /// Seed of the noise notes and of where they fall among the lessons.
+        #[arg(long, default_value_t = 1)]
+        noise_seed: u64,
+    },
+    /// Print the noise notes `run --noise N` would add for a repo, as a relay pool (TOML), and
+    /// how large they make `NOTES.md`. No daemon, no agent.
+    Noise {
+        /// The repo (a local git clone).
+        repo: PathBuf,
+        /// The base revision the notes are anchored in.
+        #[arg(long, default_value = "main")]
+        rev: String,
+        /// How many notes.
+        #[arg(short, long)]
+        n: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
@@ -337,6 +359,8 @@ fn meta(cfg: &RunConfig, specs: &[TaskSpec], seed: u64) -> Meta {
             .map(|c| format!("--code={c}"))
             .chain(cfg.hook_args.iter().cloned())
             .collect(),
+        noise: None,
+        noise_seed: None,
     }
 }
 
@@ -493,6 +517,8 @@ fn main() -> ExitCode {
             est_session_usd,
             pilot,
             only,
+            noise,
+            noise_seed,
         } => (|| {
             let mut specs = load_tasks(&tasks)?;
             if !only.is_empty() {
@@ -500,6 +526,9 @@ fn main() -> ExitCode {
             }
             for s in &specs {
                 check_spec(s)?;
+            }
+            if let Some(n) = noise {
+                add_noise(&mut specs, n, noise_seed)?;
             }
             let arms = arms
                 .iter()
@@ -516,7 +545,11 @@ fn main() -> ExitCode {
                 dry_run,
                 est_session_usd,
                 pilot: pilot.as_deref().map(expand),
-                meta: meta(&cfg, &specs, seed),
+                meta: Meta {
+                    noise,
+                    noise_seed: noise.map(|_| noise_seed),
+                    ..meta(&cfg, &specs, seed)
+                },
             };
             let r = run(&specs, &args, &cfg)?;
             print!("{}", r.plan_text);
@@ -530,6 +563,23 @@ fn main() -> ExitCode {
                 }
             }
             Ok(if r.exit_code == 3 { 0 } else { r.exit_code })
+        })(),
+        Cmd::Noise { repo, rev, n, seed } => (|| {
+            let anchors = anchors_at(&expand(&repo), &rev)?;
+            let notes = generate(&anchors, n, seed);
+            #[derive(serde::Serialize)]
+            struct Pool<'a> {
+                note: &'a [scholion_bench::spec::RelayNote],
+            }
+            let toml = toml::to_string(&Pool { note: &notes }).map_err(|e| e.to_string())?;
+            print!("{toml}");
+            eprintln!(
+                "{} notes on {} anchors; NOTES.md with only these: {} cl100k tokens",
+                notes.len(),
+                anchors.len(),
+                cl100k_tokens(&notes_md(&notes))
+            );
+            Ok(0)
         })(),
         Cmd::Report { results } => (|| {
             let dir = expand(&results);

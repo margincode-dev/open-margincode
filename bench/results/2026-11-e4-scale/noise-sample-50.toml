@@ -1,0 +1,439 @@
+[[note]]
+pair = "noise-0001"
+kind = "decision"
+path = "tallyho/models.py"
+symbol = "Product"
+summary = "Tests for `Product` build their inputs with small factory helpers in conftest, not shared module-level objects."
+body = "Shared objects let one test's mutation leak into the next."
+noise = true
+
+[[note]]
+pair = "noise-0002"
+kind = "decision"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore._load"
+summary = "New optional parameters of `JsonFileStore._load` are keyword-only (after *), so call sites stay readable when options are added."
+body = "A positional bool added in the middle of a signature bit us once."
+noise = true
+
+[[note]]
+pair = "noise-0003"
+kind = "attempt"
+path = "tallyho/pricing/discounts.py"
+symbol = "Discount.amount_off"
+summary = "Caching what `Discount.amount_off` returns in a module-level dict broke tests that expect a fresh value per case."
+body = "Keep any cache on the instance, or clear it in a fixture. A process-wide cache leaks between tests."
+noise = true
+
+[[note]]
+pair = "noise-0004"
+kind = "note"
+path = "tallyho/store/memory.py"
+symbol = "MemoryStore.delete"
+summary = "`MemoryStore.delete` is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0005"
+kind = "note"
+path = "tallyho/pricing/tax.py"
+symbol = "default_tax_table"
+summary = "Remember `default_tax_table` is not thread-safe; each worker needs its own instance or an external lock."
+body = "Found after a flaky run under pytest-xdist."
+noise = true
+
+[[note]]
+pair = "noise-0006"
+kind = "note"
+path = "tallyho/workflow.py"
+symbol = "Workflow._move"
+summary = "`Workflow._move` is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0007"
+kind = "decision"
+path = "tallyho/pricing/coupons.py"
+symbol = "CouponBook.add"
+summary = "`CouponBook.add` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0008"
+kind = "decision"
+path = "tallyho/pricing/discounts.py"
+summary = "New optional parameters of the `discounts` module are keyword-only (after *), so call sites stay readable when options are added."
+body = "A positional bool added in the middle of a signature bit us once."
+noise = true
+
+[[note]]
+pair = "noise-0009"
+kind = "decision"
+path = "tallyho/money.py"
+symbol = "_exponent"
+summary = "`_exponent` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0010"
+kind = "note"
+path = "tallyho/cli.py"
+summary = "The `cli` module reads files as UTF-8 explicitly; the platform default encoding differs on the Windows build agents."
+body = "Always pass encoding= when opening text files here."
+noise = true
+
+[[note]]
+pair = "noise-0011"
+kind = "attempt"
+path = "tallyho/money.py"
+symbol = "Money"
+summary = "Replacing the loop in `Money` with a comprehension made it shorter but much harder to step through in a debugger, so it was reverted."
+body = "No measurable speed-up either; readability won."
+noise = true
+
+[[note]]
+pair = "noise-0012"
+kind = "note"
+path = "tallyho/ledger.py"
+symbol = "Ledger.record_sale"
+summary = "Benchmarks for `Ledger.record_sale` are in a separate, manual job; the unit tests must not depend on timing."
+body = "Timing assertions were flaky on shared runners and were removed."
+noise = true
+
+[[note]]
+pair = "noise-0013"
+kind = "note"
+path = "tallyho/pricing/tax.py"
+summary = "Benchmarks for the `tax` module are in a separate, manual job; the unit tests must not depend on timing."
+body = "Timing assertions were flaky on shared runners and were removed."
+noise = true
+
+[[note]]
+pair = "noise-0014"
+kind = "note"
+path = "tallyho/workflow.py"
+symbol = "Workflow"
+summary = "Remember `Workflow` is not thread-safe; each worker needs its own instance or an external lock."
+body = "Found after a flaky run under pytest-xdist."
+noise = true
+
+[[note]]
+pair = "noise-0015"
+kind = "decision"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore._save"
+summary = "`JsonFileStore._save` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0016"
+kind = "attempt"
+path = "tallyho/cli.py"
+symbol = "cmd_products"
+summary = "Wrapping `cmd_products` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0017"
+kind = "note"
+path = "tallyho/report/table.py"
+symbol = "render_table"
+summary = "Deprecation warnings from `render_table` are turned into errors in CI (filterwarnings = error), so fix them when they appear."
+body = "Silencing them locally only moves the failure to CI."
+noise = true
+
+[[note]]
+pair = "noise-0018"
+kind = "attempt"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore.put_many"
+summary = "Adding type: ignore comments around `JsonFileStore.put_many` to quiet the checker hid a real Optional bug two callers up."
+body = "Fix the annotation instead; the ignore comments were removed again."
+noise = true
+
+[[note]]
+pair = "noise-0019"
+kind = "decision"
+path = "tallyho/ledger.py"
+summary = "The `ledger` module keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0020"
+kind = "attempt"
+path = "tallyho/store/base.py"
+symbol = "RecordStore.list_page"
+summary = "Wrapping `RecordStore.list_page` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0021"
+kind = "attempt"
+path = "tallyho/money.py"
+symbol = "_exponent"
+summary = "Wrapping `_exponent` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0022"
+kind = "decision"
+path = "tallyho/validate.py"
+symbol = "parse_quantity"
+summary = "New optional parameters of `parse_quantity` are keyword-only (after *), so call sites stay readable when options are added."
+body = "A positional bool added in the middle of a signature bit us once."
+noise = true
+
+[[note]]
+pair = "noise-0023"
+kind = "attempt"
+path = "tallyho/workflow.py"
+symbol = "Workflow.ship"
+summary = "Replacing the loop in `Workflow.ship` with a comprehension made it shorter but much harder to step through in a debugger, so it was reverted."
+body = "No measurable speed-up either; readability won."
+noise = true
+
+[[note]]
+pair = "noise-0024"
+kind = "note"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore._path"
+summary = "The repr of objects around `JsonFileStore._path` shows up in logs, so keep it short and free of large nested data."
+body = "A log line of several kilobytes once filled the disk of a small box."
+noise = true
+
+[[note]]
+pair = "noise-0025"
+kind = "note"
+path = "tallyho/store/base.py"
+summary = "The `base` module is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0026"
+kind = "attempt"
+path = "tallyho/store/scan.py"
+symbol = "count_records"
+summary = "Wrapping `count_records` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0027"
+kind = "attempt"
+path = "tallyho/ledger.py"
+symbol = "Ledger.post"
+summary = "Moving the imports inside `Ledger.post` to speed up start-up saved under a millisecond and confused the linter."
+body = "Start-up time is dominated by the interpreter itself; imports stay at the top of the module."
+noise = true
+
+[[note]]
+pair = "noise-0028"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository.product"
+summary = "New optional parameters of `Repository.product` are keyword-only (after *), so call sites stay readable when options are added."
+body = "A positional bool added in the middle of a signature bit us once."
+noise = true
+
+[[note]]
+pair = "noise-0029"
+kind = "note"
+path = "tallyho/cli.py"
+symbol = "cmd_export"
+summary = "The repr of objects around `cmd_export` shows up in logs, so keep it short and free of large nested data."
+body = "A log line of several kilobytes once filled the disk of a small box."
+noise = true
+
+[[note]]
+pair = "noise-0030"
+kind = "decision"
+path = "tallyho/errors.py"
+symbol = "TallyError"
+summary = "Tests for `TallyError` build their inputs with small factory helpers in conftest, not shared module-level objects."
+body = "Shared objects let one test's mutation leak into the next."
+noise = true
+
+[[note]]
+pair = "noise-0031"
+kind = "attempt"
+path = "tallyho/repository.py"
+symbol = "Repository.order"
+summary = "Tried calling `Repository.order` twice to force a refresh; the second call returned the same stale object and nothing updated."
+body = "A sleep between the calls did not help either. It needs a real invalidation path, not a retry."
+noise = true
+
+[[note]]
+pair = "noise-0032"
+kind = "attempt"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore.delete"
+summary = "Wrapping `JsonFileStore.delete` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0033"
+kind = "decision"
+path = "tallyho/ledger.py"
+symbol = "Ledger.record_sale"
+summary = "Constants that `Ledger.record_sale` depends on live at the top of its module in UPPER_CASE, not as magic numbers inline."
+body = "Makes them greppable and lets tests patch them in one place."
+noise = true
+
+[[note]]
+pair = "noise-0034"
+kind = "note"
+path = "tallyho/pricing/__init__.py"
+summary = "The repr of objects around the `__init__` module shows up in logs, so keep it short and free of large nested data."
+body = "A log line of several kilobytes once filled the disk of a small box."
+noise = true
+
+[[note]]
+pair = "noise-0035"
+kind = "attempt"
+path = "tallyho/cli.py"
+summary = "Caching what the `cli` module returns in a module-level dict broke tests that expect a fresh value per case."
+body = "Keep any cache on the instance, or clear it in a fixture. A process-wide cache leaks between tests."
+noise = true
+
+[[note]]
+pair = "noise-0036"
+kind = "attempt"
+path = "tallyho/pricing/discounts.py"
+symbol = "Discount"
+summary = "Wrapping `Discount` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0037"
+kind = "note"
+path = "tallyho/report/table.py"
+summary = "The `table` module is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0038"
+kind = "decision"
+path = "tallyho/pricing/discounts.py"
+symbol = "FixedDiscount"
+summary = "`FixedDiscount` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0039"
+kind = "decision"
+path = "tallyho/workflow.py"
+symbol = "Workflow.pay"
+summary = "`Workflow.pay` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0040"
+kind = "attempt"
+path = "tallyho/store/base.py"
+symbol = "RecordStore.get"
+summary = "Wrapping `RecordStore.get` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass."
+body = "Narrow the except or let it raise; retries belong at a call site that can back off."
+noise = true
+
+[[note]]
+pair = "noise-0041"
+kind = "attempt"
+path = "tallyho/report/table.py"
+symbol = "render_table"
+summary = "Moving the imports inside `render_table` to speed up start-up saved under a millisecond and confused the linter."
+body = "Start-up time is dominated by the interpreter itself; imports stay at the top of the module."
+noise = true
+
+[[note]]
+pair = "noise-0042"
+kind = "note"
+path = "tallyho/pricing/coupons.py"
+symbol = "CouponBook.__init__"
+summary = "`CouponBook.__init__` is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0043"
+kind = "note"
+path = "tallyho/pricing/tax.py"
+symbol = "TaxTable.tax"
+summary = "`TaxTable.tax` is on the hot path of the nightly batch job; profile before adding work to it."
+body = "A previous change doubled the batch time without anyone noticing for a week."
+noise = true
+
+[[note]]
+pair = "noise-0044"
+kind = "attempt"
+path = "tallyho/money.py"
+symbol = "Money.zero"
+summary = "Moving the imports inside `Money.zero` to speed up start-up saved under a millisecond and confused the linter."
+body = "Start-up time is dominated by the interpreter itself; imports stay at the top of the module."
+noise = true
+
+[[note]]
+pair = "noise-0045"
+kind = "note"
+path = "tallyho/store/scan.py"
+summary = "The `scan` module reads files as UTF-8 explicitly; the platform default encoding differs on the Windows build agents."
+body = "Always pass encoding= when opening text files here."
+noise = true
+
+[[note]]
+pair = "noise-0046"
+kind = "decision"
+path = "tallyho/store/jsonfile.py"
+symbol = "JsonFileStore._save"
+summary = "Log lines from `JsonFileStore._save` go through the logging module, never print(), so operators can filter them by logger name."
+body = "Agreed in the ops review; print() in library code is a review reject."
+noise = true
+
+[[note]]
+pair = "noise-0047"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository.save_order"
+summary = "New optional parameters of `Repository.save_order` are keyword-only (after *), so call sites stay readable when options are added."
+body = "A positional bool added in the middle of a signature bit us once."
+noise = true
+
+[[note]]
+pair = "noise-0048"
+kind = "note"
+path = "tallyho/ledger.py"
+symbol = "Ledger.balances"
+summary = "Deprecation warnings from `Ledger.balances` are turned into errors in CI (filterwarnings = error), so fix them when they appear."
+body = "Silencing them locally only moves the failure to CI."
+noise = true
+
+[[note]]
+pair = "noise-0049"
+kind = "decision"
+path = "tallyho/ledger.py"
+symbol = "Ledger.record_sale"
+summary = "`Ledger.record_sale` keeps its docstring as the one place its behaviour is described; the README only links to it."
+body = "The README is for operators, not API detail."
+noise = true
+
+[[note]]
+pair = "noise-0050"
+kind = "attempt"
+path = "tallyho/report/__init__.py"
+summary = "Moving the imports inside the `__init__` module to speed up start-up saved under a millisecond and confused the linter."
+body = "Start-up time is dominated by the interpreter itself; imports stay at the top of the module."
+noise = true

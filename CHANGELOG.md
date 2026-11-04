@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Bench: E4 at scale, `run --noise N`** (Plan 13 Phase 1, harness only; nothing run yet). Adds N
+  deterministic irrelevant notes to every relay task, the same ones in the `notes` arm's
+  `NOTES.md` and as the `av` arm's anchored records: a seeded generator over the base tree's own
+  files and symbols, anchored everywhere (the lessons' files too), spread among the lessons, each
+  level the first N of the next. `scholion-bench noise` prints them. Rows gain `input_tokens`
+  (cache reads included) and `memory_tokens` (`NOTES.md` or the start pack); a noise run's report
+  names its level and adds a "Memory at scale" table; a results directory holds one level. Design,
+  levels, metrics and a per-cell cost estimate: `bench/results/2026-11-e4-scale/DESIGN.md`.
 - **Name fan-out cap** (`AV_INDEX_MAX_FANOUT=N`, off by default). The code graph links a call by its
   bare name to every symbol of that name, so `new` alone gave tokio 500k of its 896k edges. With a
   cap, a name more than N other symbols define links to none of them; overlay views apply it to

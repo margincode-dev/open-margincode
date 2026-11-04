@@ -18,6 +18,7 @@ fn m(first: Option<u64>, total: u64, cost: f64, dead: u32) -> SessionMetrics {
         tool_calls: 9,
         repeated_dead_ends: dead,
         truncated: false,
+        input_tokens: total * 4,
     }
 }
 
@@ -32,6 +33,7 @@ fn row(task: &str, arm: &str, rep: u32, success: bool, metrics: SessionMetrics) 
         cost_usd: metrics.cost_usd,
         wall_secs: 60.0 * rep as f64,
         metrics: Some(metrics),
+        memory_tokens: None,
     }
 }
 
@@ -89,6 +91,8 @@ fn meta() -> Meta {
         seed: 1,
         av_mcp: Some(true),
         hook_args: vec![],
+        noise: None,
+        noise_seed: None,
     }
 }
 
@@ -392,4 +396,73 @@ fn a_relay_report_compares_av_with_notes_and_says_how_the_notes_arrived() {
         !md.contains("single-commit tree"),
         "the E3 note does not apply: {md}"
     );
+}
+
+// ---- E4 at scale ----
+
+fn noisy_rows() -> Vec<Row> {
+    let mut rows = vec![];
+    for rep in 1..=3 {
+        rows.push(Row {
+            memory_tokens: Some(30000),
+            ..row(
+                "relay-a",
+                "notes",
+                rep,
+                rep != 2,
+                m(Some(9000), 40000, 0.02, 0),
+            )
+        });
+        rows.push(Row {
+            memory_tokens: Some(700),
+            ..row("relay-a", "av", rep, true, m(Some(7000), 30000, 0.01, 0))
+        });
+    }
+    rows
+}
+
+#[test]
+fn a_noise_run_names_its_level_and_reports_memory_size_per_arm() {
+    let at_200 = Meta {
+        noise: Some(200),
+        ..meta()
+    };
+    let md = render_report(&noisy_rows(), &at_200);
+    assert!(md.contains(" · noise 200 · "), "{md}");
+    assert!(md.contains("## Memory at scale (noise 200)"), "{md}");
+    let notes = md
+        .lines()
+        .find(|l| l.starts_with("| notes | 3 | 2/3 |"))
+        .unwrap_or_else(|| panic!("{md}"));
+    // input tokens are 4 × tokens_total in the fixture; memory is NOTES.md's size
+    assert!(notes.contains("| 160000 | 30000 |"), "{notes}");
+    let av = md
+        .lines()
+        .find(|l| l.starts_with("| av | 3 | 3/3 |"))
+        .unwrap();
+    assert!(av.contains("| 120000 | 700 |"), "{av}");
+
+    let plain = render_report(&noisy_rows(), &meta());
+    assert!(
+        !plain.contains(" · noise ") && !plain.contains("Memory at scale"),
+        "{plain}"
+    );
+}
+
+#[test]
+fn a_run_refuses_to_resume_into_results_of_another_noise_level() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let s = setup();
+    // SAFETY: SERIAL is held.
+    unsafe { std::env::set_var("FAKE_MARKER", &s.marker) };
+    let mut a = args(&s, 5.0, true);
+    a.meta.noise = Some(50);
+    run(&s.specs, &a, &s.cfg).unwrap();
+    a.meta.noise = Some(200);
+    let err = run(&s.specs, &a, &s.cfg).err().unwrap();
+    assert!(err.contains("noise"), "{err}");
+    a.meta.noise = None;
+    assert!(run(&s.specs, &a, &s.cfg).is_err(), "nor without noise");
+    a.meta.noise = Some(50);
+    run(&s.specs, &a, &s.cfg).expect("the same level resumes");
 }

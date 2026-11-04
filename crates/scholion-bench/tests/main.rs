@@ -4,6 +4,7 @@
 
 mod common;
 mod metrics;
+mod noise;
 mod report;
 mod retrieval;
 mod retrieval_gate;

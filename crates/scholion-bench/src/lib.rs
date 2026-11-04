@@ -7,6 +7,7 @@
 pub mod calibrate;
 pub mod metrics;
 pub mod mine;
+pub mod noise;
 pub mod orchestrate;
 pub mod report;
 pub mod retrieval;

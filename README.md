@@ -28,6 +28,10 @@ hands it to whichever agent comes next.
 
 **[Watch the recorded run](https://openevaluations.si/demo)**
 
+## Why it exists
+
+Many developers now pay for more than one agent subscription, such as Claude Code, Codex, Gemini, Grok or Cursor, because each model is better at something different. Today those agents cannot share what they learned about your code, so every handoff between them is a diff with no reasoning, and each one starts from zero and repeats the dead ends of the others. Scholion gives all your subscriptions one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
+
 ## What you get
 
 - **Notes in the margin.** Agents leave one-line notes (decisions, dead ends) pinned to the code
@@ -100,4 +104,4 @@ as audited infrastructure. Some of the design borrows ideas from Anthropic's pub
 Scholion is an independent project, **not affiliated with or endorsed by Anthropic**.
 
 **Editions.** This repository is the free Community edition ([MIT](LICENSE)). It works with any
-number of agents, with no seat limit. A hosted Commercial edition is planned but not available.
+number of agents, with no seat limit. A hosted Commercial edition, **Scholion Cloud**, is planned but not available yet.

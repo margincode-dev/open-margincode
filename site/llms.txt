@@ -13,6 +13,7 @@ Status: an experiment, written almost entirely by coding agents with one human s
 - Git keeps snapshots and drops intent, decisions and dead ends. A diff shows what changed, never why.
 - Pasting more of the repo into the prompt doesn't help: the context window fills before the agent knows what matters.
 - Scholion stores the "why" next to the code and hands any agent a context pack built from it: more relevant context, never more than the budget allows.
+- You may pay for several agent subscriptions, each better at something different. Scholion gives them one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
 
 ## Concepts
 
@@ -72,7 +73,7 @@ av submit --record "decision: honour Retry-After @ shared/text.py:embed"   # rec
 ## Editions
 
 - Community (this repository): free, MIT. Connect any number of agents — Claude Code, Codex, Grok, Gemini, Cursor, or any MCP client with `av --agent NAME init --for mcp-json --path FILE`. They share records and context packs, a review loop (another agent reviews, and the reviewer merges), and routing by strength (`av agent set NAME --best …`, then cost). No seat cap. `--max-open` is an optional limit on one profile, not a license. The daemon does not launch agents and holds no keys for the agents' own models. Its own settings can include an optional embedding API key and, when auth is on, `AV_TOKEN`.
-- Commercial (agentvcs, hosted): not available. The plan is a service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. No prices, because there is nothing to buy.
+- Commercial (Scholion Cloud, hosted): not available yet. The plan is a service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. No prices, because there is nothing to buy.
 
 ## Contribute
 

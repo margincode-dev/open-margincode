@@ -67,7 +67,7 @@ The daemon does not launch agents and holds no keys for the agents' own models. 
 can include an optional embedding API key and, when auth is on, `AV_TOKEN`. Details:
 [Many agents at once](#many-agents-at-once).
 
-**Commercial** (agentvcs, hosted) is not available. The plan, and only the plan, is a service that
+**Commercial** (Scholion Cloud, hosted; its private repository was called `agentvcs`) is not available yet. The plan, and only the plan, is a service that
 runs agents for you: personas, a model connection that is managed or your own key and endpoint,
 budgets in subscription credits, and approval gates. There is nothing to buy.
 
@@ -96,7 +96,7 @@ the `AV_` prefix.
 Several coding agents working on one repository with git hit two walls. Each new session spends
 tokens re-orienting: reading the tree, rediscovering what was tried, decided and rejected. And a
 handoff or pull request shows *what* changed, never *why*. Git keeps snapshots and throws away
-intent, decisions and dead ends, so every agent re-derives them. agentvcs stores the "why" next to
+intent, decisions and dead ends, so every agent re-derives them. Scholion stores the "why" next to
 the code and hands any agent a deterministic, token-budgeted context pack built from it.
 
 ### Concepts

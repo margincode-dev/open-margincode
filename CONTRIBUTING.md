@@ -43,6 +43,7 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
 - **One change per pull request**, branched from `main`.
 - Larger features start as a plan in `docs/superpowers/plans/`, in the style of the existing ones.
   Older plans and the design spec use the project's earlier name (`agentvcs`, crates `av-*`).
+- **Editions.** The hosted Commercial edition is called Scholion Cloud and lives in a separate private repository; this repository is only the Community edition.
 
 ## Invariants worth not breaking
 

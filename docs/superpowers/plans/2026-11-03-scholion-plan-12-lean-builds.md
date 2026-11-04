@@ -57,13 +57,52 @@ Conventions already carry a `scope_glob`, and `flow::applicable_checks` keeps on
 conventions whose glob matches a changed path. So "docs-only → no build" needs no code: the
 required convention's scope must be `crates/**` (or similar), not `**`. To do:
 
-- [ ] `bench/` and `examples/routing-smoke` set-up scripts and the dogfood brief use a scoped
-      glob for the full bar; `docs/reference.md` says so (done in the first PR's text).
-- [ ] A change inside one crate: `cargo test -p <crate>` plus its reverse dependencies. The daemon
-      has the changed paths at submit and the workspace's crate graph (`Cargo.toml` members); a
-      check command may carry `{crates}` which `av validate` expands to `-p a -p b`. Needs a
-      design note first: the reverse-dependency closure must come from `cargo metadata`, not
-      guesses, or a green check can miss a dependant.
+- [x] `bench/` and `examples/routing-smoke` set-up scripts and the dogfood brief use a scoped
+      glob for the full bar; `docs/reference.md` says so (done in the first PR's text). No script
+      in `bench/`, `examples/` or `scripts/` adds a required check; `av convention add` hints when
+      a required check's scope is `**` (#73); the live bar is `conv:7`, scoped to
+      `{crates/**,Cargo.toml,Cargo.lock,rust-toolchain.toml}`.
+- [x] A change inside one crate: `cargo test -p <crate>` plus its reverse dependencies, through a
+      `{crates}` placeholder in a check command. Design note below.
+
+### `{crates}`: design note
+
+A required check such as `cargo test {crates}` runs only the packages a change can affect.
+Approval matches a check's result to its convention by `convention_id` (`flow::check_problem`),
+never by command text, so the client may run an expanded command.
+
+- **Who expands it.** `av validate`, in the workspace, because the daemon never runs repository
+  commands. `GET /v1/tasks/{id}/checks` adds `changed` (the task's changed paths, base to head,
+  which `applicable_checks` already computes); the CLI cannot ask jj itself.
+- **The graph.** `cargo metadata --no-deps --offline --format-version 1` in the workspace root.
+  Members are `workspace_members`; a member's directory is its manifest's parent, relative to
+  the repo root. An edge B → A exists when B lists a dependency with a `path` whose `name` (the
+  package name, not a `rename`) is member A, **of every kind**: normal, `dev` and `build`.
+  `scholion-testutil` is a dev-dependency of most crates, so a change to it reaches all of them.
+- **Path → package.** The member with the longest directory that is a prefix of the path. A
+  package at the cargo workspace root owns only `src/`, `tests/`, `benches/`, `examples/` and
+  `build.rs`; anything else there (fixture dirs, `Cargo.lock`) is outside every member.
+- **Closure.** The touched members plus every member that depends on one of them, transitively.
+  The command gets `-p a -p b …`, sorted.
+- **Falls back to `--workspace`** (never to an empty string) when any changed path is outside
+  every member (root `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `bench/` that
+  `scholion-bench` tests read through `CARGO_MANIFEST_DIR/../..`), when no member is touched,
+  when `cargo metadata` fails or is missing, or when its workspace root is not inside the task's
+  workspace. A wrong guess must cost a full build, not a missed dependant.
+- **Visible.** `av validate` prints the expanded command (`check conv:N passed (\`cargo test -p
+  a -p b\`, exit 0)`) and stores it as the check result's `command`, so a reviewer sees what ran.
+- **Fails closed for clients that do not expand it.** Run as written, `cargo test {crates}`
+  takes `{crates}` as a test-name filter: it builds, runs 0 tests and exits 0. So for a check
+  whose command says `{crates}`, approval counts a result only when it carries a `command`
+  without the placeholder (`flow::check_problem`); otherwise the check is "not run", and the
+  message says `av validate` expands it. An `av` older than this, or an MCP agent that omits
+  `command`, cannot pass such a check. The MCP `validate` tool forwards a check's `command`
+  but its schema does not list it (the tool list is size-guarded); the refusal names it.
+- **Known difference.** `-p a -p b` unifies features over the chosen packages only, so a
+  feature that only another member turns on is off. A test that needs it fails visibly; it never
+  passes by mistake for a crate that was not chosen, because unchosen crates do not run.
+- Not done: expanding `{crates}` in the agent's own `av validate -- CMD` (the agent can type
+  `-p` itself), and other languages' package graphs.
 
 ## Task 3: `av disk` and the sweep own build dirs outside `ws_root`
 

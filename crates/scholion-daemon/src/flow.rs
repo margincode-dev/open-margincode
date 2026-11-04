@@ -334,6 +334,9 @@ pub(crate) struct CheckResult {
     exit_code: i32,
     #[serde(default)]
     output_tail: String,
+    /// The command as it ran, after `av validate` expanded `{crates}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
 }
 
 /// Records that `command` ran in the workspace with `exit_code`, bound to the head it ran at.
@@ -590,21 +593,34 @@ fn same_edit(
 
 /// Required conventions with a check command whose glob matches a path the task changed.
 pub(crate) async fn applicable_checks(st: &AppState, task: &Task) -> Result<Vec<Convention>> {
+    Ok(changed_and_checks(st, task).await?.1)
+}
+
+/// The task's changed paths (base to head, sorted) and the required checks they call for.
+pub(crate) async fn changed_and_checks(
+    st: &AppState,
+    task: &Task,
+) -> Result<(Vec<String>, Vec<Convention>)> {
     if task.head_change.0.is_empty() {
-        return Ok(vec![]);
+        return Ok((vec![], vec![]));
     }
-    let changed = st
+    let mut changed = st
         .vcs
         .changed_paths(&task.repo, &task.base_change, &task.head_change)
         .await?;
-    Ok(st
+    changed.sort();
+    let checks = st
         .store
         .conventions_for(&task.repo, &changed)
         .await?
         .into_iter()
         .filter(|c| c.required && c.check_command.is_some())
-        .collect())
+        .collect();
+    Ok((changed, checks))
 }
+
+/// The placeholder `av validate` expands in a check command to the packages a change affects.
+const CRATES: &str = "{crates}";
 
 /// Why the task's convention checks do not allow approval at `head` (`None`: they do). The
 /// newest result per convention across the validations at `head` counts; a check with no
@@ -622,11 +638,26 @@ async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Op
         .filter(|r| r.kind == RecordKind::Validation && r.change_id.as_ref() == Some(head))
         .collect();
     records.sort_by_key(|r| r.created_at);
+    // A check that says `{crates}` counts only as run by a client that expanded it: run as
+    // written, `cargo test {crates}` filters every test out and exits 0 (Plan 12 Task 2).
+    let expands: std::collections::HashSet<i64> = wanted
+        .iter()
+        .filter(|c| {
+            c.check_command
+                .as_deref()
+                .is_some_and(|k| k.contains(CRATES))
+        })
+        .map(|c| c.id.0)
+        .collect();
     let mut latest = std::collections::HashMap::new();
     for r in &records {
         let body: Value = serde_json::from_str(&r.body).unwrap_or_default();
         for c in body["checks"].as_array().into_iter().flatten() {
             if let (Some(id), Some(code)) = (c["convention_id"].as_i64(), c["exit_code"].as_i64()) {
+                let expanded = c["command"].as_str().is_some_and(|k| !k.contains(CRATES));
+                if expands.contains(&id) && !expanded {
+                    continue;
+                }
                 latest.insert(id, code);
             }
         }
@@ -639,6 +670,14 @@ async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Op
             Some(code) => problems.push(format!(
                 "conv:{} check `{cmd}` failed (exit {code}): {}",
                 c.id.0, c.text
+            )),
+            None if cmd.contains(CRATES) => problems.push(format!(
+                "conv:{} check `{cmd}` not run at head {} (`av validate` runs it and replaces \
+                 {CRATES} with -p for each changed crate and its dependants, or --workspace; a \
+                 result counts only with that expanded `command`): {}",
+                c.id.0,
+                short(&head.0),
+                c.text
             )),
             None => problems.push(format!(
                 "conv:{} check `{cmd}` not run at head {} (`av validate` runs it): {}",

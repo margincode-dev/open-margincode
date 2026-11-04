@@ -729,6 +729,20 @@ To spend less per task still: scope a required convention's check by its glob, s
 'crates/**' --required --check 'cargo test --workspace' 'Tests pass'` runs only when a changed
 path matches `crates/**`. `av convention add` says so when a required check's scope matches every path.
 
+A check command may say `{crates}` where cargo takes packages: `--check 'cargo test {crates}'`.
+`av validate` replaces it with `-p a -p b`, the workspace members that hold a changed path plus
+every member depending on one of them through a path dependency of any kind (normal, dev,
+build), read from `cargo metadata --no-deps --offline` in the workspace. When it cannot place a
+change (a path outside every member, such as the root `Cargo.toml`, `Cargo.lock`,
+`rust-toolchain.toml`, `.cargo/` or a fixture dir a test reads through `../..`), or cargo is
+missing, it is `--workspace`. The check line prints the command as it ran (for a change in `scholion-pack`: `cargo test
+-p scholion-bench -p scholion-cli -p scholion-daemon -p scholion-pack`) and the validation record
+keeps it, so a reviewer sees what a green check covered. Approval counts a result for such a check only
+when its `command` was expanded (run as written, `cargo test {crates}` filters every test out
+and passes), so an older `av` cannot pass it. A package at the workspace root owns only its
+`src/`, `tests/`, `benches/`, `examples/` and `build.rs`. Choosing packages also unifies features over
+those packages only.
+
 **What a session leaves outside its workspace.** The Claude Code hooks (and Grok's, which run the
 same `av hook`) take a snapshot at `SessionStart`: under `$HOME`, the temp dir and
 `AV_FOOTPRINT_ROOTS` (a path list), they measure every directory named `target`, `node_modules`,

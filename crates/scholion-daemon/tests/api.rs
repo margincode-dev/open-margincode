@@ -2468,6 +2468,99 @@ async fn a_required_convention_check_must_pass_before_approval() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// `{crates}` is expanded by `av validate` from the changed paths, and the command that ran is
+/// kept with the check's result, so a reviewer sees what a green check covered.
+#[tokio::test(flavor = "multi_thread")]
+async fn checks_list_the_changed_paths_and_keep_the_command_that_ran() {
+    let e = env().await;
+    let conv = add_conv(&e, "app/**", "tests pass", Some("cargo test {crates}")).await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    write_file(&e, &t, "app/extra.py", "X = 1\n");
+    validate(&e, &t, 0).await; // snapshots the edits, so head moves past base
+
+    let (status, body) = call(&e.app, "GET", &format!("/v1/tasks/{}/checks", id(&t)), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["changed"], json!(["app/extra.py", "app/util.py"]));
+    assert_eq!(body["checks"][0]["command"], "cargo test {crates}");
+
+    validate_with(
+        &e,
+        &t,
+        json!([{"convention_id": conv, "exit_code": 0, "command": "cargo test --workspace"}]),
+    )
+    .await;
+    let (_, records) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records", id(&t)),
+        None,
+    )
+    .await;
+    let newest = records["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] == "validation")
+        .max_by_key(|r| r["created_at"].as_str().unwrap().to_owned())
+        .unwrap()
+        .clone();
+    let body: Value = serde_json::from_str(newest["body"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        body["checks"][0]["command"], "cargo test --workspace",
+        "{body}"
+    );
+}
+
+/// Run as written, `cargo test {crates}` filters every test out and exits 0, so a result for such
+/// a check counts only with the command a client expanded.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_crates_check_counts_only_when_its_command_was_expanded() {
+    let e = env().await;
+    let conv = add_conv(&e, "app/**", "tests pass", Some("cargo test {crates}")).await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    assert_eq!(submit(&e, &t).await.0, StatusCode::OK);
+    let refused = |body: &Value| {
+        let msg = body["error"].as_str().unwrap_or_default().to_owned();
+        assert!(
+            msg.contains(&format!("conv:{conv}")) && msg.contains("not run"),
+            "{msg}"
+        );
+        assert!(
+            msg.contains("replaces {crates}"),
+            "says who expands it: {msg}"
+        );
+    };
+
+    // an older av: no command
+    validate_with(&e, &t, json!([{"convention_id": conv, "exit_code": 0}])).await;
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    refused(&body);
+
+    // run by hand as written
+    validate_with(
+        &e,
+        &t,
+        json!([{"convention_id": conv, "exit_code": 0, "command": "cargo test {crates}"}]),
+    )
+    .await;
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    refused(&body);
+
+    validate_with(
+        &e,
+        &t,
+        json!([{"convention_id": conv, "exit_code": 0, "command": "cargo test -p app"}]),
+    )
+    .await;
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_removed_convention_is_no_longer_listed_or_enforced() {
     let e = env().await;

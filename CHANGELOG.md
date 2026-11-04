@@ -40,6 +40,16 @@
     check runs for every task, so a docs-only change pays the full build (the run's docs-only task
     paid 20 GB and 10 min). The hint says to scope it (`--scope 'crates/**'`); a change outside
     the scope then skips it, as `av validate` already does.
+  - **`{crates}` in a check runs only the crates a change can affect** (Task 2). `av validate`
+    replaces it with `-p a -p b`: the workspace members holding a changed path plus every member
+    that depends on one of them, by any kind of path dependency (dev and build too), from
+    `cargo metadata --no-deps` in the workspace. A changed path outside every member (root
+    `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/`, `bench/`) or a failed
+    `cargo metadata` gives `--workspace`. The line prints the command that ran, and the check's
+    result keeps it (`command`); `GET /v1/tasks/{id}/checks` adds `changed`, the task's changed
+    paths. Approval counts a result for a `{crates}` check only with an expanded `command`: run
+    as written, `cargo test {crates}` filters every test out and passes, so an older `av` (or an
+    MCP agent that leaves `command` out) cannot pass it.
 - **`av agent rm NAME`** (`DELETE /v1/agents/{name}`). Removes a profile. An unknown name is
   404. An agent that still owns an open, handed-off, in-review or conflicted task is 409 unless `--force`
   (`?force=true`); the tasks stay. A profile an extension manages is refused, the same way

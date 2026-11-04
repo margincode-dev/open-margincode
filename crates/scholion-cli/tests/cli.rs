@@ -579,6 +579,40 @@ fn a_required_check_scoped_to_every_path_gets_a_hint() {
     assert!(!out.contains("hint:"), "{out}");
 }
 
+/// `{crates}` is expanded before the check runs, and the line says what ran. The demo repo is
+/// no cargo workspace, so it is the whole workspace (the scope rule is unit-tested in
+/// `crates_scope`).
+#[test]
+fn validate_expands_crates_in_a_check_and_prints_what_ran() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "convention",
+            "add",
+            "--repo",
+            "demo",
+            "--scope",
+            "app/**",
+            "--required",
+            "--check",
+            "test \"{crates}\" = --workspace",
+            "tests pass",
+        ],
+    ));
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "def hello():\n    return 'louder'\n",
+    )
+    .unwrap();
+    let passed = ok(av(&d, &ws, &["validate", "--", "true"]));
+    assert!(
+        passed.contains("check conv:1 passed (`test \"--workspace\" = --workspace`"),
+        "{passed}"
+    );
+}
+
 #[test]
 fn validate_runs_the_required_convention_checks() {
     let (d, ws, scratch) = started();

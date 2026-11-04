@@ -789,15 +789,16 @@ async fn remove_convention(
 /// whose glob matches a changed path.
 async fn task_checks(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
     let task = st.store.get_task(task_id(id)).await?;
-    let checks: Vec<Value> = crate::flow::applicable_checks(&st, &task)
-        .await?
+    let (changed, wanted) = crate::flow::changed_and_checks(&st, &task).await?;
+    let checks: Vec<Value> = wanted
         .into_iter()
         .map(|c| {
             json!({"convention_id": c.id.0, "command": c.check_command,
                    "scope_glob": c.scope_glob, "text": c.text})
         })
         .collect();
-    Ok(Json(json!({"checks": checks})))
+    // `av validate` expands a check's `{crates}` from these (Plan 12 Task 2)
+    Ok(Json(json!({"checks": checks, "changed": changed})))
 }
 
 async fn get_receipt(State(st): State<AppState>, Path(id): Path<String>) -> ApiResult<Value> {

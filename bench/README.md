@@ -231,7 +231,9 @@ removed):
 
 Each script writes the repo where the task files expect it (`~/bench-repos/…`). The tallyho
 tasks need a Python with pytest at `~/bench-work/venv`. The scholion tasks build Rust in every
-session: export `CARGO_TARGET_DIR` (one shared target) and `AV_TEST_DATABASE_URL`. Each
+session: export `AV_TEST_DATABASE_URL`, and `CARGO_TARGET_DIR` only when sessions run one at a
+time (two checkouts of one repo sharing a target dir run each other's test binaries; inside an av
+task, `av validate` and the hooks use the workspace's own `target/` anyway). Each
 session's copy is removed after verify unless you pass `--keep-work`, so disk use stays at
 about the sessions running at once (a scholion copy is about 1 GB). The tallyho and scholion tasks use `claude-haiku-5-5`; the relay
 tasks use DeepSeek (`bench/tasks-relay/README.md`).

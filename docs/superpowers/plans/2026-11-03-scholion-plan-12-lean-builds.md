@@ -104,17 +104,53 @@ never by command text, so the client may run an expanded command.
 - Not done: expanding `{crates}` in the agent's own `av validate -- CMD` (the agent can type
   `-p` itself), and other languages' package graphs.
 
-## Task 3: `av disk` and the sweep own build dirs outside `ws_root`
+## Task 3: a task's builds stay in its own `target/` — done
 
 The run's agents built into `CARGO_TARGET_DIR=/target/ws-<slug>` (a Docker volume, for speed on a
-bind mount). Nothing of av's knew those dirs; they were deleted by hand.
+bind mount). Nothing of av's knew those dirs; they were deleted by hand. The plan first said to
+let a task register such a dir so `av disk` and the reclaim own it. Looking closer, the bigger
+problem was correctness: av's per-repo `.cargo/config.toml` sets no `target-dir` (Task 1), so a
+`CARGO_TARGET_DIR` in the user's environment, or `build.target-dir` in `~/.cargo/config.toml`,
+still applies, and every task workspace of a repo builds into that one dir again. That is the
+cross-task test-binary bug Task 1 fixed. Many Rust users set `CARGO_TARGET_DIR` in their shell,
+and `scholion-daemon/tests/disk.rs` only passed because its helper removes the variable.
 
-- [ ] A task may register a build dir (`POST /v1/tasks/{id}/build-dir`, or the session-start hook
-      posts `CARGO_TARGET_DIR` when set) so `av disk` counts it under the task and the reclaim
-      removes it with the workspace. Deletes stay under a root the daemon was given
-      (`AV_BUILD_ROOT`), never arbitrary paths.
-- [ ] The footprint already shows a session's `target` dirs outside any workspace; `outside`
-      entries that name a task's registered build dir move under the task.
+What was built (client side only; the daemon cannot set an agent's environment):
+
+- `target_dir.rs` in the CLI: in a cargo workspace (a root `Cargo.toml`, the rule `build_cache`
+  uses), commands get `CARGO_TARGET_DIR=<workspace>/target` and no `CARGO_BUILD_TARGET_DIR`.
+  The variable outranks every config file, so it also covers a `build.target-dir` in
+  `~/.cargo/config.toml`. When nothing was set, it changes nothing.
+- `av validate` runs the agent's command and every check that way. That protects the
+  attestation, which is where a false green would come from.
+- The session-start hook, when the user's environment names a target dir, appends a line of
+  shell code to `$CLAUDE_ENV_FILE`. Claude Code runs that file before every Bash command, and the
+  line points cargo at the `target/` of the task workspace the command runs in: the nearest dir
+  with a `.av-task` and a `Cargo.toml`, written for any task workspace, cargo or not, since a
+  later task of the same session may be a Rust one. It computes the dir per command, not as a written path,
+  because the Stop hook keeps one session going from task to task; a fixed path would send task
+  2's builds into task 1's `target/`, shared with task 1's reviewer. Without such a variable the
+  hook writes nothing, since cargo's default already is the workspace's `target/`, and the file
+  stays plain assignments: PowerShell takes the file's variables only when every line is one, so
+  for a user with `CARGO_TARGET_DIR` set, PowerShell commands lose `AV_SCRATCH` too.
+  `integrations/generic/av-wrap.sh` does the same lookup for a wrapped agent.
+- That dir is the one the daemon seeds with dependencies (Task 5) and removes at merge or
+  abandon, so users with `CARGO_TARGET_DIR` set now get both. The cost: builds on a slow
+  bind mount (Docker Desktop's 9p) lose the fast volume, as the live stack already accepted
+  when `sch-ws` was recreated without `CARGO_TARGET_DIR`.
+- An explicit `--target-dir` in a command still wins: that is the user's choice, and the
+  footprint reports what it leaves outside the workspace.
+
+Superseded: registering build dirs outside `ws_root` (`POST /v1/tasks/{id}/build-dir`,
+`AV_BUILD_ROOT`). Builds no longer go there unless a command asks for it explicitly.
+
+Known gaps: a session that starts outside any task workspace and only then calls `start_task`
+or `av next` gets no snippet (the hook ran before there was a task); an MCP-only agent's own
+cargo runs are not covered. `av validate` is, in both cases. A
+`build.target-dir` in `~/.cargo/config.toml` is overridden for `av validate` and `av-wrap.sh`
+but not for a Claude Code session's own commands (the hook only looks at the variables).
+Follow-up: `AV_SCRATCH` is still written as a fixed path, so a session moved on to a second
+task keeps the first task's scratch dir.
 
 ## Task 4: workspace slots with warm targets (the 2× concurrency lever)
 

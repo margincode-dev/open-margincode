@@ -613,6 +613,67 @@ fn validate_expands_crates_in_a_check_and_prints_what_ran() {
     );
 }
 
+/// A `CARGO_TARGET_DIR` from the user's environment would make every task workspace of a repo
+/// build into one dir, where `cargo test` runs another task's test binary (Plan 12). In a cargo
+/// workspace `av validate` points the command and the checks at the workspace's own `target/`.
+#[test]
+fn validate_builds_a_cargo_workspace_into_its_own_target_dir() {
+    let (d, ws, scratch) = started();
+    std::fs::write(ws.join("Cargo.toml"), "[workspace]\n").unwrap();
+    std::fs::create_dir_all(ws.join("target")).unwrap(); // so both sides canonicalize
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "convention",
+            "add",
+            "--repo",
+            "demo",
+            "--scope",
+            "app/**",
+            "--required",
+            "--check",
+            "printf '%s|%s' \"$CARGO_TARGET_DIR\" \"${CARGO_BUILD_TARGET_DIR-unset}\" > \"$SEEN\"",
+            "tests pass",
+        ],
+    ));
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "def hello():\n    return 'louder'\n",
+    )
+    .unwrap();
+    let shared = scratch.path().join("shared-target");
+    let seen = scratch.path().join("seen-check");
+    let seen_cmd = scratch.path().join("seen-command");
+    ok(av_env(
+        &d.url,
+        &ws,
+        &[
+            ("CARGO_TARGET_DIR", shared.to_str().unwrap()),
+            ("CARGO_BUILD_TARGET_DIR", shared.to_str().unwrap()),
+            ("SEEN", seen.to_str().unwrap()),
+            ("SEEN_CMD", seen_cmd.to_str().unwrap()),
+        ],
+        &[
+            "validate",
+            "--",
+            "sh",
+            "-c",
+            "printf '%s|%s' \"$CARGO_TARGET_DIR\" \"${CARGO_BUILD_TARGET_DIR-unset}\" > \"$SEEN_CMD\"",
+        ],
+    ));
+    for file in [&seen, &seen_cmd] {
+        let got = std::fs::read_to_string(file).unwrap();
+        let (dir, build) = got.split_once('|').unwrap();
+        assert_eq!(build, "unset", "{got}");
+        assert_eq!(
+            Path::new(dir).canonicalize().unwrap(),
+            ws.join("target").canonicalize().unwrap(),
+            "{got}"
+        );
+    }
+}
+
 #[test]
 fn validate_runs_the_required_convention_checks() {
     let (d, ws, scratch) = started();
@@ -1416,6 +1477,47 @@ fn av_wrap_writes_context_runs_the_command_and_checkpoints() {
     );
 }
 
+/// The wrapped agent's cargo builds go to the task workspace's own `target/`, also from a
+/// subdirectory and whatever `CARGO_TARGET_DIR` the caller had (Plan 12 Task 3).
+#[test]
+fn av_wrap_points_cargo_at_the_workspaces_own_target_dir() {
+    let (d, ws, scratch) = started();
+    std::fs::write(ws.join("Cargo.toml"), "[workspace]\n").unwrap();
+    std::fs::create_dir_all(ws.join("target")).unwrap();
+    let bin = Path::new(env!("CARGO_BIN_EXE_av"))
+        .parent()
+        .unwrap()
+        .to_owned();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let seen = scratch.path().join("seen");
+    let o = Command::new("bash")
+        .arg(repo_root().join("integrations/generic/av-wrap.sh"))
+        .args([
+            "sh",
+            "-c",
+            r#"printf '%s|%s' "$CARGO_TARGET_DIR" "${CARGO_BUILD_TARGET_DIR-unset}" > "$SEEN""#,
+        ])
+        .current_dir(ws.join("app"))
+        .env("PATH", path)
+        .env("AV_URL", &d.url)
+        .env("SEEN", &seen)
+        .env("CARGO_TARGET_DIR", scratch.path())
+        .env("CARGO_BUILD_TARGET_DIR", scratch.path())
+        .env_remove("AV_TASK")
+        .env_remove("AV_AGENT")
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    let got = std::fs::read_to_string(&seen).unwrap();
+    let (dir, build) = got.split_once('|').unwrap();
+    assert_eq!(build, "unset", "{got}");
+    assert_eq!(
+        Path::new(dir).canonicalize().unwrap(),
+        ws.join("target").canonicalize().unwrap(),
+        "{got}"
+    );
+}
+
 #[test]
 fn hook_session_start_after_compaction_starts_a_new_session() {
     let (d, ws, _scratch) = started();
@@ -1694,6 +1796,10 @@ impl Footprint {
             ("CLAUDE_ENV_FILE", self.env_file.to_str().unwrap()),
             ("AV_FOOTPRINT", on),
             ("AV_FOOTPRINT_WARN_MB", "1"),
+            // as if the user's shell named no target dir (this test process may have one); a
+            // test that wants one pushes it after these
+            ("CARGO_TARGET_DIR", ""),
+            ("CARGO_BUILD_TARGET_DIR", ""),
         ]
     }
 
@@ -1745,6 +1851,103 @@ fn hook_session_start_gives_the_task_a_scratch_dir_and_snapshots_the_footprint()
         snap["dirs"],
         serde_json::json!([{"path": fp.home.path().join("old/target"), "bytes": 4096}]),
         "{snap}"
+    );
+}
+
+/// With a target dir in the user's environment, the session's own cargo builds go to the
+/// `target/` of whichever task workspace a command runs in: the Stop hook keeps one session going
+/// from task to task, so the env file computes it per command (Plan 12 Task 3).
+#[cfg(unix)]
+#[test]
+fn hook_session_start_points_cargo_at_the_current_workspaces_own_target_dir() {
+    // the session starts in a task that is no cargo workspace (a Python one)
+    let (d, ws, scratch) = started();
+    // a second task of the repo, a cargo workspace, as the Stop hook would hand the session next
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Second one",
+            "--goal",
+            "Another",
+        ],
+    ));
+    let ws2 = d.ws.join("demo/second-one");
+    std::fs::write(ws2.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let fp = Footprint::new();
+    let shared = scratch.path().join("shared-target");
+    let mut env = fp.env("off");
+    env.push(("CARGO_TARGET_DIR", shared.to_str().unwrap()));
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &env,
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-target"),
+    ));
+    let file = std::fs::read_to_string(&fp.env_file).unwrap();
+    let av_scratch = d.ws.join("demo/.scratch/improve-greeting");
+    assert!(
+        file.starts_with(&format!("export AV_SCRATCH='{}'\n", av_scratch.display())),
+        "{file}"
+    );
+    // what a Bash command sees, run where the agent is
+    let seen = |cwd: &Path| -> String {
+        let o = Command::new("bash")
+            .arg("-c")
+            .arg(r#". "$ENV_FILE"; printf '%s|%s' "$CARGO_TARGET_DIR" "${CARGO_BUILD_TARGET_DIR-unset}""#)
+            .current_dir(cwd)
+            .env("ENV_FILE", &fp.env_file)
+            .env("CARGO_TARGET_DIR", &shared)
+            .env("CARGO_BUILD_TARGET_DIR", &shared)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", err(&o));
+        out(&o)
+    };
+    assert_eq!(
+        seen(&ws),
+        format!("{}|{}", shared.display(), shared.display()),
+        "no cargo workspace: nothing to protect, the caller's value stays"
+    );
+    assert_eq!(
+        seen(&ws2.join("app")),
+        format!("{}|unset", ws2.join("target").display())
+    );
+    let elsewhere = scratch.path();
+    assert_eq!(
+        seen(elsewhere),
+        format!("{}|{}", shared.display(), shared.display()),
+        "outside a task the caller's value stays"
+    );
+}
+
+/// Without a target dir in the user's environment cargo already builds into the workspace's
+/// `target/`, and the env file stays plain assignments (PowerShell reads only those).
+#[test]
+fn hook_session_start_leaves_cargo_alone_when_no_target_dir_is_set() {
+    let (d, ws, _scratch) = started();
+    std::fs::write(ws.join("Cargo.toml"), "[workspace]\n").unwrap();
+    let fp = Footprint::new();
+    let mut env = fp.env("off");
+    env.push(("CARGO_TARGET_DIR", ""));
+    env.push(("CARGO_BUILD_TARGET_DIR", ""));
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &env,
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-plain"),
+    ));
+    let av_scratch = d.ws.join("demo/.scratch/improve-greeting");
+    assert_eq!(
+        std::fs::read_to_string(&fp.env_file).unwrap(),
+        format!("export AV_SCRATCH='{}'\n", av_scratch.display())
     );
 }
 

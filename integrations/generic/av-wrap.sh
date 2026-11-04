@@ -9,6 +9,15 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 export AV_CONTEXT_FILE="${AV_CONTEXT_FILE:-${TMPDIR:-/tmp}/av-context-$$.md}"
+# In a cargo workspace, builds go to the task workspace's own target/ (the nearest dir with a
+# .av-task), whatever CARGO_TARGET_DIR the caller had: a dir shared by two workspaces of one repo
+# makes `cargo test` in one run the other's test binary.
+root="$PWD"
+while [ "$root" != / ] && [ ! -f "$root/.av-task" ]; do root="$(dirname "$root")"; done
+if [ -f "$root/.av-task" ] && [ -f "$root/Cargo.toml" ]; then
+    export CARGO_TARGET_DIR="$root/target"
+    unset CARGO_BUILD_TARGET_DIR
+fi
 if ! av context --budget "${AV_CONTEXT_BUDGET:-800}" >"$AV_CONTEXT_FILE"; then
     echo "av-wrap: no context pack (continuing without one)" >&2
 fi

@@ -534,6 +534,9 @@ fn cargo_target_dir(dir: &Path) -> PathBuf {
             "--offline",
         ])
         .current_dir(dir)
+        // The daemon cannot control an agent's environment; with these set, cargo would use them
+        // in every workspace. `av validate`, the hooks and av-wrap.sh point them at the
+        // workspace's own target/ (Plan 12 Task 3, `scholion-cli/src/target_dir.rs`).
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
         .output()

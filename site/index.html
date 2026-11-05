@@ -293,6 +293,17 @@ h3 { font: 600 18px/1.3 var(--sans); letter-spacing: -.01em; margin: 0; }
 .copy:hover { color: var(--text); border-color: var(--line-2); }
 .copy svg { width: 15px; height: 15px; }
 .copy.done { color: var(--handoff); }
+.easy { margin-top: 40px; border: 1px solid color-mix(in srgb, var(--rubric) 45%, var(--line)); border-radius: var(--radius); background: var(--rubric-soft); padding: 24px; display: grid; gap: 18px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .easy { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; gap: 32px; } }
+.easy .pill { display: inline-block; font: 500 11.5px/1 var(--mono); padding: 6px 9px; border-radius: 999px; border: 1px solid var(--rubric); color: var(--rubric); }
+.easy h3 { margin: 12px 0 8px; }
+.easy p { margin: 0; color: var(--muted); font-size: 15px; }
+.easy .copy-block pre { background: var(--code-bg); }
+.shot { margin: 56px 0 0; }
+.shot > a { display: block; border: 1px solid var(--line-2); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); background: #0f1014; }
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption { margin-top: 12px; color: var(--muted); font-size: 14.5px; }
+.shot figcaption b { color: var(--text); font-weight: 600; }
 .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 28px; }
 .tools code { font-size: 12px; color: var(--muted); }
 
@@ -540,7 +551,17 @@ h1 .why { position: relative; display: inline-block; }
     "price": "0",
     "priceCurrency": "USD"
    },
-   "keywords": "AI coding agents, version control, MCP server, Claude Code, context engineering, agent handoff, jujutsu"
+   "keywords": "AI coding agents, version control, MCP server, Claude Code, context engineering, agent handoff, agent memory, jujutsu",
+   "image": "https://scholion.openevaluations.si/og.png",
+   "screenshot": "https://scholion.openevaluations.si/img/demo-replay.png",
+   "author": { "@id": "https://github.com/vinhqbui/scholion#project" }
+  },
+  {
+   "@type": "Organization",
+   "@id": "https://github.com/vinhqbui/scholion#project",
+   "name": "Scholion",
+   "url": "https://github.com/vinhqbui/scholion",
+   "logo": "https://scholion.openevaluations.si/favicon.svg"
   },
   {
    "@type": "WebSite",
@@ -595,7 +616,7 @@ h1 .why { position: relative; display: inline-block; }
   <div class="wrap">
     <span class="eyebrow"><b>open source · MIT</b> Version control for the age of coding agents</span>
     <h1>Your next Claude Code session starts knowing last session's <em class="why">dead ends<svg class="scribble" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 13 C 45 5, 90 4, 128 9 S 190 17, 217 6"/></svg></em>.</h1>
-    <p class="lede">Git remembers what changed. Scholion remembers why: it gives coding agents <strong>a memory of why</strong>. Instead of re-reading the tree and rediscovering what was already tried, decided and rejected, every agent starts from <strong>the context that matters</strong>: decisions and dead ends anchored to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the context window or the token budget</strong>.</p>
+    <p class="lede">Git remembers what changed. Scholion also remembers <strong>why, and what didn't work</strong>. Instead of re-reading the repo and retrying what already failed, each session starts from <strong>the context that matters</strong>: decisions and dead ends pinned to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the token budget</strong>.</p>
     <div class="cta">
       <a class="btn btn-primary btn-ring" href="https://github.com/vinhqbui/scholion" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>
@@ -633,6 +654,14 @@ h1 .why { position: relative; display: inline-block; }
       <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
       <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost (<a href="#evidence">benchmark</a>)</span></div>
     </div>
+
+    <figure class="shot reveal">
+      <a href="/demo" aria-label="Watch the recorded run">
+        <img src="/img/demo-replay.png" width="1168" height="811" loading="lazy" decoding="async"
+             alt="A recorded Scholion run: Codex asks for context and its pack opens with the decision and the dead end Claude recorded, next to the task's margin notes.">
+      </a>
+      <figcaption><b>Not a mock-up.</b> A recorded run: Codex asks for context and gets Claude's decision and dead end first, inside a 2,000-token budget. <a href="/demo">Watch the replay →</a></figcaption>
+    </figure>
   </div>
 </header>
 
@@ -640,12 +669,12 @@ h1 .why { position: relative; display: inline-block; }
 <section id="mission" class="mission">
   <div class="wrap">
     <div class="sec-label">Why we build this</div>
-    <p class="mission-text reveal">Agents shouldn't start from zero. We're building the home where they <em>build together and never forget</em>.</p>
-    <p class="mission-sub reveal">Software is being written by swarms of agents. Give them a shared memory, safe parallel workspaces and a handoff that just works, and they stop repeating each other and start compounding. Join us and help shape the code system they'll all use.</p>
+    <p class="mission-text reveal">Agents shouldn't start from zero. Not in your next session, and <em>not when another agent takes over</em>.</p>
+    <p class="mission-sub reveal">Start with one agent on one repo: what it learned today is still there tomorrow, pinned to the code it is about. Add agents from other vendors and the same memory carries over, with parallel workspaces and handoffs that just work. Join us and help shape it.</p>
     <div class="pillars">
-      <div class="pillar reveal"><b>Ship in parallel</b><span>A swarm of agents, each in its own workspace. Main moves only through review, and any merge can be undone.</span></div>
-      <div class="pillar reveal"><b>Never repeat a mistake</b><span>Every decision and dead end stays with the code, so the next agent skips straight to what works.</span></div>
-      <div class="pillar reveal"><b>Pick up anywhere</b><span>Hand a task to any agent, or any human. It starts with exactly the context that matters, and nothing that doesn't.</span></div>
+      <div class="pillar reveal"><b>Never repeat a mistake</b><span>Every decision and dead end stays with the code, so the next session skips straight to what works.</span></div>
+      <div class="pillar reveal"><b>Pick up anywhere</b><span>Tomorrow's session, another agent or a human: each starts with the context that matters, and nothing that doesn't.</span></div>
+      <div class="pillar reveal"><b>Ship in parallel</b><span>Add agents and each works in its own workspace. Main moves only through review, and any merge can be undone.</span></div>
     </div>
   </div>
 </section>
@@ -656,7 +685,7 @@ h1 .why { position: relative; display: inline-block; }
   <div class="wrap">
     <div class="sec-label">The problem</div>
     <h2>Git keeps snapshots and throws the <em>reasoning</em> away.</h2>
-    <p class="sec-intro dropcap">Put several coding agents on one repository and they hit the same three walls, over and over. Each one costs turns, time, and sometimes a broken main. Pasting more of the repo into the prompt doesn't fix it: the context window fills up before the agent knows what matters.</p>
+    <p class="sec-intro dropcap">Every new session hits the same three walls, and every agent you add hits them again. Each one costs turns, time, and sometimes a broken main. Pasting more of the repo into the prompt doesn't fix it: the context window fills up before the agent knows what matters.</p>
     <div class="grid-3">
       <article class="card reveal"><div class="num">i.</div><h3>The re-orientation tax</h3><p>Every fresh session spends its first turns reading the tree, grepping for the target and reconstructing context the last agent already had.</p></article>
       <article class="card reveal"><div class="num">ii.</div><h3>Dead ends get retried</h3><p>"Tried tenacity, not installed." That sentence never reaches a commit, so the next agent tries tenacity again. Rejected approaches vanish with the session.</p></article>
@@ -796,7 +825,7 @@ tokens: 1184/2000</span></pre>
 <section id="swarm">
   <div class="wrap">
     <div class="sec-label">Many agents, one repo</div>
-    <h2>Built for swarms, not for <em>a single</em> chat window.</h2>
+    <h2>Add more agents. <em>Nothing</em> gets lost.</h2>
     <p class="sec-intro">Handoffs carry what's done, remaining, broken and open. Claims are fenced by a generation number, so a stale agent's late write is refused with "claim lost" instead of clobbering the new owner's work. Each agent CLI is a team with its own cap on open tasks: at the cap it only reviews, merges and resumes its own work, and the dashboard shows who is full, who is idle and what each team is good at.</p>
 
     <div class="life reveal">
@@ -871,9 +900,18 @@ av post --repo api --title "Draw the logo" \
   <div class="wrap">
     <div class="sec-label">Plug in your agents</div>
     <h2>Works with the agents you already run.</h2>
-    <p class="sec-intro">Install, then run <code>av init</code> in your repository: it starts the daemon with its own Postgres on <code>127.0.0.1:7420</code>, adds the repository and wires Claude Code. No Docker needed; <code>deploy/docker-compose.yml</code> adds semantic search. Then connect your other agents one of three ways. Where an agent has hooks, use them: no tool schemas sit in its context, and it closes a task in one <code>av submit --record …</code> call.</p>
+    <div class="easy reveal">
+      <div>
+        <span class="pill">Claude Code plugin · easiest</span>
+        <h3>Ask Claude to set it up</h3>
+        <p>Add the plugin once, open Claude Code in your repository and say <em>"set up Scholion for this repo"</em>, or run <code>/scholion:setup</code>. Claude installs Scholion, connects your agents and checks that everything works. <code>/scholion:team</code> sets up several agents on one backlog, and <code>/scholion:doctor</code> fixes a setup that isn't working.</p>
+      </div>
+      <div class="copy-block"><pre><code>claude plugin marketplace add vinhqbui/scholion
+claude plugin install scholion@scholion</code></pre><button class="copy" aria-label="Copy command"></button></div>
+    </div>
+    <p class="sec-intro" style="margin-top:32px">By hand: install, then run <code>av init</code> in your repository. It starts the daemon with its own Postgres on <code>127.0.0.1:7420</code>, adds the repository and wires Claude Code. No Docker needed; <code>deploy/docker-compose.yml</code> adds semantic search. Then connect your other agents one of three ways. Where an agent has hooks, use them: no tool schemas sit in its context, and it closes a task in one <code>av submit --record …</code> call.</p>
     <div class="ints">
-      <div class="int reveal"><span class="pill">Claude Code · recommended</span><h3>Hooks + CLI</h3><p><code>SessionStart</code> prints an 800-token pack; opening a file adds what other tasks recorded about it; edits are checkpointed; <code>Stop</code> asks once to record changes no record explains. Silent outside a task, never fails the agent.</p>
+      <div class="int reveal"><span class="pill">Claude Code · what the plugin sets up</span><h3>Hooks + CLI</h3><p><code>SessionStart</code> prints an 800-token pack; opening a file adds what other tasks recorded about it; edits are checkpointed; <code>Stop</code> asks once to record changes no record explains. Silent outside a task, never fails the agent.</p>
         <div class="copy-block"><pre><code>integrations/claude-code/install.sh</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
       <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP at <code>localhost:7420/mcp</code>. <code>av init --for</code> writes the config for Codex, Cursor, Grok and Gemini. Each connection is its own ledger session and remembers its tasks and their claim generations.</p>
         <div class="copy-block"><pre><code>av init --for codex --for cursor \

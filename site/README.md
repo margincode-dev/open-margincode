@@ -11,7 +11,8 @@ The project website: a static page, no build step. Everything is in this folder.
 | `demo-replay.json` | Written by `scripts/demo-replay.py` from a real daemon; do not edit by hand. |
 | `404.html` | Served by Cloudflare Pages for unknown paths. |
 | `_headers` | Cloudflare Pages response headers (CSP, `text/markdown` for `llms.txt`). |
-| `og.png` | 1200×630 link preview. |
+| `og.png` | 1200×630 link preview, rendered from `scripts/og.html` (see "Link preview"). |
+| `img/demo-replay.png` | Screenshot of `/demo` under the hero: `docs/img/demo-replay.png` (which the README uses) with its top 10 px cropped off (a sliver of the page header). If you replace it, keep the `width`/`height` attributes of its `<img>` in `index.html` equal to the file's size. |
 | `favicon.svg`, `robots.txt`, `sitemap.xml` | The usual. |
 
 Numbers on the page come from these result directories, and only these:
@@ -38,6 +39,20 @@ output; fix the caption or the story, not the check.
 ```bash
 python3 -m http.server -d site 8000   # then open http://localhost:8000
 ```
+
+## Link preview
+
+`og.png` is a screenshot of `scripts/og.html`, which lives outside `site/` so it is not served.
+Edit the template, then render it with headless Chrome (the virtual-time budget gives Google Fonts
+time to load; without it the serif falls back to Georgia) and look at the result:
+
+```bash
+chrome --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1200,630 \
+  --virtual-time-budget=8000 --screenshot=site/og.png "file://$PWD/scripts/og.html"
+```
+
+When the guides or other pages change, update their `dateModified` (JSON-LD and the visible date
+line) and the page's `<lastmod>` in `sitemap.xml`.
 
 ## Deploy to Cloudflare
 
@@ -69,9 +84,18 @@ not touch the root. Three owner steps, in order:
    (deploys the Worker `openevaluations`; its attach of the custom domain `openevaluations.si` to
    the root has to wait for step 3).
 3. Remove the root domain `openevaluations.si` from `scholion-deploy` (Domains & Routes). Cloudflare
-   allows one Worker per custom domain, so only now can `openevaluations` take the root
-   (its `wrangler.jsonc` declares the root as a custom domain, so rerun its deploy). Expect a short
-   gap between removing and attaching; do the two back to back.
+   allows one Worker per custom domain, so only now can `openevaluations` take the root. Its
+   `wrangler.jsonc` does **not** declare the root yet: add
+   `"routes": [{ "pattern": "openevaluations.si", "custom_domain": true }]` there, then rerun its
+   deploy. Expect a short gap between removing and attaching; do the two back to back.
+
+State on 2026-11-04: step 3's removal ran before the openevaluations Worker could attach, and the
+root went dark. As a stopgap the zone has a Single Redirect rule (its description starts
+`temp: openevaluations.si root+www`) sending `openevaluations.si` and `www` to the same path on
+`scholion.openevaluations.si` with a 302, plus two placeholder proxied `A 192.0.2.1` records for
+the root and `www`. Before the openevaluations Worker takes the root, delete that rule and both
+placeholder records: a custom domain cannot attach over an existing record, and the rule would
+hide the new site.
 
 Redirect for a while: add a rule on the `openevaluations.si` zone (Rules -> Redirect Rules, or a
 small Worker route) that sends the old Scholion paths, `/demo`, `/demo-replay.json`, `/guides/*`

@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Source of site/og.png (1200x630 link preview). Render with headless Chrome; the command is in
+     site/README.md ("Link preview"). Not served: it lives outside site/. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    position: relative; color: #e9e7e1; font-family: Inter, system-ui, sans-serif;
+    background:
+      radial-gradient(520px 340px at 160px 110px, rgba(255, 107, 74, .22), transparent 70%),
+      radial-gradient(520px 320px at 1120px 560px, rgba(122, 162, 255, .10), transparent 70%),
+      #0c0d10;
+  }
+  .brand { position: absolute; left: 72px; top: 64px; display: flex; align-items: center; gap: 14px;
+    font: 600 29px/1 Inter, sans-serif; letter-spacing: -.01em; }
+  .mark { width: 50px; height: 50px; border-radius: 12px; background: #ff6b4a; color: #fff;
+    display: grid; place-items: center; font: italic 34px/1 "Instrument Serif", serif; padding-bottom: 4px; box-sizing: border-box; }
+  h1 { position: absolute; left: 72px; top: 150px; margin: 0; width: 1060px;
+    font: 400 92px/1.04 "Instrument Serif", serif; letter-spacing: -.015em; }
+  h1 em { color: #ff6b4a; }
+  .card { position: absolute; left: 752px; top: 350px; width: 370px; padding: 20px 22px 18px;
+    border: 1px solid #2c303a; border-radius: 12px; background: #15171d; transform: rotate(3deg);
+    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .7); }
+  .kind { font: 500 14px/1 "JetBrains Mono", monospace; color: #ff6b4a; letter-spacing: .08em; }
+  .card p { margin: 12px 0 14px; font: 400 17px/1.35 Inter, sans-serif; color: #e9e7e1; }
+  .anchor { font: 400 12.5px/1 "JetBrains Mono", monospace; color: #6b6e78; }
+  .foot { position: absolute; left: 72px; top: 538px; font: 400 20px/1 "JetBrains Mono", monospace; color: #9a9ca5; }
+</style>
+</head>
+<body>
+  <div class="brand"><span class="mark">σ</span>Scholion</div>
+  <h1>Git remembers what changed.<br>Scholion remembers <em>why</em>.</h1>
+  <div class="card">
+    <div class="kind">■ ATTEMPT · DEAD END</div>
+    <p>Tried tenacity; not installed. Don't add the dependency.</p>
+    <div class="anchor">rec:3f9a12c4 → shared/text.py:embed</div>
+  </div>
+  <div class="foot">open-source version control for coding agents · scholion.openevaluations.si</div>
+</body>
+</html>

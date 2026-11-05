@@ -32,6 +32,7 @@ nav a.l:hover { color: var(--text); }
 main { padding-top: 40px; padding-bottom: 40px; }
 .eyebrow { font: 500 13px/1 var(--mono); color: var(--rubric); }
 h1 { font: 400 clamp(34px, 5.5vw, 50px)/1.08 var(--serif); margin: 12px 0 14px; }
+.dated { margin: 0 0 18px; color: var(--faint); font: 400 13px/1.4 var(--mono); }
 h2 { font: 400 30px/1.15 var(--serif); margin: 42px 0 10px; }
 p, li { color: var(--muted); }
 strong { color: var(--text); font-weight: 600; }

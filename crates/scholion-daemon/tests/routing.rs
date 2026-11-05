@@ -577,6 +577,43 @@ async fn a_rescued_task_refuses_the_old_owners_writes() {
     );
 }
 
+/// Dogfood 2026-11-03: claude's lease ran out while its task waited in review; grok requested
+/// changes and its very next `next` took the task back as abandoned, reviewing its own work after.
+/// The change request renews claude's lease, and once that runs out too the reviewer who sent the
+/// task back still may not rescue it, while another agent may.
+#[tokio::test]
+async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
+    let e = env_with(|s| s.with_lease_secs(2)).await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+
+    // the owner has a fresh lease: nobody is offered the task now
+    for agent in ["grok", "codex"] {
+        let (_, body) = next(&e, agent).await;
+        assert_eq!(body["task"], Value::Null, "{agent}: {body}");
+    }
+
+    // the owner goes quiet past that lease too: the reviewer still does not get it, another does
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    assert_eq!(peek(&e, "grok").await["would"], Value::Null);
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(body["task"], Value::Null, "{body}");
+    let (_, body) = next(&e, "codex").await;
+    assert_eq!(body["from"], "abandoned", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+    assert_eq!(body["task"]["owner_agent"], "codex");
+}
+
 // ---- Plan 9 Task 6: a dry-run peek ----
 
 async fn peek(e: &Env, agent: &str) -> Value {

@@ -527,7 +527,8 @@ pub(crate) async fn choose(
     // Tasks waiting for a new agent are candidates under their own ids: every handoff (its
     // window starts at the handoff; the agent that handed it off neither takes nor holds it),
     // and every open task whose owner went quiet (no window: it already waited a whole lease, so
-    // whoever fits and asks first gets it, its restarted owner included).
+    // whoever fits and asks first gets it, its restarted owner included, but not the reviewer
+    // who sent it back with a change request).
     // An item that starts after others is offered once every one of them has merged.
     let mut items: Vec<BacklogItem> = queued
         .iter()
@@ -562,6 +563,14 @@ pub(crate) async fn choose(
     for a in st.store.abandoned_tasks(repo, st.lease_secs).await? {
         let needs = task_needs(st, &a.task).await?;
         kind.insert(a.task.id.0, Kind::Abandoned);
+        // The reviewer whose change request reopened it does not rescue it: the owner's work
+        // would then be finished, and reviewed next, by the agent that judged it. Its owner may.
+        if let Some(v) = st.store.latest_verdict_any(a.task.id).await?
+            && v.verdict == Verdict::RequestChanges
+            && v.reviewer != a.task.owner_agent
+        {
+            excluded.insert(a.task.id.0, v.reviewer);
+        }
         items.push(task_item(&a.task, needs, None, a.since, 0));
     }
     // a conflicted task whose owner's lease ran out (the owner's own were offered above)

@@ -749,6 +749,15 @@ pub(crate) async fn review(
         ))
         .into());
     }
+    // before anything is written: a refusal leaves no verdict and no review records
+    let action = crate::Guarded::Review {
+        task: &task,
+        reviewer: &b.reviewer,
+        verdict: b.verdict,
+    };
+    if let Err(reason) = st.guard.check(action).await {
+        return Err(AvError::IllegalState(format!("cannot review: {reason}")).into());
+    }
     let head = task.head_change.clone();
     if b.verdict == Verdict::Approve {
         match validation_at(&st, task.id, &head).await? {
@@ -804,6 +813,12 @@ pub(crate) async fn review(
             .await?;
     }
     let status = if b.verdict == Verdict::RequestChanges {
+        // The owner's lease may have run out while the task waited in review. Renewed before the
+        // task reopens, so no `next` finds it open and abandoned in between and the owner has a
+        // whole lease to act on the findings.
+        st.store
+            .renew_lease(task.id, task.generation, st.lease_secs)
+            .await?;
         st.store.transition(task.id, Event::RequestChanges).await?
     } else {
         st.store.transition(task.id, Event::Approve).await?

@@ -1,7 +1,8 @@
 //! Extension points for code built on top of the daemon: extra routes (`router_with`), typed
 //! services kept in `AppState` (`with_extension`), the event feed in process
 //! (`subscribe_events`), a guard the lifecycle asks before an approval or a merge
-//! (`MergeGuard`, which also sees a submit with the paths it changes), extra MCP tools
+//! (`MergeGuard`, which also sees a submit with the paths it changes and every review verdict
+//! before it is written), extra MCP tools
 //! (`AppState::with_mcp_tools`), a sink for the usage agents report (`UsageSink`), a writer of
 //! agent profiles (`AppState::put_profile`), and migrations of the extension's own tables in its own Postgres schema
 //! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use scholion_core::{AvEvent, IntentStore, Task};
+use scholion_core::{AvEvent, IntentStore, Task, Verdict};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -37,11 +38,23 @@ impl Extensions {
 }
 
 /// What a `MergeGuard` is asked about. The lifecycle rules (tests at head, a reviewer other than
-/// the owner, an approval at head) were already checked when it is asked.
+/// the owner, an approval at head) were already checked when it is asked, except as `Review`
+/// says.
 #[derive(Debug, Clone, Copy)]
 pub enum Guarded<'a> {
     /// `reviewer` approves `task` at its head.
     Approve { task: &'a Task, reviewer: &'a str },
+    /// `reviewer` gives `task` a `verdict` (an approval or a change request). Asked for every
+    /// verdict once the task is known to be in review and the reviewer is not its owner, before an
+    /// approval's own checks (tests at head, the repo's checks) and before anything is written, so
+    /// a refusal leaves the task in review with no verdict and no `review` records. An approval
+    /// that passes is then asked as `Approve` too, so a guard that knows only `Approve` keeps
+    /// working.
+    Review {
+        task: &'a Task,
+        reviewer: &'a str,
+        verdict: Verdict,
+    },
     /// `agent` merges the approved `task` into main.
     Merge { task: &'a Task, agent: &'a str },
     /// The owner submits `task` for review; `changed_paths` are the files its workspace changes
@@ -53,8 +66,9 @@ pub enum Guarded<'a> {
     },
 }
 
-/// Asked before a submit, an approval and a merge. `Err(reason)` refuses the request with HTTP 422
-/// and the reason; the task stays as it was.
+/// Asked before a submit, a review verdict, an approval and a merge. `Err(reason)` refuses the
+/// request with HTTP 422 and the reason; the task stays as it was. A review verdict asks `Review`
+/// first and, for an approval, `Approve` after it.
 #[async_trait]
 pub trait MergeGuard: Send + Sync {
     async fn check(&self, action: Guarded<'_>) -> Result<(), String>;

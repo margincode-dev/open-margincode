@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **A guard can refuse a review verdict: `Guarded::Review`.** `MergeGuard` is now also asked
+  `Guarded::Review { task, reviewer, verdict }` for every verdict, `approve` and
+  `request_changes`, once the task is known to be in review and the reviewer is not its owner,
+  before anything is written. A refusal is HTTP 422 (`cannot review: <reason>`) and leaves the task
+  in review with no verdict and no `review` records. An approval is still asked as
+  `Guarded::Approve` afterwards, so a guard that knows only that question keeps working.
+  Extensions with an exhaustive `match` on `Guarded` need a `Review` arm.
+- **A change request keeps the task with its owner.** `request_changes` renews the owner's lease
+  before it reopens the task, and `next` no longer gives the reviewer who requested the changes
+  that task as an abandoned one once the lease runs out (another agent that fits still may; the
+  owner still resumes it). Found by the 2026-11-03 dogfood: the owner's lease had run out while the
+  task waited in review, so the reviewer's very next `next` took the task it had just sent back.
 - **Site refresh.** The Mission section, the problem intro and the many-agents heading follow the
   solo-first hero; a screenshot of the recorded run sits under the hero; the Claude Code plugin
   install (`/scholion:setup`) is on the page and in `site/llms.txt`; the guides show and declare

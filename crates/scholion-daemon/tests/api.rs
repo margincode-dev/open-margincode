@@ -3504,7 +3504,9 @@ impl scholion_daemon::MergeGuard for Refuse {
                 (format!("merge by {agent}"), !self.approve)
             }
             // this guard is about approvals and merges only
-            scholion_daemon::Guarded::Submit { .. } => return Ok(()),
+            scholion_daemon::Guarded::Submit { .. } | scholion_daemon::Guarded::Review { .. } => {
+                return Ok(());
+            }
         };
         self.asked.lock().unwrap().push(what);
         if refuse {
@@ -3573,6 +3575,133 @@ async fn a_merge_guard_can_refuse_a_merge_and_main_stays() {
     );
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(task["task"]["status"], "in_review", "{task}");
+}
+
+/// A guard that refuses any review verdict by `impostor` and remembers the review and approval
+/// questions it was asked, in order.
+#[derive(Default)]
+struct Reviewers(std::sync::Mutex<Vec<String>>);
+
+#[async_trait::async_trait]
+impl scholion_daemon::MergeGuard for Reviewers {
+    async fn check(&self, action: scholion_daemon::Guarded<'_>) -> Result<(), String> {
+        match action {
+            scholion_daemon::Guarded::Review {
+                reviewer, verdict, ..
+            } => {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("{} by {reviewer}", verdict.as_str()));
+                if reviewer == "impostor" {
+                    return Err(format!("{reviewer} is not a known reviewer"));
+                }
+            }
+            scholion_daemon::Guarded::Approve { reviewer, .. } => {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("approval by {reviewer}"));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_guard_can_refuse_a_review_verdict_before_anything_is_written() {
+    let guard = std::sync::Arc::new(Reviewers::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let t = ready_for_review(&e).await;
+    let task_id = scholion_core::TaskId(id(&t).parse().unwrap());
+    for verdict in ["request_changes", "approve"] {
+        let (status, body) = post(
+            &e,
+            &t,
+            "review",
+            json!({"reviewer": "impostor", "verdict": verdict,
+                   "findings": [{"summary": "looks wrong to me"}]}),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{verdict}: {body}"
+        );
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("cannot review: impostor is not a known reviewer"),
+            "{verdict}: {body}"
+        );
+    }
+    // asked once per verdict; the approval question never came
+    assert_eq!(
+        *guard.0.lock().unwrap(),
+        ["request_changes by impostor", "approve by impostor"]
+    );
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "in_review", "{task}");
+    let records = e.store.task_records(task_id).await.unwrap();
+    assert!(
+        !records
+            .iter()
+            .any(|r| r.kind == scholion_core::RecordKind::Review),
+        "{records:?}"
+    );
+    assert_eq!(e.store.latest_verdict_any(task_id).await.unwrap(), None);
+}
+
+/// A guard that knows only the approval question still gets it, after the review question.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_is_asked_before_the_approval_question() {
+    let guard = std::sync::Arc::new(Reviewers::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let t = ready_for_review(&e).await;
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        *guard.0.lock().unwrap(),
+        ["approve by reviewer", "approval by reviewer"]
+    );
+
+    // an extension that matches only `Approve` keeps refusing approvals as before
+    let refuse = std::sync::Arc::new(Refuse {
+        approve: true,
+        asked: Default::default(),
+    });
+    let g = refuse.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let t = ready_for_review(&e).await;
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(*refuse.asked.lock().unwrap(), ["approve by reviewer"]);
+}
+
+/// Dogfood 2026-11-03: the owner's lease ran out while its task waited in review, so the reviewer's
+/// next `next` took the task it had just sent back. A change request gives the owner a full lease.
+#[tokio::test(flavor = "multi_thread")]
+async fn request_changes_renews_the_owners_lease() {
+    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let t = ready_for_review(&e).await;
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    let (status, body) = review(&e, &t, "reviewer", "request_changes").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "open", "{body}");
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    let lease = task["task"]["lease_expires"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no lease: {task}"));
+    let lease = chrono::DateTime::parse_from_rfc3339(lease).unwrap();
+    assert!(
+        lease > chrono::Utc::now(),
+        "lease {lease} has run out: {task}"
+    );
+    assert_eq!(task["task"]["owner_agent"], "claude", "{task}");
 }
 
 /// A guard that keeps tasks out of one directory and remembers every submit it was asked about.

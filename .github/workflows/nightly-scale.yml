@@ -58,9 +58,12 @@ jobs:
       MAX_P95_MS_START: "600"       # 178 ms
       MAX_P95_MS_CONTEXT: "300"     # 75 ms
       MAX_P95_MS_CHECKPOINT: "100"  # 19 ms
-      # merges/s with N agents at once (measured: 8 -> 3.58, 32 -> 4.65, 100 -> 3.65). Every level
-      # must also merge all of its agents (100 / 100 in the committed run).
-      MIN_MERGES_PER_S: '{"32": 1.5, "100": 1.2}'
+      # merges/s with N agents at once. The committed run measured 8 -> 3.58, 32 -> 4.65,
+      # 100 -> 3.65; the first run on a hosted runner (2026-11-05, run 42082718417) measured
+      # 8 -> 1.40, 32 -> 1.53, 100 -> 1.08, so throughput there is about a third. The floors are
+      # half of the hosted run: still 10x above the pre-overlay 0.05 merges/s they exist to catch.
+      # Every level must also merge all of its agents (100 / 100 in both runs).
+      MIN_MERGES_PER_S: '{"32": 0.75, "100": 0.5}'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain (from rust-toolchain.toml)
@@ -71,9 +74,11 @@ jobs:
       - name: Build (release, as the committed runs)
         run: cargo build --release --locked -p scholion-daemon -p scholion-bench
       - name: Clone tokio
-        # A branch, not a detached tag: the import reads the clone's HEAD as the trunk.
+        # A branch, not a detached tag: the import reads the clone's HEAD as the trunk. Shallow
+        # (one commit), as the committed django run was: the daemon's blame walks at most 2000
+        # commits of main, and on tokio's full history a file untouched that long has none.
         run: |
-          git clone --quiet --single-branch --branch "$TOKIO_TAG" \
+          git clone --quiet --depth 1 --single-branch --branch "$TOKIO_TAG" \
             https://github.com/tokio-rs/tokio.git "$RUNNER_TEMP/tokio"
           git -C "$RUNNER_TEMP/tokio" checkout --quiet -B main
           echo "tokio at $(git -C "$RUNNER_TEMP/tokio" rev-parse HEAD)"

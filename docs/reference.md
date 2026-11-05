@@ -402,6 +402,7 @@ Defaults (override with environment variables before `up`):
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
+| `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`, `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS` | `7200`, `3600`, `3600`, 512 MiB, `86400` | when `GET /v1/attention` lists a waiting task or a footprint (see [Needs attention](#needs-attention-get-v1attention)). |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
 | `AV_INDEX_MAX_FANOUT` | (none) | a call whose bare name more than N other symbols define (`new`, `get`) links to none of them in the code graph. Cuts the edges of big repos (tokio: 71% at 64) without a measured loss in packs (`bench/results/2026-11-03-e1-fanout-cap/`). Set it before importing: stored edges keep the cap they were built with, and `reindex` skips unchanged files. |
 
@@ -671,11 +672,12 @@ verdicts, merges, conflicts) and, after "Build context pack", the pack's receipt
 reason, source and tokens). The page reads the repo's event history (`GET /v1/events` in pages of
 500, the newest 10 000 ids of a long one, then followed live) and derives time in status, timelines
 and review rounds from it; nothing new is recorded. Each card says how long its task has been in its
-status ("approved 20m" once its review is given) and goes amber once it is stuck (a submit with no
-verdict for 2 h, an approval not merged for an hour, a handoff nobody took or a conflict unresolved
-for an hour, an open task with no write for a whole lease); a "Needs attention" strip above the
-board lists, worst first, a red main, conflicts, those stuck tasks, backlog items no agent can do
-and overdue targets, at most eight rows. The Flow panel shows, over 7, 14 or 30 local days (kept in
+status ("approved 20m" once its review is given) and goes amber once it is stuck (a conflict, a
+submit with no verdict for 2 h, an approval not merged for an hour, a handoff nobody took for an
+hour, an open task with no write for a whole lease); a "Needs attention" strip above the board
+lists, worst first, a red main, conflicts, those stuck tasks, backlog items no agent can do,
+overdue targets and big footprints, at most eight rows. Both read the daemon's
+[`GET /v1/attention`](#needs-attention-get-v1attention), so a script sees the same list. The Flow panel shows, over 7, 14 or 30 local days (kept in
 this browser), merges per day, the median cycle time (start to merge), the median review wait
 (submit to verdict; an approval the daemon carries over a resubmit is left out), rework (changes
 requested, conflicts, undos, reverts) and per agent what it started, merged and reviewed, from each
@@ -706,9 +708,54 @@ for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{na
 repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
 `GET /v1/repos/{name}/diff`, `GET /v1/receipts/{id}`, `GET /v1/repos/{name}/log`,
 `GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup`, `GET /v1/repos/{name}/conventions`,
-`GET /v1/repos/{name}/import`, `GET /v1/disk` and `/healthz`.
+`GET /v1/repos/{name}/import`, `GET /v1/disk`, `GET /v1/attention` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
+
+### Needs attention (`GET /v1/attention`)
+
+`GET /v1/attention?repo=R` (every repo without `repo`; an unknown one is a 404; behind the token
+like every `/v1` route) answers what needs a person or an agent now, the list the dashboard's strip
+shows:
+
+```json
+{"items": [{"kind": "stale_review", "severity": 2, "repo": "demo", "task_id": "…",
+            "slug": "louder-hello", "agent": "claude", "since": "2026-11-05T09:12:03Z",
+            "title": "Louder hello", "detail": "submitted by claude, no verdict yet"}],
+ "generated_at": "2026-11-05T12:00:00Z"}
+```
+
+Items come worst first: severity (3 act now, 2 stuck, 1 tidy up), then the kind's place in the
+table, then the oldest `since` (a stale review and an approval nobody merged share a place).
+`task_id`, `slug` and `agent` are there when the item is about a task (or, for a footprint, a
+session's agent); `backlog_id`, `target_id` and `bytes` when they apply. `title` is the task's,
+item's or target's title, or a one-line summary; `detail` is a sentence for people. The `kind`
+values are stable:
+
+| kind | severity | when | `since` |
+| --- | --- | --- | --- |
+| `main_red` | 3 | the post-merge check of main's newest checked commit failed (as `GET /v1/repos/{name}/health` says; `slug` is the task that landed the oldest red commit) | when that commit's failing result was posted |
+| `conflicted` | 3 | a task's merge conflicted: its owner must sync, resolve and resubmit (no threshold) | when it entered `conflicted` |
+| `stale_review` | 2 | in review with no approval at its head for over `AV_ATTN_REVIEW_SECS` | when it entered review (an approval does not restart the clock) |
+| `approved_not_merged` | 2 | approved at its head (an `approve` after its newest submit or undo) and not merged for over `AV_ATTN_APPROVED_SECS` | the approval |
+| `unclaimed_handoff` | 2 | handed off and not claimed for over `AV_ATTN_HANDOFF_SECS` | the handoff |
+| `quiet_lease` | 2 | open, and not written to for a whole lease (`AV_LEASE_SECS`, reckoned as the office's *quiet* and `next`: from the last write, or the start) | the last write |
+| `unroutable_backlog` | 1 | a queued backlog item no profile fits, when it needs a tag or some profile exists (without profiles any agent takes untagged work) | the item was posted |
+| `overdue_target` | 1 | an active target whose due day (UTC) has passed | the end of its due day, 00:00 UTC the day after |
+| `footprint_outside` | 1 | a session reported leaving at least `AV_ATTN_FOOTPRINT_BYTES` outside any workspace within `AV_ATTN_FOOTPRINT_SECS` (`POST /v1/footprint`, kept in memory); with `repo`, only sessions of that repo's tasks or of no task | the report |
+
+The thresholds are the daemon's:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AV_ATTN_REVIEW_SECS` | `7200` | a review nobody gave |
+| `AV_ATTN_APPROVED_SECS` | `3600` | an approval nobody merged |
+| `AV_ATTN_HANDOFF_SECS` | `3600` | a handoff nobody claimed |
+| `AV_ATTN_FOOTPRINT_BYTES` | `536870912` (512 MiB, the hooks' warning size) | what a session may leave outside any workspace |
+| `AV_ATTN_FOOTPRINT_SECS` | `86400` | footprints older than this are left out (the files may be gone) |
+
+`av attention [--repo R] [--json]` prints one line per item (`severity kind age repo/slug title ·
+detail`, the age on the daemon's clock) or the answer as JSON, and exits 0 whatever it lists.
 
 ## Disk: what agents create and what av reclaims
 

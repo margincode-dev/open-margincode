@@ -548,7 +548,7 @@ const S = {
   // timeline and its review rounds are derived from it (the daemon serves the feed, not those)
   hist: [], byTask: new Map(), histCapped: false, diff: null,
   // what the attention strip and the flow panel read besides the tasks and the history
-  health: null, targets: [], queuedItems: [], timelines: new Map(), days: 14,
+  health: null, attn: [], attnByTask: new Map(), timelines: new Map(), days: 14,
   histLoaded: false, flowRepo: null, flowAt: 0,
   disk: null, diskAt: null, diskErr: null, repoAdded: null, liveTone: null,
   mainDirty: false, mainRepo: null, mainAt: 0,
@@ -786,20 +786,11 @@ function inStatus(t) {
   if (ap) return `approved ${span((Date.now() - new Date(ap).getTime()) / 1000)}`;
   return `${(STATUS[t.status] || [t.status])[0].toLowerCase()} ${span((Date.now() - new Date(statusSince(t)).getTime()) / 1000)}`;
 }
-// Past these, a task is stuck: a review nobody gave, an approval nobody merged, a handoff nobody
-// took, a conflict nobody resolved. An open task is stuck when its lease ran out with no write
-// (what the office calls quiet).
-const STALE_SECS = { in_review: 2 * 3600, approved: 3600, handed_off: 3600, conflicted: 3600 };
-// What a session may leave outside any workspace before it is worth a row (the hooks' default).
-const FOOTPRINT_WARN = 512 * 1024 * 1024, FOOTPRINT_AGE_MS = 24 * 3600000;
+// Whether a card is stuck: the daemon's /v1/attention names the task (a review nobody gave, an
+// approval nobody merged, a handoff nobody took, a conflict, an open task nobody writes to).
 function staleness(t) {
-  if (!S.histLoaded || t.repo !== S.repo) return null;
-  if (t.status === "open") return t.lease_expires && new Date(t.lease_expires) < new Date() ? "no write for a whole lease" : null;
-  const ap = t.status === "in_review" && approvedAt(t);
-  const limit = ap ? STALE_SECS.approved : STALE_SECS[t.status];
-  if (!limit) return null;
-  const secs = (Date.now() - new Date(ap || statusSince(t)).getTime()) / 1000;
-  return secs > limit ? inStatus(t) : null;
+  const it = S.attnByTask.get(t.id);
+  return it ? (ATTN[it.kind] || [it.kind])[1] + (it.detail ? " · " + it.detail : "") : null;
 }
 // Returns the id to follow the feed from, or null when the repo changed meanwhile. The head is
 // read first; a long history is capped to the newest HIST_WINDOW ids (the oldest events are the
@@ -865,6 +856,7 @@ async function loadTasks() {
   loadTeams().catch(() => {}); // a failing panel must not hide the board
   loadBacklog().catch(() => {}); // a failing panel must not hide the board
   loadTargets().catch(() => {}); // an older daemon has no targets: the panel stays empty
+  loadAttention().catch(() => {}); // nor /v1/attention: the strip stays hidden
   // main's log needs the history (which task landed each commit): startFeed reads it once that
   // is in, and from then on only when due
   if (S.histLoaded && mainIsDue()) loadMain().catch(() => {});
@@ -957,7 +949,7 @@ async function loadDisk() {
     if (seq !== diskSeq) return;
     S.disk = d; S.diskAt = new Date().toISOString(); S.diskErr = null;
     renderDisk();
-    renderAttention();
+    loadAttention().catch(() => {});
   } catch (e) {
     if (seq === diskSeq && !(e instanceof Unauthorized)) { S.diskErr = e.message; renderDisk(); }
   } finally { if (seq === diskSeq) btn.disabled = false; }
@@ -1012,7 +1004,6 @@ async function loadTargets() {
   if (!S.repo) { fill(box, empty("No targets.")); setCount("targetsCount", 0); return; }
   const body = await api(`/v1/targets?repo=${encodeURIComponent(S.repo)}`);
   const all = body.targets || [];
-  S.targets = all;
   const active = all.filter(t => t.status === "active");
   const closed = all.filter(t => t.status !== "active").slice(-3).reverse();
   const today = new Date().toISOString().slice(0, 10);
@@ -1198,7 +1189,7 @@ async function loadBacklog() {
   const q = encodeURIComponent(S.repo);
   const [queued, taken] = await Promise.all([
     api(`/v1/backlog?repo=${q}&state=queued`), api(`/v1/backlog?repo=${q}&state=taken`)]);
-  S.queued = queued.items.length; S.taken = taken.items.length; S.queuedItems = queued.items;
+  S.queued = queued.items.length; S.taken = taken.items.length;
   setCount("backlogCount", queued.items.length);
   renderSummary();
   const queuedRows = queued.items.map(i => h("div", { class: "bl" },
@@ -1277,57 +1268,51 @@ function renderBoard() {
 }
 
 // ---- needs attention ----
-// Rows from what the page already holds for the selected repo, worst first: a red main,
+// The daemon's GET /v1/attention for the selected repo, already worst first: a red main,
 // conflicts, reviews and handoffs nobody took, approvals nobody merged, open tasks nobody writes
-// to, backlog items no agent can do, overdue targets. Hidden when there is nothing; at most
-// ATTN_ROWS rows, then "and N more".
-const ATTN_ROWS = 8;
+// to, backlog items no agent can do, overdue targets, big footprints. The rules and thresholds
+// are the daemon's (AV_ATTN_*). Read with the tasks (on events), after a disk measurement and
+// every minute (what only time makes stuck). Hidden when there is nothing; at most ATTN_ROWS
+// rows, then "and N more".
+const ATTN_ROWS = 8, ATTN_EVERY = 60000;
+// kind → [the row's tag (its tone), its label]
+const ATTN = {
+  main_red: ["main red", "main red"], conflicted: ["conflicted", "conflicted"],
+  stale_review: ["stale", "waiting for review"], approved_not_merged: ["stale", "approved, not merged"],
+  unclaimed_handoff: ["unclaimed", "nobody claimed"], quiet_lease: ["stale", "no write for a lease"],
+  unroutable_backlog: ["unroutable", "no agent can do it"], overdue_target: ["overdue", "overdue"],
+  footprint_outside: ["footprint", "left outside"],
+};
+// the kinds that mark a task's card as stuck
+const ATTN_CARD = new Set(["conflicted", "stale_review", "approved_not_merged", "unclaimed_handoff", "quiet_lease"]);
 const jumpTo = id => () => document.getElementById(id).scrollIntoView({ behavior: "smooth", block: "center" });
+let attnSeq = 0;
+async function loadAttention() {
+  const seq = ++attnSeq, repo = S.repo;
+  const items = repo ? ((await api(`/v1/attention?repo=${encodeURIComponent(repo)}`)).items || []) : [];
+  if (seq !== attnSeq || repo !== S.repo) return; // a newer read, or the old repo's answer
+  S.attn = items;
+  S.attnByTask = new Map(items.filter(i => i.task_id && ATTN_CARD.has(i.kind)).map(i => [i.task_id, i]));
+  renderBoard(); // the cards' stuck marks; it draws the strip too
+}
+setInterval(() => { if (S.liveTone === "green" && !document.hidden) loadAttention().catch(() => {}); }, ATTN_EVERY);
 function renderAttention() {
   const sec = document.getElementById("attention");
-  const rows = [];
-  const row = (kind, label, title, meta, onclick) => rows.push(evRow({ kind, label, title, meta, onclick }));
-  const bySince = (a, b) => new Date(statusSince(a)) - new Date(statusSince(b));
-  const hl = S.health;
-  if (hl && hl.state === "red") {
-    row("main red", "main red", `${hl.command || "the check"} exited ${hl.exit_code ?? "?"} on main`,
-      [hl.since && "since @" + short(hl.since), hl.task && "task " + hl.task].filter(Boolean).join(" · "),
-      hl.task_id ? () => openTask(hl.task_id) : null);
-  }
-  const owner = t => t.owner_agent || "";
-  for (const t of S.tasks.filter(t => t.status === "conflicted").sort(bySince)) {
-    row("conflicted", "conflicted", t.title, [inStatus(t), `${owner(t)} must sync, resolve and resubmit`].filter(Boolean).join(" · "), () => openTask(t.id));
-  }
-  for (const t of S.tasks.filter(t => t.status === "in_review" && staleness(t)).sort(bySince)) {
-    if (approvedAt(t)) row("stale", "approved, not merged", t.title, `${inStatus(t)} · ${owner(t)} can merge it`, () => openTask(t.id));
-    else row("stale", "waiting for review", t.title, `${inStatus(t)} · ${owner(t)}`, () => openTask(t.id));
-  }
-  for (const t of S.tasks.filter(t => t.status === "handed_off" && staleness(t)).sort(bySince)) {
-    row("unclaimed", "nobody claimed", t.title, `${inStatus(t)} · from ${owner(t)}`, () => openTask(t.id));
-  }
-  // an open task nobody writes to is what makes its owner quiet: one row per task, not per agent
-  for (const t of S.tasks.filter(t => t.status === "open" && staleness(t)).sort(bySince)) {
-    row("stale", "no write for a lease", t.title, `${inStatus(t)} · ${owner(t)}`, () => openTask(t.id));
-  }
-  // without profiles nothing is ranked, yet any agent takes untagged work: flag only what needs
-  // a skill, or what no profiled agent fits
-  const profiled = (S.agents || []).some(a => a.profile);
-  for (const i of S.queuedItems.filter(i => !i.best_agent && ((i.needs && i.needs.length) || profiled))) {
-    row("unroutable", "no agent can do it", i.title, i.needs && i.needs.length ? "needs " + i.needs.join(", ") : "", jumpTo("backlog"));
-  }
-  const today = localDay(Date.now());
-  for (const t of S.targets.filter(t => t.status === "active" && t.due && t.due < today)) {
-    row("overdue", "overdue", t.title, `due ${t.due} · ${t.merged}/${t.items} merged`, jumpTo("targets"));
-  }
-  // footprints are daemon-wide and kept until it restarts: only this repo's tasks' (or a session
-  // with no task), only recent ones, since the files may be gone since
-  for (const f of ((S.disk && S.disk.outside) || []).filter(f => f.total_bytes >= FOOTPRINT_WARN
-      && Date.now() - new Date(f.at).getTime() < FOOTPRINT_AGE_MS
-      && (!f.task || (S.byId.get(f.task) || {}).repo === S.repo))) {
-    const task = f.task && S.byId.get(f.task);
-    row("footprint", "left outside", `${f.agent || "a session"} left ${bytes(f.total_bytes)} outside any workspace`,
-      [f.slug && "task " + f.slug, f.added && f.added[0] && f.added[0].path].filter(Boolean).join(" · "), task ? () => openTask(task.id) : null);
-  }
+  const rows = S.attn.map(i => {
+    const [kind, label] = ATTN[i.kind] || [i.kind, i.kind];
+    const dur = span((Date.now() - new Date(i.since).getTime()) / 1000);
+    const task = i.task_id ? () => openTask(i.task_id) : null;
+    const meta = {
+      conflicted: `conflicted ${dur} · ${i.detail}`,
+      stale_review: `in review ${dur} · ${i.agent}`,
+      approved_not_merged: `approved ${dur} · ${i.agent} can merge it`,
+      unclaimed_handoff: `handed off ${dur} · from ${i.agent}`,
+      quiet_lease: `no write for ${dur} · ${i.agent}`,
+    }[i.kind] ?? i.detail;
+    const onclick = i.kind === "unroutable_backlog" ? jumpTo("backlog")
+      : i.kind === "overdue_target" ? jumpTo("targets") : task;
+    return evRow({ kind, label, title: i.title, meta, onclick });
+  });
   sec.hidden = rows.length === 0;
   setCount("attnCount", rows.length);
   fill(document.getElementById("attnList"), rows.slice(0, ATTN_ROWS),
@@ -1458,7 +1443,7 @@ document.getElementById("days").addEventListener("change", e => {
 document.getElementById("repo").addEventListener("change", e => {
   S.repo = e.target.value; store(false, "av_repo", S.repo);
   // nothing of the old repo stays on the page while the new one loads
-  S.events = []; S.health = null; S.targets = []; S.queuedItems = []; S.timelines = new Map();
+  S.events = []; S.health = null; S.attn = []; S.attnByTask = new Map(); S.timelines = new Map();
   fill(document.getElementById("mainLog"), empty("Reading main…")); fill(document.getElementById("mainStatus"));
   renderFeed(); loadTasks().catch(showErr); startFeed();
 });

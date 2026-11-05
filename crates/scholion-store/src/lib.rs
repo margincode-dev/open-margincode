@@ -1,4 +1,4 @@
 mod backup;
 mod outbox;
 mod pg;
-pub use pg::{PgStore, TaskSummary};
+pub use pg::{PgStore, TaskInFlight, TaskSummary};

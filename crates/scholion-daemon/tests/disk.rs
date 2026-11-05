@@ -679,6 +679,7 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
         pg_max_connections: 4,
         max_concurrent_starts: None,
         lease_secs: 1800,
+        attention: Default::default(),
         build_cache: true,
         ws_retain_secs: retain,
         backup_remotes: Vec::new(),

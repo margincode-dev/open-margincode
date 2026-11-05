@@ -76,6 +76,7 @@ const ROUTE_FAMILIES: &[&str] = &[
     "backlog",
     "targets",
     "office",
+    "attention",
     "disk",
     "gc",
     "footprint",
@@ -167,6 +168,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/repos/{name}/outbox", get(outbox))
         .merge(crate::routing_api::routes())
         .merge(crate::office::routes())
+        .merge(crate::attention::routes())
         .merge(crate::disk::routes())
         .merge(crate::remote::routes())
 }

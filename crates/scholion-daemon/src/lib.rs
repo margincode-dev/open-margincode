@@ -1,6 +1,7 @@
 //! Scholion daemon: HTTP API over the VCS engine, intent store, code index and context packer.
 
 mod api;
+mod attention;
 mod auth;
 mod backup;
 mod build_cache;
@@ -37,6 +38,7 @@ use scholion_semantic::{Embedder, SemanticSearch, VectorIndex};
 use scholion_store::PgStore;
 
 pub use api::{StartPackPause, router, router_with, sync_repos};
+pub use attention::AttentionLimits;
 pub use backup::{BACKUP_TICK, backoff, backup_tick, start_backups};
 pub use disk::RECLAIM_TICK;
 pub use embed_choice::EmbedChoice;
@@ -69,6 +71,8 @@ pub struct AppState {
     pub(crate) expand_cap: Option<u64>,
     /// `AV_LEASE_SECS`: how long a claim lasts without a fenced write renewing it.
     pub(crate) lease_secs: u64,
+    /// `AV_ATTN_*`: when a waiting task or a footprint needs attention (`GET /v1/attention`).
+    pub(crate) attention: AttentionLimits,
     /// `AV_TOKEN`: when set, every route but `/healthz` and `/ui` needs it as a bearer token.
     pub(crate) token: Option<String>,
     /// `AV_WS_RETAIN_SECS`: how long a merged or abandoned task's workspace stays; `None` = for
@@ -142,6 +146,7 @@ impl AppState {
             vectors: None,
             expand_cap: None,
             lease_secs: wiring::DEFAULT_LEASE_SECS,
+            attention: AttentionLimits::default(),
             token: None,
             ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
             reclaim_tick: disk::RECLAIM_TICK,
@@ -312,6 +317,12 @@ impl AppState {
     /// Whether a cargo repo's task workspaces share one build cache (`AV_BUILD_CACHE`, default on).
     pub fn with_build_cache(mut self, on: bool) -> Self {
         self.build_cache = on;
+        self
+    }
+
+    /// The thresholds of `GET /v1/attention` (`AV_ATTN_*`).
+    pub fn with_attention(mut self, limits: AttentionLimits) -> Self {
+        self.attention = limits;
         self
     }
 

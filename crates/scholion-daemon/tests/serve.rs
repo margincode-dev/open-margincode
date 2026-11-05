@@ -30,6 +30,7 @@ fn config(db: &TestDb, dir: &std::path::Path, token: Option<&str>) -> Config {
         pg_max_connections: 4,
         max_concurrent_starts: None,
         lease_secs: 1800,
+        attention: Default::default(),
         build_cache: true,
         ws_retain_secs: Some(3600),
         backup_remotes: Vec::new(),

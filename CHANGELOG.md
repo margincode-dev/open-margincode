@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Needs attention, for machines: `GET /v1/attention` and `av attention`** (Plan 15 Phase 2).
+  What the dashboard's strip computed in the page is now the daemon's: red main, conflicted tasks,
+  reviews nobody gave, approvals nobody merged, handoffs nobody claimed, open tasks nobody wrote to
+  for a lease, backlog items no agent fits, overdue targets and big footprints, each
+  `{kind, severity, repo, task_id?, slug?, agent?, since, title, detail}`, worst first. The page reads
+  it (the strip and the cards' stuck marks look the same; conflicted cards are marked at once). The
+  page's thresholds are `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`,
+  `AV_ATTN_FOOTPRINT_BYTES` and `AV_ATTN_FOOTPRINT_SECS` with the same defaults. `av attention
+  [--repo R] [--json]` prints one line per item and exits 0. `GET /v1/repos/{name}/health` adds
+  `since_at` to a red answer. No new table.
 - **A guard can refuse a review verdict: `Guarded::Review`.** `MergeGuard` is now also asked
   `Guarded::Review { task, reviewer, verdict }` for every verdict, `approve` and
   `request_changes`, once the task is known to be in review and the reviewer is not its owner,

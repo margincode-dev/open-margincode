@@ -3817,6 +3817,7 @@ name = "scholion-cli"
 version = "0.0.2"
 dependencies = [
  "axum 0.8.9",
+ "chrono",
  "clap",
  "scholion-agentrun",
  "scholion-core",

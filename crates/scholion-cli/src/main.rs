@@ -1,4 +1,5 @@
 mod agents;
+mod attention;
 mod client;
 mod crates_scope;
 mod disk;
@@ -162,6 +163,17 @@ enum Cmd {
     Reindex {
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// What needs a person or an agent now, worst first: red main, conflicted tasks, reviews
+    /// and handoffs nobody took, approvals nobody merged, quiet leases, backlog no agent fits,
+    /// overdue targets, big footprints. Exits 0 whatever it lists.
+    Attention {
+        /// Only this repo (default: every repo).
+        #[arg(long)]
+        repo: Option<String>,
+        /// Print the daemon's answer as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// What the daemon's workspaces (and their build output), scratch dirs, caches and store
     /// take on disk, and what agent sessions added outside any workspace.
@@ -1608,6 +1620,15 @@ fn run(cli: Cli) -> Result<()> {
             let omitted = r["omitted"].as_array().map_or(0, Vec::len);
             if omitted > 0 {
                 println!("omitted: {omitted}");
+            }
+        }
+        Cmd::Attention { repo, json } => {
+            let query: Vec<(&str, &str)> = repo.iter().map(|r| ("repo", r.as_str())).collect();
+            let r = client.get("/v1/attention", &query)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+            } else {
+                print!("{}", attention::render(&r));
             }
         }
         Cmd::Disk { json } => {

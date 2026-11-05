@@ -48,6 +48,10 @@ pub struct Config {
     /// `AV_LEASE_SECS` (default 1800): how long a task's owner holds it without writing; after
     /// that another agent may claim it.
     pub lease_secs: u64,
+    /// `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`,
+    /// `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS`: when `GET /v1/attention` lists a
+    /// waiting task or a footprint (defaults in `AttentionLimits::default`).
+    pub attention: crate::AttentionLimits,
     /// `AV_WS_RETAIN_SECS` (default 3600; `never` = `None`): how long the workspace of a merged
     /// or abandoned task stays on disk before the daemon removes it. `0` removes it at once.
     pub ws_retain_secs: Option<u64>,
@@ -145,6 +149,7 @@ impl Config {
                 })?,
                 None => DEFAULT_LEASE_SECS,
             },
+            attention: parse_attention(&get)?,
             ws_retain_secs: parse_ws_retain(get("AV_WS_RETAIN_SECS").as_deref())?,
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
@@ -160,6 +165,27 @@ fn default_av_home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".scholion")
+}
+
+/// The `AV_ATTN_*` thresholds; each unset one keeps its default.
+fn parse_attention(get: &dyn Fn(&str) -> Option<String>) -> Result<crate::AttentionLimits> {
+    let d = crate::AttentionLimits::default();
+    let num = |name: &str, default: u64| -> Result<u64> {
+        match get(name) {
+            Some(v) => v
+                .trim()
+                .parse()
+                .map_err(|_| AvError::Invalid(format!("{name} must be a whole number, got {v}"))),
+            None => Ok(default),
+        }
+    };
+    Ok(crate::AttentionLimits {
+        review_secs: num("AV_ATTN_REVIEW_SECS", d.review_secs)?,
+        approved_secs: num("AV_ATTN_APPROVED_SECS", d.approved_secs)?,
+        handoff_secs: num("AV_ATTN_HANDOFF_SECS", d.handoff_secs)?,
+        footprint_bytes: num("AV_ATTN_FOOTPRINT_BYTES", d.footprint_bytes)?,
+        footprint_secs: num("AV_ATTN_FOOTPRINT_SECS", d.footprint_secs)?,
+    })
 }
 
 /// `AV_WS_RETAIN_SECS`: seconds, or `never`; unset is `DEFAULT_WS_RETAIN_SECS`.
@@ -234,6 +260,7 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     )
     .with_expand_cap(cfg.expand_cap)
     .with_lease_secs(cfg.lease_secs)
+    .with_attention(cfg.attention)
     .with_ws_retain(cfg.ws_retain_secs)
     .with_build_cache(cfg.build_cache)
     .with_disk_paths(
@@ -289,6 +316,21 @@ mod tests {
         assert!(!parse_switch("X", Some("0")).unwrap());
         assert!(!parse_switch("X", Some(" FALSE ")).unwrap());
         assert!(parse_switch("X", Some("maybe")).is_err());
+    }
+
+    #[test]
+    fn attention_limits_default_and_parse() {
+        let none = |_: &str| None;
+        assert_eq!(
+            parse_attention(&none).unwrap(),
+            crate::AttentionLimits::default()
+        );
+        let some = |k: &str| (k == "AV_ATTN_REVIEW_SECS").then(|| " 60 ".to_owned());
+        let l = parse_attention(&some).unwrap();
+        assert_eq!(l.review_secs, 60);
+        assert_eq!(l.approved_secs, 3600);
+        let bad = |k: &str| (k == "AV_ATTN_HANDOFF_SECS").then(|| "1h".to_owned());
+        assert!(matches!(parse_attention(&bad), Err(AvError::Invalid(_))));
     }
 
     #[test]

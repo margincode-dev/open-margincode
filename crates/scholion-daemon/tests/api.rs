@@ -3064,8 +3064,10 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         "the page reads the repo's whole event history (time in status, timelines, review rounds)"
     );
     assert!(
-        html.contains("id=\"attention\"") && html.contains("STALE_SECS"),
-        "a needs-attention strip, with the thresholds past which a task is stuck"
+        html.contains("id=\"attention\"")
+            && html.contains("/v1/attention?repo=")
+            && !html.contains("STALE_SECS"),
+        "a needs-attention strip read from the daemon, which owns the thresholds"
     );
     assert!(
         html.contains("/timeline?repo=")

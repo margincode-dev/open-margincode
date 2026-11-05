@@ -290,6 +290,19 @@ const STATUS_SINCE: &str = "SELECT t.*, COALESCE(
 const TASK_COLS: &str = "id, repo, slug, title, goal, status, owner_agent, base_change, head_change, \
                          workspace_path, generation, lease_expires, pack_mode";
 
+/// One row of `PgStore::tasks_in_flight`: an unfinished task and when it entered its status.
+#[derive(Debug, Clone)]
+pub struct TaskInFlight {
+    pub task: Task,
+    /// Its newest transition into its status (an approval, which keeps a task in review, does
+    /// not count; a claim, which brings a handed-off task back, counts as entering `open`), else
+    /// its creation.
+    pub since: chrono::DateTime<chrono::Utc>,
+    /// For a task in review: when it was approved at its current head (an `approve` after its
+    /// newest submit or undo), else `None`.
+    pub approved_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// One row of `PgStore::list_tasks`.
 #[derive(Debug, Clone)]
 pub struct TaskSummary {
@@ -2190,6 +2203,50 @@ async fn insert_record(
 }
 
 impl PgStore {
+    /// Open, in-review, handed-off and conflicted tasks (of `repo`, or all), oldest `since`
+    /// first, each with when it entered its status and, in review, when it was approved. The
+    /// dashboard's rules, server-side (`GET /v1/attention`); `tasks_with_status_since` differs
+    /// in counting an approval as entering review.
+    pub async fn tasks_in_flight(&self, repo: Option<&str>) -> Result<Vec<TaskInFlight>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {TASK_COLS}, COALESCE(s.s_at, t.created_at) AS since,
+                    CASE WHEN t.status = 'in_review' AND v.v_kind = 'approve' THEN v.v_at END
+                        AS approved_at
+             FROM tasks t
+             LEFT JOIN LATERAL (
+                SELECT e.at AS s_at FROM events e
+                WHERE e.repo = t.repo AND e.task_id = t.id
+                  AND ((e.payload->>'to' = t.status
+                        AND (e.payload->>'from') IS DISTINCT FROM t.status)
+                       OR e.kind = 'status:' || t.status
+                       OR (e.kind = 'claim' AND t.status = 'open'))
+                ORDER BY e.id DESC LIMIT 1
+             ) s ON true
+             LEFT JOIN LATERAL (
+                SELECT e.at AS v_at, e.kind AS v_kind FROM events e
+                WHERE e.repo = t.repo AND e.task_id = t.id
+                  AND e.kind IN ('approve', 'submit', 'undo')
+                ORDER BY e.id DESC LIMIT 1
+             ) v ON true
+             WHERE t.status IN ('open', 'in_review', 'handed_off', 'conflicted')
+               AND ($1::text IS NULL OR t.repo = $1)
+             ORDER BY since, t.id"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(TaskInFlight {
+                    task: task_from_row(r)?,
+                    since: r.try_get("since").map_err(serr)?,
+                    approved_at: r.try_get("approved_at").map_err(serr)?,
+                })
+            })
+            .collect()
+    }
+
     /// What `agent` did, newest first, from what the store already keeps: the records it wrote,
     /// the tasks it started and claimed, its review verdicts, the submits it made (a submit is the task owner's, and
     /// the owner changes only by a claim, so a submit with no later claim of its task is the

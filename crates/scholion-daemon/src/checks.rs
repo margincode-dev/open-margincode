@@ -93,7 +93,8 @@ pub(crate) async fn task_of(st: &AppState, description: &str) -> Option<scholion
     st.store.get_task(TaskId(id)).await.ok()
 }
 
-/// `{main, state: green|red|unknown, checked, since, task, command, exit_code}`.
+/// `{main, state: green|red|unknown, checked, since, since_at, task, command, exit_code}`;
+/// `since_at` is when the failing result of the `since` commit was posted.
 pub(crate) async fn main_health(st: &AppState, repo: &str) -> Result<Value> {
     let main: ChangeId = st.vcs.trunk(repo).await?;
     let commits = st.vcs.trunk_log(repo, HEALTH_DEPTH).await?;
@@ -121,6 +122,7 @@ pub(crate) async fn main_health(st: &AppState, repo: &str) -> Result<Value> {
         "state": "red",
         "checked": newest.change,
         "since": since.change,
+        "since_at": failing.at,
         "task": task.as_ref().map(|t| &t.slug),
         "task_id": task.as_ref().map(|t| t.id),
         "command": failing.command,

@@ -46,30 +46,30 @@ pub(crate) type Footprints = Arc<Mutex<VecDeque<Footprint>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Added {
-    path: String,
-    bytes: u64,
+    pub(crate) path: String,
+    pub(crate) bytes: u64,
 }
 
 /// What one session added outside any task workspace (the Stop hook's diff against its start).
 /// The daemon only shows it: the paths are the agent's or the human's to remove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Footprint {
-    session: String,
+    pub(crate) session: String,
     #[serde(default)]
-    agent: Option<String>,
+    pub(crate) agent: Option<String>,
     #[serde(default)]
-    task: Option<String>,
+    pub(crate) task: Option<String>,
     /// The task's slug, looked up by the daemon when `task` names one it knows.
     #[serde(default)]
-    slug: Option<String>,
+    pub(crate) slug: Option<String>,
     #[serde(default)]
-    added: Vec<Added>,
+    pub(crate) added: Vec<Added>,
     #[serde(default)]
-    partial: bool,
+    pub(crate) partial: bool,
     #[serde(default)]
-    total_bytes: u64,
+    pub(crate) total_bytes: u64,
     #[serde(default = "Utc::now")]
-    at: chrono::DateTime<Utc>,
+    pub(crate) at: chrono::DateTime<Utc>,
 }
 
 /// Keeps a session's report (replacing its earlier one), newest first, at most `FOOTPRINTS`.

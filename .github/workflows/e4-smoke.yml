@@ -1,7 +1,8 @@
 name: e4-smoke
 
-# Plan 15 Phase 3, "Schedule what exists": the E4-at-scale smoke, once a week. One relay task
-# (relay-customer-region, the one the committed smoke ran), the `av` arm only, 50 noise notes, one
+# Plan 15 Phase 3, "Schedule what exists": the E4-at-scale smoke, run by hand. The weekly schedule
+# is off for now (owner, 2026-11-05); the workflow is kept as the place it will run from. One
+# relay task (relay-customer-region, the one the committed smoke ran), the `av` arm only, 50 noise notes, one
 # session, a harness budget of $0.02, on DeepSeek. It reports the pack hit: whether the start pack
 # shows the lesson the task needs, which at N = 50 it did only as a truncated summary
 # (bench/results/2026-11-e4-scale/smoke/README.md). The pack hit is reported, not gated (n = 1);
@@ -12,12 +13,11 @@ name: e4-smoke
 #
 # Differs from the committed smoke: no semantic layer (no embedder or Qdrant in CI; the committed
 # smoke had TEI + Qdrant), so the av arm's pack is lexical and structural only, and one arm, not
-# cold/notes/av. Scheduled in DeepSeek's off-peak window (16:30-00:30 UTC); the harness prices at
+# cold/notes/av. Meant for DeepSeek's off-peak window (16:30-00:30 UTC); the harness prices at
 # peak, so its $0.02 is an upper bound. Run it by hand with `gh workflow run e4-smoke.yml`.
 
 on:
-  schedule:
-    - cron: "23 17 * * 1"
+  # weekly schedule off for now; it was cron "23 17 * * 1" (Mondays, DeepSeek off-peak)
   workflow_dispatch:
 
 permissions:

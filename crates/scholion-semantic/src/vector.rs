@@ -546,7 +546,7 @@ fn not_ensured(name: &str) -> AvError {
 
 fn dim_mismatch(name: &str, stored: usize, requested: usize) -> AvError {
     AvError::Semantic(format!(
-        "collection {name} has dimension {stored}, not {requested}"
+        "collection {name} has dimension {stored}, not {requested}: the embedding model changed. Run `av reindex` to rebuild the vectors with the new one"
     ))
 }
 

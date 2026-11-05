@@ -1,6 +1,10 @@
 use scholion_core::{AvError, Result};
 
-pub const DEFAULT_OLLAMA_EMBED_FAMILY: &str = "qwen3-embedding";
+/// Ollama embedding models tried in order when `AV_OLLAMA_EMBED_MODEL` is unset. `embeddinggemma-2`
+/// (271M, 512 dimensions) scored the same as `qwen3-embedding` (7.6B, 4096) on the E1 retrieval
+/// set (`bench/retrieval`, 2026-11-05) at a fraction of the size; a host that has only
+/// `qwen3-embedding`, the earlier default, keeps it, so its vectors stay valid.
+pub const DEFAULT_OLLAMA_EMBED_FAMILIES: &[&str] = &["embeddinggemma-2", "qwen3-embedding"];
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
 /// Where embedding requests go.
@@ -20,7 +24,8 @@ pub struct EmbedDetect<'a> {
     pub cli_installed: bool,
     pub models: std::result::Result<&'a [String], &'a str>,
     pub ollama_url: &'a str,
-    pub model_family: &'a str,
+    /// Tried in order; the first one `ollama list` has wins.
+    pub model_families: &'a [&'a str],
     pub embed_url: Option<&'a str>,
     pub api_key: Option<&'a str>,
     /// `None` is automatic. `ollama` or `api` forces that path (`AV_EMBED_PROVIDER`).
@@ -84,15 +89,22 @@ fn ollama_choice(detect: &EmbedDetect<'_>) -> Result<Option<EmbedChoice>> {
             "ollama is installed but `ollama list` failed: {err}. Start ollama, or set AV_EMBED_PROVIDER=api"
         ))
     })?;
-    match pick_embedding_model(models, detect.model_family) {
+    let picked = detect
+        .model_families
+        .iter()
+        .find_map(|family| pick_embedding_model(models, family));
+    match picked {
         Some(model) => Ok(Some(EmbedChoice::Ollama {
             base_url: detect.ollama_url.trim_end_matches('/').to_owned(),
             model: model.to_owned(),
         })),
-        None => Err(AvError::Invalid(format!(
-            "ollama is installed but no model matching {} is pulled. Run `ollama pull {}`, or set AV_EMBED_URL and AV_EMBED_PROVIDER=api",
-            detect.model_family, detect.model_family
-        ))),
+        None => {
+            let first = detect.model_families.first().copied().unwrap_or_default();
+            Err(AvError::Invalid(format!(
+                "ollama is installed but no model matching {} is pulled. Run `ollama pull {first}`, or set AV_EMBED_URL and AV_EMBED_PROVIDER=api",
+                detect.model_families.join(" or ")
+            )))
+        }
     }
 }
 
@@ -174,7 +186,7 @@ mod tests {
                 Err(err) => Err(err.as_str()),
             },
             ollama_url: DEFAULT_OLLAMA_URL,
-            model_family: DEFAULT_OLLAMA_EMBED_FAMILY,
+            model_families: DEFAULT_OLLAMA_EMBED_FAMILIES,
             embed_url: url,
             api_key: key,
             provider,
@@ -208,7 +220,33 @@ llama3.2:latest       abc             2.0 GB    yesterday
     }
 
     #[test]
-    fn ollama_with_qwen3_embedding_is_the_default() {
+    fn ollama_with_embeddinggemma_2_is_the_default() {
+        let models = Ok(vec!["embeddinggemma-2:latest".into()]);
+        let choice = choose_embedder(&detect(true, &models, None, None, None)).unwrap();
+        assert_eq!(
+            choice,
+            Some(EmbedChoice::Ollama {
+                base_url: DEFAULT_OLLAMA_URL.into(),
+                model: "embeddinggemma-2:latest".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn embeddinggemma_2_wins_over_qwen3_embedding() {
+        let models = Ok(vec![
+            "qwen3-embedding:8b".into(),
+            "embeddinggemma-2:latest".into(),
+        ]);
+        let choice = choose_embedder(&detect(true, &models, None, None, None)).unwrap();
+        assert!(
+            matches!(&choice, Some(EmbedChoice::Ollama { model, .. }) if model == "embeddinggemma-2:latest"),
+            "{choice:?}"
+        );
+    }
+
+    #[test]
+    fn a_host_with_only_qwen3_embedding_keeps_using_it() {
         let models = Ok(vec!["qwen3-embedding:8b".into()]);
         let choice = choose_embedder(&detect(true, &models, None, None, None)).unwrap();
         assert_eq!(
@@ -217,6 +255,29 @@ llama3.2:latest       abc             2.0 GB    yesterday
                 base_url: DEFAULT_OLLAMA_URL.into(),
                 model: "qwen3-embedding:8b".into(),
             })
+        );
+    }
+
+    #[test]
+    fn a_named_model_is_the_only_one_tried() {
+        let models = Ok(vec![
+            "embeddinggemma-2:latest".into(),
+            "qwen3-embedding:8b".into(),
+        ]);
+        let mut d = detect(true, &models, None, None, None);
+        d.model_families = &["qwen3-embedding"];
+        let choice = choose_embedder(&d).unwrap();
+        assert!(
+            matches!(&choice, Some(EmbedChoice::Ollama { model, .. }) if model == "qwen3-embedding:8b"),
+            "{choice:?}"
+        );
+        let only_gemma = Ok(vec!["embeddinggemma-2:latest".into()]);
+        let mut d = detect(true, &only_gemma, None, None, None);
+        d.model_families = &["qwen3-embedding"];
+        let err = choose_embedder(&d).unwrap_err();
+        assert!(
+            err.to_string().contains("ollama pull qwen3-embedding"),
+            "{err}"
         );
     }
 
@@ -256,7 +317,7 @@ llama3.2:latest       abc             2.0 GB    yesterday
     }
 
     #[test]
-    fn missing_qwen3_model_falls_back_to_the_api() {
+    fn no_embedding_model_falls_back_to_the_api() {
         let models = Ok(vec!["llama3.2:latest".into()]);
         let choice = choose_embedder(&detect(
             true,
@@ -270,17 +331,17 @@ llama3.2:latest       abc             2.0 GB    yesterday
     }
 
     #[test]
-    fn missing_qwen3_model_without_an_api_explains_the_pull() {
+    fn no_embedding_model_without_an_api_explains_the_pull() {
         let models = Ok(vec!["llama3.2:latest".into()]);
         let err = choose_embedder(&detect(true, &models, None, None, None)).unwrap_err();
         let AvError::Invalid(msg) = err else {
             panic!("invalid")
         };
-        assert!(msg.contains("ollama pull qwen3-embedding"), "{msg}");
+        assert!(msg.contains("ollama pull embeddinggemma-2"), "{msg}");
     }
 
     #[test]
-    fn a_host_with_ollama_and_qwen3_embedding_selects_that_model() {
+    fn a_host_with_ollama_and_a_default_model_selects_it() {
         let (cli, models) = detect_ollama();
         if !cli {
             return;
@@ -288,20 +349,23 @@ llama3.2:latest       abc             2.0 GB    yesterday
         let Ok(list) = models.as_ref() else {
             return;
         };
-        if pick_embedding_model(list, DEFAULT_OLLAMA_EMBED_FAMILY).is_none() {
+        let Some(family) = DEFAULT_OLLAMA_EMBED_FAMILIES
+            .iter()
+            .find(|family| pick_embedding_model(list, family).is_some())
+        else {
             return;
-        }
+        };
         let choice = choose_embedder(&detect(true, &models, None, None, None)).unwrap();
         match choice {
             Some(EmbedChoice::Ollama { model, .. }) => {
-                assert!(model.starts_with(DEFAULT_OLLAMA_EMBED_FAMILY), "{model}");
+                assert!(model.starts_with(family), "{model}");
             }
             other => panic!("expected ollama, got {other:?}"),
         }
     }
 
     #[test]
-    fn provider_api_wins_even_when_qwen3_embedding_is_installed() {
+    fn provider_api_wins_even_when_an_embedding_model_is_installed() {
         let models = Ok(vec!["qwen3-embedding:8b".into()]);
         let choice = choose_embedder(&detect(
             true,

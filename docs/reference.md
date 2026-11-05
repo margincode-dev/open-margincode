@@ -385,8 +385,9 @@ CPU, port `${AV_TEI_PORT:-8080}`) and the daemon (`http://localhost:7420`), all 
 
 **Semantic layer.** The daemon embeds records, conventions and code chunks into Qdrant through an
 outbox drained every second, and context packs then also rank by semantic similarity. It is on when
-`AV_QDRANT_URL` is set and an embedder is found: a host `ollama` CLI with a `qwen3-embedding` model
-(the default when running the daemon on the host), otherwise `AV_EMBED_URL` (TEI in compose). The
+`AV_QDRANT_URL` is set and an embedder is found: a host `ollama` CLI with an `embeddinggemma-2` model, else a
+`qwen3-embedding` one (the default when running the daemon on the host; `ollama pull
+embeddinggemma-2`), otherwise `AV_EMBED_URL` (TEI in compose). The
 container has no `ollama` CLI, so in compose it uses TEI. If Qdrant or the embedder is unreachable,
 packs still return and carry the note `semantic`: they used Postgres full-text instead. After
 changing the embedding model, run `scholion reindex` with no `--repo` (it recreates the collections at
@@ -408,8 +409,9 @@ Defaults (override with environment variables before `up`):
 | `AV_WS_MOUNT` / `AV_IMPORT_MOUNT` | `AV_WS_ROOT` / `AV_IMPORT_ROOT` | bind-mount sources, when Docker sees the folders under another path (below) |
 | `AV_EMBED_API_KEY` | empty | Bearer token for the embedding API. Used when the `ollama` CLI is not installed. |
 | `AV_EMBED_URL` | empty | embedding API base URL. Required when there is no Ollama. |
-| `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has a `qwen3-embedding` model. |
-| `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. The model tag comes from `ollama list` (`qwen3-embedding` by default). |
+| `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has an `embeddinggemma-2` or `qwen3-embedding` model. |
+| `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. The model tag comes from `ollama list`. |
+| `AV_OLLAMA_EMBED_MODEL` | `embeddinggemma-2`, else `qwen3-embedding` | the one Ollama model to embed with (a name as `ollama list` shows it, with or without the tag). Run `scholion reindex` after changing it. |
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |

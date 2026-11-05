@@ -9,7 +9,7 @@ use scholion_vcs::JjVcs;
 
 use crate::AppState;
 use crate::embed_choice::{
-    DEFAULT_OLLAMA_EMBED_FAMILY, DEFAULT_OLLAMA_URL, EmbedChoice, EmbedDetect, choose_embedder,
+    DEFAULT_OLLAMA_EMBED_FAMILIES, DEFAULT_OLLAMA_URL, EmbedChoice, EmbedDetect, choose_embedder,
     detect_ollama,
 };
 
@@ -29,7 +29,8 @@ pub struct Config {
     pub listen: String,
     /// `AV_EMBED_API_KEY`, trimmed. `None` means the embedder sends no `Authorization` header.
     pub embed_api_key: Option<String>,
-    /// Ollama `qwen3-embedding` when the CLI has that model. Otherwise the API-key embedder, or off.
+    /// Ollama `embeddinggemma-2` (else `qwen3-embedding`) when the CLI has it. Otherwise the API-key
+    /// embedder, or off.
     pub embed: Option<EmbedChoice>,
     /// `AV_QDRANT_URL` (gRPC). The semantic layer is on only when this and `embed` are both set.
     pub qdrant_url: Option<String>,
@@ -73,7 +74,8 @@ impl Config {
     /// `AV_DATABASE_URL` (unset = lite mode, see `pg_dir`), `AV_STORE_ROOT`, `AV_WS_ROOT`, `AV_WS_HOST_ROOT` (defaults to
     /// `AV_WS_ROOT`), `AV_LISTEN` (default `0.0.0.0:7420`), `AV_EMBED_API_KEY` (optional).
     ///
-    /// Embedding: an `ollama` CLI with a `qwen3-embedding` model is used by default.
+    /// Embedding: an `ollama` CLI with an `embeddinggemma-2` (else `qwen3-embedding`) model is used
+    /// by default; `AV_OLLAMA_EMBED_MODEL` names the one model to use instead.
     /// With no CLI, `AV_EMBED_URL` plus an optional `AV_EMBED_API_KEY` is used.
     /// `AV_EMBED_PROVIDER=api` forces the API path. `AV_OLLAMA_URL` defaults to `http://127.0.0.1:11434`.
     pub fn from_env() -> Result<Config> {
@@ -81,8 +83,12 @@ impl Config {
         let ws_root = PathBuf::from(get("AV_WS_ROOT").unwrap_or_else(|| "./ws".into()));
         let embed_api_key = normalize_secret(get("AV_EMBED_API_KEY"));
         let ollama_url = get("AV_OLLAMA_URL").unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_owned());
-        let model_family =
-            get("AV_OLLAMA_EMBED_MODEL").unwrap_or_else(|| DEFAULT_OLLAMA_EMBED_FAMILY.to_owned());
+        let named_model = get("AV_OLLAMA_EMBED_MODEL");
+        let named_families = named_model.as_deref().map(|m| [m]);
+        let model_families: &[&str] = match &named_families {
+            Some(one) => one,
+            None => DEFAULT_OLLAMA_EMBED_FAMILIES,
+        };
         let embed_url = get("AV_EMBED_URL");
         let provider = get("AV_EMBED_PROVIDER");
         let (cli_installed, models) = detect_ollama();
@@ -90,7 +96,7 @@ impl Config {
             cli_installed,
             models: models.as_ref().map(Vec::as_slice).map_err(String::as_str),
             ollama_url: &ollama_url,
-            model_family: &model_family,
+            model_families,
             embed_url: embed_url.as_deref(),
             api_key: embed_api_key.as_deref(),
             provider: provider.as_deref(),

@@ -1,4 +1,4 @@
-//! Ollama `/api/embed` client (the default embedder when the host has `qwen3-embedding`).
+//! Ollama `/api/embed` client (the default embedder when the host has `embeddinggemma-2` or `qwen3-embedding`).
 
 use std::sync::Mutex;
 

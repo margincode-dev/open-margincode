@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **One approval per head** (Plan 15 Phase 0, "Loop noise"). In the first dogfood run two reviewers
+  approved the same head seconds apart, the second leaning on the first one's validation. `POST
+  /v1/tasks/{id}/review` with `approve` on a head whose newest verdict in the current review round
+  (since the task's latest submit) is already an approval is now refused (422) with who approved it
+  and when; `request_changes` on an approved head, an approval after a resubmit (a new head, or the
+  same head after a request for changes or a revert), and the board's merge of an approved task work
+  as before. A review takes the task's lock, so two concurrent approvals cannot both pass. A finding
+  the reviewer already stored at that head (the same summary, body and anchors, as a retried `av
+  review` sends) is not stored again. `next` already kept a task offered for review from a second
+  reviewer (the 600 s review reservation). No migration: the verdict's time is
+  `review_verdicts.created_at`, the round starts at the newest `submit` event
+  (`IntentStore::round_verdict_at`).
 - **Scheduled regressions** (Plan 15 Phase 3). `.github/workflows/nightly-scale.yml` runs every
   night against a release-built daemon with no semantic layer: `scholion-bench scale` on tokio
   (`tokio-1.54.1`), failing when one-agent p95 latency rises above 600 ms (start), 300 ms (context)

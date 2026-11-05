@@ -729,12 +729,17 @@ pub(crate) struct ReviewBody {
 }
 
 /// Appends a verdict bound to the task's current head. `approve` needs a passing validation at that
-/// head; `request_changes` sends the task back to its owner with the findings as `review` records.
+/// head and is refused when the head is already approved in this review round (since the latest
+/// submit); `request_changes` sends the task back to its owner with the findings as `review`
+/// records. A finding the reviewer already stored at this head (a retried review) is not stored
+/// again.
 pub(crate) async fn review(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
     Json(b): Json<ReviewBody>,
 ) -> ApiResult<Value> {
+    // two reviews of one task never interleave: the second sees the first one's verdict
+    let _task_guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     if task.status != TaskStatus::InReview {
         return Err(AvError::IllegalState(format!(
@@ -761,6 +766,21 @@ pub(crate) async fn review(
     }
     let head = task.head_change.clone();
     if b.verdict == Verdict::Approve {
+        if let Some(v) = st.store.round_verdict_at(task.id, &head).await?
+            && v.verdict == Verdict::Approve
+        {
+            let when = v.at.map_or_else(
+                || "an unknown time".to_owned(),
+                |at| at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            );
+            return Err(AvError::IllegalState(format!(
+                "cannot approve: head {} is already approved by {} at {when}; \
+                 another approval needs a new submit",
+                short(&head.0),
+                v.reviewer
+            ))
+            .into());
+        }
         match validation_at(&st, task.id, &head).await? {
             Some((_, true)) => {}
             Some((command, false)) => {
@@ -799,17 +819,39 @@ pub(crate) async fn review(
             None,
         )
         .await?;
+    // (summary, body, anchors) of the findings this reviewer already has at this head
+    let mut stored: Vec<(String, String, Vec<Anchor>)> = if b.findings.is_empty() {
+        Vec::new()
+    } else {
+        st.store
+            .task_records(task.id)
+            .await?
+            .into_iter()
+            .filter(|r| {
+                r.kind == RecordKind::Review
+                    && r.author_agent == b.reviewer
+                    && r.change_id.as_ref() == Some(&head)
+            })
+            .map(|r| (r.summary, r.body, r.anchors))
+            .collect()
+    };
     for f in b.findings {
+        let key = (f.summary, f.body, f.anchors);
+        if stored.contains(&key) {
+            continue;
+        }
+        stored.push(key.clone());
+        let (summary, body, anchors) = key;
         st.store
             .add_record(NewRecord {
                 task_id: task.id,
                 kind: RecordKind::Review,
-                summary: f.summary,
-                body: f.body,
+                summary,
+                body,
                 change_id: Some(head.clone()),
                 supersedes: None,
                 author_agent: b.reviewer.clone(),
-                anchors: f.anchors,
+                anchors,
             })
             .await?;
     }

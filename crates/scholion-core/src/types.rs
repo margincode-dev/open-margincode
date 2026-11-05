@@ -356,6 +356,9 @@ pub struct VerdictRow {
     pub base: Option<ChangeId>,
     /// For an approval carried by av: the human-approved head it was carried from.
     pub carried_from: Option<ChangeId>,
+    /// When the verdict was given.
+    #[serde(default)]
+    pub at: Option<DateTime<Utc>>,
 }
 
 /// Per-repo policy (Plan 5).

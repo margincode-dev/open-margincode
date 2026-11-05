@@ -84,6 +84,8 @@ pub struct Env {
     pub ws: TempDir,
     pub app: Router,
     pub src_path: PathBuf,
+    /// The state behind `app`, for what has no route (the backup loop's `backup_tick`).
+    pub state: AppState,
 }
 
 pub async fn env() -> Env {
@@ -144,7 +146,7 @@ async fn env_full(
     );
     let state = tweak(state);
     let token = state.token().map(str::to_owned);
-    let app = router_with(state, extra);
+    let app = router_with(state.clone(), extra);
     let e = Env {
         _db: db,
         store,
@@ -153,6 +155,7 @@ async fn env_full(
         _store: store_dir,
         ws,
         app,
+        state,
     };
     let bearer = token.map(|t| format!("Bearer {t}"));
     let headers: Vec<(&str, &str)> = bearer

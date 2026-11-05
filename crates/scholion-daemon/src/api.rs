@@ -164,6 +164,10 @@ pub(crate) fn routes() -> Router<AppState> {
             "/v1/repos/{name}/backup/push",
             post(crate::backup::push_backup),
         )
+        .route(
+            "/v1/repos/{name}/trunk/advance",
+            post(crate::backup::post_advance),
+        )
         .route("/v1/maintenance/prune", post(prune))
         .route("/v1/repos/{name}/outbox", get(outbox))
         .merge(crate::routing_api::routes())

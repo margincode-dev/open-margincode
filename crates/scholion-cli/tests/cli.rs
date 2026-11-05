@@ -1208,6 +1208,53 @@ fn repo_backup_branch_names_where_main_is_pushed() {
 }
 
 #[test]
+fn repo_advance_takes_main_back_from_the_remote() {
+    let (d, _ws, scratch) = started();
+    let remote = TempDir::new().unwrap();
+    git(remote.path(), &["init", "-q", "--bare", "-b", "main"]);
+    let url = remote.path().to_str().unwrap();
+    let set = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "repo",
+            "backup",
+            "demo",
+            "--set",
+            url,
+            "--advance",
+            "--push",
+        ],
+    ));
+    assert!(set.contains("advance from main"), "{set}");
+    let same = ok(av(&d, scratch.path(), &["repo", "advance", "demo"]));
+    assert!(same.trim().starts_with("main up to date at "), "{same}");
+
+    // a pull request merged on the remote
+    let clone = TempDir::new().unwrap();
+    git(clone.path(), &["clone", "-q", url, "."]);
+    std::fs::write(
+        clone.path().join("farewell.py"),
+        "def bye():\n    return 1\n",
+    )
+    .unwrap();
+    git(clone.path(), &["add", "-A"]);
+    git(clone.path(), &["commit", "-q", "-m", "farewell"]);
+    git(clone.path(), &["push", "-q", "origin", "main"]);
+    let moved = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "repo", "advance", "demo", "--remote", url, "--branch", "main",
+        ],
+    ));
+    assert!(moved.contains("main fast-forwarded"), "{moved}");
+    // --advance without a remote to set is refused
+    let out = av(&d, scratch.path(), &["repo", "backup", "demo", "--advance"]);
+    assert!(!out.status.success());
+}
+
+#[test]
 fn search_log_and_abandon() {
     let (d, ws, scratch) = started();
     ok(av(

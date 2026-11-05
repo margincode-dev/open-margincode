@@ -1641,6 +1641,197 @@ async fn option_like_backup_remote_is_rejected() {
     assert_eq!(backup(&e).await["remote"], Value::Null);
 }
 
+// ---- Plan 15 Phase 0 §9: advance trunk from the backup remote ----
+
+/// A bare remote at `dir/origin.git` whose `main` is the imported trunk (GitHub's `main`).
+fn origin_at_trunk(e: &Env, dir: &Path) -> PathBuf {
+    let remote = dir.join("origin.git");
+    bare_repo(&remote);
+    git(
+        &e.src_path,
+        &["push", "-q", remote.to_str().unwrap(), "main"],
+    );
+    remote
+}
+
+/// A pull request merged on the remote: commits `file` in the source checkout and pushes it to
+/// the remote's `main`. Returns the commit.
+fn land_on_remote(e: &Env, remote: &Path, file: &str, text: &str) -> String {
+    std::fs::write(e.src_path.join(file), text).unwrap();
+    git(&e.src_path, &["add", "-A"]);
+    git(&e.src_path, &["commit", "-q", "-m", &format!("add {file}")]);
+    git(
+        &e.src_path,
+        &["push", "-q", remote.to_str().unwrap(), "main"],
+    );
+    git_out(&e.src_path, &["rev-parse", "HEAD"])
+}
+
+const FAREWELL: &str = "def farewell(name):\n    return \"bye \" + name\n";
+
+async fn advance(e: &Env, body: Option<Value>) -> (StatusCode, Value) {
+    call(&e.app, "POST", "/v1/repos/demo/trunk/advance", body).await
+}
+
+async fn trunk_head(e: &Env) -> String {
+    let (status, log) = call(&e.app, "GET", "/v1/repos/demo/log?limit=1", None).await;
+    assert_eq!(status, StatusCode::OK, "{log}");
+    log["commits"][0]["change"].as_str().unwrap().to_owned()
+}
+
+async fn main_symbols_at(e: &Env, path: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM symbols WHERE repo = 'demo' AND scope = 'main' AND path = $1",
+    )
+    .bind(path)
+    .fetch_one(e.store.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn advance_fast_forwards_trunk_to_a_remote_commit_on_top_of_it() {
+    let e = env().await;
+    let dir = TempDir::new().unwrap();
+    let (status, body) = advance(&e, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "no remote: {body}");
+    assert!(body["error"].as_str().unwrap().contains("remote"), "{body}");
+
+    let remote = origin_at_trunk(&e, dir.path());
+    let url = remote.to_str().unwrap();
+    let before = trunk_head(&e).await;
+    let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "up_to_date", "{body}");
+    assert_eq!(body["head"], before.as_str(), "{body}");
+
+    let landed = land_on_remote(&e, &remote, "app/farewell.py", FAREWELL);
+    let (status, body) = advance(&e, Some(json!({"remote": url, "branch": "main"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "fast_forwarded", "{body}");
+    assert_eq!(body["from"], before.as_str(), "{body}");
+    assert_eq!(body["to"], landed.as_str(), "{body}");
+    assert_eq!(trunk_head(&e).await, landed, "trunk is the remote's main");
+    assert!(
+        main_symbols_at(&e, "app/farewell.py").await > 0,
+        "main's index has the new file"
+    );
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    let ev = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|ev| ev["kind"] == "trunk:advanced")
+        .unwrap_or_else(|| panic!("no trunk:advanced event: {events}"));
+    assert_eq!(
+        ev["payload"],
+        json!({"from": before, "to": landed, "remote": url, "branch": "main"}),
+        "{ev}"
+    );
+
+    // a new task starts on the new main, and its pack sees the new code
+    let t = start_task(&e, "Wave farewell").await;
+    assert!(ws_dir(&e, &t).join("app/farewell.py").exists());
+    let (status, pack) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/context?budget=4000&session=s-2", id(&t)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pack}");
+    assert!(
+        pack["markdown"].as_str().unwrap().contains("farewell.py"),
+        "{pack}"
+    );
+
+    // without a body: the backup remote and `main`
+    set_remote(&e, url).await;
+    settled(&e).await;
+    let next = land_on_remote(&e, &remote, "app/later.py", "def later():\n    return 1\n");
+    let (status, body) = advance(&e, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "fast_forwarded", "{body}");
+    assert_eq!(body["to"], next.as_str(), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn advance_refuses_a_diverged_remote_and_leaves_trunk_alone() {
+    let e = env().await;
+    let dir = TempDir::new().unwrap();
+    let remote = origin_at_trunk(&e, dir.path());
+    let url = remote.to_str().unwrap();
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    let (_, merged) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    let main = merged["main"].as_str().unwrap().to_owned();
+
+    // the remote is behind: nothing to take, nothing changes
+    let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "ahead", "{body}");
+    assert_eq!(body["trunk"], main.as_str(), "{body}");
+    assert_eq!(trunk_head(&e).await, main);
+
+    let landed = land_on_remote(&e, &remote, "app/farewell.py", FAREWELL);
+    let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["outcome"], "diverged", "{body}");
+    assert_eq!(body["trunk"], main.as_str(), "{body}");
+    assert_eq!(body["remote"], landed.as_str(), "{body}");
+    assert!(body["error"].is_string(), "{body}");
+    assert_eq!(trunk_head(&e).await, main, "trunk unchanged");
+    assert_eq!(main_symbols_at(&e, "app/farewell.py").await, 0);
+
+    for bad in [
+        json!({"remote": "--upload-pack=sh"}),
+        json!({"remote": url, "branch": "a..b"}),
+    ] {
+        let (status, body) = advance(&e, Some(bad.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_tick_advances_before_it_pushes_when_asked() {
+    let e = env().await;
+    let dir = TempDir::new().unwrap();
+    let remote = origin_at_trunk(&e, dir.path());
+    let url = remote.to_str().unwrap();
+    let (status, state) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": url, "branch": "av-main", "advance": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{state}");
+    assert_eq!(state["advance"], true, "{state}");
+    let done = settled(&e).await;
+    assert_eq!(done["failures"], 0, "{done}");
+    assert_eq!(done["advance"], true, "{done}");
+
+    let landed = land_on_remote(&e, &remote, "app/farewell.py", FAREWELL);
+    e.store.mark_backups_due().await.unwrap();
+    let pushed = scholion_daemon::backup_tick(&e.state).await.unwrap();
+    assert_eq!(pushed, 1);
+    assert_eq!(trunk_head(&e).await, landed, "advanced before the push");
+    assert_eq!(
+        git_out(&remote, &["rev-parse", "refs/heads/av-main"]),
+        landed
+    );
+    assert_eq!(backup(&e).await["last_pushed"], landed.as_str());
+
+    // setting the remote again without `advance` turns it off
+    let (_, state) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": url, "branch": "av-main"})),
+    )
+    .await;
+    assert_eq!(state["advance"], false, "{state}");
+}
+
 // ---- Plan 3 Task 7: search, abandon, log ----
 
 #[tokio::test(flavor = "multi_thread")]

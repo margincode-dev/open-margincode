@@ -534,7 +534,7 @@ const KIND_TONE = {
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
   // the attention strip's own kinds
   "main red": "red", stale: "amber", unclaimed: "violet", quiet: "amber", unroutable: "amber", overdue: "red",
-  footprint: "amber",
+  footprint: "amber", "trunk:advanced": "green",
   // main's log
   "check ok": "green", "check failed": "red", unchecked: "gray",
 };
@@ -762,6 +762,7 @@ function approvedAt(t) {
 function evTitle(ev) {
   const p = ev.payload || {};
   const word = s => String(s).replace(/_/g, " ");
+  if (ev.kind === "trunk:advanced") return `main advanced from ${p.branch || "the remote"} to ${short(p.to)}`;
   if (ev.kind === "checkpoint") return p.touched == null ? "checkpoint" : `checkpoint: ${p.touched} path${p.touched === 1 ? "" : "s"} touched`;
   // an approve keeps the status: say only the kind then
   if (p.from && p.to && p.from !== p.to) return `${word(ev.kind)}: ${word(p.from)} → ${word(p.to)}`;
@@ -1480,7 +1481,7 @@ async function startFeed() {
       if (r.events.length) {
         S.next = r.next;
         remember(r.events);
-        if (r.events.some(ev => ev.kind === "merged" || ev.kind === "undo" || ev.kind === "revert")) S.mainDirty = true;
+        if (r.events.some(ev => ev.kind === "merged" || ev.kind === "undo" || ev.kind === "revert" || ev.kind === "trunk:advanced")) S.mainDirty = true;
         S.events = r.events.slice().reverse().concat(S.events).slice(0, 200);
         renderFeed();
         clearTimeout(refresh);

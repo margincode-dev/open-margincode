@@ -49,7 +49,7 @@ use jj_lib::working_copy::SnapshotOptions;
 use jj_lib::workspace::Workspace;
 use pollster::block_on;
 use scholion_core::{
-    AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
+    Advance, AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
 };
 
 use crate::patch::{self, Blob, EXECUTABLE, FILE, FileDiff, SYMLINK};
@@ -162,6 +162,30 @@ fn git_cmd(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// Longest a backup push may take before its git process is killed.
 const PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Longest the fetch of `advance_trunk` may take before its git process is killed.
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// A remote URL or path as git's argument: never one git could read as an option or a command
+/// (`ext::`). `verb` says what for, in the error.
+fn remote_arg<'a>(remote_url: &'a str, verb: &str) -> Result<&'a str> {
+    let url = remote_url.trim();
+    if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
+        return Err(AvError::Invalid(format!(
+            "remote {remote_url:?} is not a URL or path git may {verb}"
+        )));
+    }
+    Ok(url)
+}
+
+/// A branch name checked by `check_backup_branch` and by git itself; returns `refs/heads/<b>`.
+fn branch_ref(git_dir: &Path, branch: &str) -> Result<String> {
+    scholion_core::check_backup_branch(branch)?;
+    let full = format!("refs/heads/{branch}");
+    // git has the last word on what a branch name is
+    git_cmd(git_dir, &["check-ref-format", &full])
+        .map_err(|_| AvError::Invalid(format!("branch {branch:?} is not a git branch name")))?;
+    Ok(full)
+}
 
 /// `git_cmd` for network operations: no credential prompts, killed after `timeout`.
 fn git_cmd_timeout(dir: &Path, args: &[&str], timeout: std::time::Duration) -> Result<String> {
@@ -786,24 +810,12 @@ impl Inner {
     }
 
     fn push_backup(&self, repo: &str, remote_url: &str, branch: Option<&str>) -> Result<ChangeId> {
-        let url = remote_url.trim();
-        if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
-            return Err(AvError::Invalid(format!(
-                "backup remote {remote_url:?} is not a URL or path git may push to"
-            )));
-        }
+        let url = remote_arg(remote_url, "push to")?;
         let name = self.trunk_name(repo)?;
         let git_dir = self.repo_dir(repo).join("git");
         let refname = format!("refs/heads/{name}");
         let target = match branch {
-            Some(b) => {
-                scholion_core::check_backup_branch(b)?;
-                // git has the last word on what a branch name is
-                git_cmd(&git_dir, &["check-ref-format", &format!("refs/heads/{b}")]).map_err(
-                    |_| AvError::Invalid(format!("backup branch {b:?} is not a git branch name")),
-                )?;
-                format!("refs/heads/{b}")
-            }
+            Some(b) => branch_ref(&git_dir, b)?,
             None => refname.clone(),
         };
         let pushed = git_cmd(&git_dir, &["rev-parse", "--verify", &refname])?;
@@ -820,6 +832,74 @@ impl Inner {
             PUSH_TIMEOUT,
         )?;
         Ok(ChangeId(pushed))
+    }
+
+    /// Fetches `branch` of `remote_url` into `refs/av/advance/<branch>` of the repo's git dir and
+    /// returns the commit fetched. Touches no jj state (only that private ref), so it runs
+    /// without the per-repo lock: a slow remote never holds up snapshots.
+    fn fetch_advance(&self, repo: &str, remote_url: &str, branch: &str) -> Result<ChangeId> {
+        let url = remote_arg(remote_url, "fetch from")?;
+        // an unknown repo is NotFound before any git runs
+        self.loader(repo)?;
+        let git_dir = self.repo_dir(repo).join("git");
+        let source = branch_ref(&git_dir, branch)?;
+        let local = format!("refs/av/advance/{branch}");
+        // a private ref (forced: it only ever mirrors the remote), never a local branch
+        git_cmd_timeout(
+            &git_dir,
+            &[
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--no-write-fetch-head",
+                "--",
+                url,
+                &format!("+{source}:{local}"),
+            ],
+            FETCH_TIMEOUT,
+        )?;
+        let fetched = git_cmd(
+            &git_dir,
+            &["rev-parse", "--verify", &format!("{local}^{{commit}}")],
+        )?;
+        Ok(ChangeId(fetched))
+    }
+
+    /// Moves trunk to `to` (a commit `fetch_advance` brought into the git dir) when it descends
+    /// from trunk. The commit enters jj as jj's git import brings a new head in
+    /// (`import_head_commits`, then `add_head`); no operation is committed unless trunk moves.
+    fn advance_to(&self, repo: &str, branch: &str, to: ChangeId) -> Result<Advance> {
+        let (_ws, ro) = self.load_main(repo)?;
+        let trunk = self.trunk_commit(repo, &ro)?;
+        let from = ChangeId(trunk.id().hex());
+        if from == to {
+            return Ok(Advance::UpToDate { head: from });
+        }
+        let id = jj_lib::backend::CommitId::try_from_hex(&to.0)
+            .ok_or_else(|| AvError::Vcs(format!("git gave a bad commit id {}", to.0)))?;
+        git::get_git_backend(ro.store())
+            .map_err(verr)?
+            .import_head_commits([&id])
+            .map_err(verr)?;
+        let remote = ro.store().get_commit(&id).map_err(verr)?;
+        let mut tx = ro.start_transaction();
+        block_on(tx.repo_mut().add_head(&remote)).map_err(verr)?;
+        let index = tx.repo().index();
+        if block_on(index.is_ancestor(remote.id(), trunk.id())).map_err(verr)? {
+            return Ok(Advance::Ahead {
+                trunk: from,
+                remote: to,
+            });
+        }
+        if !block_on(index.is_ancestor(trunk.id(), remote.id())).map_err(verr)? {
+            return Ok(Advance::Diverged {
+                trunk: from,
+                remote: to,
+            });
+        }
+        let ro = block_on(tx.commit(format!("av advance: import {branch}"))).map_err(verr)?;
+        self.move_trunk(repo, &ro, &remote, &format!("av advance from {branch}"))?;
+        Ok(Advance::FastForwarded { from, to })
     }
 
     fn trunk_log(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {
@@ -1166,6 +1246,16 @@ impl Vcs for JjVcs {
         // reads only the exported git ref, which merges and undos update atomically
         self.read(repo, move |i| i.push_backup(&name, &url, branch.as_deref()))
             .await
+    }
+
+    async fn advance_trunk(&self, repo: &str, remote_url: &str, branch: &str) -> Result<Advance> {
+        let (name, url, b) = (repo.to_owned(), remote_url.to_owned(), branch.to_owned());
+        // the network part without the per-repo lock, as `push_backup`
+        let to = self
+            .read(repo, move |i| i.fetch_advance(&name, &url, &b))
+            .await?;
+        let (name, b) = (repo.to_owned(), branch.to_owned());
+        self.run(repo, move |i| i.advance_to(&name, &b, to)).await
     }
 
     async fn trunk_log(&self, repo: &str, limit: usize) -> Result<Vec<LogEntry>> {

@@ -318,6 +318,20 @@ Several agents work against one daemon at once:
   By default main is pushed to a branch of the same name; `scholion repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.
+- Main coming back from the remote (Plan 15). When main is pushed to a branch such as `av-main`
+  and pull requests are merged on the remote, `av repo advance NAME` (`POST
+  /v1/repos/{name}/trunk/advance`, body `{remote?, branch?}`; defaults: the backup remote and
+  `main`) fetches that branch into the repo's git dir (`refs/av/advance/<branch>`, never a local
+  branch; 120 s timeout, no credential prompts) and, when it descends from main, fast-forwards
+  main to it: main's index, the lean-build config and the backup follow, as after a merge, and the
+  feed gets a `trunk:advanced` event (`{from, to, remote, branch}`, the remote without any
+  credentials in its URL). Answers: `200` `{outcome: "fast_forwarded", from, to}`, `{outcome:
+  "up_to_date", head}` or `{outcome: "ahead", trunk, remote}` (the remote is behind main: nothing
+  to take); `409` `{outcome: "diverged", trunk, remote, error}` when neither contains the other
+  (main is unchanged; a squash merge on the remote does this); `400` with no remote to use. `av
+  repo backup NAME --remote URL --advance` (`advance: true` in the backup body; left out = off,
+  like `--branch`) makes every backup push advance from the remote's `main` first; an advance
+  that fails or finds the histories diverged is logged and the push goes on.
 - Starting a task cleans up after itself: if the workspace cannot be created, the task is marked
   abandoned rather than left open.
 
@@ -707,7 +721,7 @@ for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{na
 `?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
 repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
 `GET /v1/repos/{name}/diff`, `GET /v1/receipts/{id}`, `GET /v1/repos/{name}/log`,
-`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup`, `GET /v1/repos/{name}/conventions`,
+`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`,
 `GET /v1/repos/{name}/import`, `GET /v1/disk`, `GET /v1/attention` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).

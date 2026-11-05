@@ -651,10 +651,25 @@ enum RepoCmd {
         /// Remote branch to push main to instead of its own name (needs --set).
         #[arg(long, requires = "set")]
         branch: Option<String>,
+        /// Before each push, advance main from the remote's `main` when it descends from main
+        /// (pull requests merged there come back; needs --set).
+        #[arg(long, requires = "set")]
+        advance: bool,
         #[arg(long)]
         clear: bool,
         #[arg(long)]
         push: bool,
+    },
+    /// Advance main from a remote branch: fetch it and fast-forward main to it when it descends
+    /// from main. Default: the backup remote's `main`. Diverged histories change nothing.
+    Advance {
+        name: String,
+        /// Remote URL or path (default: the backup remote).
+        #[arg(long)]
+        remote: Option<String>,
+        /// Remote branch (default: main).
+        #[arg(long)]
+        branch: Option<String>,
     },
     /// Show the repo's policy, or change it: which files may differ after a conflict
     /// resolution without a new review (--carry-glob, repeatable), and the post-merge check.
@@ -760,6 +775,26 @@ fn run_capturing(
     Ok((out.status.code().unwrap_or(-1), tail))
 }
 
+/// One line about the outcome of `av repo advance`.
+fn advance_line(r: &Value) -> String {
+    let c = |v: &Value| s(v).chars().take(12).collect::<String>();
+    match s(&r["outcome"]) {
+        "fast_forwarded" => format!("main fast-forwarded {} -> {}", c(&r["from"]), c(&r["to"])),
+        "up_to_date" => format!("main up to date at {}", c(&r["head"])),
+        "ahead" => format!(
+            "main ({}) is ahead of the remote ({}): nothing to take",
+            c(&r["trunk"]),
+            c(&r["remote"])
+        ),
+        "diverged" => format!(
+            "main ({}) and the remote ({}) have diverged: main is unchanged",
+            c(&r["trunk"]),
+            c(&r["remote"])
+        ),
+        other => format!("advance: {other}"),
+    }
+}
+
 /// One line about a repo's backup state.
 fn backup_line(b: &Value) -> String {
     let Some(remote) = b["remote"].as_str() else {
@@ -775,6 +810,9 @@ fn backup_line(b: &Value) -> String {
             c.chars().take(12).collect::<String>()
         )),
         None => line.push_str(" · never pushed"),
+    }
+    if b["advance"].as_bool() == Some(true) {
+        line.push_str(" · advance from main");
     }
     let failures = b["failures"].as_u64().unwrap_or(0);
     if failures > 0 {
@@ -1264,6 +1302,29 @@ fn run(cli: Cli) -> Result<()> {
         } => mine_history_of(&client, name, *limit)?,
         Cmd::Repo {
             cmd:
+                RepoCmd::Advance {
+                    name,
+                    remote,
+                    branch,
+                },
+        } => {
+            let body = json!({"remote": remote, "branch": branch});
+            let r = match client.post(&format!("/v1/repos/{name}/trunk/advance"), &body) {
+                Ok(r) => r,
+                Err(CliError::Api {
+                    status: 409, body, ..
+                }) => {
+                    println!("{}", advance_line(&body));
+                    return Err(CliError::Local(
+                        "main and the remote have diverged; main is unchanged".into(),
+                    ));
+                }
+                Err(e) => return Err(e),
+            };
+            println!("{}", advance_line(&r));
+        }
+        Cmd::Repo {
+            cmd:
                 RepoCmd::Settings {
                     name,
                     carry_globs,
@@ -1298,13 +1359,17 @@ fn run(cli: Cli) -> Result<()> {
                     name,
                     set,
                     branch,
+                    advance,
                     clear,
                     push,
                 },
         } => {
             let path = format!("/v1/repos/{name}/backup");
             let mut r = if let Some(url) = set {
-                client.post(&path, &json!({"remote": url, "branch": branch}))?
+                client.post(
+                    &path,
+                    &json!({"remote": url, "branch": branch, "advance": advance}),
+                )?
             } else if *clear {
                 client.post(&path, &json!({"remote": null}))?
             } else {

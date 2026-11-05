@@ -25,8 +25,9 @@ use crate::indexing::{
 };
 
 /// Serializes merge and undo across the daemon, so a status check and the trunk move it guards
-/// cannot interleave with another merge of the same task.
-static MERGE_LOCK: Mutex<()> = Mutex::const_new(());
+/// cannot interleave with another merge of the same task. Advancing trunk from the backup remote
+/// (`backup::advance_trunk`) takes it too.
+pub(crate) static MERGE_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Request header carrying the claim generation a write is made under (see `fence`).
 pub(crate) const GENERATION_HEADER: &str = "x-av-generation";

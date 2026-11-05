@@ -73,6 +73,19 @@ pub trait Vcs: Send + Sync {
             "backup push is not supported by this Vcs".into(),
         ))
     }
+    /// Plan 15: fetches `branch` of `remote_url` into the repo's git dir (a private ref, never a
+    /// local branch) and, when the fetched commit descends from trunk, moves trunk to it (and the
+    /// exported git ref). Equal, behind or diverged changes nothing; see `Advance`.
+    async fn advance_trunk(
+        &self,
+        _repo: &str,
+        _remote_url: &str,
+        _branch: &str,
+    ) -> Result<Advance> {
+        Err(AvError::Vcs(
+            "advance_trunk is not supported by this Vcs".into(),
+        ))
+    }
     /// Trunk and its first-parent ancestors, newest first, at most `limit`.
     async fn trunk_log(&self, _repo: &str, _limit: usize) -> Result<Vec<LogEntry>> {
         Err(AvError::Vcs(

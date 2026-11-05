@@ -751,6 +751,35 @@ async fn backup_state_keeps_the_branch_until_the_target_is_set_again() {
 }
 
 #[tokio::test]
+async fn backup_state_keeps_advance_with_the_target() {
+    let (_db, s) = store().await;
+    assert!(!s.backup_state("demo").await.unwrap().advance);
+    let st = s
+        .set_backup_target("demo", Some("/srv/b.git"), Some("av-main"), true)
+        .await
+        .unwrap();
+    assert!(st.advance);
+    assert_eq!(st.branch.as_deref(), Some("av-main"));
+    s.backup_failed("demo", "down", std::time::Duration::ZERO)
+        .await
+        .unwrap();
+    let st = s
+        .backup_succeeded("demo", &ChangeId("abc".into()))
+        .await
+        .unwrap();
+    assert!(st.advance, "pushes leave it as it was");
+    // setting the target again without it turns it off, as with the branch
+    let st = s
+        .set_backup_remote("demo", Some("/srv/b.git"), None)
+        .await
+        .unwrap();
+    assert!(!st.advance);
+    // and there is no advancing without a remote
+    let st = s.set_backup_target("demo", None, None, true).await.unwrap();
+    assert!(!st.advance);
+}
+
+#[tokio::test]
 async fn prune_removes_idle_sessions_only() {
     let (_db, s) = store().await;
     for session in ["s-old", "s-new"] {

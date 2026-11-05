@@ -12,6 +12,15 @@
   `AV_ATTN_FOOTPRINT_BYTES` and `AV_ATTN_FOOTPRINT_SECS` with the same defaults. `av attention
   [--repo R] [--json]` prints one line per item and exits 0. `GET /v1/repos/{name}/health` adds
   `since_at` to a red answer. No new table.
+- **Main comes back from the remote: `av repo advance`** (Plan 15 Phase 0). The backup can push
+  main to a branch for a pull request, but nothing brought the remote's `main` back, so work merged
+  there (that pull request, and others) never reached main and the next task started on a stale
+  base. `POST /v1/repos/{name}/trunk/advance` (`av repo advance NAME [--remote URL] [--branch B]`;
+  defaults: the backup remote and `main`) fetches the branch and fast-forwards main to it when it
+  descends from main, then re-indexes main and emits `trunk:advanced`; `409` with both heads when
+  they diverged, main unchanged. `av repo backup NAME --remote URL --advance` makes every backup
+  push advance first (migration 0029 adds `backup_state.advance`). New `Vcs::advance_trunk` with
+  the `Advance` outcome.
 - **A guard can refuse a review verdict: `Guarded::Review`.** `MergeGuard` is now also asked
   `Guarded::Review { task, reviewer, verdict }` for every verdict, `approve` and
   `request_changes`, once the task is known to be in review and the reviewer is not its owner,

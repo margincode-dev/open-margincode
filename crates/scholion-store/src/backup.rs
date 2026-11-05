@@ -5,7 +5,8 @@ use sqlx::Row;
 
 use crate::pg::{PgStore, serr};
 
-const BACKUP_COLS: &str = "remote, branch, last_pushed_change, failures, last_error, next_retry";
+const BACKUP_COLS: &str =
+    "remote, branch, last_pushed_change, failures, last_error, next_retry, advance";
 
 fn backup_from_row(row: &sqlx::postgres::PgRow) -> Result<BackupState> {
     Ok(BackupState {
@@ -18,6 +19,7 @@ fn backup_from_row(row: &sqlx::postgres::PgRow) -> Result<BackupState> {
         failures: row.try_get::<i32, _>("failures").map_err(serr)? as u32,
         last_error: row.try_get("last_error").map_err(serr)?,
         next_retry: row.try_get("next_retry").map_err(serr)?,
+        advance: row.try_get("advance").map_err(serr)?,
     })
 }
 
@@ -39,21 +41,36 @@ impl PgStore {
 
     /// Sets (or with `None` clears) the remote and the branch main is pushed to (`None`: the
     /// trunk's own name; always `None` without a remote). A new target starts clean and is due
-    /// at once.
+    /// at once. `set_backup_target` without advancing.
     pub async fn set_backup_remote(
         &self,
         repo: &str,
         remote: Option<&str>,
         branch: Option<&str>,
     ) -> Result<BackupState> {
+        self.set_backup_target(repo, remote, branch, false).await
+    }
+
+    /// `set_backup_remote`, and whether each push first advances trunk from the remote's `main`
+    /// (Plan 15; always `false` without a remote).
+    pub async fn set_backup_target(
+        &self,
+        repo: &str,
+        remote: Option<&str>,
+        branch: Option<&str>,
+        advance: bool,
+    ) -> Result<BackupState> {
         if let Some(b) = branch.filter(|_| remote.is_some()) {
             check_backup_branch(b)?;
         }
         let branch = branch.filter(|_| remote.is_some());
+        let advance = advance && remote.is_some();
         let row = sqlx::query(&format!(
-            "INSERT INTO backup_state (repo, remote, branch, next_retry) VALUES ($1, $2, $3, now())
+            "INSERT INTO backup_state (repo, remote, branch, advance, next_retry)
+             VALUES ($1, $2, $3, $4, now())
              ON CONFLICT (repo) DO UPDATE
-             SET remote = EXCLUDED.remote, branch = EXCLUDED.branch, failures = 0, last_error = NULL,
+             SET remote = EXCLUDED.remote, branch = EXCLUDED.branch, advance = EXCLUDED.advance,
+                 failures = 0, last_error = NULL,
                  next_retry = CASE WHEN EXCLUDED.remote IS NULL THEN NULL ELSE now() END,
                  updated_at = now()
              RETURNING {BACKUP_COLS}"
@@ -61,6 +78,7 @@ impl PgStore {
         .bind(repo)
         .bind(remote)
         .bind(branch)
+        .bind(advance)
         .fetch_one(self.pool())
         .await
         .map_err(serr)?;

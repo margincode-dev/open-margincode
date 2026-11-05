@@ -119,6 +119,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0028_managed_profiles.sql",
         "3959651db4db0d330c393eb9549b9affbe9783d7ccec216fb56b08e7533b2ca8",
     ),
+    (
+        "0029_backup_advance.sql",
+        "898a09b437b5f0d8627328ef6737c9629de17b5886706ff62a870f43c8ad03a9",
+    ),
 ];
 
 #[test]

@@ -51,7 +51,8 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
   supersedes an older one.
 - `submit` and `handoff` are refused without an intent plus at least one decision, attempt, note
   or handoff record.
-- `main` advances only through `merge` (and `revert`, which adds a new commit).
+- `main` advances only through `merge` (and `revert`, which adds a new commit), or by
+  fast-forward to the backup remote's branch (`av repo advance`), never past a divergence.
 - The daemon never runs repository commands. Validations and checks are reported by clients.
 - Carrying an approval fails closed: when in doubt, ask for a fresh review.
 - Everything in compose binds to `127.0.0.1`. Auth is one optional shared token (`AV_TOKEN`), so

@@ -290,6 +290,24 @@ pub struct BackupState {
     pub last_error: Option<String>,
     /// When the next attempt is due; `None` = nothing pending.
     pub next_retry: Option<DateTime<Utc>>,
+    /// Plan 15: before each push, advance trunk from the remote's `main` (`Vcs::advance_trunk`).
+    #[serde(default)]
+    pub advance: bool,
+}
+
+/// Result of advancing trunk from a remote branch (Plan 15, `Vcs::advance_trunk`). Only
+/// `FastForwarded` changes anything.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum Advance {
+    /// The remote branch descended from trunk; trunk now points at it.
+    FastForwarded { from: ChangeId, to: ChangeId },
+    /// The remote branch is trunk.
+    UpToDate { head: ChangeId },
+    /// The remote branch is behind trunk (an ancestor of it): nothing to take.
+    Ahead { trunk: ChangeId, remote: ChangeId },
+    /// Neither descends from the other; trunk is left alone.
+    Diverged { trunk: ChangeId, remote: ChangeId },
 }
 
 /// Checks a backup branch name: what git accepts as a branch (see `git check-ref-format`), and

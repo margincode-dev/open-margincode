@@ -47,8 +47,10 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
 }
 
-/// Prints a small context pack for the task of this directory. After a compaction or `/clear`
-/// the agent has lost what it was sent, so the session starts over and everything is sent again.
+/// Prints a small context pack for the task of this directory. At start-up, after a compaction
+/// or after `/clear` the agent has not got what was sent under the task's session (at start-up,
+/// the pack `av next` printed went to whoever ran it), so the session starts over and
+/// everything is sent again. Only a resumed session keeps its ledger.
 /// Then gives the task a scratch directory (`$AV_SCRATCH`, removed with the task) and, task or
 /// not, takes the footprint snapshot the Stop hook compares against (Plan 11).
 pub fn session_start(client: &Client, budget: u32, code: &str, map: bool, max_code: Option<usize>) {
@@ -87,7 +89,12 @@ fn print_pack(
     map: bool,
     max_code: Option<usize>,
 ) {
-    if matches!(input["source"].as_str(), Some("compact" | "clear")) {
+    // a new process has seen nothing, whatever was printed under this session before it
+    // (`av next` or `av task start` print the first pack to whoever ran them)
+    if matches!(
+        input["source"].as_str(),
+        Some("startup" | "compact" | "clear")
+    ) {
         tf.session = uuid::Uuid::new_v4().to_string();
         if let Err(e) = taskfile::write(dir, &tf) {
             eprintln!(

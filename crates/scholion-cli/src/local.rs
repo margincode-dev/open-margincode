@@ -346,7 +346,9 @@ pub fn init(
             Agent::Claude => {
                 install_claude_hooks(&path)?;
                 println!("Claude Code hooks: {}", path.display());
-                claude_mcp(&mcp_url, token);
+                // the default name is no one's: MCP then names the session after the client
+                let named = (agent_name != DEFAULT_AGENT).then_some(agent_name);
+                claude_mcp(&mcp_url, token, named);
             }
             Agent::Codex => agents::install_codex(&path, &mcp_url, token.is_some())?,
             Agent::Grok => {
@@ -636,9 +638,13 @@ fn strip_our_hooks_file(path: &Path) -> Result<()> {
     std::fs::write(path, text).map_err(|e| local(format!("cannot write {}: {e}", path.display())))
 }
 
+/// The global `--agent` when neither it nor `AV_AGENT` is given.
+pub const DEFAULT_AGENT: &str = "agent";
+
 /// Registers the MCP server with Claude Code (user scope) when its CLI is installed; otherwise
-/// prints the command.
-fn claude_mcp(mcp_url: &str, token: Option<&str>) {
+/// prints the command. `agent` is sent as `X-Av-Agent`, so MCP calls are made under the name
+/// `av next` and the hooks use, not under Claude Code's client name.
+fn claude_mcp(mcp_url: &str, token: Option<&str>, agent: Option<&str>) {
     let mut args = vec![
         "mcp".to_owned(),
         "add".into(),
@@ -652,6 +658,10 @@ fn claude_mcp(mcp_url: &str, token: Option<&str>) {
     if let Some(t) = token {
         args.push("--header".into());
         args.push(format!("Authorization: Bearer {t}"));
+    }
+    if let Some(a) = agent {
+        args.push("--header".into());
+        args.push(format!("X-Av-Agent: {a}"));
     }
     let quiet = |a: &[&str]| {
         Command::new("claude")
@@ -677,7 +687,13 @@ fn claude_mcp(mcp_url: &str, token: Option<&str>) {
                 shown.join(" ")
             );
         }
-        Ok(s) if s.success() => println!("Claude Code MCP server `av`: already configured"),
+        Ok(s) if s.success() => match agent {
+            None => println!("Claude Code MCP server `av`: already configured"),
+            Some(a) => println!(
+                "Claude Code MCP server `av`: already configured, left as it is; for it to send \
+                 X-Av-Agent: {a}, run `claude mcp remove --scope user av` and this again"
+            ),
+        },
         Ok(_) => {
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
             match quiet(&refs) {

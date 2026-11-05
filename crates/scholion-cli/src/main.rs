@@ -44,7 +44,7 @@ struct Cli {
     #[arg(long, env = "AV_SESSION", global = true)]
     session: Option<String>,
     /// Agent name recorded on tasks and records.
-    #[arg(long, env = "AV_AGENT", default_value = "agent", global = true)]
+    #[arg(long, env = "AV_AGENT", default_value = local::DEFAULT_AGENT, global = true)]
     agent: String,
     /// Bearer token for a daemon started with AV_TOKEN.
     #[arg(long, env = "AV_TOKEN", global = true, hide_env_values = true)]

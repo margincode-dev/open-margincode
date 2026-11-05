@@ -1555,12 +1555,21 @@ fn hook_session_start_after_compaction_starts_a_new_session() {
     run("resume");
     assert_eq!(session(&ws), before, "a resumed session keeps its ledger");
     let pack = run("compact");
+    let compacted = session(&ws);
     assert_ne!(
-        session(&ws),
-        before,
+        compacted, before,
         "after compaction everything is sent again"
     );
     assert!(pack.contains("## Task"), "{pack}");
+
+    // a new Claude Code process got none of what `av next` printed under the task's session
+    let resumed = run("resume");
+    assert_eq!(session(&ws), compacted);
+    assert!(resumed.contains("sent earlier"), "{resumed}");
+    let fresh = run("startup");
+    assert_ne!(session(&ws), compacted, "a new process starts a new ledger");
+    assert!(!fresh.contains("sent earlier"), "{fresh}");
+    assert!(fresh.contains("## Task"), "{fresh}");
 }
 
 fn av_stdin(d: &Daemon, cwd: &Path, args: &[&str], stdin: &str) -> Output {
@@ -2465,9 +2474,55 @@ fn init_adds_the_repo_and_wires_claude_code() {
         );
     }
 
+    assert!(
+        !calls.contains("X-Av-Agent"),
+        "no --agent, no name: {calls}"
+    );
+
     let again = ok(av_env(&d.url, &d.src, &env, &["init", "--name", "demo"]));
     assert!(again.contains("repo demo already added"), "{again}");
     assert!(again.contains("already configured"), "{again}");
+
+    // with --agent, Claude Code's MCP calls carry the name `av next` and the hooks use
+    let home2 = TempDir::new().unwrap();
+    let log2 = home2.path().join("claude.log");
+    write_script(
+        &bin.path().join("claude"),
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> {log}\ncase \"$2\" in\n  get) [ -f {added} ] ;;\n  add) touch {added} ;;\nesac\n",
+            log = log2.display(),
+            added = home2.path().join("added").display()
+        ),
+    );
+    let env2 = [
+        ("HOME", home2.path().to_str().unwrap()),
+        ("PATH", path.as_str()),
+    ];
+    let named = ok(av_env(
+        &d.url,
+        &d.src,
+        &env2,
+        &["--agent", "claude", "init", "--name", "demo"],
+    ));
+    assert!(named.contains("MCP server `av`: added"), "{named}");
+    let calls = std::fs::read_to_string(&log2).unwrap();
+    assert!(
+        calls.contains(&format!(
+            "mcp add --transport http --scope user av {}/mcp --header X-Av-Agent: claude",
+            d.url
+        )),
+        "{calls}"
+    );
+    let rerun = ok(av_env(
+        &d.url,
+        &d.src,
+        &env2,
+        &["--agent", "claude", "init", "--name", "demo"],
+    ));
+    assert!(
+        rerun.contains("claude mcp remove --scope user av"),
+        "{rerun}"
+    );
     let settings: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(home.path().join(".claude/settings.json")).unwrap(),
     )

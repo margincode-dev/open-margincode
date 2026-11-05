@@ -512,7 +512,7 @@ Run as many agents as you like on one daemon. There is no seat cap: each distinc
 that calls `next` gets the work that fits it.
 
 ```bash
-av init --for claude                 # and --for codex, grok, gemini, cursor
+av --agent claude init --for claude  # and --for codex, grok, gemini, cursor; --agent names the MCP caller
 av --agent muse init --for mcp-json --path PATH/TO/settings.json   # Muse's own path is unverified
 
 av agent set claude --best code,tests --can docs --cost 4
@@ -940,8 +940,9 @@ opens with a warning naming the culprit merge.
   connected against a locally started daemon.
 - **Claude Code**: `integrations/claude-code/install.sh` (needs `jq`) copies three hooks to `~/.claude/av-hooks/` and
   merges them into `~/.claude/settings.json` (previous file kept as `settings.json.bak`; running it again replaces
-  them). `SessionStart` prints an 800-token pack for the task of the session's directory (a fresh session after
-  compaction or `/clear`). Its code items show path, lines and signature, not bodies (`--code full` adds them):
+  them). `SessionStart` prints an 800-token pack for the task of the session's directory (a fresh pack session at
+  start-up, after compaction or after `/clear`, so a new Claude Code process gets everything even when `av next` already
+  printed the pack under the task's session; only a resumed session keeps its ledger). Its code items show path, lines and signature, not bodies (`--code full` adds them):
   Claude Code must read a file before it edits it, so a body in the pack is paid for twice (bench/README.md,
   "Haiku runs"). `--no-map` leaves out the repo layout and `--max-code N` keeps the N best code items (each
   item named is a file the agent may open; `GET /v1/tasks/{id}/context?map=false&max_code=N`). `PreToolUse` on `Read|Edit|MultiEdit` adds what other tasks recorded about that file (decisions, dead

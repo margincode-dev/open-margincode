@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Claude Code under its own name, and a full first pack.** `av --agent NAME init --for claude`
+  adds the MCP server with `X-Av-Agent: NAME`, so Claude Code's MCP calls are made under the name
+  `av next` and the hooks use rather than its client name (without `--agent`, or with the default
+  `agent`, nothing changes; a server already configured is left alone and the output says how to
+  re-add it). The `SessionStart` hook starts a new pack session at `startup` too, not only after
+  compaction or `/clear`: the pack `av next` or `av task start` printed went to whoever ran
+  them, so a Claude Code process started in the workspace got only "sent earlier" handles. Both
+  found by the first Teams run (Scholion Cloud's Plan 13 Phase 4).
 - **Solo-first pitch.** The README, the site hero, `site/llms.txt` and the `/scholion:setup` skill lead
   with one agent on one repo ("Your next Claude Code session starts knowing last session's dead
   ends"); the several-vendor relay comes second. `av init --for codex` now also writes the

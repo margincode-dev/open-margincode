@@ -60,9 +60,11 @@ jobs:
       MAX_P95_MS_CHECKPOINT: "100"  # 19 ms
       # merges/s with N agents at once. The committed run measured 8 -> 3.58, 32 -> 4.65,
       # 100 -> 3.65; the first run on a hosted runner (2026-11-05, run 42082718417) measured
-      # 8 -> 1.40, 32 -> 1.53, 100 -> 1.08, so throughput there is about a third. The floors are
-      # half of the hosted run: still 10x above the pre-overlay 0.05 merges/s they exist to catch.
-      # Every level must also merge all of its agents (100 / 100 in both runs).
+      # 8 -> 1.40, 32 -> 1.53, 100 -> 1.08, so throughput there is about a third. Five hosted runs
+      # on 2026-11-05 (42082718417, 42083783373, 42085721652, 42091993854, 42092006461) ranged
+      # 32 -> 1.19..1.70 and 100 -> 0.77..1.40; the floors sit about a third under the slowest
+      # of them and stay 10x above the pre-overlay 0.05 merges/s they exist to catch.
+      # Every level must also merge all of its agents (100 / 100 in every run).
       MIN_MERGES_PER_S: '{"32": 0.75, "100": 0.5}'
     steps:
       - uses: actions/checkout@v4

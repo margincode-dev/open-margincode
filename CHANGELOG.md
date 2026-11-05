@@ -6,7 +6,8 @@
   solo-first hero; a screenshot of the recorded run sits under the hero; the Claude Code plugin
   install (`/scholion:setup`) is on the page and in `site/llms.txt`; the guides show and declare
   their dates and author, `/demo` has structured data, the sitemap has `lastmod`, the 404 page is
-  `noindex`; `og.png` names the new domain and is rendered from `scripts/og.html`.
+  `noindex`; `og.png` names the new domain and is rendered from `scripts/og.html`. The page is wider
+  (1320 px), the How-it-works steps sit two by two, and no command block scrolls sideways.
 - **Claude Code under its own name, and a full first pack.** `av --agent NAME init --for claude`
   adds the MCP server with `X-Av-Agent: NAME`, so Claude Code's MCP calls are made under the name
   `av next` and the hooks use rather than its client name (without `--agent`, or with the default

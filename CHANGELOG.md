@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Scheduled regressions** (Plan 15 Phase 3). `.github/workflows/nightly-scale.yml` runs every
+  night against a release-built daemon with no semantic layer: `scholion-bench scale` on tokio
+  (`tokio-1.54.1`), failing when one-agent p95 latency rises above 600 ms (start), 300 ms (context)
+  or 100 ms (checkpoint), when merges/s falls below 1.5 at 32 agents or 1.2 at 100, or when any
+  level does not merge every agent; and `scholion-bench retrieval` on the E1 CI fixture with the
+  E1 gate's floors (`bench/retrieval/ci/make-repo.sh` builds the fixture repo and its task lines).
+  `.github/workflows/e4-smoke.yml` runs the E4-at-scale smoke every Monday (relay-customer-region,
+  `av` arm, `--noise 50`, $0.02) on DeepSeek with the repository secret `LLM_API_KEY`, reports
+  whether the start pack shows the lesson (`pack-hit.json`), and skips with a notice when the
+  secret is not set. Neither runs on pull requests; the E1 gate in `ci.yml` is unchanged.
 - **Needs attention, for machines: `GET /v1/attention` and `av attention`** (Plan 15 Phase 2).
   What the dashboard's strip computed in the page is now the daemon's: red main, conflicted tasks,
   reviews nobody gave, approvals nobody merged, handoffs nobody claimed, open tasks nobody wrote to

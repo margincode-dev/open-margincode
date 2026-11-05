@@ -71,7 +71,10 @@ small because the fixture is: past about 1000 tokens everything fits and any ran
 To change a floor on purpose, run the test with `-- --nocapture`, which prints the measured mean for
 every metric and budget, set each floor to that value minus 0.03 (rounded down), record the
 measured values in the comment above `FLOORS`, and say in the commit message why retrieval
-dropped. Do not lower a floor to make an unexplained failure pass. To add a task, add a line to
+dropped. The nightly workflow (`.github/workflows/nightly-scale.yml`, job `retrieval`) checks the
+same floors through the release binaries (`E1_FLOORS`); change them there too. It builds the
+fixture with `ci/make-repo.sh DEST > tasks.jsonl`, which `scholion-bench retrieval` can also run
+by hand. Do not lower a floor to make an unexplained failure pass. To add a task, add a line to
 `tasks.jsonl` and a `fixes/NAME.patch` (the diff of the fix against `repo/`), then re-measure.
 
 ## Results: BM25 and rank fusion (2026-10-28, handoff A1)

@@ -25,6 +25,7 @@ Test environment:
 - Postgres tests use `scholion_testutil::TestDb`: a fresh database on `AV_TEST_DATABASE_URL` if set, otherwise an embedded user-space Postgres (downloaded on first run). No Docker needed.
 - Qdrant tests silently skip (pass in ~0s) unless `AV_TEST_QDRANT_URL` (gRPC, e.g. `http://127.0.0.1:6334`) is set. A green workspace run does not prove Qdrant works.
 - `warm_build_under_300ms` is `#[ignore]`d (timing).
+- Scheduled, never on pull requests: `.github/workflows/nightly-scale.yml` (`scholion-bench scale` on tokio and `retrieval` on `bench/retrieval/ci/`, release daemon, no semantic layer, floors in the file with their sources) and `e4-smoke.yml` (weekly E4 smoke on DeepSeek; needs the secret `LLM_API_KEY`, skips with a notice without it). Results are the runs' artifacts.
 - Docker Desktop without WSL integration needs Windows-drive paths for bind mounts; see the section of that name in `docs/reference.md` (the README is the short introduction; the reference holds the details).
 
 ## Architecture

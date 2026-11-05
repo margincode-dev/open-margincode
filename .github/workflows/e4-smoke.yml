@@ -1,0 +1,187 @@
+name: e4-smoke
+
+# Plan 15 Phase 3, "Schedule what exists": the E4-at-scale smoke, once a week. One relay task
+# (relay-customer-region, the one the committed smoke ran), the `av` arm only, 50 noise notes, one
+# session, a harness budget of $0.02, on DeepSeek. It reports the pack hit: whether the start pack
+# shows the lesson the task needs, which at N = 50 it did only as a truncated summary
+# (bench/results/2026-11-e4-scale/smoke/README.md). The pack hit is reported, not gated (n = 1);
+# the run fails only when the pipeline does (the session is not `ok`, or the budget skipped it).
+#
+# Needs the DeepSeek key as the repository secret LLM_API_KEY. Without it the run skips with a
+# notice and stays green. The key is only ever an environment variable of the bench step.
+#
+# Differs from the committed smoke: no semantic layer (no embedder or Qdrant in CI; the committed
+# smoke had TEI + Qdrant), so the av arm's pack is lexical and structural only, and one arm, not
+# cold/notes/av. Scheduled in DeepSeek's off-peak window (16:30-00:30 UTC); the harness prices at
+# peak, so its $0.02 is an upper bound. Run it by hand with `gh workflow run e4-smoke.yml`.
+
+on:
+  schedule:
+    - cron: "23 17 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e4-smoke
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -n "$LLM_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=E4 smoke skipped::The repository secret LLM_API_KEY (a DeepSeek API key) is not set, so the weekly E4 smoke did not run."
+          fi
+
+  smoke:
+    needs: key
+    if: needs.key.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: av
+          POSTGRES_PASSWORD: av
+        options: >-
+          --health-cmd "pg_isready -U av" --health-interval 2s --health-timeout 5s --health-retries 30
+        ports:
+          - 5432:5432
+    env:
+      AV_BENCH_URL: http://127.0.0.1:7432
+    steps:
+      - uses: actions/checkout@v4
+      - name: Results directory
+        run: echo "OUT=$RUNNER_TEMP/e4-smoke" >> "$GITHUB_ENV"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e4-smoke-release
+      - name: Build (release)
+        run: cargo build --release --locked -p scholion-daemon -p scholion-bench -p scholion-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Claude Code (the version of the committed smoke)
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.318
+          claude --version
+      - name: Tallyho and its venv (where the relay specs expect them)
+        run: |
+          bench/tallyho/make-repo.sh "$HOME/bench-repos/tallyho"
+          python3 -m venv "$HOME/bench-work/venv"
+          "$HOME/bench-work/venv/bin/pip" install --quiet pytest==9.2.0
+          "$HOME/bench-work/venv/bin/python" bench/tasks-relay/reference/check.py
+          target/release/scholion-bench check bench/tasks-relay
+      - name: Start the daemon
+        env:
+          AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
+          AV_STORE_ROOT: ${{ runner.temp }}/av/store
+          AV_HOME: ${{ runner.temp }}/av/home
+          AV_LISTEN: 127.0.0.1:7432
+        run: |
+          export AV_WS_ROOT="$HOME/bench-work/ws"
+          mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME" "$HOME/bench-work/src"
+          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
+            sleep 1
+          done
+          echo "the daemon did not come up" >&2
+          cat "$RUNNER_TEMP/daemon.log" >&2
+          exit 1
+      - name: E4 smoke (one paid session)
+        # The invocation of bench/results/2026-11-e4-scale/DESIGN.md ("smoke"), with the av arm
+        # only, a $0.02 budget, and --allow-no-semantic. A session starts only if spent + its cap
+        # fits the budget, so cap = budget = $0.02 allows exactly one. With --price-per-mtok, claude
+        # gets no --max-budget-usd; the spec's max_turns = 30 bounds the session (the committed
+        # smoke's av session cost $0.009 at these peak prices).
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          unset ANTHROPIC_API_KEY
+          export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+          export ANTHROPIC_AUTH_TOKEN="$LLM_API_KEY"
+          unset LLM_API_KEY
+          export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash ANTHROPIC_SMALL_FAST_MODEL=deepseek-flash
+          export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
+          target/release/scholion-bench run bench/tasks-relay --only relay-customer-region \
+            --arms av --noise 50 --jit-hooks --reps 1 --allow-no-semantic \
+            --price-per-mtok 0.30,0.30,0.006,1.20 --session-cap-usd 0.02 --budget-usd 0.02 \
+            --av-url "$AV_BENCH_URL" --av-bin "$PWD/target/release/av" \
+            --work-root "$HOME/bench-work" --import-dir "$HOME/bench-work/src" \
+            --import-mount "$HOME/bench-work/src" \
+            --out "$OUT" --confirm
+      - name: Session and pack hit
+        if: always()
+        run: |
+          mkdir -p "$OUT/sessions"
+          # keep each session's start pack and hook count (no transcripts: they are large)
+          for d in "$HOME"/bench-work/runs/*/*/; do
+            [ -d "$d" ] || continue
+            mkdir -p "$OUT/sessions/$(basename "$d")"
+            cp "$d"pack.md "$d"hook-count "$d"outcome.json "$OUT/sessions/$(basename "$d")/" 2>/dev/null || true
+          done
+          cp "$RUNNER_TEMP/daemon.log" "$OUT/" 2>/dev/null || true
+          python3 - "$OUT" bench/tasks-relay/pool/notes.toml <<'PY'
+          import glob, json, os, sys, tomllib
+          out, pool = sys.argv[1], sys.argv[2]
+          lesson = next(n for n in tomllib.load(open(pool, "rb"))["note"]
+                        if n["pair"] == "customer-region")["summary"]
+          norm = lambda s: " ".join(s.split())
+          packs = glob.glob(os.path.join(out, "sessions", "relay-customer-region-av-*", "pack.md"))
+          if not packs:
+              hit = "no pack"
+          else:
+              text = norm(open(packs[0]).read())
+              if norm(lesson) in text:
+                  hit = "full"
+              elif norm(lesson)[:60] in text:
+                  hit = "truncated"
+              else:
+                  hit = "miss"
+          rows = []
+          if os.path.exists(os.path.join(out, "rows.jsonl")):
+              rows = [json.loads(l) for l in open(os.path.join(out, "rows.jsonl")) if l.strip()]
+          row = next((r for r in rows if r["arm"] == "av"), None)
+          result = {
+              "task": "relay-customer-region", "noise": 50, "semantic": False,
+              "pack_hit": hit, "status": row and row["status"], "solved": row and row["success"],
+              "cost_usd": row and row.get("cost_usd"), "memory_tokens": row and row.get("memory_tokens"),
+          }
+          json.dump(result, open(os.path.join(out, "pack-hit.json"), "w"), indent=2)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write("## E4 smoke (noise 50, av arm, no semantic layer)\n\n")
+              s.write(f"Pack hit (the customer-region lesson in the start pack): **{hit}**\n\n")
+              s.write("```json\n" + json.dumps(result, indent=2) + "\n```\n\n")
+              report = os.path.join(out, "report.md")
+              if os.path.exists(report):
+                  s.write(open(report).read())
+          print(json.dumps(result))
+          if not row or row["status"] != "ok":
+              print(f"::error::E4 smoke: the av session did not run cleanly (status {row and row['status']})")
+              sys.exit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e4-smoke-${{ github.run_id }}
+          path: ${{ runner.temp }}/e4-smoke/
+          if-no-files-found: warn

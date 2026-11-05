@@ -1,0 +1,245 @@
+name: nightly-scale
+
+# Plan 15 Phase 3, "Schedule what exists": the E2 scale bench and the E1 retrieval bench, every
+# night, against a release-built daemon, with floors. A floor miss fails this run; it never blocks
+# a pull request (no push or pull_request trigger). The E1 gate in `ci.yml`
+# (crates/scholion-bench/tests/retrieval_gate.rs) is separate and unchanged.
+#
+# Both jobs run the daemon with no semantic layer (no embedder, no Qdrant), as the committed
+# results the floors come from did. Results (scale.json, rows.jsonl, report.md, the daemon log) are
+# uploaded as the run's artifacts. Run it by hand with `gh workflow run nightly-scale.yml`.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-scale
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  AV_BENCH_URL: http://127.0.0.1:7431
+
+jobs:
+  scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: av
+          POSTGRES_PASSWORD: av
+        options: >-
+          --health-cmd "pg_isready -U av" --health-interval 2s --health-timeout 5s --health-retries 30
+        ports:
+          - 5432:5432
+    env:
+      AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
+      # The repo: tokio at tag tokio-1.54.1 (commit b53b2001ed2ccfd9b87e32a0c6da1a1eebdc80b8,
+      # 2026-10-21; 886 files tracked, 811 code). The committed run used tokio's tree of
+      # 2026-10-30 (890 / 814), whose commit it did not record; this tag is the nearest release.
+      TOKIO_TAG: tokio-1.54.1
+      # Floors. Source for every number: bench/results/2026-10-30-e2-overlay/tokio/report.md (and
+      # scale.json next to it), the latest committed scale run: `scholion-bench scale` on tokio,
+      # 4-core / 15 GB machine (a hosted runner has 4 vCPUs / 16 GB), release build, Postgres 16,
+      # no semantic layer, AV_MAX_CONCURRENT_STARTS=4, --agents 1,8,32,100 --samples 20.
+      # Hosted runners are noisier and their disks slower, so each floor leaves 3-5x headroom; each
+      # still catches the regression the overlay index (Plan 7, #31) removed (before it, in
+      # bench/results/2026-10-30-e2-scale/tokio/report.md: start p95 14119 ms, checkpoint p95
+      # 13502 ms, 0.07 merges/s at 1 agent, 17 of 100 agents merged).
+      #
+      # p95 latency, one agent at a time, in ms (measured p95 -> ceiling):
+      MAX_P95_MS_START: "600"       # 178 ms
+      MAX_P95_MS_CONTEXT: "300"     # 75 ms
+      MAX_P95_MS_CHECKPOINT: "100"  # 19 ms
+      # merges/s with N agents at once (measured: 8 -> 3.58, 32 -> 4.65, 100 -> 3.65). Every level
+      # must also merge all of its agents (100 / 100 in the committed run).
+      MIN_MERGES_PER_S: '{"32": 1.5, "100": 1.2}'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-bench-release
+      - name: Build (release, as the committed runs)
+        run: cargo build --release --locked -p scholion-daemon -p scholion-bench
+      - name: Clone tokio
+        # A branch, not a detached tag: the import reads the clone's HEAD as the trunk.
+        run: |
+          git clone --quiet --single-branch --branch "$TOKIO_TAG" \
+            https://github.com/tokio-rs/tokio.git "$RUNNER_TEMP/tokio"
+          git -C "$RUNNER_TEMP/tokio" checkout --quiet -B main
+          echo "tokio at $(git -C "$RUNNER_TEMP/tokio" rev-parse HEAD)"
+      - name: Start the daemon
+        env:
+          AV_STORE_ROOT: ${{ runner.temp }}/av/store
+          AV_WS_ROOT: ${{ runner.temp }}/av/ws
+          AV_HOME: ${{ runner.temp }}/av/home
+          AV_LISTEN: 127.0.0.1:7431
+          AV_MAX_CONCURRENT_STARTS: "4"
+        run: |
+          mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME"
+          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          echo "DAEMON_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 1 60); do
+            curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
+            sleep 1
+          done
+          echo "the daemon did not come up" >&2
+          cat "$RUNNER_TEMP/daemon.log" >&2
+          exit 1
+      - name: Scale bench
+        run: |
+          target/release/scholion-bench scale "$RUNNER_TEMP/tokio" --name tokio \
+            --out "$RUNNER_TEMP/scale" --agents 1,8,32,100 --samples 20 \
+            --daemon-pid "$DAEMON_PID" --database-url "$AV_DATABASE_URL"
+      - name: Check the floors
+        run: |
+          python3 - "$RUNNER_TEMP/scale/scale.json" <<'PY'
+          import json, os, sys
+          r = json.load(open(sys.argv[1]))
+          fails = []
+          for op in ("start", "context", "checkpoint"):
+              limit = float(os.environ[f"MAX_P95_MS_{op.upper()}"])
+              s = r["latency"].get(op)
+              if s is None:
+                  fails.append(f"one agent, {op}: not measured")
+                  continue
+              print(f"one agent, {op} p95: {s['p95_ms']:.0f} ms (ceiling {limit:.0f})")
+              if s["p95_ms"] > limit:
+                  fails.append(f"one agent, {op} p95 {s['p95_ms']:.0f} ms > {limit:.0f} ms")
+          floors = {int(k): v for k, v in json.loads(os.environ["MIN_MERGES_PER_S"]).items()}
+          levels = {l["agents"]: l for l in r["levels"]}
+          for n, l in sorted(levels.items()):
+              print(f"{n} agents: {l['merged']}/{n} merged, {l['merges_per_s']:.2f} merges/s"
+                    + (f" (floor {floors[n]})" if n in floors else ""))
+              if l["merged"] != n:
+                  fails.append(f"{n} agents: only {l['merged']} merged; errors: {l['errors'][:3]}")
+          for n, floor in sorted(floors.items()):
+              if n not in levels:
+                  fails.append(f"{n} agents: level not run")
+              elif levels[n]["merges_per_s"] < floor:
+                  fails.append(f"{n} agents: {levels[n]['merges_per_s']:.2f} merges/s < {floor}")
+          if fails:
+              print("::error::scale floors missed: " + "; ".join(fails))
+              sys.exit(1)
+          print("all scale floors met")
+          PY
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/scale/report.md" ]; then
+            cat "$RUNNER_TEMP/scale/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cp "$RUNNER_TEMP/daemon.log" "$RUNNER_TEMP/scale/" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-scale-${{ github.run_id }}
+          path: ${{ runner.temp }}/scale/
+          if-no-files-found: warn
+
+  retrieval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: av
+          POSTGRES_PASSWORD: av
+        options: >-
+          --health-cmd "pg_isready -U av" --health-interval 2s --health-timeout 5s --health-retries 30
+        ports:
+          - 5432:5432
+    env:
+      AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
+      # Floors: the E1 CI gate's own, `FLOORS` in crates/scholion-bench/tests/retrieval_gate.rs
+      # (the fixture's means when the gate was added, minus 0.03, rounded down; measured
+      # 300 -> 1.000 / 0.444 / 0.333, 450 -> 1.000 / 0.833 / 0.556, 600 -> 1.000 / 1.000 / 0.833).
+      # Same fixture, budgets, scorer and no semantic layer, but through the shipped binaries
+      # (release daemon on a service Postgres, the CLI) instead of an in-process daemon. When the
+      # gate's floors change on purpose, change these with them.
+      # budget: [files_named, files_code, symbols_sig], means of the `pack` rows over the 9 tasks
+      E1_FLOORS: '{"300": [0.97, 0.41, 0.30], "450": [0.97, 0.80, 0.52], "600": [0.97, 0.97, 0.80]}'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-bench-release
+      - name: Build (release)
+        run: cargo build --release --locked -p scholion-daemon -p scholion-bench
+      - name: Build the E1 CI fixture repo
+        run: |
+          mkdir -p "$RUNNER_TEMP/e1"
+          bench/retrieval/ci/make-repo.sh "$RUNNER_TEMP/e1/repo" > "$RUNNER_TEMP/e1/tasks.jsonl"
+          wc -l "$RUNNER_TEMP/e1/tasks.jsonl"
+      - name: Start the daemon
+        env:
+          AV_STORE_ROOT: ${{ runner.temp }}/av/store
+          AV_WS_ROOT: ${{ runner.temp }}/av/ws
+          AV_HOME: ${{ runner.temp }}/av/home
+          AV_LISTEN: 127.0.0.1:7431
+        run: |
+          mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME"
+          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
+            sleep 1
+          done
+          echo "the daemon did not come up" >&2
+          cat "$RUNNER_TEMP/daemon.log" >&2
+          exit 1
+      - name: Retrieval bench (E1 on bench/retrieval/ci)
+        # The daemon runs on this host, so the import folder has the same path on both sides.
+        run: |
+          mkdir -p "$RUNNER_TEMP/e1/import"
+          target/release/scholion-bench retrieval "$RUNNER_TEMP/e1/tasks.jsonl" \
+            --budgets 300,450,600 --allow-no-semantic --index-wait-secs 30 \
+            --import-dir "$RUNNER_TEMP/e1/import" --import-mount "$RUNNER_TEMP/e1/import" \
+            --out "$RUNNER_TEMP/retrieval"
+      - name: Check the floors
+        run: |
+          python3 - "$RUNNER_TEMP/retrieval/rows.jsonl" "$RUNNER_TEMP/e1/tasks.jsonl" <<'PY'
+          import json, os, sys
+          rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+          tasks = sum(1 for l in open(sys.argv[2]) if l.strip())
+          floors = json.loads(os.environ["E1_FLOORS"])
+          fails = []
+          for budget, limits in sorted(floors.items(), key=lambda kv: int(kv[0])):
+              at = [r for r in rows if r["method"] == "pack" and r["budget"] == int(budget)]
+              if len(at) != tasks:
+                  fails.append(f"pack at {budget}: {len(at)} of {tasks} tasks scored")
+                  continue
+              for metric, floor in zip(("files_named", "files_code", "symbols_sig"), limits):
+                  got = sum(r[metric] for r in at) / len(at)
+                  print(f"pack {metric} at {budget}: {got:.3f} (floor {floor:.2f})")
+                  if got < floor:
+                      fails.append(f"{metric} at {budget}: {got:.3f} < {floor:.2f}")
+          if fails:
+              print("::error::E1 floors missed: " + "; ".join(fails))
+              sys.exit(1)
+          print("all E1 floors met")
+          PY
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/retrieval/report.md" ]; then
+            cat "$RUNNER_TEMP/retrieval/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          cp "$RUNNER_TEMP/daemon.log" "$RUNNER_TEMP/retrieval/" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-retrieval-${{ github.run_id }}
+          path: ${{ runner.temp }}/retrieval/
+          if-no-files-found: warn

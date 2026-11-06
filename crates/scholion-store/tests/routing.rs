@@ -35,6 +35,8 @@ fn new_item(repo: &str, title: &str, needs: &[&str]) -> NewBacklogItem {
         posted_by: "me".into(),
         after: vec![],
         target: None,
+        propose: false,
+        why: None,
     }
 }
 
@@ -207,6 +209,115 @@ async fn only_a_queued_item_can_be_dropped() {
         s.drop_backlog(uuid::Uuid::new_v4()).await.unwrap_err(),
         AvError::NotFound(_)
     ));
+}
+
+#[tokio::test]
+async fn a_proposed_item_waits_until_it_is_accepted() {
+    let (_db, s) = store().await;
+    let p = s
+        .post_backlog(NewBacklogItem {
+            propose: true,
+            why: Some("  not sure the cache is worth it  ".into()),
+            ..new_item("demo", "Cache packs", &[])
+        })
+        .await
+        .unwrap();
+    assert_eq!(p.state, BacklogState::Proposed);
+    assert_eq!(p.why.as_deref(), Some("not sure the cache is worth it"));
+    assert_eq!(p.accepted_by, None);
+    // not queued, so not offered; listed as proposed
+    assert!(
+        s.list_backlog(Some("demo"), Some(BacklogState::Queued))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let proposed = s
+        .list_backlog(Some("demo"), Some(BacklogState::Proposed))
+        .await
+        .unwrap();
+    assert_eq!(proposed.len(), 1);
+    // a proposed item cannot be taken
+    assert!(!s.take_backlog(p.item.id, "claude").await.unwrap());
+    assert_eq!(
+        s.get_backlog(p.item.id).await.unwrap().state,
+        BacklogState::Proposed
+    );
+
+    let a = s.accept_backlog(p.item.id, "vinh").await.unwrap();
+    assert_eq!(a.state, BacklogState::Queued);
+    assert_eq!(a.accepted_by.as_deref(), Some("vinh"));
+    assert!(a.accepted_at.is_some());
+    assert_eq!(a.why.as_deref(), Some("not sure the cache is worth it"));
+
+    // only a proposed item is accepted
+    assert!(matches!(
+        s.accept_backlog(p.item.id, "vinh").await.unwrap_err(),
+        AvError::IllegalState(_)
+    ));
+    assert!(matches!(
+        s.accept_backlog(uuid::Uuid::new_v4(), "vinh")
+            .await
+            .unwrap_err(),
+        AvError::NotFound(_)
+    ));
+    assert!(matches!(
+        s.get_backlog(uuid::Uuid::new_v4()).await.unwrap_err(),
+        AvError::NotFound(_)
+    ));
+}
+
+#[tokio::test]
+async fn a_proposed_item_can_be_dropped_and_a_long_why_is_refused() {
+    let (_db, s) = store().await;
+    let p = s
+        .post_backlog(NewBacklogItem {
+            propose: true,
+            ..new_item("demo", "Maybe", &[])
+        })
+        .await
+        .unwrap();
+    assert_eq!(p.why, None);
+    s.drop_backlog(p.item.id).await.unwrap();
+    assert_eq!(
+        s.get_backlog(p.item.id).await.unwrap().state,
+        BacklogState::Dropped
+    );
+    assert!(matches!(
+        s.accept_backlog(p.item.id, "vinh").await.unwrap_err(),
+        AvError::IllegalState(_)
+    ));
+
+    let long = "x".repeat(WHY_MAX + 1);
+    assert!(matches!(
+        s.post_backlog(NewBacklogItem {
+            propose: true,
+            why: Some(long),
+            ..new_item("demo", "Too long", &[])
+        })
+        .await
+        .unwrap_err(),
+        AvError::Invalid(_)
+    ));
+}
+
+#[tokio::test]
+async fn agent_posts_is_a_repo_setting() {
+    let (_db, s) = store().await;
+    assert_eq!(
+        s.repo_settings("demo").await.unwrap().agent_posts,
+        AgentPosts::Queue
+    );
+    let mut set = s.repo_settings("demo").await.unwrap();
+    set.agent_posts = AgentPosts::Propose;
+    s.set_repo_settings("demo", &set).await.unwrap();
+    let got = s.repo_settings("demo").await.unwrap();
+    assert_eq!(got.agent_posts, AgentPosts::Propose);
+    assert_eq!(got.carry_globs, set.carry_globs);
+    assert_eq!(
+        s.repo_settings("other").await.unwrap().agent_posts,
+        AgentPosts::Queue
+    );
 }
 
 #[tokio::test]

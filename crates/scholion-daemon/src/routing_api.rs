@@ -10,7 +10,8 @@ use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::Utc;
 use scholion_core::routing::{
-    self, BacklogItem, BacklogState, NewBacklogItem, NewTarget, Profile, Target, TargetStatus,
+    self, AgentPosts, BacklogItem, BacklogState, NewBacklogItem, NewTarget, Profile, Target,
+    TargetStatus,
 };
 use scholion_core::*;
 use serde::Deserialize;
@@ -30,6 +31,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/backlog", post(post_backlog).get(list_backlog))
         .route("/v1/backlog/next", post(next))
         .route("/v1/backlog/{id}", delete(drop_backlog))
+        .route("/v1/backlog/{id}/accept", post(accept_backlog))
         .route("/v1/backlog/{id}/target", put(put_backlog_target))
         .route("/v1/targets", get(list_targets).post(post_target))
         .route("/v1/targets/{target}", put(put_target))
@@ -196,12 +198,34 @@ struct PostBacklog {
     after: Vec<String>,
     /// The target it counts toward: a target id or the slug of its title.
     target: Option<String>,
+    /// Post it as `proposed`: it waits for a human to accept it.
+    #[serde(default)]
+    propose: bool,
+    /// Why the poster is unsure of it (at most 300 characters).
+    why: Option<String>,
+    /// The poster is an agent, whatever `posted_by` says. The MCP tool `post_backlog` sets it.
+    #[serde(default)]
+    from_agent: bool,
 }
 
+/// Posts a backlog item, queued or proposed. A post is an agent's when `from_agent` is set (every
+/// post through the MCP tool) or `posted_by` names an agent profile (by name or alias). In a repo
+/// whose `agent_posts` is `propose`, an agent's post is proposed whatever it asked; anyone's
+/// `propose: true` is always honoured.
 async fn post_backlog(
     State(st): State<AppState>,
     Json(b): Json<PostBacklog>,
 ) -> ApiResult<routing::BacklogEntry> {
+    let posted_by = b
+        .posted_by
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "user".into());
+    let mut propose = b.propose;
+    if !propose && st.store.repo_settings(b.repo.trim()).await?.agent_posts == AgentPosts::Propose {
+        propose = b.from_agent
+            || routing::resolve(&st.store.list_profiles().await?, &posted_by).is_some();
+    }
     let entry = st
         .store
         .post_backlog(NewBacklogItem {
@@ -212,10 +236,59 @@ async fn post_backlog(
             prefer: b.prefer,
             priority: b.priority,
             reserve_secs: b.reserve_secs.unwrap_or(routing::DEFAULT_RESERVE_SECS),
-            posted_by: b.posted_by.unwrap_or_else(|| "user".into()),
+            posted_by,
             after: b.after,
             target: b.target,
+            propose,
+            why: b.why,
         })
+        .await?;
+    // a proposed item gives no agent work, so no waiting `next` needs to look again
+    if entry.state == BacklogState::Queued {
+        st.work_changed();
+    }
+    Ok(Json(entry))
+}
+
+#[derive(Deserialize)]
+struct AcceptBody {
+    /// Who accepts it (a person, in the audit sense).
+    by: String,
+}
+
+/// Queues a proposed item, after the `MergeGuard` allows it (`Guarded::AcceptBacklog`). An
+/// unknown item is 404; one that is not proposed, or that the guard refuses, 422. Adds a
+/// `backlog:accepted` event and wakes waiting `next` calls, as a post does.
+async fn accept_backlog(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AcceptBody>,
+) -> ApiResult<routing::BacklogEntry> {
+    let by = b.by.trim();
+    if by.is_empty() {
+        return Err(AvError::Invalid("by must not be blank".into()).into());
+    }
+    let item = st.store.get_backlog(id).await?;
+    if item.state != BacklogState::Proposed {
+        return Err(AvError::IllegalState(format!(
+            "backlog item {id} is {}: only a proposed item can be accepted",
+            item.state.as_str()
+        ))
+        .into());
+    }
+    let action = crate::Guarded::AcceptBacklog { item: &item, by };
+    if let Err(reason) = st.guard.check(action).await {
+        return Err(AvError::IllegalState(format!("cannot accept: {reason}")).into());
+    }
+    let entry = st.store.accept_backlog(id, by).await?;
+    st.store
+        .add_event(
+            &entry.item.repo,
+            "backlog:accepted",
+            None,
+            json!({ "backlog_id": id, "title": entry.item.title, "by": by,
+                    "posted_by": entry.posted_by }),
+        )
         .await?;
     st.work_changed();
     Ok(Json(entry))
@@ -529,11 +602,19 @@ pub(crate) async fn choose(
     // and every open task whose owner went quiet (no window: it already waited a whole lease, so
     // whoever fits and asks first gets it, its restarted owner included, but not the reviewer
     // who sent it back with a change request).
-    // An item that starts after others is offered once every one of them has merged.
+    // An item that starts after others is offered once every one of them has merged. An accepted
+    // proposal entered the queue when it was accepted: its reserve window starts then, and it
+    // ranks as that new among items of its priority.
     let mut items: Vec<BacklogItem> = queued
         .iter()
         .filter(|e| e.waiting_on.is_empty())
-        .map(|e| e.item.clone())
+        .map(|e| {
+            let mut item = e.item.clone();
+            if let Some(at) = e.accepted_at {
+                item.created_at = at;
+            }
+            item
+        })
         .collect();
     let mut kind: HashMap<Uuid, Kind> = HashMap::new();
     let mut excluded: HashMap<Uuid, String> = HashMap::new();

@@ -1050,6 +1050,8 @@ async fn get_settings(
 struct SettingsBody {
     carry_globs: Option<Vec<String>>,
     check_command: Option<String>,
+    /// `queue` or `propose`: what becomes of a backlog item an agent posts.
+    agent_posts: Option<String>,
 }
 
 /// Updates the given settings; fields left out keep their value. An empty `check_command`
@@ -1065,6 +1067,9 @@ async fn put_settings(
     }
     if let Some(cmd) = b.check_command {
         s.check_command = Some(cmd).filter(|c| !c.trim().is_empty());
+    }
+    if let Some(posts) = b.agent_posts {
+        s.agent_posts = posts.trim().parse()?;
     }
     st.store.set_repo_settings(&repo, &s).await?;
     Ok(Json(s))

@@ -1613,3 +1613,288 @@ async fn delete_profile_refuses_a_held_profile_and_names_an_unknown_one_in_one_s
     assert!(matches!(err, scholion_core::AvError::NotFound(_)), "{err}");
     e.store.delete_profile("claude", true).await.unwrap();
 }
+
+// ---- propose mode: items a human accepts first ----
+
+async fn post_json(e: &Env, body: Value) -> (StatusCode, Value) {
+    call(&e.app, "POST", "/v1/backlog", Some(body)).await
+}
+
+async fn accept(e: &Env, id: &str, by: &str) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/backlog/{id}/accept"),
+        Some(json!({ "by": by })),
+    )
+    .await
+}
+
+async fn set_agent_posts(e: &Env, repo: &str, mode: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/repos/{repo}/settings"),
+        Some(json!({ "agent_posts": mode })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn a_proposed_item_is_not_offered_until_it_is_accepted() {
+    let e = env().await;
+    let (status, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "Cache packs", "goal": "Cache them",
+               "reserve_secs": 0, "propose": true, "why": "unsure it pays off"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{p}");
+    assert_eq!(p["state"], "proposed");
+    assert_eq!(p["why"], "unsure it pays off");
+    let id = p["id"].as_str().unwrap().to_owned();
+
+    // never offered, not even to a peek, and not counted as queued
+    assert_eq!(
+        peek(&e, "claude").await,
+        json!({"would": null, "queued": 0})
+    );
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body, json!({"task": null, "queued": 0}));
+    assert_eq!(backlog(&e, "?state=proposed").await.len(), 1);
+
+    // accepted: queued, an event, and offered
+    let (status, a) = accept(&e, &id, "vinh").await;
+    assert_eq!(status, StatusCode::OK, "{a}");
+    assert_eq!(a["state"], "queued");
+    assert_eq!(a["accepted_by"], "vinh");
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    let accepted: Vec<&Value> = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| v["kind"] == "backlog:accepted")
+        .collect();
+    assert_eq!(accepted.len(), 1, "{events}");
+    assert_eq!(accepted[0]["payload"]["by"], "vinh");
+    assert_eq!(accepted[0]["payload"]["backlog_id"], id.as_str());
+    let (status, body) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["from"], "backlog", "{body}");
+    assert_eq!(body["backlog_id"], id.as_str());
+
+    // accepting a queued or taken item, or an unknown one
+    let (status, body) = accept(&e, &id, "vinh").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (status, _) = accept(&e, "00000000-0000-0000-0000-000000000000", "vinh").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = accept(&e, &id, " ").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_proposed_item_is_dropped_like_a_queued_one() {
+    let e = env().await;
+    let (_, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "Maybe", "goal": "g", "propose": true}),
+    )
+    .await;
+    let id = p["id"].as_str().unwrap();
+    let (status, _) = call(&e.app, "DELETE", &format!("/v1/backlog/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(backlog(&e, "?state=dropped").await.len(), 1);
+    let (status, _) = accept(&e, id, "vinh").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_accept_wakes_an_agent_waiting_for_work() {
+    let e = env_no_tick().await;
+    let (_, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "draw it", "goal": "g", "reserve_secs": 0,
+               "propose": true}),
+    )
+    .await;
+    let app = e.app.clone();
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let accepted = std::time::Instant::now();
+    let (status, body) = accept(&e, p["id"].as_str().unwrap(), "vinh").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = waiting.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["task"]["title"], "draw it", "{body}");
+    assert!(
+        accepted.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        accepted.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn an_accepted_item_starts_its_reserve_window_when_accepted() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    put_agent(&e, "muse", &[], &["code"], 1).await;
+    let (_, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "louder", "goal": "g", "needs": ["code"],
+               "reserve_secs": 3600, "propose": true}),
+    )
+    .await;
+    let id = p["id"].as_str().unwrap();
+    // proposed long ago: its window would be over if it counted from the post
+    sqlx::query("UPDATE backlog SET created_at = now() - interval '2 hours' WHERE id = $1::uuid")
+        .bind(id)
+        .execute(e.store.pool())
+        .await
+        .unwrap();
+    accept(&e, id, "vinh").await;
+    // inside the window only claude (best at code) may take it
+    let (_, body) = next(&e, "muse").await;
+    assert!(body["task"].is_null(), "{body}");
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["from"], "backlog", "{body}");
+}
+
+#[tokio::test]
+async fn agent_posts_propose_makes_every_agents_post_a_proposal() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/grok",
+        Some(json!({"best": ["image"], "cost_rank": 2, "aliases": ["grok-cli"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let s = set_agent_posts(&e, "demo", "propose").await;
+    assert_eq!(s["agent_posts"], "propose");
+    let (_, s) = call(&e.app, "GET", "/v1/repos/demo/settings", None).await;
+    assert_eq!(s["agent_posts"], "propose");
+
+    let post = |by: &str, from_agent: bool| {
+        json!({"repo": "demo", "title": format!("by {by}"), "goal": "g", "posted_by": by,
+               "from_agent": from_agent})
+    };
+    // a profiled agent (by name or alias), or a post marked as an agent's: proposed
+    for (by, from_agent) in [("claude", false), ("grok-cli", false), ("someone", true)] {
+        let (status, b) = post_json(&e, post(by, from_agent)).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        assert_eq!(b["state"], "proposed", "{by}: {b}");
+    }
+    // a person (no profile, no marker): queued
+    let (_, b) = post_json(&e, post("vinh", false)).await;
+    assert_eq!(b["state"], "queued", "{b}");
+    let (_, b) = post_json(&e, json!({"repo": "demo", "title": "anon", "goal": "g"})).await;
+    assert_eq!(b["state"], "queued", "{b}");
+    assert_eq!(b["posted_by"], "user");
+
+    // another repo keeps the default: an agent's post queues
+    let (_, b) = post_json(
+        &e,
+        json!({"repo": "other", "title": "x", "goal": "g", "posted_by": "claude"}),
+    )
+    .await;
+    assert_eq!(b["state"], "queued", "{b}");
+
+    // back to queue: agents queue again; an unknown mode is a 400
+    set_agent_posts(&e, "demo", "queue").await;
+    let (_, b) = post_json(&e, post("claude", true)).await;
+    assert_eq!(b["state"], "queued", "{b}");
+    let (status, _) = call(
+        &e.app,
+        "PUT",
+        "/v1/repos/demo/settings",
+        Some(json!({ "agent_posts": "sometimes" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_why_over_300_characters_is_refused() {
+    let e = env().await;
+    let (status, body) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "t", "goal": "g", "propose": true,
+               "why": "x".repeat(301)}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn an_item_after_a_proposal_waits_for_it_to_be_accepted_and_merged() {
+    let e = env().await;
+    let (_, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "Maybe first", "goal": "g", "propose": true}),
+    )
+    .await;
+    let (status, b) = post_after(&e, "then this", &["maybe-first"]).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(b["waiting_on"], json!(["Maybe first"]), "{b}");
+    let (_, body) = next(&e, "claude").await;
+    assert!(body["task"].is_null(), "{body}");
+    // accepted, the proposal itself is offered first; the later item still waits for its merge
+    accept(&e, p["id"].as_str().unwrap(), "vinh").await;
+    let (_, body) = next(&e, "claude").await;
+    assert_eq!(body["task"]["title"], "Maybe first", "{body}");
+}
+
+/// A guard that refuses to let anyone accept their own proposal, and remembers what it was asked.
+#[derive(Default)]
+struct NoSelfAccept(std::sync::Mutex<Vec<String>>);
+
+#[async_trait::async_trait]
+impl scholion_daemon::MergeGuard for NoSelfAccept {
+    async fn check(&self, action: scholion_daemon::Guarded<'_>) -> Result<(), String> {
+        if let scholion_daemon::Guarded::AcceptBacklog { item, by } = action {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("{} by {by}", item.item.title));
+            if item.posted_by == by {
+                return Err(format!("{by} proposed it"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_merge_guard_can_refuse_an_accept_and_the_item_stays_proposed() {
+    let guard = std::sync::Arc::new(NoSelfAccept::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let (_, p) = post_json(
+        &e,
+        json!({"repo": "demo", "title": "Mine", "goal": "g", "propose": true,
+               "posted_by": "claude"}),
+    )
+    .await;
+    let id = p["id"].as_str().unwrap();
+    let (status, body) = accept(&e, id, "claude").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot accept: claude proposed it"),
+        "{body}"
+    );
+    assert_eq!(backlog(&e, "?state=proposed").await.len(), 1);
+    let (status, body) = accept(&e, id, "vinh").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(*guard.0.lock().unwrap(), ["Mine by claude", "Mine by vinh"]);
+    // a queued item is refused before the guard is asked
+    let (status, _) = accept(&e, id, "vinh").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(guard.0.lock().unwrap().len(), 2);
+}

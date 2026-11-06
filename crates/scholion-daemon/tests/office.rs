@@ -480,6 +480,37 @@ async fn attention_lists_each_stuck_situation_worst_first() {
 }
 
 #[tokio::test]
+async fn attention_lists_proposals_waiting_for_a_human() {
+    // at the default thresholds: a proposal needs a human at once
+    let e = env().await;
+    let (status, p) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog",
+        Some(
+            json!({"repo": "demo", "title": "Cache packs", "goal": "g", "propose": true,
+                    "posted_by": "claude", "why": "unsure it pays off"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{p}");
+    let a = attention(&e, "?repo=demo").await;
+    assert_eq!(attn_kinds(&a), ["proposed_backlog"], "{a}");
+    let it = item(&a, "proposed_backlog");
+    assert_eq!(it["severity"], 1);
+    assert_eq!(it["backlog_id"], p["id"]);
+    assert_eq!(it["agent"], "claude");
+    assert_eq!(it["title"], "Cache packs");
+    assert_eq!(it["detail"], "proposed by claude: unsure it pays off");
+
+    // accepted: no longer waiting for anyone
+    let uri = format!("/v1/backlog/{}/accept", p["id"].as_str().unwrap());
+    let (status, b) = call(&e.app, "POST", &uri, Some(json!({"by": "vinh"}))).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    assert_eq!(attention(&e, "?repo=demo").await["items"], json!([]));
+}
+
+#[tokio::test]
 async fn attention_waits_out_its_thresholds() {
     // the defaults: a review is stuck after 2 h, a lease runs 30 min, nobody has a profile
     let e = env().await;

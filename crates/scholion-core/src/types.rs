@@ -368,6 +368,9 @@ pub struct RepoSettings {
     pub carry_globs: Vec<String>,
     /// The command `av runner` runs on every new main.
     pub check_command: Option<String>,
+    /// What becomes of a backlog item an agent posts: queued (default) or proposed.
+    #[serde(default)]
+    pub agent_posts: crate::routing::AgentPosts,
 }
 
 impl Default for RepoSettings {
@@ -375,6 +378,7 @@ impl Default for RepoSettings {
         RepoSettings {
             carry_globs: vec!["**/*.md".into()],
             check_command: None,
+            agent_posts: crate::routing::AgentPosts::Queue,
         }
     }
 }

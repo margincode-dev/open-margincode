@@ -63,7 +63,8 @@ const BACKLOG_COLS: &str = "b.id, b.repo, b.title, b.goal, b.needs, b.prefer, b.
               FROM backlog d LEFT JOIN tasks t ON t.id = d.task_id
               WHERE d.id = ANY(b.after_ids) AND t.status IS DISTINCT FROM 'merged'),
              '{}') AS waiting_on, \
-    b.target_id, (SELECT g.title FROM targets g WHERE g.id = b.target_id) AS target";
+    b.target_id, (SELECT g.title FROM targets g WHERE g.id = b.target_id) AS target, \
+    b.why, b.accepted_by, b.accepted_at";
 
 fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
     let state: String = r.try_get("state").map_err(serr)?;
@@ -91,16 +92,20 @@ fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
         waiting_on: r.try_get("waiting_on").map_err(serr)?,
         target_id: r.try_get("target_id").map_err(serr)?,
         target: r.try_get("target").map_err(serr)?,
+        why: r.try_get("why").map_err(serr)?,
+        accepted_by: r.try_get("accepted_by").map_err(serr)?,
+        accepted_at: r.try_get("accepted_at").map_err(serr)?,
     })
 }
 
 /// A target with its progress: `TARGET_SELECT ... WHERE ... TARGET_GROUP`.
 const TARGET_SELECT: &str = "SELECT g.id, g.repo, g.title, g.detail, g.status, g.due, g.created_by, \
     g.created_at, \
-    count(b.id) FILTER (WHERE b.state <> 'dropped') AS items, \
+    count(b.id) FILTER (WHERE b.state IN ('queued', 'taken')) AS items, \
     count(b.id) FILTER (WHERE b.state = 'queued') AS queued, \
     count(b.id) FILTER (WHERE b.state = 'taken' AND t.status IS DISTINCT FROM 'merged') AS working, \
-    count(b.id) FILTER (WHERE b.state = 'taken' AND t.status = 'merged') AS merged \
+    count(b.id) FILTER (WHERE b.state = 'taken' AND t.status = 'merged') AS merged, \
+    count(b.id) FILTER (WHERE b.state = 'proposed') AS proposed \
     FROM targets g LEFT JOIN backlog b ON b.target_id = g.id LEFT JOIN tasks t ON t.id = b.task_id";
 const TARGET_GROUP: &str = "GROUP BY g.id";
 
@@ -121,6 +126,7 @@ fn target_from_row(r: &PgRow) -> Result<routing::Target> {
         queued: r.try_get("queued").map_err(serr)?,
         working: r.try_get("working").map_err(serr)?,
         merged: r.try_get("merged").map_err(serr)?,
+        proposed: r.try_get("proposed").map_err(serr)?,
     })
 }
 
@@ -661,16 +667,21 @@ impl IntentStore for PgStore {
     }
 
     async fn repo_settings(&self, repo: &str) -> Result<RepoSettings> {
-        let row =
-            sqlx::query("SELECT carry_globs, check_command FROM repo_settings WHERE repo = $1")
-                .bind(repo)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(serr)?;
+        let row = sqlx::query(
+            "SELECT carry_globs, check_command, agent_posts FROM repo_settings WHERE repo = $1",
+        )
+        .bind(repo)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
         Ok(match row {
             Some(r) => RepoSettings {
                 carry_globs: r.try_get("carry_globs").map_err(serr)?,
                 check_command: r.try_get("check_command").map_err(serr)?,
+                agent_posts: r
+                    .try_get::<String, _>("agent_posts")
+                    .map_err(serr)?
+                    .parse()?,
             },
             None => RepoSettings::default(),
         })
@@ -681,12 +692,15 @@ impl IntentStore for PgStore {
             Glob::new(g).map_err(|e| AvError::Invalid(format!("bad glob {g:?}: {e}")))?;
         }
         sqlx::query(
-            "INSERT INTO repo_settings (repo, carry_globs, check_command) VALUES ($1, $2, $3)
-             ON CONFLICT (repo) DO UPDATE SET carry_globs = $2, check_command = $3",
+            "INSERT INTO repo_settings (repo, carry_globs, check_command, agent_posts)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (repo) DO UPDATE SET carry_globs = $2, check_command = $3,
+                                              agent_posts = $4",
         )
         .bind(repo)
         .bind(&settings.carry_globs)
         .bind(&settings.check_command)
+        .bind(settings.agent_posts.as_str())
         .execute(&self.pool)
         .await
         .map_err(serr)?;
@@ -1130,10 +1144,25 @@ impl IntentStore for PgStore {
             Some(t) if !t.is_empty() => Some(active_target(&self.pool, &repo, t).await?),
             _ => None,
         };
+        let why = item.why.as_deref().map(str::trim).filter(|w| !w.is_empty());
+        if let Some(w) = why
+            && w.chars().count() > routing::WHY_MAX
+        {
+            return Err(AvError::Invalid(format!(
+                "why has {} characters; at most {}",
+                w.chars().count(),
+                routing::WHY_MAX
+            )));
+        }
+        let state = if item.propose {
+            BacklogState::Proposed
+        } else {
+            BacklogState::Queued
+        };
         let row = sqlx::query(&format!(
             "INSERT INTO backlog AS b (id, repo, title, goal, needs, prefer, priority,
-                                       reserve_secs, posted_by, after_ids, target_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                       reserve_secs, posted_by, after_ids, target_id, state, why)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING {BACKLOG_COLS}"
         ))
         .bind(Uuid::new_v4())
@@ -1147,6 +1176,8 @@ impl IntentStore for PgStore {
         .bind(item.posted_by)
         .bind(after)
         .bind(target)
+        .bind(state.as_str())
+        .bind(why)
         .fetch_one(&self.pool)
         .await
         .map_err(serr)?;
@@ -1171,18 +1202,56 @@ impl IntentStore for PgStore {
         rows.iter().map(backlog_from_row).collect()
     }
 
+    async fn get_backlog(&self, id: Uuid) -> Result<BacklogEntry> {
+        let row = sqlx::query(&format!(
+            "SELECT {BACKLOG_COLS} FROM backlog b WHERE b.id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?
+        .ok_or_else(|| AvError::NotFound(format!("backlog item {id}")))?;
+        backlog_from_row(&row)
+    }
+
     async fn drop_backlog(&self, id: Uuid) -> Result<()> {
-        let n =
-            sqlx::query("UPDATE backlog SET state = 'dropped' WHERE id = $1 AND state = 'queued'")
-                .bind(id)
-                .execute(&self.pool)
-                .await
-                .map_err(serr)?
-                .rows_affected();
+        let n = sqlx::query(
+            "UPDATE backlog SET state = 'dropped' WHERE id = $1 AND state IN ('queued', 'proposed')",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?
+        .rows_affected();
         if n == 0 {
-            return Err(backlog_refusal(&self.pool, id, "only a queued item can be dropped").await);
+            return Err(backlog_refusal(
+                &self.pool,
+                id,
+                "only a queued or proposed item can be dropped",
+            )
+            .await);
         }
         Ok(())
+    }
+
+    async fn accept_backlog(&self, id: Uuid, by: &str) -> Result<BacklogEntry> {
+        let by = non_blank("by", by)?;
+        let row = sqlx::query(&format!(
+            "UPDATE backlog AS b SET state = 'queued', accepted_by = $2, accepted_at = now()
+             WHERE b.id = $1 AND b.state = 'proposed'
+             RETURNING {BACKLOG_COLS}"
+        ))
+        .bind(id)
+        .bind(by)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        match row {
+            Some(row) => backlog_from_row(&row),
+            None => {
+                Err(backlog_refusal(&self.pool, id, "only a proposed item can be accepted").await)
+            }
+        }
     }
 
     async fn take_backlog(&self, id: Uuid, agent: &str) -> Result<bool> {

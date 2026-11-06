@@ -34,7 +34,32 @@ fn new_item(repo: &str, title: &str, target: Option<&str>) -> NewBacklogItem {
         posted_by: "me".into(),
         after: vec![],
         target: target.map(str::to_owned),
+        propose: false,
+        why: None,
     }
+}
+
+#[tokio::test]
+async fn a_proposed_item_counts_toward_its_target_only_once_accepted() {
+    let (_db, s) = store().await;
+    s.add_target(new_target("demo", "Ship v1")).await.unwrap();
+    s.post_backlog(new_item("demo", "sure", Some("ship-v1")))
+        .await
+        .unwrap();
+    let maybe = s
+        .post_backlog(NewBacklogItem {
+            propose: true,
+            why: Some("optional polish".into()),
+            ..new_item("demo", "maybe", Some("ship-v1"))
+        })
+        .await
+        .unwrap();
+    let t = &s.list_targets(Some("demo"), None).await.unwrap()[0];
+    assert_eq!((t.items, t.queued, t.proposed), (1, 1, 1));
+
+    s.accept_backlog(maybe.item.id, "vinh").await.unwrap();
+    let t = &s.list_targets(Some("demo"), None).await.unwrap()[0];
+    assert_eq!((t.items, t.queued, t.proposed), (2, 2, 0));
 }
 
 #[tokio::test]

@@ -2673,7 +2673,7 @@ async fn repo_settings_default_then_update_and_reject_bad_globs() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         body,
-        json!({"carry_globs": ["**/*.md"], "check_command": null})
+        json!({"carry_globs": ["**/*.md"], "check_command": null, "agent_posts": "queue"})
     );
     let (status, body) = call(
         &e.app,
@@ -3343,6 +3343,10 @@ async fn ui_page_is_served_without_a_token_but_its_data_is_not() {
         "the page shows the backlog and who each item is reserved for"
     );
     assert!(
+        html.contains("state=proposed") && html.contains("proposed_backlog"),
+        "the page shows proposals waiting for a human, and their attention rows"
+    );
+    assert!(
         html.contains("/unrecorded"),
         "the task drawer shows what no record explains"
     );
@@ -3807,7 +3811,9 @@ impl scholion_daemon::MergeGuard for Refuse {
                 (format!("merge by {agent}"), !self.approve)
             }
             // this guard is about approvals and merges only
-            scholion_daemon::Guarded::Submit { .. } | scholion_daemon::Guarded::Review { .. } => {
+            scholion_daemon::Guarded::Submit { .. }
+            | scholion_daemon::Guarded::Review { .. }
+            | scholion_daemon::Guarded::AcceptBacklog { .. } => {
                 return Ok(());
             }
         };

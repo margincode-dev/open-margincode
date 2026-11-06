@@ -1,8 +1,8 @@
 //! Extension points for code built on top of the daemon: extra routes (`router_with`), typed
 //! services kept in `AppState` (`with_extension`), the event feed in process
 //! (`subscribe_events`), a guard the lifecycle asks before an approval or a merge
-//! (`MergeGuard`, which also sees a submit with the paths it changes and every review verdict
-//! before it is written), extra MCP tools
+//! (`MergeGuard`, which also sees a submit with the paths it changes, every review verdict
+//! before it is written, and the acceptance of a proposed backlog item), extra MCP tools
 //! (`AppState::with_mcp_tools`), a sink for the usage agents report (`UsageSink`), a writer of
 //! agent profiles (`AppState::put_profile`), and migrations of the extension's own tables in its own Postgres schema
 //! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use scholion_core::routing::BacklogEntry;
 use scholion_core::{AvEvent, IntentStore, Task, Verdict};
 use serde::Serialize;
 use serde_json::Value;
@@ -64,11 +65,17 @@ pub enum Guarded<'a> {
         task: &'a Task,
         changed_paths: &'a [String],
     },
+    /// `by` accepts the proposed backlog `item` (`POST /v1/backlog/{id}/accept`): it would become
+    /// queued, and `next` may then offer it. `item.posted_by` is who proposed it. Asked once the
+    /// item is known to be proposed and before anything is written, so a refusal leaves it
+    /// proposed.
+    AcceptBacklog { item: &'a BacklogEntry, by: &'a str },
 }
 
-/// Asked before a submit, a review verdict, an approval and a merge. `Err(reason)` refuses the
-/// request with HTTP 422 and the reason; the task stays as it was. A review verdict asks `Review`
-/// first and, for an approval, `Approve` after it.
+/// Asked before a submit, a review verdict, an approval, a merge and the acceptance of a proposed
+/// backlog item. `Err(reason)` refuses the request with HTTP 422 and the reason; the task (or
+/// item) stays as it was. A review verdict asks `Review` first and, for an approval, `Approve`
+/// after it.
 #[async_trait]
 pub trait MergeGuard: Send + Sync {
     async fn check(&self, action: Guarded<'_>) -> Result<(), String>;

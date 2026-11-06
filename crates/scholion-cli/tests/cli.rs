@@ -2201,6 +2201,52 @@ fn hook_stop_blocks_when_work_is_queued_and_the_reason_names_it() {
 }
 
 #[test]
+fn a_proposed_item_is_listed_with_its_why_and_accepted() {
+    let (d, ws, scratch) = started();
+    let posted = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Cache packs",
+            "--goal",
+            "g",
+            "--propose",
+            "--why",
+            "unsure it pays off",
+        ],
+    ));
+    assert!(posted.starts_with("proposed"), "{posted}");
+    let id = posted.split_whitespace().nth(1).unwrap().to_owned();
+    let backlog = ok(av(&d, &ws, &["backlog"]));
+    assert!(backlog.contains("proposed"), "{backlog}");
+    assert!(
+        backlog.contains("proposed by agent: unsure it pays off"),
+        "{backlog}"
+    );
+    // a stop hook finds no work in a proposal
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "1")], "cc-1", false);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+
+    let accepted = ok(av(&d, &ws, &["backlog", "accept", &id]));
+    assert!(accepted.starts_with("accepted"), "{accepted}");
+    let backlog = ok(av(&d, &ws, &["backlog", "--state", "queued"]));
+    assert!(backlog.contains("Cache packs"), "{backlog}");
+
+    // the repo proposes agents' posts
+    let set = ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "settings", "demo", "--agent-posts", "propose"],
+    ));
+    assert!(set.contains("agent posts: propose"), "{set}");
+}
+
+#[test]
 fn hook_stop_waits_out_an_empty_backlog_then_allows_the_stop() {
     let (d, ws, _scratch) = started();
     let t = std::time::Instant::now();

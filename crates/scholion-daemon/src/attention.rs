@@ -12,6 +12,7 @@
 //! - 2 `unclaimed_handoff`: handed off and not claimed for over `handoff_secs`.
 //! - 2 `quiet_lease`: open, and its owner has not written to it for a whole lease.
 //! - 1 `unroutable_backlog`: a queued item no profile fits.
+//! - 1 `proposed_backlog`: a proposed item waiting for a human to accept or drop it.
 //! - 1 `overdue_target`: an active target past its due day (UTC).
 //! - 1 `footprint_outside`: a session left at least `footprint_bytes` outside any workspace,
 //!   reported within `footprint_secs`.
@@ -76,8 +77,9 @@ fn rank(kind: &str) -> (u8, u8) {
         "unclaimed_handoff" => (2, 1),
         "quiet_lease" => (2, 2),
         "unroutable_backlog" => (1, 0),
-        "overdue_target" => (1, 1),
-        _ => (1, 2), // footprint_outside
+        "proposed_backlog" => (1, 1),
+        "overdue_target" => (1, 2),
+        _ => (1, 3), // footprint_outside
     }
 }
 
@@ -292,6 +294,24 @@ async fn attention(
         items.push(it);
     }
 
+    // proposals waiting for a human: low, but nobody else will move them
+    for e in st
+        .store
+        .list_backlog(repo, Some(BacklogState::Proposed))
+        .await?
+    {
+        let i = &e.item;
+        let mut it = Item::new("proposed_backlog", Some(&i.repo), i.created_at);
+        it.backlog_id = Some(i.id);
+        it.agent = Some(e.posted_by.clone());
+        it.title = i.title.clone();
+        it.detail = match e.why.as_deref() {
+            Some(why) => format!("proposed by {}: {why}", e.posted_by),
+            None => format!("proposed by {}", e.posted_by),
+        };
+        items.push(it);
+    }
+
     // targets past their due day: overdue from the end of it (UTC)
     let today = now.date_naive();
     for t in st
@@ -382,6 +402,7 @@ mod tests {
             "unclaimed_handoff",
             "quiet_lease",
             "unroutable_backlog",
+            "proposed_backlog",
             "overdue_target",
             "footprint_outside",
         ];

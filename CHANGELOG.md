@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Proposals: agents queue what they are sure of and propose the rest.** A backlog item can be
+  `proposed` (`POST /v1/backlog` with `propose: true` and an optional `why` of at most 300
+  characters; `av post --propose --why`): `next` never offers it until a human accepts it with
+  `POST /v1/backlog/{id}/accept` (`{by}`; `av backlog accept ID`), which queues it, adds a
+  `backlog:accepted` event and wakes waiting `next` calls; `av backlog drop` drops one. Accepting
+  an item that is not proposed is a 422. The repo setting `agent_posts` (`queue`, the default, or
+  `propose`; `av repo settings NAME --agent-posts`) makes every agent's post a proposal: a post is
+  an agent's when it comes through the new MCP tool `post_backlog` (repo, title, goal, propose,
+  why, target, after) or its `posted_by` is an agent profile's name or alias. A proposed item is
+  not counted in its target's `items`/`queued` (`proposed` counts it apart); an item `--after` it
+  waits until it is accepted and merged; an accepted item's reserve window starts at the accept.
+  `MergeGuard` is asked `Guarded::AcceptBacklog { item, by }` before an accept (`AllowAll`
+  allows it), so an extension can keep agents from accepting their own proposals. `GET
+  /v1/attention` adds the low-severity kind `proposed_backlog`; `av backlog` and the dashboard
+  show proposals with who proposed them and why. Migration 0030 (`backlog.state` adds
+  `proposed`; `backlog.why`, `accepted_by`, `accepted_at`; `repo_settings.agent_posts`). The MCP
+  tool list grows by 477 bytes (its guard in `tests/mcp.rs` now allows 10,800).
 - **One approval per head** (Plan 15 Phase 0, "Loop noise"). In the first dogfood run two reviewers
   approved the same head seconds apart, the second leaning on the first one's validation. `POST
   /v1/tasks/{id}/review` with `approve` on a head whose newest verdict in the current review round

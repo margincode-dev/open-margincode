@@ -265,6 +265,8 @@ select.ctl {
 .bl { padding: 10px 14px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .bl-title { font-weight: 550; margin-bottom: 5px; }
 .warn-text { color: var(--amber); }
+.bl.proposed { background: var(--surface-2, transparent); }
+.bl-why { color: var(--muted); font-style: italic; margin-bottom: 5px; }
 
 .ev {
   display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; width: 100%; padding: 9px 14px;
@@ -534,7 +536,7 @@ const KIND_TONE = {
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
   // the attention strip's own kinds
   "main red": "red", stale: "amber", unclaimed: "violet", quiet: "amber", unroutable: "amber", overdue: "red",
-  footprint: "amber", "trunk:advanced": "green",
+  footprint: "amber", proposed: "violet", "trunk:advanced": "green", "backlog:accepted": "teal",
   // main's log
   "check ok": "green", "check failed": "red", unchecked: "gray",
 };
@@ -1183,13 +1185,16 @@ function renderAgent(name, a, items) {
 }
 
 // Tasks waiting for an agent: what they need, the agent each is reserved for first, and who took
-// the latest ones. The ranking is the daemon's (`best_agent`), not computed here.
+// the latest ones; then proposals waiting for a human (`av backlog accept`), with why the poster
+// was unsure. The ranking is the daemon's (`best_agent`), not computed here. Read-only: accepting
+// is the CLI's (or an extension's) job.
 async function loadBacklog() {
   const box = document.getElementById("backlog");
   if (!S.repo) { fill(box, empty("Nothing waiting.")); S.queued = null; renderSummary(); return; }
   const q = encodeURIComponent(S.repo);
-  const [queued, taken] = await Promise.all([
-    api(`/v1/backlog?repo=${q}&state=queued`), api(`/v1/backlog?repo=${q}&state=taken`)]);
+  const [queued, taken, proposed] = await Promise.all([
+    api(`/v1/backlog?repo=${q}&state=queued`), api(`/v1/backlog?repo=${q}&state=taken`),
+    api(`/v1/backlog?repo=${q}&state=proposed`)]);
   S.queued = queued.items.length; S.taken = taken.items.length;
   setCount("backlogCount", queued.items.length);
   renderSummary();
@@ -1209,8 +1214,19 @@ async function loadBacklog() {
   const takenRows = taken.items.slice(-5).reverse().map(i => evRow({
     kind: "taken", title: i.title, onclick: () => i.task_id && openTask(i.task_id),
     meta: [i.taken_by, ago(i.taken_at)].filter(Boolean).join(" · ") }));
+  const proposedRows = proposed.items.map(i => h("div", { class: "bl proposed" },
+    h("div", { class: "bl-title" }, i.title),
+    i.why && h("div", { class: "bl-why" }, i.why),
+    h("div", { class: "meta" },
+      h("span", { class: "person sm", title: "Proposed by " + i.posted_by },
+        avatar(i.posted_by, 16), h("span", { class: "person-name" }, i.posted_by)),
+      i.target && h("span", {}, "for " + i.target),
+      i.waiting_on && i.waiting_on.length > 0 && h("span", { class: "warn-text" }, "after " + i.waiting_on.join(", ")),
+      h("span", { class: "mono", title: "av backlog accept " + i.id }, i.id.slice(0, 8)),
+      h("span", {}, ago(i.created_at)))));
   fill(box,
     queuedRows.length ? queuedRows : empty("Nothing waiting.", "inbox"),
+    proposedRows.length > 0 && [h("div", { class: "sub-h" }, "Proposed · waiting for a human"), proposedRows],
     takenRows.length > 0 && [h("div", { class: "sub-h" }, "Recently taken"), takenRows]);
   renderAttention();
 }
@@ -1281,7 +1297,8 @@ const ATTN = {
   main_red: ["main red", "main red"], conflicted: ["conflicted", "conflicted"],
   stale_review: ["stale", "waiting for review"], approved_not_merged: ["stale", "approved, not merged"],
   unclaimed_handoff: ["unclaimed", "nobody claimed"], quiet_lease: ["stale", "no write for a lease"],
-  unroutable_backlog: ["unroutable", "no agent can do it"], overdue_target: ["overdue", "overdue"],
+  unroutable_backlog: ["unroutable", "no agent can do it"], proposed_backlog: ["proposed", "waiting to be accepted"],
+  overdue_target: ["overdue", "overdue"],
   footprint_outside: ["footprint", "left outside"],
 };
 // the kinds that mark a task's card as stuck
@@ -1310,7 +1327,7 @@ function renderAttention() {
       unclaimed_handoff: `handed off ${dur} · from ${i.agent}`,
       quiet_lease: `no write for ${dur} · ${i.agent}`,
     }[i.kind] ?? i.detail;
-    const onclick = i.kind === "unroutable_backlog" ? jumpTo("backlog")
+    const onclick = i.kind === "unroutable_backlog" || i.kind === "proposed_backlog" ? jumpTo("backlog")
       : i.kind === "overdue_target" ? jumpTo("targets") : task;
     return evRow({ kind, label, title: i.title, meta, onclick });
   });

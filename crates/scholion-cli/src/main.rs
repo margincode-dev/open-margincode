@@ -417,6 +417,12 @@ enum Cmd {
         /// The target it counts toward (a target id or the slug of its title; see `av target`).
         #[arg(long)]
         target: Option<String>,
+        /// Propose it: it waits for a human (`av backlog accept`) before any agent gets it.
+        #[arg(long)]
+        propose: bool,
+        /// Why you are unsure of it (at most 300 characters).
+        #[arg(long)]
+        why: Option<String>,
     },
     /// Targets: what a team works toward in a repo (a release, a milestone). Backlog items count
     /// toward one, and its progress is how many of them merged.
@@ -424,14 +430,14 @@ enum Cmd {
         #[command(subcommand)]
         cmd: TargetCmd,
     },
-    /// List the backlog, drop an item, or count one toward a target.
+    /// List the backlog, accept a proposed item, drop an item, or count one toward a target.
     #[command(args_conflicts_with_subcommands = true)]
     Backlog {
         #[command(subcommand)]
         cmd: Option<BacklogCmd>,
         #[arg(long)]
         repo: Option<String>,
-        /// queued, taken or dropped.
+        /// proposed, queued, taken or dropped.
         #[arg(long)]
         state: Option<String>,
     },
@@ -512,7 +518,9 @@ enum AgentCmd {
 
 #[derive(Subcommand)]
 enum BacklogCmd {
-    /// Withdraw a queued item.
+    /// Queue a proposed item, so agents may take it (as --agent, `user` by default).
+    Accept { id: String },
+    /// Withdraw a queued or proposed item.
     Drop { id: String },
     /// Count an item toward a target (an id or the slug of its title); with none, toward no
     /// target.
@@ -680,6 +688,10 @@ enum RepoCmd {
         /// Command `av runner` runs on every new main ("" clears it).
         #[arg(long)]
         check: Option<String>,
+        /// What becomes of a backlog item an agent posts: `queue` (default) or `propose` (a
+        /// human accepts it first).
+        #[arg(long = "agent-posts", value_parser = ["queue", "propose"])]
+        agent_posts: Option<String>,
     },
 }
 
@@ -1329,10 +1341,11 @@ fn run(cli: Cli) -> Result<()> {
                     name,
                     carry_globs,
                     check,
+                    agent_posts,
                 },
         } => {
             let path = format!("/v1/repos/{name}/settings");
-            let r = if carry_globs.is_empty() && check.is_none() {
+            let r = if carry_globs.is_empty() && check.is_none() && agent_posts.is_none() {
                 client.get(&path, &[])?
             } else {
                 let mut body = json!({});
@@ -1341,6 +1354,9 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 if let Some(c) = check {
                     body["check_command"] = json!(c);
+                }
+                if let Some(p) = agent_posts {
+                    body["agent_posts"] = json!(p);
                 }
                 client.put(&path, &body)?
             };
@@ -1352,6 +1368,10 @@ fn run(cli: Cli) -> Result<()> {
                 .collect();
             println!("carry globs: {}", globs.join(" "));
             println!("check: {}", r["check_command"].as_str().unwrap_or("(none)"));
+            println!(
+                "agent posts: {}",
+                r["agent_posts"].as_str().unwrap_or("queue")
+            );
         }
         Cmd::Repo {
             cmd:
@@ -2364,15 +2384,24 @@ fn run(cli: Cli) -> Result<()> {
             reserve,
             after,
             target,
+            propose,
+            why,
         } => {
             let r = client.post(
                 "/v1/backlog",
                 &json!({"repo": repo, "title": title, "goal": goal, "needs": needs,
                         "prefer": prefer, "priority": priority, "reserve_secs": reserve,
-                        "posted_by": cli.agent, "after": after, "target": target}),
+                        "posted_by": cli.agent, "after": after, "target": target,
+                        "propose": propose, "why": why}),
             )?;
+            // the repo may propose an agent's post whatever it asked
+            let (verb, then) = if r["state"] == "proposed" {
+                ("proposed", " · waits for av backlog accept")
+            } else {
+                ("posted", "")
+            };
             println!(
-                "posted {} · {}{}{}{}",
+                "{verb} {} · {}{}{}{}{then}",
                 s(&r["id"]),
                 s(&r["title"]),
                 tags_suffix(&r["needs"]),
@@ -2442,6 +2471,22 @@ fn run(cli: Cli) -> Result<()> {
             println!("{} is {}", s(&r["title"]), s(&r["status"]));
         }
         Cmd::Backlog {
+            cmd: Some(BacklogCmd::Accept { id }),
+            ..
+        } => {
+            // the default agent name means nobody said who: a person at the terminal
+            let by = if cli.agent == local::DEFAULT_AGENT {
+                "user"
+            } else {
+                cli.agent.as_str()
+            };
+            let r = client.post(
+                &format!("/v1/backlog/{}/accept", urlencode(id)),
+                &json!({ "by": by }),
+            )?;
+            println!("accepted {} · {} (queued)", s(&r["id"]), s(&r["title"]));
+        }
+        Cmd::Backlog {
             cmd: Some(BacklogCmd::Drop { id }),
             ..
         } => {
@@ -2484,14 +2529,25 @@ fn run(cli: Cli) -> Result<()> {
                     .as_str()
                     .map(|a| format!(" · taken by {a}"))
                     .unwrap_or_default();
-                // only a queued item waits: a taken one has started, a dropped one never will
-                let waiting = if i["state"] == "queued" {
+                // only a queued or proposed item waits: a taken one has started, a dropped one
+                // never will
+                let waiting = if i["state"] == "queued" || i["state"] == "proposed" {
                     waiting_suffix(&i["waiting_on"])
                 } else {
                     String::new()
                 };
+                // a proposal says who proposed it and why
+                let proposed = if i["state"] == "proposed" {
+                    let why = i["why"]
+                        .as_str()
+                        .map(|w| format!(": {w}"))
+                        .unwrap_or_default();
+                    format!(" · proposed by {}{why}", s(&i["posted_by"]))
+                } else {
+                    String::new()
+                };
                 println!(
-                    "{}  {}  {}  p{}  {}{}{}{}{}",
+                    "{}  {}  {}  p{}  {}{}{}{}{}{}",
                     s(&i["id"]),
                     s(&i["state"]),
                     s(&i["repo"]),
@@ -2500,7 +2556,8 @@ fn run(cli: Cli) -> Result<()> {
                     tags_suffix(&i["needs"]),
                     waiting,
                     target_suffix(&i["target"]),
-                    taken
+                    taken,
+                    proposed
                 );
             }
         }

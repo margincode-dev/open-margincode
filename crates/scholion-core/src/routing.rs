@@ -74,11 +74,55 @@ pub struct NewBacklogItem {
     /// The target it counts toward: a target id or the slug of its title (same repo, active).
     #[serde(default)]
     pub target: Option<String>,
+    /// Post it as `proposed`: it waits for a human to accept it before `next` offers it.
+    #[serde(default)]
+    pub propose: bool,
+    /// Why the poster is unsure of it (at most `WHY_MAX` characters).
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+/// Longest `why` of a backlog item (the same bound as the column's check).
+pub const WHY_MAX: usize = 300;
+
+/// What becomes of a backlog item an agent posts in a repo (`RepoSettings::agent_posts`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPosts {
+    /// Queued, unless the agent proposed it (the default).
+    #[default]
+    Queue,
+    /// Always proposed: a human accepts it first.
+    Propose,
+}
+
+impl AgentPosts {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentPosts::Queue => "queue",
+            AgentPosts::Propose => "propose",
+        }
+    }
+}
+
+impl std::str::FromStr for AgentPosts {
+    type Err = crate::AvError;
+    fn from_str(s: &str) -> crate::Result<Self> {
+        match s {
+            "queue" => Ok(AgentPosts::Queue),
+            "propose" => Ok(AgentPosts::Propose),
+            other => Err(crate::AvError::Invalid(format!(
+                "unknown agent_posts {other:?} (queue or propose)"
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BacklogState {
+    /// Posted, waiting for a human to accept it; `next` never offers it.
+    Proposed,
     Queued,
     Taken,
     Dropped,
@@ -87,6 +131,7 @@ pub enum BacklogState {
 impl BacklogState {
     pub fn as_str(self) -> &'static str {
         match self {
+            BacklogState::Proposed => "proposed",
             BacklogState::Queued => "queued",
             BacklogState::Taken => "taken",
             BacklogState::Dropped => "dropped",
@@ -98,11 +143,12 @@ impl std::str::FromStr for BacklogState {
     type Err = crate::AvError;
     fn from_str(s: &str) -> crate::Result<Self> {
         match s {
+            "proposed" => Ok(BacklogState::Proposed),
             "queued" => Ok(BacklogState::Queued),
             "taken" => Ok(BacklogState::Taken),
             "dropped" => Ok(BacklogState::Dropped),
             other => Err(crate::AvError::Invalid(format!(
-                "unknown backlog state {other:?} (queued, taken or dropped)"
+                "unknown backlog state {other:?} (proposed, queued, taken or dropped)"
             ))),
         }
     }
@@ -127,6 +173,14 @@ pub struct BacklogEntry {
     pub target_id: Option<Uuid>,
     #[serde(default)]
     pub target: Option<String>,
+    /// Why the poster was unsure of it (a proposed item's reason).
+    #[serde(default)]
+    pub why: Option<String>,
+    /// Who accepted a proposed item, and when (the item was queued then).
+    #[serde(default)]
+    pub accepted_by: Option<String>,
+    #[serde(default)]
+    pub accepted_at: Option<DateTime<Utc>>,
 }
 
 /// Something a team works toward in a repo (a release, a milestone). Backlog items count toward
@@ -144,7 +198,7 @@ pub struct Target {
     pub due: Option<chrono::NaiveDate>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
-    /// Backlog items that count toward it, dropped ones left out.
+    /// Backlog items that count toward it, dropped and proposed ones left out.
     pub items: i64,
     /// Of those: waiting for an agent.
     pub queued: i64,
@@ -152,6 +206,9 @@ pub struct Target {
     pub working: i64,
     /// Taken, and their task merged.
     pub merged: i64,
+    /// Proposed items that would count toward it once accepted (not in `items`).
+    #[serde(default)]
+    pub proposed: i64,
 }
 
 /// What the user adds (`av target add`).

@@ -124,6 +124,11 @@ fn tools() -> Value {
             "done": {"type": "string"}, "remaining": {"type": "string"},
             "broken": {"type": "string"}, "questions": {"type": "string"}, "task_id": task_id,
             "needs": {"type": "array", "items": {"type": "string"}, "description": "Tags the next agent must have, e.g. [\"image\"]."}}}},
+        {"name": "post_backlog", "description": "Add follow-up work to the backlog for any agent. Optional or unsure? propose with why: a human accepts it first.",
+         "inputSchema": {"type": "object", "required": ["title", "goal"], "properties": {
+            "title": {"type": "string"}, "goal": {"type": "string"}, "repo": repo.clone(),
+            "propose": {"type": "boolean"}, "why": {"type": "string"}, "target": {"type": "string"},
+            "after": {"type": "array", "items": {"type": "string"}}}}},
         {"name": "claim_task", "description": "Take over a handed-off task (or an open one whose lease expired); returns the workspace and the handoff bundle.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {
             "task_id": {"type": "string"}, "budget": {"type": "integer"}}}},
@@ -624,6 +629,33 @@ async fn run_tool(
                         })
                         .collect::<Vec<_>>()
                         .join("\n")
+                },
+            )
+        }
+        "post_backlog" => {
+            let repo = repo_arg(st, s, args).await?;
+            (
+                "POST",
+                "/v1/backlog".into(),
+                Some(
+                    json!({"repo": repo, "title": args["title"], "goal": args["goal"],
+                            "propose": args["propose"].as_bool().unwrap_or(false),
+                            "why": args["why"], "target": args["target"],
+                            "after": args["after"].as_array().cloned().unwrap_or_default(),
+                            "posted_by": agent, "from_agent": true}),
+                ),
+                None,
+                |r| {
+                    let what = if r["state"] == "proposed" {
+                        "proposed (a human accepts it before any agent gets it)"
+                    } else {
+                        "queued"
+                    };
+                    format!(
+                        "{what}: {} · {}",
+                        r["id"].as_str().unwrap_or_default(),
+                        r["title"].as_str().unwrap_or_default()
+                    )
                 },
             )
         }

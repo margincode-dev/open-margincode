@@ -583,6 +583,9 @@ av post --repo pantry --title "Use the new logo" --goal "..." --after redraw-the
 av target add --repo pantry --title "Ship v1" --due 2026-12-01   # something the team works toward
 av post --repo pantry --title "Price labels" --goal "..." --target ship-v1   # counts toward it
 av backlog target ITEM ship-v1                                   # or link an item later (no target: unlink)
+av post --repo pantry --title "Cache labels" --goal "..." --propose --why "may not pay off"   # waits for a human
+av backlog accept ITEM                                           # queue a proposal (av backlog drop ITEM: no)
+av repo settings pantry --agent-posts propose                    # every agent's post is a proposal
 av target list --repo pantry               # each active target: merged/items, working, queued, due
 av target done ship-v1 --repo pantry       # also: drop, reopen
 av next                                    # as an agent: the next job that fits it, or none
@@ -620,7 +623,27 @@ the call until something fits; `dry_run` says what it would give without taking 
 id. A **target** (a release, a milestone) groups backlog items: an item counts toward at most one
 active target of its repo, and the target's progress is how many of its items merged (a dropped
 item stops counting). Targets are never deleted; they are done or dropped and can be reopened. They
-do not change routing. The dashboard lists the teams (skill, cost, and open tasks against the limit), the queue and who each item is reserved for. Design:
+do not change routing.
+
+**Proposals** let agents post follow-up work without deciding alone whether it is wanted. A
+backlog item posted with `propose: true` (`av post --propose`, the MCP tool `post_backlog` with
+`propose`) is `proposed`, with an optional `why` (at most 300 characters: why the poster is
+unsure). `next` never offers a proposed item and does not count it as queued; `POST
+/v1/backlog/{id}/accept` (`{by}`, `av backlog accept`) makes it `queued` (a `backlog:accepted`
+event; waiting `next` calls wake as for a post), and `DELETE /v1/backlog/{id}` (`av backlog drop`)
+drops it. Accepting an item that is not proposed is a 422, as is an accept the extension's guard
+refuses. An accepted item's reserve window starts when it is accepted, and it ranks as that new.
+The repo setting `agent_posts` (`PUT /v1/repos/{name}/settings`, `av repo settings NAME
+--agent-posts queue|propose`; default `queue`) decides what becomes of an agent's post: with
+`propose`, every post by an agent lands as `proposed` whatever it asked. A post is an agent's when
+it comes through `post_backlog` (the tool sends `from_agent: true`) or its `posted_by` is an agent
+profile's name or alias; anyone's explicit `propose` is always honoured. A proposed item counts
+toward its target only once accepted (`GET /v1/targets` reports it apart, as `proposed`); an item
+`--after` a proposal waits until the proposal is accepted, taken and merged. `av backlog` marks a
+proposal with who proposed it and why, the dashboard lists proposals under the queue, and `GET
+/v1/attention` reports each as `proposed_backlog`.
+
+The dashboard lists the teams (skill, cost, and open tasks against the limit), the queue and who each item is reserved for. Design:
 `docs/superpowers/specs/2026-10-31-agent-routing-design.md`; how to measure whether it pays:
 `docs/superpowers/plans/2026-10-31-plan-8-grok-evaluation.md` (not yet run: no claim is made).
 To try it with real agents, run `examples/routing-smoke/setup.sh`. It sets up a small sample
@@ -729,7 +752,8 @@ repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, 
 `GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`,
 `GET /v1/repos/{name}/import`, `GET /v1/disk`, `GET /v1/attention` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
-`PUT /v1/backlog/{id}/target` (`{target}`, null to unlink).
+`PUT /v1/backlog/{id}/target` (`{target}`, null to unlink); a proposed backlog item is accepted
+with `POST /v1/backlog/{id}/accept` (`{by}`).
 
 ### Needs attention (`GET /v1/attention`)
 
@@ -760,6 +784,7 @@ values are stable:
 | `unclaimed_handoff` | 2 | handed off and not claimed for over `AV_ATTN_HANDOFF_SECS` | the handoff |
 | `quiet_lease` | 2 | open, and not written to for a whole lease (`AV_LEASE_SECS`, reckoned as the office's *quiet* and `next`: from the last write, or the start) | the last write |
 | `unroutable_backlog` | 1 | a queued backlog item no profile fits, when it needs a tag or some profile exists (without profiles any agent takes untagged work) | the item was posted |
+| `proposed_backlog` | 1 | a proposed backlog item waiting for a human to accept or drop it (no threshold; `agent` is who proposed it, `detail` says why) | the item was posted |
 | `overdue_target` | 1 | an active target whose due day (UTC) has passed | the end of its due day, 00:00 UTC the day after |
 | `footprint_outside` | 1 | a session reported leaving at least `AV_ATTN_FOOTPRINT_BYTES` outside any workspace within `AV_ATTN_FOOTPRINT_SECS` (`POST /v1/footprint`, kept in memory); with `repo`, only sessions of that repo's tasks or of no task | the report |
 

@@ -122,6 +122,7 @@ async fn tools_list_contains_every_tool_name() {
             "list_files",
             "log",
             "merge",
+            "post_backlog",
             "post_review",
             "read_file",
             "read_symbol",
@@ -680,6 +681,73 @@ async fn start_task_without_title_and_goal_takes_the_next_backlog_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn post_backlog_queues_or_proposes_follow_up_work() {
+    let e = env().await;
+    let s = connect(&e, "claude-code").await;
+    // repo given: queued, posted by the session's agent
+    let out = text(
+        &tool(
+            &e,
+            &s,
+            "post_backlog",
+            json!({"repo": "demo", "title": "Add a farewell", "goal": "Say goodbye"}),
+        )
+        .await,
+    );
+    assert!(out.starts_with("queued: "), "{out}");
+    assert!(out.contains("Add a farewell"), "{out}");
+    // without a repo: the session task's; proposed with why
+    text(
+        &tool(
+            &e,
+            &s,
+            "start_task",
+            json!({"repo": "demo", "title": "Louder", "goal": "g"}),
+        )
+        .await,
+    );
+    let out = text(
+        &tool(
+            &e,
+            &s,
+            "post_backlog",
+            json!({"title": "Cache greetings", "goal": "Cache them", "propose": true,
+                   "why": "might not be worth it", "after": ["add-a-farewell"]}),
+        )
+        .await,
+    );
+    assert!(out.starts_with("proposed"), "{out}");
+    let (_, list) = call(&e.app, "GET", "/v1/backlog?repo=demo", None).await;
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2, "{list}");
+    assert_eq!(items[0]["state"], "queued");
+    assert_eq!(items[0]["posted_by"], "claude-code");
+    assert_eq!(items[1]["state"], "proposed");
+    assert_eq!(items[1]["why"], "might not be worth it");
+    assert_eq!(items[1]["waiting_on"], json!(["Add a farewell"]));
+
+    // the repo proposes every agent's post: an MCP post counts as an agent's, profile or not
+    let (status, b) = call(
+        &e.app,
+        "PUT",
+        "/v1/repos/demo/settings",
+        Some(json!({"agent_posts": "propose"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let out = text(
+        &tool(
+            &e,
+            &s,
+            "post_backlog",
+            json!({"title": "Sure thing", "goal": "g"}),
+        )
+        .await,
+    );
+    assert!(out.starts_with("proposed"), "{out}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn start_task_without_arguments_says_when_nothing_is_waiting() {
     let e = env().await;
     post_backlog(&e, "draw it", &["image"], 0).await;
@@ -973,11 +1041,13 @@ async fn the_tool_list_stays_small() {
         .collect();
     let bytes = serde_json::to_string(&community).unwrap().len();
     // Every tool definition is sent to the model on every turn. Plan 8 added 160 bytes (about 40
-    // tokens) to the 10,040 before it, Plan 9 112 (start_task's wait and its longer description);
-    // a bigger tool list needs a reason that pays for itself.
+    // tokens) to the 10,040 before it, Plan 9 112 (start_task's wait and its longer description),
+    // propose mode 477 (`post_backlog`: before it an agent had no way to leave follow-up work for
+    // another agent, or to propose optional work for a human to accept); a bigger tool list needs
+    // a reason that pays for itself.
     assert!(
-        bytes <= 10_320,
-        "tools/list is {bytes} bytes; it was 10,312 after Plan 9"
+        bytes <= 10_800,
+        "tools/list is {bytes} bytes; it was 10,789 after propose mode"
     );
 }
 

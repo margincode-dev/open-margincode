@@ -78,6 +78,8 @@ impl Config {
     /// by default; `AV_OLLAMA_EMBED_MODEL` names the one model to use instead.
     /// With no CLI, `AV_EMBED_URL` plus an optional `AV_EMBED_API_KEY` is used.
     /// `AV_EMBED_PROVIDER=api` forces the API path. `AV_OLLAMA_URL` defaults to `http://127.0.0.1:11434`.
+    /// `AV_EMBED_PROVIDER=ollama` with no CLI uses the Ollama server at `AV_OLLAMA_URL` (another
+    /// container or host) with `AV_OLLAMA_EMBED_MODEL`, which it then requires.
     pub fn from_env() -> Result<Config> {
         let get = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let ws_root = PathBuf::from(get("AV_WS_ROOT").unwrap_or_else(|| "./ws".into()));
@@ -97,6 +99,7 @@ impl Config {
             models: models.as_ref().map(Vec::as_slice).map_err(String::as_str),
             ollama_url: &ollama_url,
             model_families,
+            named_model: named_model.as_deref(),
             embed_url: embed_url.as_deref(),
             api_key: embed_api_key.as_deref(),
             provider: provider.as_deref(),

@@ -10,7 +10,7 @@ pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 /// Where embedding requests go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbedChoice {
-    /// Local `ollama` `/api/embed`. No API key.
+    /// Ollama's `/api/embed`, on this host or another (`AV_OLLAMA_URL`). No API key.
     Ollama { base_url: String, model: String },
     /// Remote embedder. `api_key` is sent as `Authorization: Bearer` when set.
     Api {
@@ -26,6 +26,9 @@ pub struct EmbedDetect<'a> {
     pub ollama_url: &'a str,
     /// Tried in order; the first one `ollama list` has wins.
     pub model_families: &'a [&'a str],
+    /// `AV_OLLAMA_EMBED_MODEL`. With `provider` `ollama` and no CLI, the model is sent to
+    /// `ollama_url` exactly as given, without listing it first.
+    pub named_model: Option<&'a str>,
     pub embed_url: Option<&'a str>,
     pub api_key: Option<&'a str>,
     /// `None` is automatic. `ollama` or `api` forces that path (`AV_EMBED_PROVIDER`).
@@ -80,9 +83,7 @@ pub fn choose_embedder(detect: &EmbedDetect<'_>) -> Result<Option<EmbedChoice>> 
 
 fn ollama_choice(detect: &EmbedDetect<'_>) -> Result<Option<EmbedChoice>> {
     if !detect.cli_installed {
-        return Err(AvError::Invalid(
-            "AV_EMBED_PROVIDER=ollama but the ollama CLI is not on PATH".into(),
-        ));
+        return remote_ollama_choice(detect);
     }
     let models = detect.models.map_err(|err| {
         AvError::Invalid(format!(
@@ -105,6 +106,24 @@ fn ollama_choice(detect: &EmbedDetect<'_>) -> Result<Option<EmbedChoice>> {
                 detect.model_families.join(" or ")
             )))
         }
+    }
+}
+
+/// `AV_EMBED_PROVIDER=ollama` with no CLI (the only way here: automatic selection tries Ollama only
+/// when the CLI is present): an Ollama server elsewhere, such as another container or host, at
+/// `AV_OLLAMA_URL`. Nothing here can list its models, so `AV_OLLAMA_EMBED_MODEL` must name one; it
+/// is sent as given. Nothing connects now: the daemon boots while that server is down, and the
+/// first embedding reports a server that is down or lacks the model.
+fn remote_ollama_choice(detect: &EmbedDetect<'_>) -> Result<Option<EmbedChoice>> {
+    match detect.named_model.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(model) => Ok(Some(EmbedChoice::Ollama {
+            base_url: detect.ollama_url.trim().trim_end_matches('/').to_owned(),
+            model: model.to_owned(),
+        })),
+        None => Err(AvError::Invalid(format!(
+            "AV_EMBED_PROVIDER=ollama with no ollama CLI on PATH needs AV_OLLAMA_EMBED_MODEL, the model to ask the server at {} for (for example {})",
+            detect.ollama_url, DEFAULT_OLLAMA_EMBED_FAMILIES[0]
+        ))),
     }
 }
 
@@ -187,6 +206,7 @@ mod tests {
             },
             ollama_url: DEFAULT_OLLAMA_URL,
             model_families: DEFAULT_OLLAMA_EMBED_FAMILIES,
+            named_model: None,
             embed_url: url,
             api_key: key,
             provider,
@@ -362,6 +382,72 @@ llama3.2:latest       abc             2.0 GB    yesterday
             }
             other => panic!("expected ollama, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn provider_ollama_without_a_cli_uses_the_server_at_the_url() {
+        // another container or host: nothing to list, the named model is sent as given
+        let models = Ok(vec![]);
+        let mut d = detect(false, &models, None, None, Some("ollama"));
+        d.ollama_url = "http://ollama:11434/";
+        d.named_model = Some(" embeddinggemma-2 ");
+        assert_eq!(
+            choose_embedder(&d).unwrap(),
+            Some(EmbedChoice::Ollama {
+                base_url: "http://ollama:11434".into(),
+                model: "embeddinggemma-2".into(),
+            })
+        );
+        // a tag is kept as written
+        d.named_model = Some("qwen3-embedding:8b");
+        assert!(
+            matches!(choose_embedder(&d).unwrap(), Some(EmbedChoice::Ollama { model, .. }) if model == "qwen3-embedding:8b")
+        );
+        // an API URL set too does not win over the forced provider
+        let mut d = detect(
+            false,
+            &models,
+            Some("https://embed.example"),
+            None,
+            Some("ollama"),
+        );
+        d.named_model = Some("embeddinggemma-2");
+        assert!(matches!(
+            choose_embedder(&d).unwrap(),
+            Some(EmbedChoice::Ollama { .. })
+        ));
+    }
+
+    #[test]
+    fn provider_ollama_without_a_cli_needs_the_model_named() {
+        let models = Ok(vec![]);
+        for named in [None, Some(""), Some("  ")] {
+            let mut d = detect(false, &models, None, None, Some("ollama"));
+            d.named_model = named;
+            let err = choose_embedder(&d).unwrap_err();
+            let AvError::Invalid(msg) = err else {
+                panic!("invalid")
+            };
+            assert!(msg.contains("AV_OLLAMA_EMBED_MODEL"), "{msg}");
+            assert!(msg.contains(DEFAULT_OLLAMA_URL), "{msg}");
+        }
+    }
+
+    #[test]
+    fn a_named_model_without_the_provider_or_with_a_cli_changes_nothing() {
+        // automatic selection with no CLI: the named model alone does not reach for a server
+        let models = Ok(vec![]);
+        let mut d = detect(false, &models, None, None, None);
+        d.named_model = Some("embeddinggemma-2");
+        assert_eq!(choose_embedder(&d).unwrap(), None);
+        // with the CLI, `ollama list` still resolves the name to a pulled tag
+        let models = Ok(vec!["qwen3-embedding:8b".into()]);
+        let mut d = detect(true, &models, None, None, Some("ollama"));
+        d.model_families = &["qwen3-embedding"];
+        d.named_model = Some("qwen3-embedding");
+        assert!(
+            matches!(choose_embedder(&d).unwrap(), Some(EmbedChoice::Ollama { model, .. }) if model == "qwen3-embedding:8b")
+        );
     }
 
     #[test]

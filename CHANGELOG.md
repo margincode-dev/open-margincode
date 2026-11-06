@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Ollama on another container or host.** `AV_EMBED_PROVIDER=ollama` no longer needs an `ollama`
+  CLI on the daemon's `PATH`: with none, the daemon sends `AV_OLLAMA_EMBED_MODEL` (now required in
+  that case, for example `embeddinggemma-2`) as written to the Ollama server at `AV_OLLAMA_URL`'s
+  `/api/embed`, as a daemon in one container and Ollama in another need. Nothing connects at start:
+  the daemon boots while that server is down, and a missing model or a server that is down is
+  logged at the first embedding (the outbox keeps the work and retries). With the CLI, selection is
+  unchanged (`ollama list` resolves the name to a pulled tag), and so is automatic selection with
+  no CLI (`AV_EMBED_URL`, else off). The `api` path (`AV_EMBED_URL`) speaks text-embeddings-
+  inference's `/embed` and cannot talk to Ollama, which serves `/api/embed` and `/v1/embeddings`.
 - **Proposals: agents queue what they are sure of and propose the rest.** A backlog item can be
   `proposed` (`POST /v1/backlog` with `propose: true` and an optional `why` of at most 300
   characters; `av post --propose --why`): `next` never offers it until a human accepts it with

@@ -412,9 +412,9 @@ Defaults (override with environment variables before `up`):
 | `AV_WS_MOUNT` / `AV_IMPORT_MOUNT` | `AV_WS_ROOT` / `AV_IMPORT_ROOT` | bind-mount sources, when Docker sees the folders under another path (below) |
 | `AV_EMBED_API_KEY` | empty | Bearer token for the embedding API. Used when the `ollama` CLI is not installed. |
 | `AV_EMBED_URL` | empty | embedding API base URL. Required when there is no Ollama. |
-| `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has an `embeddinggemma-2` or `qwen3-embedding` model. |
-| `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. The model tag comes from `ollama list`. |
-| `AV_OLLAMA_EMBED_MODEL` | `embeddinggemma-2`, else `qwen3-embedding` | the one Ollama model to embed with (a name as `ollama list` shows it, with or without the tag). Run `scholion reindex` after changing it. |
+| `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has an `embeddinggemma-2` or `qwen3-embedding` model. `ollama` with no CLI on `PATH` uses the Ollama server at `AV_OLLAMA_URL` (another container or host) and needs `AV_OLLAMA_EMBED_MODEL`. |
+| `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. With the CLI, the model tag comes from `ollama list`; without it (`AV_EMBED_PROVIDER=ollama`), the model is `AV_OLLAMA_EMBED_MODEL` as written. |
+| `AV_OLLAMA_EMBED_MODEL` | `embeddinggemma-2`, else `qwen3-embedding` | the one Ollama model to embed with (a name as `ollama list` shows it, with or without the tag). Required with `AV_EMBED_PROVIDER=ollama` and no CLI: then it is sent to the server as written (`embeddinggemma-2` means `embeddinggemma-2:latest`), and a server that is down or lacks the model shows up in the daemon's log at the first embedding, not at start. Run `scholion reindex` after changing it. |
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |

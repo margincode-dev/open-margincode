@@ -1,7 +1,7 @@
 class Scholion < Formula
   desc "Context-first version control for coding agents (CLI, av alias and daemon)"
   homepage "https://github.com/vinhqbui/scholion"
-  version "0.0.2"
+  version "0.0.3"
   license "MIT"
 
   # Release assets as .github/workflows/release.yml names them. The tag is release/<version>.
@@ -11,18 +11,18 @@ class Scholion < Formula
   on_macos do
     on_arm do
       url "#{base}/scholion-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "61a397d35bdce5f0fd0b24fdc1f98958e961f55eff5f752d645ad72dc42cdc90"
+      sha256 "05e7cf7df15ff76e3f1e213e17c6e85ddba7a3b0342f3dc1f0746a9171726cf1"
     end
   end
 
   on_linux do
     on_arm do
       url "#{base}/scholion-v#{version}-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "bfe135705310f929991689a477c256b5c3aeb047dc38d27bcf321499206b3dc4"
+      sha256 "cefd844f04e9b404dc680b7bc0b04b0b0f736175271fefa0b476bfbe03164b78"
     end
     on_intel do
       url "#{base}/scholion-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "68ab867aac926a37bc775e37645a4010a4b626d6c53465092c60ffbb5d36c2c0"
+      sha256 "ebf09d05ae6e841f22a15a7debdcf2d4db3c0968aba24d8eb7f6ad389f3bc4f7"
     end
   end
 

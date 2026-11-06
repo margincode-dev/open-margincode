@@ -819,7 +819,8 @@ pub(crate) async fn review(
             None,
         )
         .await?;
-    // (summary, body, anchors) of the findings this reviewer already has at this head
+    // (summary, body, anchors) of the findings this reviewer already has at this head; anchors in
+    // `sorted_anchors` order on both sides, since the store reads them back in its own order
     let mut stored: Vec<(String, String, Vec<Anchor>)> = if b.findings.is_empty() {
         Vec::new()
     } else {
@@ -832,11 +833,11 @@ pub(crate) async fn review(
                     && r.author_agent == b.reviewer
                     && r.change_id.as_ref() == Some(&head)
             })
-            .map(|r| (r.summary, r.body, r.anchors))
+            .map(|r| (r.summary, r.body, sorted_anchors(r.anchors)))
             .collect()
     };
     for f in b.findings {
-        let key = (f.summary, f.body, f.anchors);
+        let key = (f.summary, f.body, sorted_anchors(f.anchors));
         if stored.contains(&key) {
             continue;
         }
@@ -871,6 +872,13 @@ pub(crate) async fn review(
         "verdict": b.verdict.as_str(),
         "head": head,
     })))
+}
+
+/// A finding's anchors in one order (by path, then symbol, a path-only anchor first), so the same
+/// anchors sent in another order compare equal. Duplicates are kept: the store keeps them too.
+fn sorted_anchors(mut anchors: Vec<Anchor>) -> Vec<Anchor> {
+    anchors.sort_by(|a, b| (&a.path, &a.symbol).cmp(&(&b.path, &b.symbol)));
+    anchors
 }
 
 /// Written into every merge commit's message; finds a merge on trunk after a crash.

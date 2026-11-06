@@ -1140,6 +1140,83 @@ async fn identical_review_findings_at_one_head_are_stored_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_retried_finding_with_its_anchors_reordered_is_stored_once() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    submit(&e, &t).await;
+    let finding = |anchors: Value| {
+        json!({"summary": "names are formatted in two places", "body": "keep one helper",
+               "anchors": anchors})
+    };
+    let util = json!({"path": "app/util.py", "symbol": "format_name"});
+    let util_file = json!({"path": "app/util.py"});
+    let greeter = json!({"path": "app/greeter.py"});
+    let main = json!({"path": "app/main.py"});
+    // anchors in an order the store does not read them back in (it sorts by path, then symbol
+    // with a path-only anchor last)
+    let first = [
+        finding(json!([util, greeter])),
+        finding(json!([util_file, util])),
+    ];
+    let (status, body) = post(
+        &e,
+        &t,
+        "review",
+        json!({"reviewer": "reviewer", "verdict": "request_changes", "findings": first}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // the same head submitted again and the review retried as it was sent, once more with the
+    // anchors reversed, and with the same text on different anchors
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let retry = [
+        finding(json!([util, greeter])),
+        finding(json!([util_file, util])),
+        finding(json!([greeter, util])),
+        finding(json!([util, util_file])),
+        finding(json!([util, main])),
+    ];
+    let (status, body) = post(
+        &e,
+        &t,
+        "review",
+        json!({"reviewer": "reviewer", "verdict": "request_changes", "findings": retry}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let records = e
+        .store
+        .task_records(scholion_core::TaskId(id(&t).parse().unwrap()))
+        .await
+        .unwrap();
+    let mut anchors: Vec<Vec<String>> = records
+        .iter()
+        .filter(|r| r.kind == scholion_core::RecordKind::Review)
+        .map(|r| {
+            let mut a: Vec<String> = r
+                .anchors
+                .iter()
+                .map(|a| format!("{}:{}", a.path, a.symbol.as_deref().unwrap_or("")))
+                .collect();
+            a.sort_unstable();
+            a
+        })
+        .collect();
+    anchors.sort_unstable();
+    assert_eq!(
+        anchors,
+        [
+            ["app/greeter.py:", "app/util.py:format_name"],
+            ["app/main.py:", "app/util.py:format_name"],
+            ["app/util.py:", "app/util.py:format_name"],
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn approval_is_void_after_the_workspace_changes() {
     let e = env().await;
     let t = ready_to_merge(&e, "Upper names", UPPER).await;

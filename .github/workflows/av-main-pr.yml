@@ -35,6 +35,11 @@ jobs:
             echo "A pull request from av-main is already open; nothing to do."
             exit 0
           fi
+          ahead="$(gh api "repos/$GH_REPO/compare/main...av-main" --jq '.ahead_by')"
+          if [ "$ahead" = "0" ]; then
+            echo "av-main has no commits that main lacks; nothing to open."
+            exit 0
+          fi
           cat > "$RUNNER_TEMP/body.md" <<'BODY'
           This branch is the Scholion foundry's trunk: the work of agents, merged through av with a review
           and a human gate. Each task's `av notes` comment on this pull request carries its records

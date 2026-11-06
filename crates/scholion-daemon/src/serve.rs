@@ -35,8 +35,8 @@ where
 ///
 /// Order: Postgres (lite mode starts its own when `cfg.database_url` is unset), the core state,
 /// the `repos` table sync, then `customize`, which gets the built state and returns it (with any
-/// `with_extension`, `with_merge_guard`, `with_usage_sink`, `with_mcp_tools` added, and after any
-/// `migrate_extension`) plus extra routes. Those are served through [`router_with`], behind the
+/// `with_extension`, `with_merge_guard`, `with_usage_sink`, `with_mcp_tools`, `with_vcs_layer`
+/// added, and after any `migrate_extension`) plus extra routes. Those are served through [`router_with`], behind the
 /// same token as `/v1`. An error from `customize` stops start-up before anything is served. Then
 /// the outbox worker and backups start, and the server runs. When `shutdown` completes, every
 /// handle from [`AppState::shutdown`] turns `true` (so an extension's background tasks stop with

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`AppState::with_vcs_layer`: an extension can wrap the version-control engine.** Called from
+  `run_with`'s `customize` step, it hands the extension the jj engine and uses what it returns
+  everywhere from then on: the API, the packer, the backup loop and the disk sweep. A layer may
+  forward every call and observe it, or replace the engine.
+
 ## 0.0.3 (2026-11-06)
 
 Agents can now propose backlog items that wait for a person's accept (`av post --propose`,

@@ -5,10 +5,15 @@
 pub use std::path::{Path, PathBuf};
 use std::process::Command;
 pub use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use axum::Router;
 use axum::body::Body;
 pub use axum::http::{Request, StatusCode};
+use scholion_core::{
+    Advance, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result as VcsResult, WorkspaceInfo,
+};
 pub use scholion_daemon::{AppState, router_with};
 pub use scholion_index::{CodeIndex, PgIndex};
 pub use scholion_store::PgStore;
@@ -267,67 +272,181 @@ pub fn edit_greeter(e: &Env, t: &Value) {
     .unwrap();
 }
 
-/// Counts `read_files` calls (the indexing path) and passes everything through.
+/// Passes every `Vcs` call to `inner`, the defaulted methods too (so no default body bypasses
+/// it), and counts them: `read_files` (the indexing path), `calls` (all of them) and `seen` (the
+/// methods, in call order).
 pub struct CountingVcs {
     pub inner: Arc<dyn scholion_core::Vcs>,
-    pub read_files: Arc<std::sync::atomic::AtomicUsize>,
+    pub read_files: Arc<AtomicUsize>,
+    pub calls: Arc<AtomicUsize>,
+    pub seen: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl CountingVcs {
+    /// Fresh counters around `inner`.
+    pub fn new(inner: Arc<dyn scholion_core::Vcs>) -> Self {
+        Self {
+            inner,
+            read_files: Arc::default(),
+            calls: Arc::default(),
+            seen: Arc::default(),
+        }
+    }
+
+    fn note(&self, method: &'static str) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.seen.lock().unwrap().push(method);
+    }
 }
 
 #[async_trait::async_trait]
 impl scholion_core::Vcs for CountingVcs {
-    async fn init_repo(
-        &self,
-        repo: &str,
-        src: &Path,
-    ) -> scholion_core::Result<scholion_core::ChangeId> {
+    async fn init_repo(&self, repo: &str, src: &Path) -> VcsResult<ChangeId> {
+        self.note("init_repo");
         self.inner.init_repo(repo, src).await
     }
-    async fn create_workspace(
-        &self,
-        repo: &str,
-        slug: &str,
-    ) -> scholion_core::Result<scholion_core::WorkspaceInfo> {
+    async fn create_workspace(&self, repo: &str, slug: &str) -> VcsResult<WorkspaceInfo> {
+        self.note("create_workspace");
         self.inner.create_workspace(repo, slug).await
     }
-    async fn snapshot(
-        &self,
-        repo: &str,
-        slug: &str,
-    ) -> scholion_core::Result<scholion_core::ChangeId> {
+    async fn snapshot(&self, repo: &str, slug: &str) -> VcsResult<ChangeId> {
+        self.note("snapshot");
         self.inner.snapshot(repo, slug).await
     }
     async fn changed_paths(
         &self,
         repo: &str,
-        base: &scholion_core::ChangeId,
-        head: &scholion_core::ChangeId,
-    ) -> scholion_core::Result<Vec<String>> {
+        base: &ChangeId,
+        head: &ChangeId,
+    ) -> VcsResult<Vec<String>> {
+        self.note("changed_paths");
         self.inner.changed_paths(repo, base, head).await
     }
-    async fn list_files(
-        &self,
-        repo: &str,
-        change: &scholion_core::ChangeId,
-    ) -> scholion_core::Result<Vec<String>> {
+    async fn list_files(&self, repo: &str, change: &ChangeId) -> VcsResult<Vec<String>> {
+        self.note("list_files");
         self.inner.list_files(repo, change).await
     }
-    async fn read_file(
-        &self,
-        repo: &str,
-        change: &scholion_core::ChangeId,
-        path: &str,
-    ) -> scholion_core::Result<Vec<u8>> {
+    async fn read_file(&self, repo: &str, change: &ChangeId, path: &str) -> VcsResult<Vec<u8>> {
+        self.note("read_file");
         self.inner.read_file(repo, change, path).await
     }
     async fn read_files(
         &self,
         repo: &str,
-        change: &scholion_core::ChangeId,
+        change: &ChangeId,
         paths: &[String],
-    ) -> scholion_core::Result<Vec<(String, scholion_core::Result<Vec<u8>>)>> {
-        self.read_files
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    ) -> VcsResult<Vec<(String, VcsResult<Vec<u8>>)>> {
+        self.note("read_files");
+        self.read_files.fetch_add(1, Ordering::SeqCst);
         self.inner.read_files(repo, change, paths).await
+    }
+    async fn list_repos(&self) -> VcsResult<Vec<String>> {
+        self.note("list_repos");
+        self.inner.list_repos().await
+    }
+    async fn trunk(&self, repo: &str) -> VcsResult<ChangeId> {
+        self.note("trunk");
+        self.inner.trunk(repo).await
+    }
+    async fn merge_task(
+        &self,
+        repo: &str,
+        slug: &str,
+        expected_head: &ChangeId,
+        message: &str,
+    ) -> VcsResult<MergeOutcome> {
+        self.note("merge_task");
+        self.inner
+            .merge_task(repo, slug, expected_head, message)
+            .await
+    }
+    async fn push_backup(
+        &self,
+        repo: &str,
+        remote_url: &str,
+        branch: Option<&str>,
+    ) -> VcsResult<ChangeId> {
+        self.note("push_backup");
+        self.inner.push_backup(repo, remote_url, branch).await
+    }
+    async fn advance_trunk(
+        &self,
+        repo: &str,
+        remote_url: &str,
+        branch: &str,
+    ) -> VcsResult<Advance> {
+        self.note("advance_trunk");
+        self.inner.advance_trunk(repo, remote_url, branch).await
+    }
+    async fn trunk_log(&self, repo: &str, limit: usize) -> VcsResult<Vec<LogEntry>> {
+        self.note("trunk_log");
+        self.inner.trunk_log(repo, limit).await
+    }
+    async fn history(&self, repo: &str, limit: usize) -> VcsResult<Vec<LogEntry>> {
+        self.note("history");
+        self.inner.history(repo, limit).await
+    }
+    async fn path_log(
+        &self,
+        repo: &str,
+        path: &str,
+        limit: usize,
+        scan: usize,
+    ) -> VcsResult<Vec<LogEntry>> {
+        self.note("path_log");
+        self.inner.path_log(repo, path, limit, scan).await
+    }
+    async fn rebase_workspace(&self, repo: &str, slug: &str) -> VcsResult<RebaseOutcome> {
+        self.note("rebase_workspace");
+        self.inner.rebase_workspace(repo, slug).await
+    }
+    async fn revert_merge(
+        &self,
+        repo: &str,
+        merge_commit: &ChangeId,
+        message: &str,
+    ) -> VcsResult<MergeOutcome> {
+        self.note("revert_merge");
+        self.inner.revert_merge(repo, merge_commit, message).await
+    }
+    async fn undo_merge(
+        &self,
+        repo: &str,
+        pre_merge: &ChangeId,
+        merge_commit: &ChangeId,
+    ) -> VcsResult<()> {
+        self.note("undo_merge");
+        self.inner.undo_merge(repo, pre_merge, merge_commit).await
+    }
+    async fn remove_workspace(&self, repo: &str, slug: &str) -> VcsResult<bool> {
+        self.note("remove_workspace");
+        self.inner.remove_workspace(repo, slug).await
+    }
+    async fn restore_workspace(
+        &self,
+        repo: &str,
+        slug: &str,
+        head: &ChangeId,
+    ) -> VcsResult<WorkspaceInfo> {
+        self.note("restore_workspace");
+        self.inner.restore_workspace(repo, slug, head).await
+    }
+    async fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> VcsResult<Vec<String>> {
+        self.note("apply_patch");
+        self.inner.apply_patch(repo, slug, patch).await
+    }
+    async fn diff_patch(
+        &self,
+        repo: &str,
+        from: Option<&ChangeId>,
+        to: &ChangeId,
+    ) -> VcsResult<Vec<u8>> {
+        self.note("diff_patch");
+        self.inner.diff_patch(repo, from, to).await
+    }
+    async fn tree_id(&self, repo: &str, change: &ChangeId) -> VcsResult<String> {
+        self.note("tree_id");
+        self.inner.tree_id(repo, change).await
     }
 }
 

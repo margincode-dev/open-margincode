@@ -251,6 +251,23 @@ impl AppState {
         self
     }
 
+    /// Wraps the version-control engine: `layer` gets the engine built so far (jj) and returns the
+    /// one the daemon uses from here on, which may forward to it and observe, or replace it.
+    /// Call it from `run_with`'s `customize` step: `serve_with` starts the outbox worker, the backup
+    /// loop and the disk sweep from the state `customize` returns, so they see the layered engine.
+    /// The packer holds its own handle (taken in `new`), so it is rebuilt on the layered one.
+    /// Only `sync_repos` runs on the bare engine before `customize`; it keeps nothing.
+    pub fn with_vcs_layer(mut self, layer: impl FnOnce(Arc<dyn Vcs>) -> Arc<dyn Vcs>) -> Self {
+        self.vcs = layer(self.vcs);
+        self.packer = Arc::new(Packer::with_semantic(
+            self.vcs.clone(),
+            self.store.clone(),
+            self.index.clone(),
+            self.semantic.clone(),
+        ));
+        self
+    }
+
     /// Lifecycle events (`GET /v1/events`, of every repo) committed from now on, in process.
     pub async fn subscribe_events(
         &self,

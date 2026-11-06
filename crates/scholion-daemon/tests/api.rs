@@ -825,8 +825,8 @@ async fn start_opens_an_empty_overlay_without_reading_the_repo() {
     let e = env_with_vcs(
         move |inner| {
             Arc::new(CountingVcs {
-                inner,
                 read_files: counter,
+                ..CountingVcs::new(inner)
             })
         },
         |s| s,
@@ -3961,6 +3961,82 @@ async fn a_merge_guard_can_refuse_a_merge_and_main_stays() {
     );
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(task["task"]["status"], "in_review", "{task}");
+}
+
+/// An extension's layer over the engine (`with_vcs_layer`, as `run_with`'s `customize` calls it)
+/// sees the API's calls, the packer's reads and the backup loop's push, and passes jj's ids
+/// through unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vcs_layer_sees_the_api_the_packer_and_the_backup_loop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::default();
+    let (c, s) = (calls.clone(), seen.clone());
+    let e = env_with(move |st| {
+        st.with_vcs_layer(move |inner| {
+            Arc::new(CountingVcs {
+                calls: c,
+                seen: s,
+                ..CountingVcs::new(inner)
+            })
+        })
+    })
+    .await;
+    let mark = || seen.lock().unwrap().len();
+    let since = |n: usize| seen.lock().unwrap()[n..].to_vec();
+    assert!(since(0).contains(&"init_repo"), "{:?}", since(0));
+    // the engine underneath, unlayered, to compare ids with
+    let jj = JjVcs::new(e._store.path().to_path_buf(), e.ws.path().to_path_buf());
+
+    let n = mark();
+    let t = start_task(&e, "Improve greeting").await;
+    assert!(since(n).contains(&"create_workspace"), "{:?}", since(n));
+    let trunk = jj.trunk("demo").await.unwrap();
+    assert_eq!(t["task"]["base_change"], trunk.0.as_str(), "{t}");
+
+    edit_greeter(&e, &t);
+    let n = mark();
+    let (status, cp) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    assert_eq!(cp["changed"], json!(["app/greeter.py"]));
+    assert!(since(n).contains(&"snapshot"), "{:?}", since(n));
+    assert_ne!(cp["head_change"], t["task"]["head_change"], "{cp}");
+    let slug = t["task"]["slug"].as_str().unwrap();
+    let head = jj.snapshot("demo", slug).await.unwrap();
+    assert_eq!(cp["head_change"], head.0.as_str(), "jj's own id");
+
+    // the packer reads through the layer too
+    let n = mark();
+    let (status, pr) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/bundle?kind=pr&budget=2000", id(&t)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pr}");
+    assert!(since(n).contains(&"read_file"), "{:?}", since(n));
+
+    // the backup loop: one tick, one push, through the layer
+    let dir = TempDir::new().unwrap();
+    let remote = dir.path().join("backup.git");
+    bare_repo(&remote);
+    set_remote(&e, remote.to_str().unwrap()).await;
+    assert_eq!(settled(&e).await["failures"], 0);
+    e.store.mark_backups_due().await.unwrap();
+    let (n, before) = (mark(), calls.load(Ordering::SeqCst));
+    let pushed = scholion_daemon::backup_tick(&e.state).await.unwrap();
+    assert_eq!(pushed, 1);
+    assert_eq!(since(n), ["push_backup"]);
+    assert_eq!(calls.load(Ordering::SeqCst) - before, 1);
+    assert_eq!(git_out(&remote, &["rev-parse", "refs/heads/main"]), trunk.0);
+    assert_eq!(backup(&e).await["last_pushed"], trunk.0.as_str());
 }
 
 /// A guard that refuses any review verdict by `impostor` and remembers the review and approval

@@ -4258,6 +4258,20 @@ fn a_bare_404_says_the_daemon_is_probably_older() {
 }
 
 #[test]
+fn a_plain_text_rejection_is_printed_not_request_failed() {
+    // axum answers a path it cannot parse in plain text, not the daemon's JSON `error`
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let o = av(&d, scratch.path(), &["backlog", "accept", "not-a-uuid"]);
+    assert!(!o.status.success());
+    let e = err(&o);
+    assert!(
+        e.contains("not-a-uuid") && e.contains("HTTP 400") && !e.contains("request failed"),
+        "{e}"
+    );
+}
+
+#[test]
 fn a_404_the_daemon_explains_is_left_alone() {
     let url = canned_daemon(
         "404 Not Found",

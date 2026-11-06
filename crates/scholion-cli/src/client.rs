@@ -41,6 +41,9 @@ impl fmt::Display for CliError {
 /// This build's version, compared with the daemon's `X-Av-Version`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Characters of a plain-text error body shown in the message (a proxy's HTML page can be long).
+const MAX_PLAIN_ERROR: usize = 300;
+
 pub type Result<T> = std::result::Result<T, CliError>;
 
 pub struct Client {
@@ -209,7 +212,13 @@ impl Client {
                 .map_err(|e| CliError::Local(format!("bad response from daemon: {e}"))),
             Err(ureq::Error::Status(status, resp)) => {
                 let daemon = resp.header("x-av-version").map(str::to_owned);
-                let body = resp.into_json::<Value>().unwrap_or(Value::Null);
+                // Not every error is the daemon's JSON: axum answers a path or body it cannot
+                // parse (`/v1/backlog/not-a-uuid/accept`) in plain text, which says what is wrong.
+                let text = resp.into_string().unwrap_or_default();
+                let body = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+                let plain = text.trim();
+                let plain = (body.is_null() && !plain.is_empty())
+                    .then(|| plain.chars().take(MAX_PLAIN_ERROR).collect::<String>());
                 let message = body["error"].as_str().map(str::to_owned);
                 // A 404 the daemon's own handlers send carries an `error`; a bare one means the
                 // route does not exist there, and every route this av calls exists in this av.
@@ -224,7 +233,7 @@ impl Client {
                             self.base
                         )
                     }
-                    (None, _) => "request failed".to_owned(),
+                    (None, _) => plain.unwrap_or_else(|| "request failed".to_owned()),
                 };
                 Err(CliError::Api {
                     status,

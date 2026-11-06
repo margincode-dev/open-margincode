@@ -11,6 +11,11 @@
   unchanged (`ollama list` resolves the name to a pulled tag), and so is automatic selection with
   no CLI (`AV_EMBED_URL`, else off). The `api` path (`AV_EMBED_URL`) speaks text-embeddings-
   inference's `/embed` and cannot talk to Ollama, which serves `/api/embed` and `/v1/embeddings`.
+- **The CLI says why a request was malformed.** An error the daemon answers in plain text rather
+  than its JSON `error` (a path it cannot parse, such as `av backlog accept SLUG` or `av review`
+  with a short id, which need a full id) was printed as `request failed (HTTP 400)`; the CLI now
+  prints the text (for a slug: that `id` is not a UUID; at most 300 characters). Found by the
+  0.0.3 release check.
 - **Proposals: agents queue what they are sure of and propose the rest.** A backlog item can be
   `proposed` (`POST /v1/backlog` with `propose: true` and an optional `why` of at most 300
   characters; `av post --propose --why`): `next` never offers it until a human accepts it with

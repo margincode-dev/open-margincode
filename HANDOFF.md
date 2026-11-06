@@ -4,7 +4,7 @@ Delete this once you've acted on the open items. It links; the detail lives in t
 
 ## 1. Merged
 
-All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section and `0.0.2`).
+All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section, `0.0.3` and `0.0.2`).
 
 - **Plan 7**, overlay index scopes: `bench/results/2026-10-30-e2-overlay/`.
 - **Plan 8**, routing (backlog, agent profiles, `av next`) and **Plan 9**, the review loop (`next`
@@ -22,6 +22,8 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
   dependencies built once per repo, one test binary per crate, `next --wait` woken by events,
   and per-host caps `av watch --max-agents` / `av validate --max-builds` (`scholion-agentrun::slots`).
 - **Release 0.0.2** (tag `release/0.0.2`), the first to ship `scholion-daemon` with bundled Postgres.
+- **Release 0.0.3** (tag `release/0.0.3`, 2026-11-06): proposals, `av attention`, `av repo advance`, `av notes`, cold start
+  from git history, `embeddinggemma-2` as the default embedder, one approval per head and the redesigned dashboard.
 
 ## 2. Open
 

@@ -90,7 +90,9 @@ av init --for codex --for gemini --for cursor # the same for other agents
 ```
 
 Restart your agent, then ask it to *"start an av task to …"*. Open `http://localhost:7420/ui` to
-watch.
+watch. A merge moves Scholion's own `main`, not your checkout's: `av repo backup NAME --remote URL`
+pushes it to a git remote after every merge (a bare repo or GitHub; add `--branch av-main` to get
+a branch you can open a pull request from), and `av log --repo NAME` shows it.
 
 Other channels ([details](docs/install.md)):
 

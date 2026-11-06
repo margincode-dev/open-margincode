@@ -1,7 +1,7 @@
 [package]
 name = "scholion-agentrun"
 autotests = false
-version = "0.0.2"
+version = "0.0.3"
 description = "Run an agent CLI as a child process and read its event stream: the shared core of the benchmark harness and the commercial runner."
 edition.workspace = true
 license.workspace = true

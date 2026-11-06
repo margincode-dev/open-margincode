@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.0.3 (2026-11-06)
+
+Agents can now propose backlog items that wait for a person's accept (`av post --propose`,
+`av backlog accept`), and `av attention` (`GET /v1/attention`) lists what needs a person or an
+agent. `av repo advance` brings work merged on the remote back to main, and `av notes` puts a
+task's decisions and dead ends on its pull request. A new repo can start with records mined from
+its git history (`--mine-history N`). `embeddinggemma-2` is the default Ollama embedder, and
+Ollama may run in another container or host. A head takes one approval per review round, and the
+dashboard is redesigned. Lean disk and lean builds reclaim finished tasks' workspaces and their
+build output. Migrations 0027–0030 run on the first start; a 0.0.2 `AV_HOME` upgrades in place.
+
 - **Ollama on another container or host.** `AV_EMBED_PROVIDER=ollama` no longer needs an `ollama`
   CLI on the daemon's `PATH`: with none, the daemon sends `AV_OLLAMA_EMBED_MODEL` (now required in
   that case, for example `embeddinggemma-2`) as written to the Ollama server at `AV_OLLAMA_URL`'s

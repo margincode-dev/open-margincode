@@ -38,4 +38,4 @@ docker run -d --name scholion -p 127.0.0.1:7420:7420 -v scholion:/data ghcr.io/v
 The image holds `scholion-daemon`, `scholion` and `av`. With no `AV_DATABASE_URL` the daemon runs
 its own Postgres under `/data/pg` (lite mode); keep `/data` on a volume. The dashboard is at
 `http://localhost:7420/ui`. To use Compose with a separate Postgres and Qdrant, see
-`deploy/docker-compose.yml`. Tags: the release version (`0.0.2`) and `latest`.
+`deploy/docker-compose.yml`. Tags: the release version (e.g. `0.0.3`) and `latest`.

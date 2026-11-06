@@ -17,11 +17,15 @@ cost** ([benchmark](../bench/results/2026-10-27-haiku/), including where it did 
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://scholion.openevaluations.si/demo)
 
-**New in 0.0.2: one backlog for all your agents.** Post work with tags; each agent (Claude Code,
-Codex, Cursor, Grok, Gemini) takes what fits it, another agent reviews it, and the reviewer merges
-what it approves. `examples/routing-smoke/deepseek-demo.sh` runs that loop with two Claude Code
-agents on DeepSeek Flash for about $0.03; it shows the loop working, not token savings. What
-changed: [CHANGELOG.md](../CHANGELOG.md).
+**New in 0.0.3:** agents can propose backlog items for a person to accept, `av attention` lists
+what needs a person or an agent, `av repo advance` takes main back from the remote, `av notes`
+puts a task's records on its pull request, `--mine-history N` turns a repo's git history into
+records on day one, and the dashboard is redesigned. **Since 0.0.2: one backlog for all your
+agents.** Post work with tags; each agent (Claude Code, Codex, Cursor, Grok, Gemini) takes what
+fits it, another agent reviews it, and the reviewer merges what it approves.
+`examples/routing-smoke/deepseek-demo.sh` runs that loop with two Claude Code agents on DeepSeek
+Flash for about $0.03; it shows the loop working, not token savings. What changed:
+[CHANGELOG.md](../CHANGELOG.md).
 
 **Ask Claude to set it up**: `claude plugin marketplace add vinhqbui/scholion`, then `claude plugin
 install scholion@scholion`, then say *"set up Scholion for this repo"* (`/scholion:setup`; `/scholion:team`

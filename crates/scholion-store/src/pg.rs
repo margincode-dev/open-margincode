@@ -533,8 +533,8 @@ impl IntentStore for PgStore {
 
     async fn latest_verdict_any(&self, task: TaskId) -> Result<Option<VerdictRow>> {
         let row = sqlx::query(
-            "SELECT reviewer, verdict, head_change, base_change, carried_from FROM review_verdicts
-             WHERE task_id = $1 ORDER BY id DESC LIMIT 1",
+            "SELECT reviewer, verdict, head_change, base_change, carried_from, created_at
+             FROM review_verdicts WHERE task_id = $1 ORDER BY id DESC LIMIT 1",
         )
         .bind(task.0)
         .fetch_optional(&self.pool)
@@ -543,9 +543,28 @@ impl IntentStore for PgStore {
         row.map(|r| verdict_row(&r)).transpose()
     }
 
+    async fn round_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>> {
+        let row = sqlx::query(
+            "SELECT reviewer, verdict, head_change, base_change, carried_from, created_at
+             FROM review_verdicts
+             WHERE task_id = $1 AND head_change = $2
+               AND created_at > coalesce(
+                   (SELECT max(e.at) FROM events e WHERE e.task_id = $1 AND e.kind = 'submit'),
+                   '-infinity')
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(task.0)
+        .bind(&head.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        row.map(|r| verdict_row(&r)).transpose()
+    }
+
     async fn human_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>> {
         let row = sqlx::query(
-            "SELECT reviewer, verdict, head_change, base_change, carried_from FROM review_verdicts
+            "SELECT reviewer, verdict, head_change, base_change, carried_from, created_at
+             FROM review_verdicts
              WHERE task_id = $1 AND head_change = $2 AND reviewer <> 'av' ORDER BY id DESC LIMIT 1",
         )
         .bind(task.0)
@@ -2027,6 +2046,7 @@ fn verdict_row(r: &PgRow) -> Result<VerdictRow> {
         head: ChangeId(r.try_get("head_change").map_err(serr)?),
         base: opt("base_change")?,
         carried_from: opt("carried_from")?,
+        at: Some(r.try_get("created_at").map_err(serr)?),
     })
 }
 

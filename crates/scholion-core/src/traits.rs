@@ -226,6 +226,10 @@ pub trait IntentStore: Send + Sync {
     ) -> Result<()>;
     /// The task's newest verdict at any head.
     async fn latest_verdict_any(&self, task: TaskId) -> Result<Option<VerdictRow>>;
+    /// The newest verdict at `head` given in the task's current review round (after its latest
+    /// `submit` event), with who gave it and when. A verdict from before a revert or a request for
+    /// changes and a resubmit of the same head is not in it.
+    async fn round_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>>;
     /// The newest verdict by `reviewer`-not-`av` at `head` (the human approval a carry names).
     async fn human_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>>;
     /// Stores a check result for `change` (replacing an earlier run of the same command).

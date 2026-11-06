@@ -141,7 +141,10 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
 This table is `scholion-core/src/lifecycle.rs`; any other transition is refused with HTTP 422.
 `submit` is refused unless the task has changes, and both `submit` and `handoff` unless it has at
 least one decision, attempt, note or handoff record. The refusal lists changed symbols that no
-record covers.
+record covers. An approve needs a passing validation at the head and is refused when the head is
+already approved in its current review round, since the latest submit (the answer names who
+approved it and when); after a resubmit the head is reviewed again.
+A review finding the reviewer already stored at the same head is not stored twice.
 
 **Claims.** A handoff stores what is done, remaining, broken and still open as a `handoff` record
 and returns a *handoff bundle*: goal, state, records (decisions and dead ends first), changes

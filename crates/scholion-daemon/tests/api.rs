@@ -1030,6 +1030,116 @@ async fn request_changes_reopens_the_task_with_a_review_record() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_second_approve_of_an_approved_head_is_refused_and_names_the_first() {
+    let e = env().await;
+    // approved by "reviewer"
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    // another reviewer, then the same one again (a retried `av review`)
+    for who in ["reviewer2", "reviewer"] {
+        let (status, body) = review(&e, &t, who, "approve").await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        let error = body["error"].as_str().unwrap();
+        assert!(error.contains("already approved by reviewer at "), "{body}");
+    }
+    // nothing was written: the newest verdict is still the first approval
+    let task_id = scholion_core::TaskId(id(&t).parse().unwrap());
+    let v = e.store.latest_verdict_any(task_id).await.unwrap().unwrap();
+    assert_eq!(v.reviewer, "reviewer");
+    assert!(v.at.is_some(), "{v:?}");
+    let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "merged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn approve_after_changes_requested_and_a_new_submit_is_accepted() {
+    let e = env().await;
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    // request_changes on an approved head works as before
+    let (status, body) = review(&e, &t, "reviewer2", "request_changes").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "open");
+    write_file(&e, &t, "app/util.py", LOWER);
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    validate(&e, &t, 0).await;
+    // the first approver approves the new head
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"], "approve");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_same_head_resubmitted_after_changes_requested_is_a_new_round() {
+    let e = env().await;
+    let t = ready_to_merge(&e, "Upper names", UPPER).await;
+    let (status, body) = review(&e, &t, "reviewer2", "request_changes").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // resubmitted without an edit: the head is the one approved before
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the old round's approval does not count: {body}"
+    );
+    // within this round, a second approval is refused
+    let (status, body) = review(&e, &t, "reviewer2", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let error = body["error"].as_str().unwrap();
+    assert!(error.contains("already approved by reviewer at "), "{body}");
+    assert!(error.contains("needs a new submit"), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn identical_review_findings_at_one_head_are_stored_once() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    submit(&e, &t).await;
+    let same = json!({"summary": "keep title case for names", "body": "names are proper nouns",
+                      "anchors": [{"path": "app/util.py", "symbol": "format_name"}]});
+    let other = json!({"summary": "add a test for empty names"});
+    // the same finding twice in one call
+    let (status, body) = post(
+        &e,
+        &t,
+        "review",
+        json!({"reviewer": "reviewer", "verdict": "request_changes", "findings": [same, same]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // the same head submitted again and the review sent again, with one new finding
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = post(
+        &e,
+        &t,
+        "review",
+        json!({"reviewer": "reviewer", "verdict": "request_changes", "findings": [same, other]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let records = e
+        .store
+        .task_records(scholion_core::TaskId(id(&t).parse().unwrap()))
+        .await
+        .unwrap();
+    let mut findings: Vec<&str> = records
+        .iter()
+        .filter(|r| r.kind == scholion_core::RecordKind::Review)
+        .map(|r| r.summary.as_str())
+        .collect();
+    findings.sort_unstable();
+    assert_eq!(
+        findings,
+        ["add a test for empty names", "keep title case for names"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn approval_is_void_after_the_workspace_changes() {
     let e = env().await;
     let t = ready_to_merge(&e, "Upper names", UPPER).await;

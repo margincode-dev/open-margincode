@@ -89,3 +89,12 @@ For Codex and Gemini, use the same pattern with that CLI's own non-interactive c
 
 Tell the user to watch the work at `http://localhost:7420/ui`. The Teams panel shows each agent's
 strengths, cost and open tasks, and which items are reserved for which agent.
+
+## 7. Let each agent lead, not just execute
+
+A session that takes one av task at a time, carried by the hooks, does the task but loses the
+thread between tasks. Tell the user to ask each agent CLI to run the backlog as a lead instead:
+*"take the av backlog: start a subagent per task, monitor them, review what comes back and keep
+going"*. The session and its subagents count as one agent (the same `--agent` name on every
+call), so it never reviews its own work; another agent does. This is how Scholion itself is
+developed; it is not benchmarked.

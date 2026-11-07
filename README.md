@@ -94,6 +94,14 @@ watch. A merge moves Scholion's own `main`, not your checkout's: `av repo backup
 pushes it to a git remote after every merge (a bare repo or GitHub; add `--branch av-main` to get
 a branch you can open a pull request from), and `av log --repo NAME` shows it.
 
+**Let the agent lead a team.** In our own use, one Claude Code or Grok session pointed at one av
+task at a time, carried by the hooks, does the task but loses the thread between tasks. What
+works better is to ask the session to run the backlog as a lead: *"take the av backlog: start a
+subagent per task, monitor them, review what comes back and keep going"*. The session and its
+subagents count as one agent to Scholion (the same name on every call), so it never reviews its
+own work; another agent does. Size backlog items as whole jobs with a definition of done, not
+single steps. We have not benchmarked this; it is what the project itself is built with.
+
 Other channels ([details](docs/install.md)):
 
 ```bash

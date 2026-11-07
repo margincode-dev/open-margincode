@@ -33,6 +33,7 @@ fn config(db: &TestDb, dir: &std::path::Path, token: Option<&str>) -> Config {
         attention: Default::default(),
         build_cache: true,
         ws_retain_secs: Some(3600),
+        disk_min_free_bytes: 0,
         backup_remotes: Vec::new(),
         token: token.map(str::to_owned),
     }

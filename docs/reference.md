@@ -366,6 +366,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log` (moved to `daemon.log.1` by `av up` once over 50 MB), `daemon.pid` |
 | `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it (see [Disk](#disk-what-agents-create-and-what-av-reclaims)) |
+| `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it av reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos |
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
@@ -425,6 +426,7 @@ Defaults (override with environment variables before `up`):
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
+| `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it the daemon reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off. |
 | `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`, `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS` | `7200`, `3600`, `3600`, 512 MiB, `86400` | when `GET /v1/attention` lists a waiting task or a footprint (see [Needs attention](#needs-attention-get-v1attention)). |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
 | `AV_INDEX_MAX_FANOUT` | (none) | a call whose bare name more than N other symbols define (`new`, `get`) links to none of them in the code graph. Cuts the edges of big repos (tokio: 71% at 64) without a measured loss in packs (`bench/results/2026-11-03-e1-fanout-cap/`). Set it before importing: stored edges keep the cap they were built with, and `reindex` skips unchanged files. |
@@ -781,6 +783,7 @@ values are stable:
 
 | kind | severity | when | `since` |
 | --- | --- | --- | --- |
+| `disk_low` | 3 | free space on the disk under the workspace root is below `AV_DISK_MIN_FREE_GB` even after the daemon reclaimed what it could, so no new task starts; daemon-wide (`repo` is null, listed whatever `?repo=` says), `bytes` is the free space | when the daemon first measured it below |
 | `main_red` | 3 | the post-merge check of main's newest checked commit failed (as `GET /v1/repos/{name}/health` says; `slug` is the task that landed the oldest red commit) | when that commit's failing result was posted |
 | `conflicted` | 3 | a task's merge conflicted: its owner must sync, resolve and resubmit (no threshold) | when it entered `conflicted` |
 | `stale_review` | 2 | in review with no approval at its head for over `AV_ATTN_REVIEW_SECS` | when it entered review (an approval does not restart the clock) |
@@ -838,6 +841,15 @@ look (the answer says `build: removed`, `none` or `kept`; the feed gets `build:r
 task back to work restores its workspace at the task's head. Open, handed-off, in-review and
 conflicted tasks are never touched, and the daemon deletes nothing outside `ws_root`. `av disk`
 marks the workspaces a sweep would remove as `reclaimable`.
+
+**The free-space floor.** When the disk under `ws_root` has less free than `AV_DISK_MIN_FREE_GB`
+(default 20 GiB, `0` turns it off), the sweep and every task start first reclaim as `av gc --retain 0
+--build-cache` would (finished tasks' workspaces oldest first, then each repo's build cache) and,
+while it is still below, refuse to start a task with HTTP 507 and a reason naming the floor and
+the free bytes; `GET /v1/attention` lists `disk_low`. Tasks already started keep working, and
+reviews, handoffs and merges are still offered. `GET /v1/disk` reports `fs_free_bytes` and
+`fs_total_bytes` of that filesystem (null where not measured: the check then never refuses),
+`min_free_bytes` and `below_floor`; `av disk` prints them on its second line.
 
 **Lean builds, one target dir per task.** Build output is where the disk goes: in the first
 dogfood run, a Rust task's `cargo test` left about 20 GB (14 GB of test binaries that were 73%

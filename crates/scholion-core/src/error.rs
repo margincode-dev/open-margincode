@@ -16,6 +16,10 @@ pub enum AvError {
     /// A well-formed request that would overwrite what another writer owns (HTTP 409).
     #[error("conflict: {0}")]
     Conflict(String),
+    /// The disk under the workspace root is below the daemon's free-space floor
+    /// (`AV_DISK_MIN_FREE_GB`), so no new task workspace is made (HTTP 507).
+    #[error("not enough disk space: {0}")]
+    InsufficientStorage(String),
     #[error("vcs error: {0}")]
     Vcs(String),
     #[error("store error: {0}")]

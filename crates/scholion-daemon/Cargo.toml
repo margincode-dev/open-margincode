@@ -43,6 +43,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
+# `statvfs` for the free-space floor (`disk::fs_space`); already in the lock through filetime and tokio.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 chrono.workspace = true
 scholion-testutil = { path = "../scholion-testutil" }

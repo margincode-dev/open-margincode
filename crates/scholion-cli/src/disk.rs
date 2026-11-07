@@ -36,6 +36,9 @@ pub fn render_disk(v: &Value) -> String {
         None => "finished tasks' workspaces are kept (AV_WS_RETAIN_SECS=never)".into(),
     };
     let _ = writeln!(o, "workspaces in {} ({retain})", s(&v["ws_root"]));
+    if let Some(line) = free_space(v) {
+        let _ = writeln!(o, "{line}");
+    }
     let repos = v["repos"].as_array().cloned().unwrap_or_default();
     if repos.is_empty() {
         let _ = writeln!(o, "no repos");
@@ -143,6 +146,33 @@ pub fn render_disk(v: &Value) -> String {
     o
 }
 
+/// The filesystem under the workspaces and the free-space floor; `None` from a daemon that does
+/// not report them.
+fn free_space(v: &Value) -> Option<String> {
+    let free = v.get("fs_free_bytes")?;
+    let floor = v["min_free_bytes"].as_u64().unwrap_or(0);
+    let mut line = match free.as_u64() {
+        Some(free) => format!(
+            "disk: {} free of {}",
+            human(free),
+            bytes(&v["fs_total_bytes"])
+        ),
+        None => "disk: free space not measured on this platform".to_owned(),
+    };
+    if floor == 0 {
+        line.push_str(", no free-space floor (AV_DISK_MIN_FREE_GB=0)");
+    } else {
+        let _ = write!(line, ", floor {} (AV_DISK_MIN_FREE_GB)", human(floor));
+    }
+    if v["below_floor"].as_bool() == Some(true) {
+        line.push_str(
+            "\nBELOW THE FLOOR: no new task starts until there is room; tasks already started \
+             keep working (submit, merge or abandon them, or free space)",
+        );
+    }
+    Some(line)
+}
+
 /// `POST /v1/gc` for people.
 pub fn render_gc(v: &Value) -> String {
     let mut o = String::new();
@@ -220,5 +250,41 @@ mod tests {
         assert!(out.contains("AV_WS_RETAIN_SECS=never"), "{out}");
         assert!(out.contains("AV_BUILD_CACHE=off"), "{out}");
         assert!(!out.contains("postgres"), "{out}");
+        // a daemon that does not report the filesystem gets no disk line
+        assert!(!out.contains("disk:"), "{out}");
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn a_disk_shows_free_space_and_the_floor() {
+        let mut v = json!({"ws_root": "/w", "retain_secs": 3600, "repos": [], "outside": [],
+                           "totals": {}, "fs_free_bytes": 50 * GIB, "fs_total_bytes": 200 * GIB,
+                           "min_free_bytes": 20 * GIB, "below_floor": false});
+        let out = render_disk(&v);
+        assert!(
+            out.contains("disk: 50.0 GB free of 200.0 GB, floor 20.0 GB (AV_DISK_MIN_FREE_GB)"),
+            "{out}"
+        );
+        assert!(!out.contains("BELOW"), "{out}");
+
+        v["fs_free_bytes"] = json!(5 * GIB);
+        v["below_floor"] = json!(true);
+        let out = render_disk(&v);
+        assert!(out.contains("disk: 5.0 GB free"), "{out}");
+        assert!(out.contains("BELOW THE FLOOR: no new task starts"), "{out}");
+
+        v["min_free_bytes"] = json!(0);
+        v["below_floor"] = json!(false);
+        let out = render_disk(&v);
+        assert!(
+            out.contains("no free-space floor (AV_DISK_MIN_FREE_GB=0)"),
+            "{out}"
+        );
+
+        v["fs_free_bytes"] = Value::Null;
+        v["fs_total_bytes"] = Value::Null;
+        let out = render_disk(&v);
+        assert!(out.contains("free space not measured"), "{out}");
     }
 }

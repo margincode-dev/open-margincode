@@ -3858,6 +3858,7 @@ dependencies = [
  "filetime",
  "futures",
  "globset",
+ "libc",
  "postgresql_embedded",
  "scholion-core",
  "scholion-index",

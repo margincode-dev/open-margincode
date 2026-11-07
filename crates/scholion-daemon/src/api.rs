@@ -523,7 +523,9 @@ pub(crate) async fn pack_for_task(
 }
 
 /// Creates the task, its workspace and index scope, its intent record and its lease. A failure
-/// abandons the task, so no open task is left without a workspace.
+/// abandons the task, so no open task is left without a workspace. Below the free-space floor
+/// (`AV_DISK_MIN_FREE_GB`) it first reclaims, and if still below makes nothing
+/// (`InsufficientStorage`, HTTP 507).
 pub(crate) async fn create_started(
     st: &AppState,
     repo: String,
@@ -532,6 +534,7 @@ pub(crate) async fn create_started(
     agent: String,
     pack_mode: PackMode,
 ) -> Result<Task> {
+    crate::disk::ensure_room(st).await?;
     let task = st
         .store
         .create_task(NewTask {

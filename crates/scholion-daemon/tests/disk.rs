@@ -1,6 +1,7 @@
 //! Plan 11: the workspaces of merged and abandoned tasks are reclaimed (`POST /v1/gc`, the sweep,
 //! or at once with `AV_WS_RETAIN_SECS=0`), restored by undo and revert, and `GET /v1/disk` shows
-//! what is on disk.
+//! what is on disk; below the free-space floor (`AV_DISK_MIN_FREE_GB`) the daemon reclaims on its
+//! own and starts no new task.
 
 use crate::common::*;
 
@@ -682,6 +683,7 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
         attention: Default::default(),
         build_cache: true,
         ws_retain_secs: retain,
+        disk_min_free_bytes: 0,
         backup_remotes: Vec::new(),
         token: None,
     }
@@ -799,6 +801,270 @@ async fn the_sweep_removes_a_merged_workspace_without_a_gc_call() {
         }
         stop.send(()).unwrap();
         assert!(gone, "the sweep removed {wdir:?} within 4 s");
+    };
+    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::join!(server, client)
+    })
+    .await
+    .expect("daemon stops on the shutdown future");
+    served.unwrap();
+}
+
+// ---- the free-space floor (`AV_DISK_MIN_FREE_GB`) ----
+
+/// A floor no disk reaches: the check is always below it where free space is measured.
+const FAR_ABOVE: u64 = u64::MAX;
+
+async fn start_raw(e: &Env, title: &str) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "agent": "claude", "session": "s-1"}),
+        ),
+    )
+    .await
+}
+
+async fn attention_kinds(e: &Env) -> Vec<Value> {
+    let (status, body) = call(&e.app, "GET", "/v1/attention?repo=demo", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["items"].as_array().unwrap().clone()
+}
+
+async fn disk_of(e: &Env) -> Value {
+    let (status, body) = call(&e.app, "GET", "/v1/disk", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn disk_reports_the_filesystems_free_and_total_bytes() {
+    let e = env().await;
+    let disk = disk_of(&e).await;
+    assert_eq!(disk["min_free_bytes"], 0, "off unless set: {disk}");
+    assert_eq!(disk["below_floor"], false, "{disk}");
+    if cfg!(unix) {
+        let free = disk["fs_free_bytes"].as_u64().expect("measured on Unix");
+        let total = disk["fs_total_bytes"].as_u64().expect("measured on Unix");
+        assert!(total > 0 && free <= total, "{disk}");
+    } else {
+        assert!(disk["fs_free_bytes"].is_null(), "{disk}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_working() {
+    let e = env().await;
+    let open = start_task(&e, "Wave hello").await;
+    e.state.set_disk_min_free(FAR_ABOVE);
+
+    let (status, body) = start_raw(&e, "Shout hello").await;
+    assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE, "{body}");
+    let why = body["error"].as_str().unwrap();
+    assert!(
+        why.contains("AV_DISK_MIN_FREE_GB"),
+        "names the floor: {why}"
+    );
+    assert!(
+        why.contains(&FAR_ABOVE.to_string()),
+        "the floor's bytes: {why}"
+    );
+    assert!(why.contains(" bytes) free"), "the free bytes: {why}");
+    // nothing was made: no task row, no workspace
+    let (_, tasks) = call(&e.app, "GET", "/v1/tasks?repo=demo", None).await;
+    let titles: Vec<&str> = tasks["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["title"].as_str())
+        .collect();
+    assert!(titles.contains(&"Wave hello"), "{tasks}");
+    assert!(
+        !titles.contains(&"Shout hello"),
+        "no task row for the refused start: {tasks}"
+    );
+
+    // `next` refuses a backlog task the same way and leaves the item queued
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog",
+        Some(
+            json!({"repo": "demo", "title": "Whisper hello", "goal": "Make hello softer",
+                    "reserve_secs": 0}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog/next",
+        Some(json!({"agent": "claude", "session": "s-next"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE, "{body}");
+    let (_, items) = call(&e.app, "GET", "/v1/backlog?repo=demo", None).await;
+    assert_eq!(items["items"][0]["state"], "queued", "{items}");
+
+    // the dashboard strip and `av attention` say so, daemon-wide and worst first
+    let items = attention_kinds(&e).await;
+    let low = &items[0];
+    assert_eq!(low["kind"], "disk_low", "{items:?}");
+    assert_eq!(low["severity"], 3, "{low}");
+    assert!(low["repo"].is_null(), "{low}");
+    assert!(low["bytes"].as_u64().is_some(), "{low}");
+    let disk = disk_of(&e).await;
+    assert_eq!(disk["below_floor"], true, "{disk}");
+    assert_eq!(disk["min_free_bytes"], FAR_ABOVE, "{disk}");
+
+    // the task already started keeps working: edit, record, submit
+    edit_greeter(&e, &open);
+    record_decision(&e, &open).await;
+    let (status, body) = submit(&e, &open).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn below_the_floor_the_daemon_reclaims_finished_workspaces_whatever_the_retention() {
+    let e = env().await; // retention 3600: a gc would keep a task merged a moment ago
+    let (t, merge) = merged(&e, "Wave hello").await;
+    assert_eq!(merge["workspace"], "kept", "{merge}");
+    assert!(ws_dir(&e, &t).exists());
+    e.state.set_disk_min_free(FAR_ABOVE);
+
+    let (status, body) = start_raw(&e, "Shout hello").await;
+    assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE, "{body}");
+    assert!(
+        !ws_dir(&e, &t).exists(),
+        "the start reclaimed the merged task's workspace first"
+    );
+}
+
+#[tokio::test]
+async fn floor_zero_turns_the_check_off() {
+    let e = env().await;
+    e.state.set_disk_min_free(FAR_ABOVE);
+    e.state.set_disk_min_free(0);
+    let t = start_task(&e, "Wave hello").await;
+    assert!(ws_dir(&e, &t).exists());
+    let items = attention_kinds(&e).await;
+    assert!(items.iter().all(|i| i["kind"] != "disk_low"), "{items:?}");
+    let disk = disk_of(&e).await;
+    assert_eq!(disk["min_free_bytes"], 0, "{disk}");
+    assert_eq!(disk["below_floor"], false, "{disk}");
+}
+
+/// The reclaim tick runs with retention `never` when the floor is on, and below the floor it
+/// reclaims a finished task's workspace the retention would keep for good.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
+    let db = TestDb::new().await;
+    let dir = TempDir::new().unwrap();
+    let src = fixture_git_repo();
+    let mut cfg = config(&db, dir.path(), None);
+    cfg.disk_min_free_bytes = FAR_ABOVE;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let ws = dir.path().join("ws");
+    let held: Arc<std::sync::Mutex<Option<AppState>>> = Arc::default();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let keep = held.clone();
+    let server = serve_with(
+        cfg,
+        listener,
+        |state: AppState| async move {
+            let state = state.with_reclaim_tick(Duration::from_millis(200));
+            *keep.lock().unwrap() = Some(state.clone());
+            Ok::<_, BoxError>((state, Router::new()))
+        },
+        async move {
+            let _ = stopped.await;
+        },
+    );
+    let client = async move {
+        // the listener is bound before serve_with runs the extension closure, so a connect
+        // alone does not mean the state is held yet
+        let mut state = None;
+        for _ in 0..200 {
+            state = held.lock().unwrap().clone();
+            if state.is_some() && tokio::net::TcpStream::connect(addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        let state = state.expect("serve_with handed the state to the extension within 5 s");
+        let (code, out) = raw(
+            addr,
+            "POST",
+            "/v1/tasks",
+            json!({"repo": "demo", "title": "Wave hello", "goal": "Make hello louder",
+                   "agent": "claude", "session": "s-1"}),
+        )
+        .await;
+        // no repo yet; the floor answers first
+        assert_eq!(code, 507, "{out}");
+        // room for one task, made and merged
+        state.set_disk_min_free(0);
+        ok(
+            addr,
+            "/v1/repos",
+            json!({"name": "demo", "git_source": src.path()}),
+        )
+        .await;
+        let t = ok(
+            addr,
+            "/v1/tasks",
+            json!({"repo": "demo", "title": "Wave hello", "goal": "Make hello louder",
+                   "agent": "claude", "session": "s-1"}),
+        )
+        .await;
+        let tid = t["task"]["id"].as_str().unwrap().to_owned();
+        let wdir = ws.join("demo").join(t["task"]["slug"].as_str().unwrap());
+        std::fs::write(wdir.join("app/greeter.py"), "def wave():\n    return 1\n").unwrap();
+        ok(
+            addr,
+            &format!("/v1/tasks/{tid}/records"),
+            json!({"kind": "decision", "summary": "wave", "agent": "claude"}),
+        )
+        .await;
+        for (op, body) in [
+            ("submit", json!({"agent": "claude"})),
+            (
+                "validate",
+                json!({"agent": "claude", "command": "pytest", "exit_code": 0}),
+            ),
+            (
+                "review",
+                json!({"reviewer": "reviewer", "verdict": "approve"}),
+            ),
+            ("merge", json!({"agent": "merger"})),
+        ] {
+            ok(addr, &format!("/v1/tasks/{tid}/{op}"), body).await;
+        }
+        // retention never: only the floor removes it
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert!(wdir.exists(), "kept above the floor with retention never");
+        state.set_disk_min_free(FAR_ABOVE);
+        let mut gone = false;
+        for _ in 0..40 {
+            if !wdir.exists() {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        stop.send(()).unwrap();
+        assert!(
+            gone,
+            "the tick reclaimed {wdir:?} below the floor within 4 s"
+        );
     };
     let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
         tokio::join!(server, client)

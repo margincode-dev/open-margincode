@@ -954,6 +954,8 @@ async fn act(
             Ok(v) => return Ok(Some(v)),
             // someone else got there first
             Err(AvError::IllegalState(_)) => {}
+            // the disk is below the floor: no other backlog item would start either
+            Err(e @ AvError::InsufficientStorage(_)) => return Err(e),
             Err(e) => {
                 first_err.get_or_insert(e);
             }

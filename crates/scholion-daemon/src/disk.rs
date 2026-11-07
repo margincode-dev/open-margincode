@@ -3,16 +3,23 @@
 //! the merge or abandon itself when that is 0), and comes back when an undo or revert returns the
 //! task to work. `GET /v1/disk` shows what is where, a workspace's own build output (`target/`,
 //! Plan 12) counted apart. The daemon deletes only under `ws_root`.
+//!
+//! The free-space floor (`AV_DISK_MIN_FREE_GB`, `Floor`): when the filesystem holding `ws_root`
+//! has less free than that, the reclaim tick and every task start first reclaim as `POST /v1/gc`
+//! does (finished tasks' workspaces oldest first, whatever the retention, then each repo's build
+//! cache); while it is still below, no new task workspace is made (HTTP 507) and
+//! `GET /v1/attention` says `disk_low`. Tasks that already have a workspace keep working.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use scholion_core::{AvError, Result, Task, TaskId, TaskStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -31,6 +38,161 @@ const BUILD_CACHE: &str = ".cache";
 /// `<ws_root>/<repo>/<slug>/target`: a task's own build output (cargo's default target dir;
 /// Plan 12), counted apart so storage per task is a number of its own.
 const BUILD_DIR: &str = "target";
+
+/// The free-space floor: its size in bytes (0 = off), since when the disk has been below it, and
+/// one lock, so a burst of task starts on a full disk runs one reclaim rather than one each.
+#[derive(Clone, Default)]
+pub(crate) struct Floor {
+    min_free: Arc<AtomicU64>,
+    low_since: Arc<Mutex<Option<DateTime<Utc>>>>,
+    reclaiming: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Floor {
+    pub(crate) fn set(&self, bytes: u64) {
+        self.min_free.store(bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn bytes(&self) -> u64 {
+        self.min_free.load(Ordering::Relaxed)
+    }
+
+    /// Records whether the disk is below the floor now; when it is, says since when.
+    fn mark(&self, low: bool) -> Option<DateTime<Utc>> {
+        let mut since = self.low_since.lock().unwrap_or_else(|e| e.into_inner());
+        if low {
+            Some(*since.get_or_insert_with(Utc::now))
+        } else {
+            *since = None;
+            None
+        }
+    }
+}
+
+/// The disk under `ws_root` is below the floor.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Low {
+    pub(crate) free: u64,
+    pub(crate) floor: u64,
+    /// When it was first measured below (since the daemon started).
+    pub(crate) since: DateTime<Utc>,
+}
+
+impl Low {
+    /// Why a new task is refused: the floor and the free bytes, and what still works.
+    fn reason(&self) -> String {
+        format!(
+            "{} ({} bytes) free under the workspace root is below the floor AV_DISK_MIN_FREE_GB, \
+             {} ({} bytes), even after reclaiming finished tasks' workspaces and the build \
+             caches; no new task workspace is made until there is room. Tasks already started \
+             keep working: submit, merge or abandon them, free space, or lower the floor",
+            crate::attention::bytes_text(self.free),
+            self.free,
+            crate::attention::bytes_text(self.floor),
+            self.floor
+        )
+    }
+}
+
+/// Free and total bytes of the filesystem holding `path` (or its nearest existing ancestor):
+/// `statvfs`, free being what an unprivileged process may still write. `None` when unknown.
+#[cfg(unix)]
+// the field types differ by platform (u32 block counts on macOS)
+#[allow(clippy::useless_conversion)]
+pub(crate) fn fs_space(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::ffi::OsStrExt;
+    path.ancestors().find_map(|dir| {
+        let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        let mut vfs = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: `c` is a NUL-terminated path and `vfs` is valid for writes; statvfs fills it
+        // in whole when it returns 0, and it is read only then.
+        let vfs = unsafe {
+            if libc::statvfs(c.as_ptr(), vfs.as_mut_ptr()) != 0 {
+                return None;
+            }
+            vfs.assume_init()
+        };
+        let block = u64::from(vfs.f_frsize);
+        Some((
+            u64::from(vfs.f_bavail).saturating_mul(block),
+            u64::from(vfs.f_blocks).saturating_mul(block),
+        ))
+    })
+}
+
+/// Not measured off Unix (the daemon ships for Linux and macOS): unknown, never below the floor.
+#[cfg(not(unix))]
+pub(crate) fn fs_space(_: &Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Measures the free space under `ws_root` against the floor: `Some` when below it. `None` when
+/// at or above it, when the floor is off, and when free space is unknown.
+pub(crate) fn below_floor(st: &AppState) -> Option<Low> {
+    let floor = st.floor.bytes();
+    let free = (floor > 0)
+        .then(|| fs_space(&st.ws_root))
+        .flatten()
+        .map(|(free, _)| free);
+    match free {
+        Some(free) if free < floor => Some(Low {
+            free,
+            floor,
+            since: st.floor.mark(true)?,
+        }),
+        _ => {
+            st.floor.mark(false);
+            None
+        }
+    }
+}
+
+/// Below the floor, reclaims as `POST /v1/gc` would: the workspaces of merged and abandoned tasks,
+/// oldest first, whatever `AV_WS_RETAIN_SECS` says, then, when still below, each repo's build
+/// cache. Says whether the disk is still below afterwards. A reclaim that fails is logged; the
+/// answer is what is measured then.
+pub(crate) async fn relieve(st: &AppState) -> Option<Low> {
+    below_floor(st)?;
+    let _one = st.floor.reclaiming.lock().await;
+    // another call may have reclaimed while this one waited
+    let low = below_floor(st)?;
+    tracing::warn!(
+        free_bytes = low.free,
+        floor_bytes = low.floor,
+        "free disk space is below AV_DISK_MIN_FREE_GB; reclaiming finished tasks' workspaces"
+    );
+    for build_cache in [false, true] {
+        let retain = (!build_cache).then_some(0);
+        match reclaim_with(st, retain, false, build_cache, false).await {
+            Ok(r) => tracing::info!(
+                workspaces = r.reclaimed.len(),
+                freed_bytes = r.freed_bytes,
+                build_cache,
+                "reclaimed for the free-space floor"
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, build_cache, "reclaiming for the free-space floor failed")
+            }
+        }
+        below_floor(st)?;
+    }
+    let low = below_floor(st)?;
+    tracing::warn!(
+        free_bytes = low.free,
+        floor_bytes = low.floor,
+        "free disk space is still below AV_DISK_MIN_FREE_GB; no new task workspace until there is room"
+    );
+    Some(low)
+}
+
+/// Before a new task workspace is made: room for it, or `InsufficientStorage` (HTTP 507) naming
+/// the floor and the free bytes.
+pub(crate) async fn ensure_room(st: &AppState) -> Result<()> {
+    match relieve(st).await {
+        None => Ok(()),
+        Some(low) => Err(AvError::InsufficientStorage(low.reason())),
+    }
+}
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
@@ -625,19 +787,25 @@ pub(crate) async fn ensure_workspace(st: &AppState, task: &Task) -> Result<&'sta
     Ok("restored")
 }
 
-/// The daemon's reclaim loop: every `reclaim_tick`, removes the workspaces past `ws_retain`.
-/// `None` (nothing started) when the retention is `never`.
+/// The daemon's reclaim loop: every `reclaim_tick`, removes the workspaces past `ws_retain`, then
+/// reclaims more while the disk is below the free-space floor (`relieve`). `None` (nothing
+/// started) when the retention is `never` and the floor is off.
 pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()>> {
-    let retain = state.ws_retain?;
+    if state.ws_retain.is_none() && state.floor.bytes() == 0 {
+        return None;
+    }
     let state = state.clone();
     Some(tokio::spawn(async move {
         let mut every = tokio::time::interval(state.reclaim_tick);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             every.tick().await;
-            if let Err(e) = sweep_once(&state, retain).await {
+            if let Some(retain) = state.ws_retain
+                && let Err(e) = sweep_once(&state, retain).await
+            {
                 tracing::warn!(error = %e, "reclaiming workspaces failed");
             }
+            relieve(&state).await;
         }
     }))
 }
@@ -745,11 +913,18 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         .iter()
         .cloned()
         .collect();
+    let fs = fs_space(&st.ws_root);
+    let below = below_floor(&st).is_some();
     Ok(Json(json!({
         "ws_root": st.ws_host_root,
         "store_root": st.store_root,
         "pg_dir": st.pg_dir,
         "retain_secs": st.ws_retain,
+        // the filesystem holding ws_root (null where not measured) and the floor (0 = off)
+        "fs_free_bytes": fs.map(|(free, _)| free),
+        "fs_total_bytes": fs.map(|(_, total)| total),
+        "min_free_bytes": st.floor.bytes(),
+        "below_floor": below,
         "repos": repos,
         "outside": outside,
         "totals": {
@@ -760,4 +935,27 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
             "scratch_bytes": scratch_total,
         },
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_space_of_a_temp_dir_is_measured_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let space = fs_space(dir.path());
+        if cfg!(unix) {
+            let (free, total) = space.expect("statvfs answers on Unix");
+            assert!(total > 0, "total {total}");
+            assert!(free <= total, "free {free} of {total}");
+        } else {
+            assert_eq!(space, None);
+        }
+        // a path not made yet is measured on the filesystem it would be made on
+        assert_eq!(
+            fs_space(&dir.path().join("not/yet")).map(|(_, t)| t),
+            space.map(|(_, t)| t)
+        );
+    }
 }

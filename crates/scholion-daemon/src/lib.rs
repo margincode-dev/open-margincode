@@ -80,6 +80,9 @@ pub struct AppState {
     pub(crate) ws_retain: Option<u64>,
     /// How often the daemon looks for workspaces to reclaim (`disk::RECLAIM_TICK`).
     pub(crate) reclaim_tick: std::time::Duration,
+    /// `AV_DISK_MIN_FREE_GB`: the free space under `ws_root` below which the daemon reclaims on
+    /// its own and makes no new task workspace (`disk::Floor`; off unless set).
+    pub(crate) floor: disk::Floor,
     /// Where the jj store lives (`AV_STORE_ROOT`), for `GET /v1/disk`; `None` when not known.
     pub(crate) store_root: Option<PathBuf>,
     /// Lite mode's own Postgres directory (`AV_PG_DIR`), for `GET /v1/disk`.
@@ -150,6 +153,7 @@ impl AppState {
             token: None,
             ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
             reclaim_tick: disk::RECLAIM_TICK,
+            floor: disk::Floor::default(),
             store_root: None,
             pg_dir: None,
             build_cache: true,
@@ -322,6 +326,20 @@ impl AppState {
     pub fn with_reclaim_tick(mut self, tick: std::time::Duration) -> Self {
         self.reclaim_tick = tick;
         self
+    }
+
+    /// The free-space floor in bytes (`AV_DISK_MIN_FREE_GB`; `0`, the default here, turns it
+    /// off): below it the daemon reclaims finished tasks' workspaces and the build caches itself,
+    /// and refuses to make a new task workspace (HTTP 507) while still below.
+    pub fn with_disk_min_free(self, bytes: u64) -> Self {
+        self.set_disk_min_free(bytes);
+        self
+    }
+
+    /// Changes the free-space floor of a running daemon (and every clone of this state); tests
+    /// plant one far above the real free space.
+    pub fn set_disk_min_free(&self, bytes: u64) {
+        self.floor.set(bytes);
     }
 
     /// The store root and lite mode's Postgres directory, reported by `GET /v1/disk`.

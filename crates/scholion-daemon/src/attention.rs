@@ -5,6 +5,8 @@
 //! post-merge checks) and the footprints sessions reported; no cost or usage is tracked.
 //!
 //! Kinds (stable strings) and severities (1 low .. 3 high):
+//! - 3 `disk_low`: free space under the workspace root is below `AV_DISK_MIN_FREE_GB` even after
+//!   the daemon reclaimed what it could; no new task starts until there is room.
 //! - 3 `main_red`: the post-merge check of main's newest checked commit failed.
 //! - 3 `conflicted`: a task's merge conflicted; its owner must sync, resolve and resubmit.
 //! - 2 `stale_review`: in review, no approval at its head, for over `review_secs`.
@@ -71,8 +73,9 @@ pub(crate) fn routes() -> Router<AppState> {
 /// stale review and an approval nobody merged share a place, so they interleave by `since`.
 fn rank(kind: &str) -> (u8, u8) {
     match kind {
-        "main_red" => (3, 0),
-        "conflicted" => (3, 1),
+        "disk_low" => (3, 0),
+        "main_red" => (3, 1),
+        "conflicted" => (3, 2),
         "stale_review" | "approved_not_merged" => (2, 0),
         "unclaimed_handoff" => (2, 1),
         "quiet_lease" => (2, 2),
@@ -147,7 +150,7 @@ fn secs(n: u64) -> Duration {
 }
 
 /// `512 MiB`, `4.0 KiB`: as the dashboard writes sizes.
-fn bytes_text(n: u64) -> String {
+pub(crate) fn bytes_text(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let (mut x, mut i) = (n as f64, 0);
     while x >= 1024.0 && i < UNITS.len() - 1 {
@@ -185,6 +188,21 @@ async fn attention(
     let lim = st.attention;
     let now = Utc::now();
     let mut items = Vec::new();
+
+    // the disk is daemon-wide, so it is listed whatever the repo; measured, not reclaimed, here
+    if let Some(low) = crate::disk::below_floor(&st) {
+        let mut it = Item::new("disk_low", None, low.since);
+        it.bytes = Some(low.free);
+        it.title = format!(
+            "{} free on the workspace disk, below the {} floor",
+            bytes_text(low.free),
+            bytes_text(low.floor)
+        );
+        it.detail = "no new task starts until there is room (AV_DISK_MIN_FREE_GB); tasks already \
+                     started keep working"
+            .into();
+        items.push(it);
+    }
 
     // main red: the oldest commit of the red run, with the task that landed it
     for r in &repos {
@@ -396,6 +414,7 @@ mod tests {
     #[test]
     fn kinds_rank_worst_first() {
         let order = [
+            "disk_low",
             "main_red",
             "conflicted",
             "stale_review",

@@ -56,6 +56,9 @@ pub struct Config {
     /// `AV_WS_RETAIN_SECS` (default 3600; `never` = `None`): how long the workspace of a merged
     /// or abandoned task stays on disk before the daemon removes it. `0` removes it at once.
     pub ws_retain_secs: Option<u64>,
+    /// `AV_DISK_MIN_FREE_GB` (default 20 GiB; `0` = off), in bytes: below this much free space
+    /// under `ws_root` the daemon reclaims on its own and starts no new task (HTTP 507).
+    pub disk_min_free_bytes: u64,
     /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): a repo with a root
     /// `Cargo.toml` gets one cargo target dir for all its task workspaces.
     pub build_cache: bool,
@@ -69,6 +72,7 @@ pub struct Config {
 const DEFAULT_PG_MAX_CONNECTIONS: u32 = 16;
 pub(crate) const DEFAULT_LEASE_SECS: u64 = 1800;
 pub(crate) const DEFAULT_WS_RETAIN_SECS: u64 = 3600;
+pub(crate) const DEFAULT_DISK_MIN_FREE_GB: u64 = 20;
 
 impl Config {
     /// `AV_DATABASE_URL` (unset = lite mode, see `pg_dir`), `AV_STORE_ROOT`, `AV_WS_ROOT`, `AV_WS_HOST_ROOT` (defaults to
@@ -160,6 +164,7 @@ impl Config {
             },
             attention: parse_attention(&get)?,
             ws_retain_secs: parse_ws_retain(get("AV_WS_RETAIN_SECS").as_deref())?,
+            disk_min_free_bytes: parse_disk_min_free(get("AV_DISK_MIN_FREE_GB").as_deref())?,
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
             token: normalize_secret(get("AV_TOKEN")),
@@ -208,6 +213,19 @@ fn parse_ws_retain(value: Option<&str>) -> Result<Option<u64>> {
             ))
         }),
     }
+}
+
+/// `AV_DISK_MIN_FREE_GB`: whole GiB (`0` = off), in bytes; unset is `DEFAULT_DISK_MIN_FREE_GB`.
+fn parse_disk_min_free(value: Option<&str>) -> Result<u64> {
+    let gb = match value.map(str::trim) {
+        None | Some("") => DEFAULT_DISK_MIN_FREE_GB,
+        Some(v) => v.parse::<u64>().map_err(|_| {
+            AvError::Invalid(format!(
+                "AV_DISK_MIN_FREE_GB must be a whole number of GiB (0 turns the floor off), got {v}"
+            ))
+        })?,
+    };
+    Ok(gb.saturating_mul(1 << 30))
 }
 
 /// An on/off setting: unset or blank is on; `off`, `0`, `false`, `no` are off; `on`, `1`, `true`,
@@ -271,6 +289,7 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     .with_lease_secs(cfg.lease_secs)
     .with_attention(cfg.attention)
     .with_ws_retain(cfg.ws_retain_secs)
+    .with_disk_min_free(cfg.disk_min_free_bytes)
     .with_build_cache(cfg.build_cache)
     .with_disk_paths(
         Some(cfg.store_root.clone()),
@@ -340,6 +359,19 @@ mod tests {
         assert_eq!(l.approved_secs, 3600);
         let bad = |k: &str| (k == "AV_ATTN_HANDOFF_SECS").then(|| "1h".to_owned());
         assert!(matches!(parse_attention(&bad), Err(AvError::Invalid(_))));
+    }
+
+    #[test]
+    fn disk_min_free_is_whole_gib_and_zero_turns_it_off() {
+        const GIB: u64 = 1 << 30;
+        assert_eq!(parse_disk_min_free(None).unwrap(), 20 * GIB);
+        assert_eq!(parse_disk_min_free(Some(" ")).unwrap(), 20 * GIB);
+        assert_eq!(parse_disk_min_free(Some("0")).unwrap(), 0);
+        assert_eq!(parse_disk_min_free(Some(" 5 ")).unwrap(), 5 * GIB);
+        for bad in ["-1", "1.5", "20G"] {
+            let err = parse_disk_min_free(Some(bad)).unwrap_err().to_string();
+            assert!(err.contains("AV_DISK_MIN_FREE_GB"), "{err}");
+        }
     }
 
     #[test]

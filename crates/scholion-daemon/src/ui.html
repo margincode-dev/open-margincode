@@ -536,7 +536,7 @@ const KIND_TONE = {
   intent: "violet", decision: "blue", attempt: "red", note: "amber", review: "green", validation: "gray",
   // the attention strip's own kinds
   "main red": "red", stale: "amber", unclaimed: "violet", quiet: "amber", unroutable: "amber", overdue: "red",
-  footprint: "amber", proposed: "violet", "trunk:advanced": "green", "backlog:accepted": "teal",
+  footprint: "amber", proposed: "violet", "disk low": "red", "trunk:advanced": "green", "backlog:accepted": "teal",
   // main's log
   "check ok": "green", "check failed": "red", unchecked: "gray",
 };
@@ -983,7 +983,9 @@ function renderDisk() {
       fig("workspaces", bytes(t.workspaces_bytes), "every task workspace of every repo"),
       fig("build output", bytes(t.build_bytes), "the workspaces' target dirs, part of the above"),
       fig("store", bytes(t.store_bytes), "the jj store"),
-      fig("scratch", bytes(t.scratch_bytes), "the tasks' scratch dirs")),
+      fig("scratch", bytes(t.scratch_bytes), "the tasks' scratch dirs"),
+      d.fs_free_bytes != null && fig("free", bytes(d.fs_free_bytes),
+        `of ${bytes(d.fs_total_bytes)} on the workspace disk` + (d.min_free_bytes ? `; no new task below ${bytes(d.min_free_bytes)}` : ""))),
     repo && [h("div", { class: "sub-h" }, `${S.repo}: workspaces · store ${bytes(repo.store_bytes)} · cache ${bytes(repo.build_cache_bytes)}`),
       wsRows.length ? wsRows : empty("No workspace on disk.")],
     outside.length > 0 && [h("div", { class: "sub-h" }, "Left outside any workspace by sessions"), outside],
@@ -1285,15 +1287,17 @@ function renderBoard() {
 }
 
 // ---- needs attention ----
-// The daemon's GET /v1/attention for the selected repo, already worst first: a red main,
-// conflicts, reviews and handoffs nobody took, approvals nobody merged, open tasks nobody writes
-// to, backlog items no agent can do, overdue targets, big footprints. The rules and thresholds
+// The daemon's GET /v1/attention for the selected repo, already worst first: a disk below the
+// free-space floor (daemon-wide), a red main, conflicts, reviews and handoffs nobody took,
+// approvals nobody merged, open tasks nobody writes to, backlog items no agent can do, overdue
+// targets, big footprints. The rules and thresholds
 // are the daemon's (AV_ATTN_*). Read with the tasks (on events), after a disk measurement and
 // every minute (what only time makes stuck). Hidden when there is nothing; at most ATTN_ROWS
 // rows, then "and N more".
 const ATTN_ROWS = 8, ATTN_EVERY = 60000;
 // kind → [the row's tag (its tone), its label]
 const ATTN = {
+  disk_low: ["disk low", "no new tasks"],
   main_red: ["main red", "main red"], conflicted: ["conflicted", "conflicted"],
   stale_review: ["stale", "waiting for review"], approved_not_merged: ["stale", "approved, not merged"],
   unclaimed_handoff: ["unclaimed", "nobody claimed"], quiet_lease: ["stale", "no write for a lease"],
@@ -1328,7 +1332,7 @@ function renderAttention() {
       quiet_lease: `no write for ${dur} · ${i.agent}`,
     }[i.kind] ?? i.detail;
     const onclick = i.kind === "unroutable_backlog" || i.kind === "proposed_backlog" ? jumpTo("backlog")
-      : i.kind === "overdue_target" ? jumpTo("targets") : task;
+      : i.kind === "overdue_target" ? jumpTo("targets") : i.kind === "disk_low" ? jumpTo("disk") : task;
     return evRow({ kind, label, title: i.title, meta, onclick });
   });
   sec.hidden = rows.length === 0;

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Containers are footprint.** Everything a session starts through docker is to carry the
+  labels `av.task=<task id>` and `av.agent=<agent>`: in a task the session-start hook exports
+  them as `$AV_DOCKER_LABELS` for `docker run`/`docker build` and, with `docker` on `PATH`, says so
+  in one line. The Stop hook then lists the task's labelled containers, images and volumes with
+  the footprint (`av disk` shows them under the session) and blocks once per session while more
+  than `AV_FOOTPRINT_CONTAINERS` (default 0) of its containers still run, naming them; it never
+  stops one. `av gc --containers` removes the stopped containers, dangling images and volumes of
+  merged and abandoned tasks (running ones are listed, open and unknown tasks' things left alone;
+  `--dry-run` plans, `--json` carries it as `containers`). The daemon runs no docker: the CLI does.
 - **`AppState::with_vcs_layer`: an extension can wrap the version-control engine.** Called from
   `run_with`'s `customize` step, it hands the extension the jj engine and uses what it returns
   everywhere from then on: the API, the packer, the backup loop and the disk sweep. A layer may

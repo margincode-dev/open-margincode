@@ -661,6 +661,30 @@ async fn a_footprint_names_its_tasks_slug() {
     assert!(disk["outside"][0]["slug"].is_null(), "{disk}");
 }
 
+/// A session's containers (the Stop hook's `docker ps` of what carries the task's label) come
+/// back under `outside` as reported: the daemon keeps them, never touches docker.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_footprint_keeps_the_containers_it_reports() {
+    let e = env().await;
+    let containers = json!({
+        "containers": [{"id": "abc", "name": "av-build", "state": "running", "size": "12MB"}],
+        "images": [{"id": "sha256:aaa", "bytes": 1234, "tags": ["demo/build:latest"]}],
+        "volumes": [{"name": "av-pgdata"}],
+    });
+    // nothing added on disk, only containers: still a report
+    let body = json!({"session": "cc-5", "agent": "claude", "added": [],
+                      "containers": containers});
+    let (status, out) = call(&e.app, "POST", "/v1/footprint", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    let body = json!({"session": "cc-6", "agent": "claude", "added": []});
+    let (status, out) = call(&e.app, "POST", "/v1/footprint", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    let (_, disk) = call(&e.app, "GET", "/v1/disk", None).await;
+    assert_eq!(disk["outside"][1]["containers"], containers, "{disk}");
+    assert_eq!(disk["outside"][1]["total_bytes"], 0, "{disk}");
+    assert!(disk["outside"][0].get("containers").is_none(), "{disk}");
+}
+
 // ---- the sweep, through the daemon's own start-up (`serve_with`) ----
 
 fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {

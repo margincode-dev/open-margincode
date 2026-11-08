@@ -317,6 +317,10 @@ pub(crate) struct Footprint {
     pub(crate) total_bytes: u64,
     #[serde(default = "Utc::now")]
     pub(crate) at: chrono::DateTime<Utc>,
+    /// The containers, images and volumes carrying the task's `av.task` label, as the hook's
+    /// `docker` listed them (`{containers, images, volumes}`); kept as sent, never acted on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) containers: Option<Value>,
 }
 
 /// Keeps a session's report (replacing its earlier one), newest first, at most `FOOTPRINTS`.

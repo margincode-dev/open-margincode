@@ -832,6 +832,7 @@ av gc --dry-run             # what would be removed now
 av gc                       # remove workspaces past the retention (POST /v1/gc)
 av gc --retain 0            # every merged or abandoned task's workspace, whatever its age
 av gc --build-cache         # also each repo's build cache (<repo>/.cache: the built dependencies new tasks start with)
+av gc --containers          # also what merged and abandoned tasks left in docker on this host (labelled av.task=<id>)
                             # (with AV_BUILD_CACHE_MAX_GB set, every av gc also holds each repo to its build budget)
 ```
 
@@ -988,6 +989,28 @@ daemon only shows these paths and never removes them. A scan stops at `AV_FOOTPR
 (default 20) and is then marked `partial`, so some directories may be missing or counted as new.
 `AV_FOOTPRINT=off` turns all of this off.
 
+**Containers are footprint.** Agent sessions start containers through docker (builds, test
+databases, tool sandboxes) and leave them, and a directory scan does not see them. The
+convention: everything a session starts through docker carries the labels `av.task=<task id>`
+and `av.agent=<agent>`. In a task, `SessionStart` appends
+`export AV_DOCKER_LABELS='--label av.task=… --label av.agent=…'` to `$CLAUDE_ENV_FILE` and, when
+`docker` is on `PATH`, tells the agent in one line to add `$AV_DOCKER_LABELS` to every
+`docker run` and `docker build` (`docker compose` takes the same through `labels:` in the file).
+With `docker` on `PATH`, `Stop` lists what carries the task's label (`docker ps -a --size`,
+`docker images` plus `docker image inspect`, `docker volume ls`, all with
+`--filter label=av.task=<id>`, read-only, within `AV_FOOTPRINT_SECS`) and sends it with the
+footprint as a `containers` section (`{containers: [{id, name, state, size}], images: [{id,
+bytes, tags}], volumes: [{name}]}`); `av disk` shows it under the session. When more than
+`AV_FOOTPRINT_CONTAINERS` (default 0: any) of those containers are still running, the stop is
+blocked once per session with their names and `docker stop`; av never stops a container.
+`av gc --containers` (the CLI runs docker, the daemon never does) lists everything labelled
+`av.task` on the host, asks the daemon each task's status (`GET /v1/tasks/{id}`) and, for the
+merged and abandoned ones, removes stopped containers, then dangling images, then volumes, one
+docker call each, printing what went; running containers are listed and left running, and what
+belongs to open tasks, or to tasks the daemon does not know, is only counted. `--dry-run` lists
+the plan and `--json` carries it as `containers`. Without `docker` on `PATH` the flag says so
+on stderr and the rest of `gc` runs. Unlabelled containers are never touched.
+
 **`$AV_SCRATCH`.** In a task, `SessionStart` creates `<ws_root>/<repo>/.scratch/<slug>` and
 appends `export AV_SCRATCH=…` to Claude Code's `$CLAUDE_ENV_FILE`, so every later Bash command
 of the session has it. The pack ends with `Temporary files: $AV_SCRATCH (removed with the task).`
@@ -1096,7 +1119,12 @@ opens with a warning naming the culprit merge.
   commands as `$AV_SCRATCH` (through `$CLAUDE_ENV_FILE`); it is removed with the task. Task or not, it
   measures the build, dependency and cache dirs under `$HOME` and the temp dir, and `Stop` measures
   them again: a session that added `AV_FOOTPRINT_WARN_MB` (default 512) or more outside any task
-  workspace is stopped once and told where. `AV_FOOTPRINT=off` turns that off. See
+  workspace is stopped once and told where. In a task, `SessionStart` also exports
+  `$AV_DOCKER_LABELS` (`--label av.task=… --label av.agent=…`) for the session's `docker run` and
+  `docker build`, and with `docker` on `PATH` `Stop` reports what carries the task's label and
+  blocks once while more than `AV_FOOTPRINT_CONTAINERS` (default 0) of its containers still run,
+  never stopping them (`av gc --containers` removes stopped ones once the task is done).
+  `AV_FOOTPRINT=off` turns all of that off. See
   [Disk](#disk-what-agents-create-and-what-av-reclaims).
 
   **Keep agents busy.** After that check, `Stop` asks the daemon for this agent's next work (a dry run of

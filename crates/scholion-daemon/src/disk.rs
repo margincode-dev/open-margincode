@@ -9,8 +9,13 @@
 //! does (finished tasks' workspaces oldest first, whatever the retention, then each repo's build
 //! cache); while it is still below, no new task workspace is made (HTTP 507) and
 //! `GET /v1/attention` says `disk_low`. Tasks that already have a workspace keep working.
+//!
+//! The build budget (`AV_BUILD_CACHE_MAX_GB`, `Budget`): each repo's build output (every
+//! workspace's own `target/` plus `<repo>/.cache/`) is held under it by the reclaim tick and
+//! `POST /v1/gc` (`enforce_budget`): finished tasks' `target/` first, then idle ones, then the deps
+//! cache. A `target/` touched within `AV_BUILD_IDLE_SECS` is never removed.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -67,6 +72,86 @@ impl Floor {
             None
         }
     }
+}
+
+/// The build budget (`AV_BUILD_CACHE_MAX_GB`): the most build output one repo keeps, in bytes
+/// (0 = off), how long an unfinished task's `target/` must be untouched before it may go, what
+/// the last enforcement left over budget, and one lock, so the tick and `POST /v1/gc` never
+/// enforce at once.
+#[derive(Clone)]
+pub(crate) struct Budget {
+    max: Arc<AtomicU64>,
+    idle_secs: Arc<AtomicU64>,
+    over: Arc<Mutex<BTreeMap<String, Over>>>,
+    enforcing: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            max: Arc::default(),
+            idle_secs: Arc::new(AtomicU64::new(crate::wiring::DEFAULT_BUILD_IDLE_SECS)),
+            over: Arc::default(),
+            enforcing: Arc::default(),
+        }
+    }
+}
+
+impl Budget {
+    pub(crate) fn set(&self, bytes: u64) {
+        self.max.store(bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn bytes(&self) -> u64 {
+        self.max.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_idle(&self, secs: u64) {
+        self.idle_secs.store(secs, Ordering::Relaxed);
+    }
+
+    /// Keeps the repos an enforcement left over budget, each with the time it was first found
+    /// over (kept from the pass before when it was over then too); returns them.
+    fn record(&self, over: Vec<(String, u64)>) -> Vec<Over> {
+        let budget = self.bytes();
+        let now = Utc::now();
+        let mut kept = self.over.lock().unwrap_or_else(|e| e.into_inner());
+        let next: BTreeMap<String, Over> = over
+            .into_iter()
+            .map(|(repo, bytes)| {
+                let since = kept.get(&repo).map_or(now, |o| o.since);
+                let o = Over {
+                    repo: repo.clone(),
+                    bytes,
+                    budget_bytes: budget,
+                    since,
+                };
+                (repo, o)
+            })
+            .collect();
+        *kept = next;
+        kept.values().cloned().collect()
+    }
+
+    /// The repos the last enforcement left over budget; none while the budget is off.
+    pub(crate) fn over(&self) -> Vec<Over> {
+        if self.bytes() == 0 {
+            return Vec::new();
+        }
+        let kept = self.over.lock().unwrap_or_else(|e| e.into_inner());
+        kept.values().cloned().collect()
+    }
+}
+
+/// A repo the last enforcement left over its build budget.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Over {
+    pub(crate) repo: String,
+    /// Its build output then (every `target/` plus `.cache/`), as the enforcement reckoned it.
+    pub(crate) bytes: u64,
+    pub(crate) budget_bytes: u64,
+    /// Since when enforcement has found it over (since the daemon started).
+    pub(crate) since: DateTime<Utc>,
 }
 
 /// The disk under `ws_root` is below the floor.
@@ -269,6 +354,9 @@ pub(crate) struct Reclaimed {
     kept: Vec<Kept>,
     #[serde(skip_serializing_if = "Option::is_none")]
     build_cache_bytes: Option<u64>,
+    /// What the build budget removed (or would), when it is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    build_budget: Option<Enforced>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     errors: Vec<Failed>,
     dry_run: bool,
@@ -437,8 +525,9 @@ pub(crate) async fn clear_staging(st: &AppState, repo: &str) {
 /// Takes `task`'s `target/` out of its workspace; says whether it had one. With the build cache
 /// on, the dir is moved aside (one rename) and a background job keeps its dependencies in the
 /// repo's deps cache, removes it and adds `build:reclaimed`; with it off, or if the move fails,
-/// it is removed here and the event added at once.
-async fn retire_build(st: &AppState, task: &Task) -> Result<bool> {
+/// it is removed here and the event added at once. `reason` (the build budget's `budget`) goes
+/// into the event.
+async fn retire_build(st: &AppState, task: &Task, reason: Option<&'static str>) -> Result<bool> {
     let target = under_ws_root(st, &[&task.repo, &task.slug, BUILD_DIR])?;
     if !exists(&target) {
         return Ok(false);
@@ -452,7 +541,7 @@ async fn retire_build(st: &AppState, task: &Task) -> Result<bool> {
         match moved {
             Ok(()) => {
                 let (st, task) = (st.clone(), task.clone());
-                tokio::spawn(async move { finish_retire(&st, &task, aside).await });
+                tokio::spawn(async move { finish_retire(&st, &task, aside, reason).await });
                 return Ok(true);
             }
             Err(e) => {
@@ -467,14 +556,22 @@ async fn retire_build(st: &AppState, task: &Task) -> Result<bool> {
             &task.repo,
             "build:reclaimed",
             Some(task.id),
-            json!({"slug": task.slug, "bytes": bytes, "cached_bytes": 0}),
+            reclaimed_payload(task, bytes, 0, reason),
         )
         .await?;
     Ok(true)
 }
 
+fn reclaimed_payload(task: &Task, bytes: u64, cached: u64, reason: Option<&str>) -> Value {
+    let mut payload = json!({"slug": task.slug, "bytes": bytes, "cached_bytes": cached});
+    if let Some(reason) = reason {
+        payload["reason"] = json!(reason);
+    }
+    payload
+}
+
 /// The background half of `retire_build`.
-async fn finish_retire(st: &AppState, task: &Task, aside: PathBuf) {
+async fn finish_retire(st: &AppState, task: &Task, aside: PathBuf, reason: Option<&str>) {
     let bytes = measure(aside.clone()).await;
     let cached_bytes = match deps_cache_dir(st, &task.repo) {
         Ok(cache) => {
@@ -498,7 +595,7 @@ async fn finish_retire(st: &AppState, task: &Task, aside: PathBuf) {
     if let Err(e) = remove_tree(aside).await {
         tracing::warn!(task = %task.slug, error = %e, "removing the build output failed");
     }
-    let payload = json!({"slug": task.slug, "bytes": bytes, "cached_bytes": cached_bytes});
+    let payload = reclaimed_payload(task, bytes, cached_bytes, reason);
     if let Err(e) = st
         .store
         .add_event(&task.repo, "build:reclaimed", Some(task.id), payload)
@@ -615,7 +712,7 @@ async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Opt
     if !dry_run {
         if has_dir {
             // its target/ first, so the dependencies are kept and the slow part runs apart
-            if let Err(e) = retire_build(st, task).await {
+            if let Err(e) = retire_build(st, task, None).await {
                 tracing::warn!(task = %task.slug, error = %e, "taking the build output out failed");
             }
             st.vcs.remove_workspace(&task.repo, &task.slug).await?;
@@ -758,7 +855,7 @@ pub(crate) async fn reclaim_task(st: &AppState, task: &Task) -> (&'static str, &
             }
         },
         None => ("kept", "kept"),
-        Some(_) => match retire_build(st, task).await {
+        Some(_) => match retire_build(st, task, None).await {
             Ok(true) => ("kept", "removed"),
             Ok(false) => ("kept", "none"),
             Err(e) => {
@@ -788,10 +885,11 @@ pub(crate) async fn ensure_workspace(st: &AppState, task: &Task) -> Result<&'sta
 }
 
 /// The daemon's reclaim loop: every `reclaim_tick`, removes the workspaces past `ws_retain`, then
-/// reclaims more while the disk is below the free-space floor (`relieve`). `None` (nothing
-/// started) when the retention is `never` and the floor is off.
+/// reclaims more while the disk is below the free-space floor (`relieve`), then holds each repo
+/// to its build budget (`enforce_budget`). `None` (nothing started) when the retention is
+/// `never` and the floor and the budget are off.
 pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()>> {
-    if state.ws_retain.is_none() && state.floor.bytes() == 0 {
+    if state.ws_retain.is_none() && state.floor.bytes() == 0 && state.budget.bytes() == 0 {
         return None;
     }
     let state = state.clone();
@@ -806,6 +904,9 @@ pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()
                 tracing::warn!(error = %e, "reclaiming workspaces failed");
             }
             relieve(&state).await;
+            if let Err(e) = enforce_budget(&state, false).await {
+                tracing::warn!(error = %e, "holding the repos to their build budget failed");
+            }
         }
     }))
 }
@@ -823,6 +924,275 @@ pub(crate) async fn sweep_once(st: &AppState, retain: u64) -> Result<()> {
     Ok(())
 }
 
+// ---- the build budget (`AV_BUILD_CACHE_MAX_GB`) ----
+
+/// One task workspace's `target/`, as the build budget sees it.
+struct Built {
+    slug: String,
+    bytes: u64,
+    /// The newest modification time of `target/` and what is at depth 1 and 2 under it: a build
+    /// under way writes `debug/.cargo-lock` and new files into `debug/deps/`, which changes it.
+    touched: Option<std::time::SystemTime>,
+}
+
+/// The newest modification time of `p` and its entries down to depth 2.
+fn newest_mtime(p: &Path) -> Option<std::time::SystemTime> {
+    fn walk(p: &Path, depth: u8, newest: &mut Option<std::time::SystemTime>) {
+        let Ok(meta) = std::fs::symlink_metadata(p) else {
+            return;
+        };
+        if let Ok(m) = meta.modified() {
+            *newest = (*newest).max(Some(m));
+        }
+        if depth < 2 && meta.is_dir() {
+            for e in std::fs::read_dir(p).into_iter().flatten().flatten() {
+                walk(&e.path(), depth + 1, newest);
+            }
+        }
+    }
+    let mut newest = None;
+    walk(p, 0, &mut newest);
+    newest
+}
+
+async fn touched(target: PathBuf) -> Option<std::time::SystemTime> {
+    tokio::task::spawn_blocking(move || newest_mtime(&target))
+        .await
+        .unwrap_or(None)
+}
+
+/// A repo's build output as the budget counts it: its `.cache/` (but build output already on its
+/// way out in `.cache/reclaim/`) and every workspace's `target/`. The cache is measured first, so
+/// a file the deps cache links into a `target/` counts once, under the cache, as `GET /v1/disk`
+/// counts it.
+async fn build_usage(st: &AppState, repo: &str) -> Result<(u64, Vec<Built>)> {
+    let seen: Seen = Arc::default();
+    let repo_dir = under_ws_root(st, &[repo])?;
+    let cache = under_ws_root(st, &[repo, BUILD_CACHE])?;
+    let leaving = under_ws_root(st, &[repo, BUILD_CACHE, RECLAIM])?;
+    let cache_bytes = measure_once(cache, Some(leaving), &seen).await;
+    let mut built = Vec::new();
+    for slug in plain_dirs(&repo_dir) {
+        let target = under_ws_root(st, &[repo, &slug, BUILD_DIR])?;
+        if !exists(&target) {
+            continue;
+        }
+        let bytes = measure_once(target.clone(), None, &seen).await;
+        built.push(Built {
+            slug,
+            bytes,
+            touched: touched(target).await,
+        });
+    }
+    Ok((cache_bytes, built))
+}
+
+/// A repo's build output in bytes as the budget counts it, when the budget is on.
+pub(crate) async fn budget_usage(st: &AppState, repo: &str) -> Option<u64> {
+    if st.budget.bytes() == 0 {
+        return None;
+    }
+    let (cache, built) = build_usage(st, repo).await.ok()?;
+    Some(cache + built.iter().map(|b| b.bytes).sum::<u64>())
+}
+
+/// What one enforcement of the build budget removed (or, in a dry run, would remove).
+#[derive(Debug, Default, Serialize)]
+pub(crate) struct Enforced {
+    /// Per repo.
+    budget_bytes: u64,
+    removed: Vec<Evicted>,
+    freed_bytes: u64,
+    /// Repos still over afterwards: only `target/`s touched within `AV_BUILD_IDLE_SECS` remain.
+    over: Vec<Over>,
+}
+
+#[derive(Debug, Serialize)]
+struct Evicted {
+    repo: String,
+    /// `finished` (a merged or abandoned task's `target/`), `idle` (an unfinished task's,
+    /// untouched for `AV_BUILD_IDLE_SECS`) or `deps_cache` (`<repo>/.cache/deps-target`).
+    what: &'static str,
+    slug: Option<String>,
+    status: Option<String>,
+    bytes: u64,
+    /// For `idle`: how long nothing in it changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idle_secs: Option<u64>,
+}
+
+/// Seconds since `t`: 0 when it is in the future, and an unknown time counts as long ago.
+fn secs_since(t: Option<std::time::SystemTime>) -> u64 {
+    match t {
+        Some(t) => std::time::SystemTime::now()
+            .duration_since(t)
+            .map_or(0, |d| d.as_secs()),
+        None => u64::MAX,
+    }
+}
+
+/// Holds every repo to the build budget: for each over it, removes build output until it is
+/// under, in this order: (a) the `target/` of merged and abandoned tasks, the one longest in
+/// that status first (through `retire_build`, so the deps cache keeps their dependencies);
+/// (b) the `target/` of unfinished tasks that nothing touched for `AV_BUILD_IDLE_SECS`, least
+/// recently touched first (one touched later may be building and is never removed); (c) the
+/// repo's deps cache. Workspaces, scratch dirs and anything else stay. Each `target/` goes under
+/// its task's `lock_task`, the status and the idle time read again there; the feed gets
+/// `build:reclaimed` with `reason: budget`. The repos still over are kept for
+/// `GET /v1/attention` (`build_over_budget`). `None` when the budget is off.
+pub(crate) async fn enforce_budget(st: &AppState, dry_run: bool) -> Result<Option<Enforced>> {
+    let budget = st.budget.bytes();
+    if budget == 0 {
+        st.budget.record(Vec::new());
+        return Ok(None);
+    }
+    let _one = st.budget.enforcing.lock().await;
+    let idle_for = st.budget.idle_secs.load(Ordering::Relaxed);
+    let mut tasks: HashMap<(String, String), (Task, DateTime<Utc>)> = HashMap::new();
+    for (task, since) in st.store.tasks_with_status_since(None).await? {
+        tasks.insert((task.repo.clone(), task.slug.clone()), (task, since));
+    }
+    let mut out = Enforced {
+        budget_bytes: budget,
+        ..Enforced::default()
+    };
+    let mut over = Vec::new();
+    for repo in plain_dirs(&st.ws_root) {
+        let Ok((cache_bytes, built)) = build_usage(st, &repo).await else {
+            continue;
+        };
+        // measured once: what a removal moves into .cache/reclaim/ is gone from here on, and
+        // what its harvest adds to the deps cache is counted by the next pass
+        let mut total = cache_bytes + built.iter().map(|b| b.bytes).sum::<u64>();
+        if total <= budget {
+            continue;
+        }
+        tracing::info!(
+            %repo,
+            build_bytes = total,
+            budget_bytes = budget,
+            "build output is over AV_BUILD_CACHE_MAX_GB; removing finished, then idle targets"
+        );
+        let task_of = |b: &Built| tasks.get(&(repo.clone(), b.slug.clone()));
+        let mut finished: Vec<(&Built, &Task, DateTime<Utc>)> = built
+            .iter()
+            .filter_map(|b| task_of(b).map(|(t, since)| (b, t, *since)))
+            .filter(|(_, t, _)| ended(t.status))
+            .collect();
+        finished.sort_by_key(|(_, _, since)| *since);
+        let mut idle: Vec<(&Built, &Task)> = built
+            .iter()
+            .filter_map(|b| task_of(b).map(|(t, _)| (b, t)))
+            .filter(|(b, t)| !ended(t.status) && secs_since(b.touched) >= idle_for)
+            .collect();
+        idle.sort_by_key(|(b, _)| b.touched);
+        let steps = finished
+            .into_iter()
+            .map(|(b, t, _)| ("finished", b, t))
+            .chain(idle.into_iter().map(|(b, t)| ("idle", b, t)));
+        for (what, b, task) in steps {
+            if total <= budget {
+                break;
+            }
+            let mut status = task.status;
+            if !dry_run {
+                let _held = st.lock_task(task.id).await;
+                let task = st.store.get_task(task.id).await?;
+                status = task.status;
+                // an undo puts a finished task back to work, and an idle one may have started
+                // building while this waited for the lock
+                let still = if what == "finished" {
+                    ended(task.status)
+                } else {
+                    let target = under_ws_root(st, &[&task.repo, &task.slug, BUILD_DIR])?;
+                    secs_since(touched(target).await) >= idle_for
+                };
+                if !still {
+                    continue;
+                }
+                match retire_build(st, &task, Some("budget")).await {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(e) => {
+                        tracing::warn!(task = %task.slug, error = %e,
+                            "removing a target/ over the build budget failed");
+                        continue;
+                    }
+                }
+                tracing::info!(
+                    %repo, task = %task.slug, status = task.status.as_str(), bytes = b.bytes,
+                    why = what, "removed a target/ over AV_BUILD_CACHE_MAX_GB"
+                );
+            }
+            total = total.saturating_sub(b.bytes);
+            out.freed_bytes += b.bytes;
+            out.removed.push(Evicted {
+                repo: repo.clone(),
+                what,
+                slug: Some(b.slug.clone()),
+                status: Some(status.as_str().to_owned()),
+                bytes: b.bytes,
+                idle_secs: (what == "idle").then(|| secs_since(b.touched)),
+            });
+        }
+        if total > budget
+            && let Ok(deps) = deps_cache_dir(st, &repo)
+            && exists(&deps)
+        {
+            let bytes = measure(deps.clone()).await;
+            let removed = dry_run
+                || match remove_tree(deps).await {
+                    Ok(()) => {
+                        tracing::info!(%repo, bytes,
+                            "removed the deps cache over AV_BUILD_CACHE_MAX_GB");
+                        true
+                    }
+                    Err(e) => {
+                        tracing::warn!(%repo, error = %e,
+                            "removing the deps cache over the build budget failed");
+                        false
+                    }
+                };
+            if removed {
+                total = total.saturating_sub(bytes);
+                out.freed_bytes += bytes;
+                out.removed.push(Evicted {
+                    repo: repo.clone(),
+                    what: "deps_cache",
+                    slug: None,
+                    status: None,
+                    bytes,
+                    idle_secs: None,
+                });
+            }
+        }
+        if total > budget {
+            tracing::warn!(
+                %repo,
+                build_bytes = total,
+                budget_bytes = budget,
+                "build output is still over AV_BUILD_CACHE_MAX_GB: only targets touched within \
+                 AV_BUILD_IDLE_SECS remain"
+            );
+            over.push((repo.clone(), total));
+        }
+    }
+    out.over = if dry_run {
+        let now = Utc::now();
+        over.into_iter()
+            .map(|(repo, bytes)| Over {
+                repo,
+                bytes,
+                budget_bytes: budget,
+                since: now,
+            })
+            .collect()
+    } else {
+        st.budget.record(over)
+    };
+    Ok(Some(out))
+}
+
 #[derive(Deserialize)]
 struct GcBody {
     #[serde(default)]
@@ -835,7 +1205,11 @@ struct GcBody {
 
 async fn gc(State(st): State<AppState>, Json(b): Json<GcBody>) -> ApiResult<Reclaimed> {
     let retain = b.retain_secs.or(st.ws_retain);
-    Ok(Json(reclaim(&st, retain, b.dry_run, b.build_cache).await?))
+    let mut out = reclaim(&st, retain, b.dry_run, b.build_cache).await?;
+    // after the workspaces: what they took with them no longer counts
+    out.build_budget = enforce_budget(&st, b.dry_run).await?;
+    out.freed_bytes += out.build_budget.as_ref().map_or(0, |b| b.freed_bytes);
+    Ok(Json(out))
 }
 
 /// Every repo's workspaces (with their task's status, how long it has had it, and whether a
@@ -856,6 +1230,8 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
     names.extend(plain_dirs(&st.ws_root));
     let (mut ws_total, mut store_total, mut cache_total, mut scratch_total) = (0, 0, 0, 0);
     let mut build_total = 0;
+    let budget = st.budget.bytes();
+    let mut any_over = false;
     // each repo's build cache is measured before its workspaces, so a dependency the deps cache
     // links into every task's target/ counts once, under the cache
     let seen: Seen = Arc::default();
@@ -871,12 +1247,14 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         let build_cache_bytes = measure_once(repo_dir.join(BUILD_CACHE), None, &seen).await;
         let scratch_bytes = measure(repo_dir.join(SCRATCH)).await;
         let mut workspaces = Vec::new();
+        let mut repo_build = 0;
         for slug in plain_dirs(&repo_dir) {
             let (ws, target) = (repo_dir.join(&slug), repo_dir.join(&slug).join(BUILD_DIR));
             let build_bytes = measure_once(target.clone(), None, &seen).await;
             let bytes = build_bytes + measure_once(ws, Some(target), &seen).await;
             ws_total += bytes;
             build_total += build_bytes;
+            repo_build += build_bytes;
             let entry = tasks.get(&(name.clone(), slug.clone()));
             let age = entry.map(|(_, since)| (now - *since).num_seconds().max(0) as u64);
             let reclaimable = entry.is_some_and(|(t, _)| ended(t.status))
@@ -897,11 +1275,20 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
             .then(|| crate::build_cache::config_path(&st, &name).ok())
             .flatten()
             .map(|p| st.to_host_path(&p));
+        // as the budget counts it (its targets and .cache/, but what is on its way out)
+        let over_budget = budget_usage(&st, &name)
+            .await
+            .is_some_and(|used| used > budget);
+        any_over |= over_budget;
         repos.push(json!({
             "name": name,
             "store_bytes": store_bytes,
             "build_cache": {"enabled": st.build_cache, "config": config},
             "build_cache_bytes": build_cache_bytes,
+            // every workspace's target/; the budget counts these plus build_cache_bytes
+            "build_bytes": repo_build,
+            "build_budget_bytes": budget,
+            "over_budget": over_budget,
             "scratch_bytes": scratch_bytes,
             "workspaces": workspaces,
         }));
@@ -925,6 +1312,8 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         "fs_total_bytes": fs.map(|(_, total)| total),
         "min_free_bytes": st.floor.bytes(),
         "below_floor": below,
+        // AV_BUILD_CACHE_MAX_GB, per repo (0 = off)
+        "build_budget_bytes": budget,
         "repos": repos,
         "outside": outside,
         "totals": {
@@ -933,6 +1322,7 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
             "store_bytes": store_total,
             "build_cache_bytes": cache_total,
             "scratch_bytes": scratch_total,
+            "over_budget": any_over,
         },
     })))
 }

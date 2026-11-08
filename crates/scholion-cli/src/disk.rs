@@ -95,6 +95,21 @@ pub fn render_disk(v: &Value) -> String {
             "  build cache  {} ({config})",
             bytes(&repo["build_cache_bytes"])
         );
+        if let Some(budget) = repo["build_budget_bytes"].as_u64().filter(|b| *b > 0) {
+            let used = repo["build_bytes"].as_u64().unwrap_or(0)
+                + repo["build_cache_bytes"].as_u64().unwrap_or(0);
+            let over = if repo["over_budget"].as_bool() == Some(true) {
+                "  OVER BUDGET"
+            } else {
+                ""
+            };
+            let _ = writeln!(
+                o,
+                "  build        {} of {} (AV_BUILD_CACHE_MAX_GB){over}",
+                human(used),
+                human(budget)
+            );
+        }
         let _ = writeln!(o, "  store        {}", bytes(&repo["store_bytes"]));
     }
     let outside = v["outside"].as_array().cloned().unwrap_or_default();
@@ -196,6 +211,36 @@ pub fn render_gc(v: &Value) -> String {
     if let Some(cache) = v["build_cache_bytes"].as_u64() {
         let _ = writeln!(o, "{verb} build cache  {}", human(cache));
     }
+    let budget = &v["build_budget"];
+    for r in budget["removed"].as_array().into_iter().flatten() {
+        let whose = match r["slug"].as_str() {
+            Some(slug) => format!("{}/{slug} target/", s(&r["repo"])),
+            None => format!("{} deps cache", s(&r["repo"])),
+        };
+        let why = match s(&r["what"]) {
+            "finished" => format!("{} task", s(&r["status"])),
+            "idle" => format!(
+                "idle {}",
+                age(r["idle_secs"].as_u64().unwrap_or(0).min(999 * 86_400))
+            ),
+            _ => "still over".to_owned(),
+        };
+        let _ = writeln!(
+            o,
+            "{verb} {whose}  {} (over the build budget: {why})",
+            bytes(&r["bytes"])
+        );
+    }
+    for r in budget["over"].as_array().into_iter().flatten() {
+        let _ = writeln!(
+            o,
+            "{} is still over its build budget: {} of {} (only builds touched recently are left)",
+            s(&r["repo"]),
+            bytes(&r["bytes"]),
+            bytes(&r["budget_bytes"])
+        );
+    }
+    let budget_removed = budget["removed"].as_array().is_some_and(|r| !r.is_empty());
     for e in v["errors"].as_array().into_iter().flatten() {
         let _ = writeln!(
             o,
@@ -205,7 +250,7 @@ pub fn render_gc(v: &Value) -> String {
             s(&e["error"])
         );
     }
-    if reclaimed.is_empty() && v["build_cache_bytes"].is_null() {
+    if reclaimed.is_empty() && v["build_cache_bytes"].is_null() && !budget_removed {
         let _ = writeln!(o, "nothing to reclaim");
     }
     let freed = bytes(&v["freed_bytes"]);
@@ -255,6 +300,48 @@ mod tests {
     }
 
     const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn a_disk_with_a_build_budget_shows_the_build_output_against_it() {
+        let mut v = json!({"ws_root": "/w", "retain_secs": 3600, "outside": [], "totals": {},
+            "build_budget_bytes": 20 * GIB,
+            "repos": [{"name": "demo", "workspaces": [],
+                       "build_cache": {"enabled": true, "config": null},
+                       "build_bytes": 11 * GIB, "build_cache_bytes": GIB + GIB / 5,
+                       "build_budget_bytes": 20 * GIB, "over_budget": false}]});
+        let out = render_disk(&v);
+        assert!(
+            out.contains("build        12.2 GB of 20.0 GB (AV_BUILD_CACHE_MAX_GB)\n"),
+            "{out}"
+        );
+        v["repos"][0]["over_budget"] = json!(true);
+        assert!(render_disk(&v).contains("OVER BUDGET"));
+        v["repos"][0]["build_budget_bytes"] = json!(0);
+        assert!(!render_disk(&v).contains("AV_BUILD_CACHE_MAX_GB"));
+    }
+
+    #[test]
+    fn a_gc_says_what_the_build_budget_removed() {
+        let out = render_gc(&json!({"reclaimed": [], "freed_bytes": 3 * GIB, "kept": [],
+            "dry_run": false,
+            "build_budget": {"budget_bytes": 4 * GIB, "freed_bytes": 3 * GIB, "removed": [
+                {"repo": "demo", "what": "finished", "slug": "wave", "status": "merged",
+                 "bytes": GIB},
+                {"repo": "demo", "what": "idle", "slug": "shout", "status": "open",
+                 "bytes": GIB, "idle_secs": 7200},
+                {"repo": "demo", "what": "deps_cache", "slug": null, "status": null,
+                 "bytes": GIB}],
+              "over": [{"repo": "demo", "bytes": 5 * GIB, "budget_bytes": 4 * GIB}]}}));
+        for want in [
+            "removed demo/wave target/  1.0 GB (over the build budget: merged task)",
+            "removed demo/shout target/  1.0 GB (over the build budget: idle 2h)",
+            "removed demo deps cache  1.0 GB (over the build budget: still over)",
+            "demo is still over its build budget: 5.0 GB of 4.0 GB",
+        ] {
+            assert!(out.contains(want), "missing {want:?} in\n{out}");
+        }
+        assert!(!out.contains("nothing to reclaim"), "{out}");
+    }
 
     #[test]
     fn a_disk_shows_free_space_and_the_floor() {

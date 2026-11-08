@@ -59,6 +59,13 @@ pub struct Config {
     /// `AV_DISK_MIN_FREE_GB` (default 20 GiB; `0` = off), in bytes: below this much free space
     /// under `ws_root` the daemon reclaims on its own and starts no new task (HTTP 507).
     pub disk_min_free_bytes: u64,
+    /// `AV_BUILD_CACHE_MAX_GB` (default `0` = off), in bytes: the most build output one repo may
+    /// keep (every task workspace's `target/` plus the repo's `.cache/`); over it the reclaim tick
+    /// and `POST /v1/gc` remove build output until it is under (`disk::enforce_budget`).
+    pub build_budget_bytes: u64,
+    /// `AV_BUILD_IDLE_SECS` (default 1800): over the build budget, an unfinished task's `target/`
+    /// is removed only when nothing at depth ≤ 2 in it changed for this long (it may be building).
+    pub build_idle_secs: u64,
     /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): a repo with a root
     /// `Cargo.toml` gets one cargo target dir for all its task workspaces.
     pub build_cache: bool,
@@ -73,6 +80,7 @@ const DEFAULT_PG_MAX_CONNECTIONS: u32 = 16;
 pub(crate) const DEFAULT_LEASE_SECS: u64 = 1800;
 pub(crate) const DEFAULT_WS_RETAIN_SECS: u64 = 3600;
 pub(crate) const DEFAULT_DISK_MIN_FREE_GB: u64 = 20;
+pub(crate) const DEFAULT_BUILD_IDLE_SECS: u64 = 1800;
 
 impl Config {
     /// `AV_DATABASE_URL` (unset = lite mode, see `pg_dir`), `AV_STORE_ROOT`, `AV_WS_ROOT`, `AV_WS_HOST_ROOT` (defaults to
@@ -165,6 +173,15 @@ impl Config {
             attention: parse_attention(&get)?,
             ws_retain_secs: parse_ws_retain(get("AV_WS_RETAIN_SECS").as_deref())?,
             disk_min_free_bytes: parse_disk_min_free(get("AV_DISK_MIN_FREE_GB").as_deref())?,
+            build_budget_bytes: parse_build_budget(get("AV_BUILD_CACHE_MAX_GB").as_deref())?,
+            build_idle_secs: match get("AV_BUILD_IDLE_SECS").as_deref().map(str::trim) {
+                None | Some("") => DEFAULT_BUILD_IDLE_SECS,
+                Some(v) => v.parse().map_err(|_| {
+                    AvError::Invalid(format!(
+                        "AV_BUILD_IDLE_SECS must be a whole number of seconds, got {v}"
+                    ))
+                })?,
+            },
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
             token: normalize_secret(get("AV_TOKEN")),
@@ -222,6 +239,19 @@ fn parse_disk_min_free(value: Option<&str>) -> Result<u64> {
         Some(v) => v.parse::<u64>().map_err(|_| {
             AvError::Invalid(format!(
                 "AV_DISK_MIN_FREE_GB must be a whole number of GiB (0 turns the floor off), got {v}"
+            ))
+        })?,
+    };
+    Ok(gb.saturating_mul(1 << 30))
+}
+
+/// `AV_BUILD_CACHE_MAX_GB`: whole GiB per repo (`0` or unset = no budget), in bytes.
+fn parse_build_budget(value: Option<&str>) -> Result<u64> {
+    let gb = match value.map(str::trim) {
+        None | Some("") => 0,
+        Some(v) => v.parse::<u64>().map_err(|_| {
+            AvError::Invalid(format!(
+                "AV_BUILD_CACHE_MAX_GB must be a whole number of GiB (0 turns the budget off), got {v}"
             ))
         })?,
     };
@@ -290,6 +320,8 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     .with_attention(cfg.attention)
     .with_ws_retain(cfg.ws_retain_secs)
     .with_disk_min_free(cfg.disk_min_free_bytes)
+    .with_build_budget(cfg.build_budget_bytes)
+    .with_build_idle(cfg.build_idle_secs)
     .with_build_cache(cfg.build_cache)
     .with_disk_paths(
         Some(cfg.store_root.clone()),
@@ -371,6 +403,19 @@ mod tests {
         for bad in ["-1", "1.5", "20G"] {
             let err = parse_disk_min_free(Some(bad)).unwrap_err().to_string();
             assert!(err.contains("AV_DISK_MIN_FREE_GB"), "{err}");
+        }
+    }
+
+    #[test]
+    fn build_budget_is_whole_gib_per_repo_and_off_by_default() {
+        const GIB: u64 = 1 << 30;
+        assert_eq!(parse_build_budget(None).unwrap(), 0);
+        assert_eq!(parse_build_budget(Some(" ")).unwrap(), 0);
+        assert_eq!(parse_build_budget(Some("0")).unwrap(), 0);
+        assert_eq!(parse_build_budget(Some(" 20 ")).unwrap(), 20 * GIB);
+        for bad in ["-1", "1.5", "20G"] {
+            let err = parse_build_budget(Some(bad)).unwrap_err().to_string();
+            assert!(err.contains("AV_BUILD_CACHE_MAX_GB"), "{err}");
         }
     }
 

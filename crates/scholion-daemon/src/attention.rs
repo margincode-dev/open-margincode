@@ -16,6 +16,8 @@
 //! - 1 `unroutable_backlog`: a queued item no profile fits.
 //! - 1 `proposed_backlog`: a proposed item waiting for a human to accept or drop it.
 //! - 1 `overdue_target`: an active target past its due day (UTC).
+//! - 1 `build_over_budget`: a repo's build output is still over `AV_BUILD_CACHE_MAX_GB` after the
+//!   daemon removed what it may (only `target/`s touched within `AV_BUILD_IDLE_SECS` remain).
 //! - 1 `footprint_outside`: a session left at least `footprint_bytes` outside any workspace,
 //!   reported within `footprint_secs`.
 
@@ -82,7 +84,8 @@ fn rank(kind: &str) -> (u8, u8) {
         "unroutable_backlog" => (1, 0),
         "proposed_backlog" => (1, 1),
         "overdue_target" => (1, 2),
-        _ => (1, 3), // footprint_outside
+        "build_over_budget" => (1, 3),
+        _ => (1, 4), // footprint_outside
     }
 }
 
@@ -201,6 +204,26 @@ async fn attention(
         it.detail = "no new task starts until there is room (AV_DISK_MIN_FREE_GB); tasks already \
                      started keep working"
             .into();
+        items.push(it);
+    }
+
+    // what the last enforcement of the build budget left over it; read, not measured, here
+    for o in st.budget.over() {
+        if !repos.contains(&o.repo) {
+            continue;
+        }
+        let mut it = Item::new("build_over_budget", Some(&o.repo), o.since);
+        it.bytes = Some(o.bytes);
+        it.title = format!(
+            "{} of build output in {}, over its {} budget",
+            bytes_text(o.bytes),
+            o.repo,
+            bytes_text(o.budget_bytes)
+        );
+        it.detail =
+            "only targets built within AV_BUILD_IDLE_SECS are left (AV_BUILD_CACHE_MAX_GB); \
+                     they go once idle, or merge or abandon their tasks"
+                .into();
         items.push(it);
     }
 
@@ -423,6 +446,7 @@ mod tests {
             "unroutable_backlog",
             "proposed_backlog",
             "overdue_target",
+            "build_over_budget",
             "footprint_outside",
         ];
         let ranks: Vec<(u8, u8)> = order.iter().map(|k| rank(k)).collect();

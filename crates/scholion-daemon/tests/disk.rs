@@ -684,6 +684,8 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
         build_cache: true,
         ws_retain_secs: retain,
         disk_min_free_bytes: 0,
+        build_budget_bytes: 0,
+        build_idle_secs: 1800,
         backup_remotes: Vec::new(),
         token: None,
     }
@@ -1438,4 +1440,324 @@ async fn start_up_removes_build_output_a_stopped_daemon_left_on_its_way_in_or_ou
     assert!(!cache.join("reclaim").exists());
     assert!(!cache.join("seed").exists());
     assert_eq!(std::fs::read(&kept).unwrap(), b"cached");
+}
+
+// ---- the build budget (`AV_BUILD_CACHE_MAX_GB`): a cap over every task's own target/ ----
+
+const KIB: u64 = 1024;
+
+fn hours(h: u64) -> Duration {
+    Duration::from_secs(h * 3600)
+}
+
+/// A `target/` of `bytes` (one file at depth 3) in `ws`, every entry at depth ≤ 2 (and the file)
+/// last modified `age` ago: what the budget reads to tell an idle build from one under way.
+fn plant_target(ws: &Path, bytes: u64, age: Duration) -> PathBuf {
+    let target = ws.join("target");
+    let deps = target.join("debug/deps");
+    std::fs::create_dir_all(&deps).unwrap();
+    std::fs::write(deps.join("blob-0123"), vec![0u8; bytes as usize]).unwrap();
+    let at = filetime::FileTime::from_system_time(std::time::SystemTime::now() - age);
+    for p in [
+        deps.join("blob-0123"),
+        deps.clone(),
+        target.join("debug"),
+        target.clone(),
+    ] {
+        filetime::set_file_mtime(&p, at).unwrap();
+    }
+    target
+}
+
+fn budget_of(gc: &Value) -> &Value {
+    let b = &gc["build_budget"];
+    assert!(b.is_object(), "{gc}");
+    b
+}
+
+/// `(what, slug)` of each removal, in order.
+fn removals(gc: &Value) -> Vec<(String, Option<String>)> {
+    budget_of(gc)["removed"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{gc}"))
+        .iter()
+        .map(|r| {
+            (
+                r["what"].as_str().unwrap().to_owned(),
+                r["slug"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// Every `build:reclaimed` of repo `demo` once `n` of them are in, waiting up to 20 s (the
+/// harvest runs in the background).
+async fn reclaimed_events(e: &Env, n: usize) -> Vec<Value> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let (_, events) = call(
+            &e.app,
+            "GET",
+            "/v1/events?repo=demo&since=0&limit=500",
+            None,
+        )
+        .await;
+        let found: Vec<Value> = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|ev| ev["kind"] == "build:reclaimed")
+            .cloned()
+            .collect();
+        if found.len() >= n {
+            return found;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{} of {n} build:reclaimed in {events}",
+            found.len()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+fn demo_repo(disk: &Value) -> &Value {
+    disk["repos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "demo")
+        .unwrap_or_else(|| panic!("{disk}"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn over_the_build_budget_finished_targets_go_first_then_idle_ones_least_recent_first() {
+    // retention never: a merge or abandon leaves the target/ for the budget to find
+    let e = env_with(|s| s.with_ws_retain(None)).await;
+    let abandoned = start_task(&e, "Never mind").await;
+    let (status, body) = post(&e, &abandoned, "abandon", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (merged, _) = merged(&e, "Wave hello").await;
+    let idle_long = start_task(&e, "Idle for two hours").await;
+    let idle_short = start_task(&e, "Idle for one hour").await;
+    let building = start_task(&e, "Building now").await;
+    let mut targets = Vec::new();
+    for (t, age) in [
+        (&abandoned, hours(0)),
+        (&merged, hours(0)),
+        (&idle_short, hours(1)),
+        (&idle_long, hours(2)),
+        (&building, Duration::ZERO),
+    ] {
+        targets.push(plant_target(&ws_dir(&e, t), 16 * KIB, age));
+    }
+    // 80 KiB of build output against 40: the two finished ones (abandoned first, it ended
+    // first) and the one idle longest go; 32 KiB remain
+    e.state.set_build_budget(40 * KIB);
+    let out = gc(&e, json!({})).await;
+    assert_eq!(
+        removals(&out),
+        vec![
+            ("finished".to_owned(), Some(slug(&abandoned).to_owned())),
+            ("finished".to_owned(), Some(slug(&merged).to_owned())),
+            ("idle".to_owned(), Some(slug(&idle_long).to_owned())),
+        ],
+        "{out}"
+    );
+    let b = budget_of(&out);
+    assert_eq!(b["budget_bytes"], 40 * KIB, "{out}");
+    assert_eq!(b["freed_bytes"], 48 * KIB, "{out}");
+    assert_eq!(b["over"], json!([]), "{out}");
+    for gone in &targets[..2] {
+        assert!(!gone.exists(), "{gone:?}");
+    }
+    assert!(!targets[3].exists(), "the one idle longest went");
+    assert!(targets[2].exists(), "under the budget once it went");
+    assert!(
+        targets[4].exists(),
+        "a target/ touched just now is never removed"
+    );
+    // workspaces themselves stay
+    for t in [&abandoned, &merged, &idle_long] {
+        assert!(ws_dir(&e, t).join("app/greeter.py").exists());
+    }
+    let events = reclaimed_events(&e, 3).await;
+    assert!(
+        events.iter().all(|ev| ev["payload"]["reason"] == "budget"),
+        "{events:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recent_target_survives_even_over_the_budget_and_the_deps_cache_goes_last() {
+    let e = env_with(|s| s.with_ws_retain(None)).await;
+    let done = start_task(&e, "Never mind").await;
+    let (status, body) = post(&e, &done, "abandon", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let building = start_task(&e, "Building now").await;
+    let done_target = plant_target(&ws_dir(&e, &done), 16 * KIB, hours(3));
+    let live_target = plant_target(&ws_dir(&e, &building), 16 * KIB, Duration::ZERO);
+    let deps = e.ws.path().join("demo/.cache/deps-target");
+    std::fs::create_dir_all(deps.join("debug/deps")).unwrap();
+    std::fs::write(
+        deps.join("debug/deps/libserde.rlib"),
+        vec![0u8; 16 * KIB as usize],
+    )
+    .unwrap();
+
+    // 48 KiB against 32: the finished target alone is enough, the deps cache stays
+    e.state.set_build_budget(32 * KIB);
+    let disk = disk_of(&e).await;
+    let repo = demo_repo(&disk);
+    assert_eq!(repo["build_bytes"], 32 * KIB, "{disk}");
+    assert_eq!(repo["build_budget_bytes"], 32 * KIB, "{disk}");
+    assert_eq!(repo["over_budget"], true, "{disk}");
+    assert_eq!(disk["build_budget_bytes"], 32 * KIB, "{disk}");
+    assert_eq!(disk["totals"]["over_budget"], true, "{disk}");
+    let out = gc(&e, json!({})).await;
+    assert_eq!(
+        removals(&out),
+        vec![("finished".to_owned(), Some(slug(&done).to_owned()))],
+        "{out}"
+    );
+    assert!(!done_target.exists());
+    assert!(deps.exists(), "the deps cache goes only when still over");
+    reclaimed_events(&e, 1).await;
+    let disk = disk_of(&e).await;
+    assert_eq!(demo_repo(&disk)["over_budget"], false, "{disk}");
+    assert_eq!(disk["totals"]["over_budget"], false, "{disk}");
+
+    // 32 KiB against 8: nothing finished or idle is left, so the deps cache goes, and the
+    // target/ being built keeps the repo over
+    e.state.set_build_budget(8 * KIB);
+    let out = gc(&e, json!({})).await;
+    assert_eq!(
+        removals(&out),
+        vec![("deps_cache".to_owned(), None)],
+        "{out}"
+    );
+    assert!(!deps.exists());
+    assert!(
+        live_target.exists(),
+        "touched just now: kept, whatever the budget"
+    );
+    let over = &budget_of(&out)["over"];
+    assert_eq!(over[0]["repo"], "demo", "{out}");
+    assert_eq!(over[0]["bytes"], 16 * KIB, "{out}");
+
+    let disk = disk_of(&e).await;
+    assert_eq!(demo_repo(&disk)["over_budget"], true, "{disk}");
+    let items = attention_kinds(&e).await;
+    let it = items
+        .iter()
+        .find(|i| i["kind"] == "build_over_budget")
+        .unwrap_or_else(|| panic!("{items:?}"));
+    assert_eq!(it["severity"], 1, "{it}");
+    assert_eq!(it["repo"], "demo", "{it}");
+    assert_eq!(it["bytes"], 16 * KIB, "{it}");
+
+    // back under: the attention item goes
+    e.state.set_build_budget(64 * KIB);
+    gc(&e, json!({})).await;
+    let items = attention_kinds(&e).await;
+    assert!(
+        items.iter().all(|i| i["kind"] != "build_over_budget"),
+        "{items:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dry_run_says_what_the_budget_would_remove_and_removes_nothing() {
+    let e = env_with(|s| s.with_ws_retain(None).with_build_budget(8 * KIB)).await;
+    let idle = start_task(&e, "Idle").await;
+    let target = plant_target(&ws_dir(&e, &idle), 16 * KIB, hours(1));
+    let out = gc(&e, json!({"dry_run": true})).await;
+    assert_eq!(
+        removals(&out),
+        vec![("idle".to_owned(), Some(slug(&idle).to_owned()))],
+        "{out}"
+    );
+    assert!(target.exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn without_a_build_budget_no_target_is_removed() {
+    let e = env_with(|s| s.with_ws_retain(None)).await;
+    let idle = start_task(&e, "Idle").await;
+    let target = plant_target(&ws_dir(&e, &idle), 16 * KIB, hours(5));
+    let out = gc(&e, json!({})).await;
+    assert!(out.get("build_budget").is_none(), "{out}");
+    assert!(target.exists());
+    let disk = disk_of(&e).await;
+    assert_eq!(disk["build_budget_bytes"], 0, "{disk}");
+    assert_eq!(demo_repo(&disk)["over_budget"], false, "{disk}");
+    assert_eq!(demo_repo(&disk)["build_bytes"], 16 * KIB, "{disk}");
+}
+
+/// The reclaim tick enforces the budget too, with retention `never` and no floor.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_reclaim_tick_enforces_the_build_budget() {
+    let db = TestDb::new().await;
+    let dir = TempDir::new().unwrap();
+    let src = fixture_git_repo();
+    let mut cfg = config(&db, dir.path(), None);
+    cfg.build_budget_bytes = 8 * KIB;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let ws = dir.path().join("ws");
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = serve_with(
+        cfg,
+        listener,
+        |state: AppState| async move {
+            let state = state.with_reclaim_tick(Duration::from_millis(200));
+            Ok::<_, BoxError>((state, Router::new()))
+        },
+        async move {
+            let _ = stopped.await;
+        },
+    );
+    let client = async move {
+        for _ in 0..200 {
+            if tokio::net::TcpStream::connect(addr).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        ok(
+            addr,
+            "/v1/repos",
+            json!({"name": "demo", "git_source": src.path()}),
+        )
+        .await;
+        let t = ok(
+            addr,
+            "/v1/tasks",
+            json!({"repo": "demo", "title": "Idle", "goal": "Make hello louder",
+                   "agent": "claude", "session": "s-1"}),
+        )
+        .await;
+        let wdir = ws.join("demo").join(t["task"]["slug"].as_str().unwrap());
+        let target = plant_target(&wdir, 16 * KIB, hours(1));
+        let mut gone = false;
+        for _ in 0..40 {
+            if !target.exists() {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        stop.send(()).unwrap();
+        assert!(
+            gone,
+            "the tick removed the idle {target:?} over the budget within 4 s"
+        );
+        assert!(wdir.join("app/greeter.py").exists(), "the workspace stays");
+    };
+    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
+        tokio::join!(server, client)
+    })
+    .await
+    .expect("daemon stops on the shutdown future");
+    served.unwrap();
 }

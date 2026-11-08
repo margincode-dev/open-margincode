@@ -83,6 +83,9 @@ pub struct AppState {
     /// `AV_DISK_MIN_FREE_GB`: the free space under `ws_root` below which the daemon reclaims on
     /// its own and makes no new task workspace (`disk::Floor`; off unless set).
     pub(crate) floor: disk::Floor,
+    /// `AV_BUILD_CACHE_MAX_GB` and `AV_BUILD_IDLE_SECS`: the most build output one repo keeps,
+    /// and what the last enforcement left over it (`disk::Budget`; off unless set).
+    pub(crate) budget: disk::Budget,
     /// Where the jj store lives (`AV_STORE_ROOT`), for `GET /v1/disk`; `None` when not known.
     pub(crate) store_root: Option<PathBuf>,
     /// Lite mode's own Postgres directory (`AV_PG_DIR`), for `GET /v1/disk`.
@@ -154,6 +157,7 @@ impl AppState {
             ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
             reclaim_tick: disk::RECLAIM_TICK,
             floor: disk::Floor::default(),
+            budget: disk::Budget::default(),
             store_root: None,
             pg_dir: None,
             build_cache: true,
@@ -340,6 +344,26 @@ impl AppState {
     /// plant one far above the real free space.
     pub fn set_disk_min_free(&self, bytes: u64) {
         self.floor.set(bytes);
+    }
+
+    /// The build budget per repo in bytes (`AV_BUILD_CACHE_MAX_GB`; `0`, the default, turns it
+    /// off): over it the reclaim tick and `POST /v1/gc` remove build output (finished tasks'
+    /// `target/`, then idle ones, then the deps cache) until the repo is under it.
+    pub fn with_build_budget(self, bytes: u64) -> Self {
+        self.set_build_budget(bytes);
+        self
+    }
+
+    /// Changes the build budget of a running daemon (and every clone of this state).
+    pub fn set_build_budget(&self, bytes: u64) {
+        self.budget.set(bytes);
+    }
+
+    /// How long an unfinished task's `target/` must be untouched before the build budget may
+    /// remove it (`AV_BUILD_IDLE_SECS`, default 1800).
+    pub fn with_build_idle(self, secs: u64) -> Self {
+        self.budget.set_idle(secs);
+        self
     }
 
     /// The store root and lite mode's Postgres directory, reported by `GET /v1/disk`.

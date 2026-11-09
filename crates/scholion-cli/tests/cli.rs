@@ -4295,6 +4295,8 @@ fn validate_waits_for_a_free_build_slot_on_the_host() {
             .env_remove("AV_TASK")
             .env_remove("AV_SESSION")
             .env_remove("AV_GENERATION")
+            .env_remove("AV_AGENT")
+            .env_remove("AV_TOKEN")
             .env_remove("AV_MAX_BUILDS")
             .arg("validate");
         if let Some(flag) = flag {

@@ -8,9 +8,9 @@ snapshots as usual, and answers with what the agent needs to stay in sync. This 
 Phase 3 (`agentvcs/docs/superpowers/plans/2026-11-04-agentvcs-plan-13-rollout.md`): hosted Teams
 needs it, and so does a customer-hosted runner with a hosted brain.
 
-**Status (2026-11-04):** Tasks 1–8 done on branch `remote-checkpoint`. Measured: a remote
-checkpoint's median round trip is 1.5× a local one (31.5 ms vs 21 ms), under the 2× target.
-Not merged.
+**Status (2026-11-04):** Tasks 1–8 done. Measured: a remote checkpoint's median round trip
+is 1.5× a local one (31.5 ms vs 21 ms), under the 2× target. Merged to `main` (#101); the
+branch `remote-checkpoint` is gone.
 
 ## The problem
 

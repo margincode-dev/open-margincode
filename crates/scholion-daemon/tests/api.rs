@@ -4946,3 +4946,173 @@ async fn every_response_carries_the_daemon_version() {
         );
     }
 }
+
+/// An extension's checkpoint hook (`with_checkpoint_hook`): what it answers is added to a
+/// checkpoint's answer, the daemon's own fields win, its failure leaves the answer as it was and
+/// never fails the checkpoint, and the MCP `checkpoint` tool answers with the same object.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checkpoint_hook_adds_to_the_answer_and_never_fails_the_checkpoint() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    /// (the task's old head, the new head, the changed paths) per call
+    type Seen = Arc<std::sync::Mutex<Vec<(String, String, Vec<String>)>>>;
+    struct Hook {
+        calls: Arc<AtomicUsize>,
+        fail: Arc<AtomicBool>,
+        seen: Seen,
+    }
+    #[async_trait::async_trait]
+    impl scholion_daemon::CheckpointHook for Hook {
+        async fn after_checkpoint(
+            &self,
+            task: &scholion_core::Task,
+            head: &scholion_core::ChangeId,
+            changed: &[String],
+        ) -> Result<Value, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.seen.lock().unwrap().push((
+                task.head_change.0.clone(),
+                head.0.clone(),
+                changed.to_vec(),
+            ));
+            if self.fail.load(Ordering::SeqCst) {
+                return Err("the store is away".into());
+            }
+            Ok(json!({
+                "collisions": [{"slug": "other", "path": "app/greeter.py"}],
+                "notices": ["other (grok, open) also changes app/greeter.py"],
+                // the daemon's field: never overwritten
+                "head_change": "not-this",
+            }))
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let fail = Arc::new(AtomicBool::new(false));
+    let seen: Seen = Arc::default();
+    let (c, f, s) = (calls.clone(), fail.clone(), seen.clone());
+    let e = env_with(move |st| {
+        st.with_checkpoint_hook(Arc::new(Hook {
+            calls: c,
+            fail: f,
+            seen: s,
+        }))
+    })
+    .await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, cp) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    assert_eq!(cp["changed"], json!(["app/greeter.py"]));
+    assert_eq!(cp["collisions"][0]["slug"], "other", "{cp}");
+    assert_eq!(
+        cp["notices"],
+        json!(["other (grok, open) also changes app/greeter.py"])
+    );
+    assert_ne!(cp["head_change"], "not-this", "the daemon's field wins");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        // the task as it was (its old head), the new head, the changed paths
+        assert_eq!(seen[0].0, t["task"]["head_change"].as_str().unwrap());
+        assert_eq!(seen[0].1, cp["head_change"].as_str().unwrap());
+        assert_eq!(seen[0].2, ["app/greeter.py"]);
+    }
+    // validate and submit snapshot too, but their answers are their own: the hook is not asked
+    let (status, v) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/validate", id(&t)),
+        Some(json!({"agent": "claude", "command": "true", "exit_code": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // a failing hook: the checkpoint still answers, without the extra fields
+    fail.store(true, Ordering::SeqCst);
+    let (status, cp) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/checkpoint", id(&t)),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    assert!(
+        cp["collisions"].is_null() && cp["notices"].is_null(),
+        "{cp}"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    fail.store(false, Ordering::SeqCst);
+
+    // the MCP tool answers with the whole object, notices included
+    let (status, init) = mcp_initialize(&e).await;
+    assert_eq!(status, StatusCode::OK, "{init:?}");
+    let session = init.0.expect("a session id");
+    let r = mcp_call(
+        &e,
+        &session,
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+               "params": {"name": "checkpoint", "arguments": {"task_id": id(&t)}}}),
+    )
+    .await;
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("also changes app/greeter.py"), "{text}");
+}
+
+/// `initialize` on `/mcp`: the status and the session id the server answered with.
+async fn mcp_initialize(e: &Env) -> (StatusCode, (Option<String>, Value)) {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt as _;
+    let msg = json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {},
+        "clientInfo": {"name": "claude-code", "version": "1"}}});
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .body(Body::from(msg.to_string()))
+        .unwrap();
+    let resp = e.app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let sid = resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    (
+        status,
+        (sid, serde_json::from_slice(&bytes).unwrap_or(Value::Null)),
+    )
+}
+
+async fn mcp_call(e: &Env, session: &str, msg: Value) -> Value {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt as _;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("mcp-session-id", session)
+        .body(Body::from(msg.to_string()))
+        .unwrap();
+    let resp = e.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}

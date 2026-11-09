@@ -3,10 +3,12 @@
 //! (`subscribe_events`), a guard the lifecycle asks before an approval or a merge
 //! (`MergeGuard`, which also sees a submit with the paths it changes, every review verdict
 //! before it is written, and the acceptance of a proposed backlog item), extra MCP tools
-//! (`AppState::with_mcp_tools`), a sink for the usage agents report (`UsageSink`), a writer of
+//! (`AppState::with_mcp_tools`), a sink for the usage agents report (`UsageSink`), a hook that
+//! adds to a checkpoint's answer what it knows about the new head (`CheckpointHook`), a writer of
 //! agent profiles (`AppState::put_profile`), and migrations of the extension's own tables in its own Postgres schema
 //! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
-//! none of them: no extensions, and a guard that allows everything the lifecycle rules allow.
+//! none of them: no extensions, a guard that allows everything the lifecycle rules allow, and a
+//! checkpoint hook that adds nothing.
 //!
 //! A binary built on the daemon starts through `run_with` (`serve.rs`): the same start-up as
 //! `scholion-daemon`, with a `customize` step that gets the built `AppState`, adds the points above
@@ -89,6 +91,70 @@ impl MergeGuard for AllowAll {
     async fn check(&self, _: Guarded<'_>) -> Result<(), String> {
         Ok(())
     }
+}
+
+/// Asked after a checkpoint snapshotted and indexed a task's workspace (`POST
+/// /v1/tasks/{id}/checkpoint`, a remote checkout's patch too; not the snapshots `validate`,
+/// `submit` and `merge` take, whose answers are their own). What it returns is added to the
+/// answer beside `head_change`, `changed` and `warnings`: an object whose keys are added where the
+/// daemon's are not (the daemon's win). A `notices` field, a list of strings, is for the agent:
+/// the MCP `checkpoint` tool answers with the whole object, and the Claude Code `post-edit` hook
+/// prints `notices` as `additionalContext`, so an extension can warn an agent right after an
+/// edit (another task editing the same lines, say). `Err(reason)` is logged and the answer is
+/// as it was; the checkpoint itself is done by then and never fails on the hook.
+#[async_trait]
+pub trait CheckpointHook: Send + Sync {
+    /// `task` as it was before the checkpoint (its `head_change` is the old head), `head` the
+    /// new head, `changed` the paths the workspace changes against the task's base, sorted.
+    async fn after_checkpoint(
+        &self,
+        task: &Task,
+        head: &scholion_core::ChangeId,
+        changed: &[String],
+    ) -> Result<Value, String>;
+}
+
+/// The daemon's own hook: nothing is added.
+pub struct NoCheckpointHook;
+
+#[async_trait]
+impl CheckpointHook for NoCheckpointHook {
+    async fn after_checkpoint(
+        &self,
+        _: &Task,
+        _: &scholion_core::ChangeId,
+        _: &[String],
+    ) -> Result<Value, String> {
+        Ok(Value::Object(Default::default()))
+    }
+}
+
+/// `answer` plus what the hook adds for this checkpoint (see [`CheckpointHook`]): the hook's
+/// keys the answer lacks. A hook that fails, or answers something other than an object, is
+/// logged and adds nothing.
+pub(crate) async fn with_hook(
+    hook: &dyn CheckpointHook,
+    task: &Task,
+    head: &scholion_core::ChangeId,
+    changed: &[String],
+    mut answer: Value,
+) -> Value {
+    match hook.after_checkpoint(task, head, changed).await {
+        Ok(Value::Object(extra)) => {
+            if let Some(a) = answer.as_object_mut() {
+                for (k, v) in extra {
+                    a.entry(k).or_insert(v);
+                }
+            }
+        }
+        Ok(other) => tracing::warn!(
+            task = %task.id,
+            kind = other.to_string().chars().take(40).collect::<String>(),
+            "checkpoint hook answered something other than an object; ignored"
+        ),
+        Err(e) => tracing::warn!(task = %task.id, error = %e, "checkpoint hook failed; ignored"),
+    }
+    answer
 }
 
 /// Runs an extension's MCP tool.

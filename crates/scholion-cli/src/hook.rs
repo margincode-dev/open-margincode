@@ -625,9 +625,35 @@ pub fn post_edit(client: &Client, agent: &str) {
     }
     let generation = generation(&tf, agent);
     // a remote checkout (Plan 14) sends its changes as a patch
-    if let Err(e) = crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
-        eprintln!("av: hook post-edit: checkpoint failed: {e}");
+    match crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
+        Ok(answer) => {
+            let event = input["hook_event_name"].as_str().unwrap_or("PostToolUse");
+            if let Some(out) = notices_output(&answer, event) {
+                println!("{out}");
+            }
+        }
+        Err(e) => eprintln!("av: hook post-edit: checkpoint failed: {e}"),
     }
+}
+
+/// The checkpoint answer's `notices` (lines an extension of the daemon addressed to the agent)
+/// as Claude Code `additionalContext`; `None` when there are none.
+fn notices_output(answer: &Value, event: &str) -> Option<String> {
+    let lines: Vec<&str> = answer["notices"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let md = format!("av: {}", lines.join("\nav: "));
+    Some(
+        json!({"hookSpecificOutput": {"hookEventName": event, "additionalContext": md}})
+            .to_string(),
+    )
 }
 
 /// Most symbol names the stop request lists.
@@ -863,6 +889,33 @@ fn agent_flag_present() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notices_reach_the_agent_as_additional_context_and_nothing_else_does() {
+        assert_eq!(
+            notices_output(&json!({"head_change": "abc", "changed": []}), "PostToolUse"),
+            None
+        );
+        assert_eq!(
+            notices_output(&json!({"notices": [], "warnings": ["w"]}), "PostToolUse"),
+            None
+        );
+        assert_eq!(
+            notices_output(&json!({"notices": ["  ", 3]}), "PostToolUse"),
+            None
+        );
+        let out = notices_output(
+            &json!({"notices": ["edit-cli (grok, open) also changes cli.rs", " two "]}),
+            "PostToolUse",
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+        assert_eq!(
+            v["hookSpecificOutput"]["additionalContext"],
+            "av: edit-cli (grok, open) also changes cli.rs\nav: two"
+        );
+    }
 
     #[test]
     fn hook_agent_is_grok_under_grok_and_the_claude_default_otherwise() {

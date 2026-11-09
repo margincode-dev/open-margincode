@@ -700,10 +700,10 @@ async fn checkpoint(
         return crate::remote::checkpoint(&st, task, base, &body).await;
     }
     let (head, changed, warnings) = snapshot_and_index(&st, &task).await?;
-    Ok(
-        Json(json!({ "head_change": head, "changed": changed, "warnings": warnings }))
-            .into_response(),
-    )
+    let answer = json!({ "head_change": head, "changed": changed, "warnings": warnings });
+    let answer =
+        crate::ext::with_hook(st.checkpoint_hook.as_ref(), &task, &head, &changed, answer).await;
+    Ok(Json(answer).into_response())
 }
 
 /// Snapshot the workspace, update the task overlay for what changed, and record the new head.

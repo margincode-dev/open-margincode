@@ -289,3 +289,29 @@ async fn a_patch_from_a_lost_claim_is_fenced() {
         GREETER
     );
 }
+
+/// A remote checkout's checkpoint gets the extension's additions too (`with_checkpoint_hook`),
+/// beside `applied` and `tree`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_patch_checkpoint_carries_the_hooks_additions() {
+    struct Hook;
+    #[async_trait::async_trait]
+    impl scholion_daemon::CheckpointHook for Hook {
+        async fn after_checkpoint(
+            &self,
+            _: &scholion_core::Task,
+            _: &scholion_core::ChangeId,
+            changed: &[String],
+        ) -> Result<Value, String> {
+            Ok(json!({"notices": [format!("seen {}", changed.join(","))], "applied": "mine"}))
+        }
+    }
+    let e = env_with(|st| st.with_checkpoint_hook(std::sync::Arc::new(Hook))).await;
+    let t = start_task(&e, "Remote greeting").await;
+    let base = head_of(&e, &t).await;
+    let (status, _, body) = post_patch(&e, &t, &base, greeter_patch(GREETER, LOUDER)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["notices"], json!(["seen app/greeter.py"]));
+    // the daemon's own field wins over the hook's
+    assert_eq!(body["applied"], json!(["app/greeter.py"]));
+}

@@ -44,7 +44,8 @@ pub use disk::RECLAIM_TICK;
 pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
 pub use ext::{
-    AllowAll, ExtTool, Guarded, MergeGuard, NoUsage, ToolHandler, UsageReport, UsageSink,
+    AllowAll, CheckpointHook, ExtTool, Guarded, MergeGuard, NoCheckpointHook, NoUsage, ToolHandler,
+    UsageReport, UsageSink,
 };
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use remote::MAX_PATCH_BYTES;
@@ -100,6 +101,8 @@ pub struct AppState {
     task_locks: Arc<Mutex<HashMap<TaskId, Arc<tokio::sync::Mutex<()>>>>>,
     /// Asked before an approval and a merge; `AllowAll` unless an extension sets one.
     pub(crate) guard: Arc<dyn MergeGuard>,
+    /// Adds to a checkpoint's answer; `NoCheckpointHook` unless an extension sets one.
+    pub(crate) checkpoint_hook: Arc<dyn ext::CheckpointHook>,
     /// How many task starts copy an index at once; the others wait their turn. A copy holds a
     /// pooled connection for its whole length, so without a limit a burst of starts takes every
     /// connection and other requests fail with `pool timed out`.
@@ -165,6 +168,7 @@ impl AppState {
             mcp: Arc::default(),
             task_locks: Arc::default(),
             guard: Arc::new(AllowAll),
+            checkpoint_hook: Arc::new(ext::NoCheckpointHook),
             starts: Arc::new(tokio::sync::Semaphore::new(starts)),
             imports: Arc::default(),
             reviews: Arc::default(),
@@ -256,6 +260,13 @@ impl AppState {
     /// Asks `guard` before every submit, approval and merge, after the lifecycle rules pass.
     pub fn with_merge_guard(mut self, guard: Arc<dyn MergeGuard>) -> Self {
         self.guard = guard;
+        self
+    }
+
+    /// Asked after every checkpoint; what it answers is added to the checkpoint's answer
+    /// (`notices` reach the agent through the MCP tool and the `post-edit` hook).
+    pub fn with_checkpoint_hook(mut self, hook: Arc<dyn ext::CheckpointHook>) -> Self {
+        self.checkpoint_hook = hook;
         self
     }
 

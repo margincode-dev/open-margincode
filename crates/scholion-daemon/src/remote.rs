@@ -101,11 +101,13 @@ pub(crate) async fn checkpoint(
     let applied = st.vcs.apply_patch(&task.repo, &task.slug, body).await?;
     let (head, changed, warnings) = snapshot_and_index(st, &task).await?;
     let tree = st.vcs.tree_id(&task.repo, &head).await?;
-    Ok(axum::Json(json!({
+    let answer = json!({
         "head_change": head, "changed": changed, "warnings": warnings,
         "applied": applied, "tree": git_tree(&tree),
-    }))
-    .into_response())
+    });
+    let answer =
+        crate::ext::with_hook(st.checkpoint_hook.as_ref(), &task, &head, &changed, answer).await;
+    Ok(axum::Json(answer).into_response())
 }
 
 #[derive(Deserialize)]

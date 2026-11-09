@@ -29,6 +29,12 @@
   `run_with`'s `customize` step, it hands the extension the jj engine and uses what it returns
   everywhere from then on: the API, the packer, the backup loop and the disk sweep. A layer may
   forward every call and observe it, or replace the engine.
+- **`AppState::with_checkpoint_hook`: an extension can add to a checkpoint's answer.** Asked
+  after `POST /v1/tasks/{id}/checkpoint` (a remote checkout's patch too) with the task, the new
+  head and the changed paths; the object it answers is added beside `head_change`, `changed` and
+  `warnings` (the daemon's fields win), and its `notices`, lines for the agent, reach the agent
+  through the MCP `checkpoint` tool's answer and the Claude Code `post-edit` hook, which prints
+  them as `additionalContext`. A hook that fails adds nothing and never fails the checkpoint.
 
 ## 0.0.3 (2026-11-06)
 

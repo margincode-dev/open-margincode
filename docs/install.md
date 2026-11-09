@@ -32,8 +32,12 @@ version.
 ## Docker
 
 ```bash
-docker run -d --name margincode -p 127.0.0.1:7420:7420 -v margincode:/data ghcr.io/vinhqbui/scholion
+docker run -d --name margincode -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/vinhqbui/scholion
 ```
+
+`AV_LISTEN_OPEN=1` tells the daemon that the port is published on this host's `127.0.0.1` only;
+without it (or `-e AV_TOKEN=...`, which the CLI then needs too) a daemon on an open address refuses
+to start. Publish the port wider only with a token.
 
 The image holds `margincode-daemon`, `margincode` and `av`. With no `AV_DATABASE_URL` the daemon runs
 its own Postgres under `/data/pg` (lite mode); keep `/data` on a volume. The dashboard is at

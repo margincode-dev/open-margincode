@@ -107,7 +107,7 @@ Other channels ([details](docs/install.md)):
 ```bash
 cargo binstall --git https://github.com/vinhqbui/scholion margincode-cli   # prebuilt, no compile
 brew tap vinhqbui/scholion https://github.com/vinhqbui/scholion && brew install margincode
-docker run -d -p 127.0.0.1:7420:7420 -v margincode:/data ghcr.io/vinhqbui/scholion
+docker run -d -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/vinhqbui/scholion
 ```
 
 ## ⭐ If it helps, star it

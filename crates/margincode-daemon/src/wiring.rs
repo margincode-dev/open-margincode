@@ -84,7 +84,8 @@ pub(crate) const DEFAULT_BUILD_IDLE_SECS: u64 = 1800;
 
 impl Config {
     /// `AV_DATABASE_URL` (unset = lite mode, see `pg_dir`), `AV_STORE_ROOT`, `AV_WS_ROOT`, `AV_WS_HOST_ROOT` (defaults to
-    /// `AV_WS_ROOT`), `AV_LISTEN` (default `0.0.0.0:7420`), `AV_EMBED_API_KEY` (optional).
+    /// `AV_WS_ROOT`), `AV_LISTEN` (default `127.0.0.1:7420`; any other host needs
+    /// `AV_TOKEN` or `AV_LISTEN_OPEN=1`, see `check_listen`), `AV_EMBED_API_KEY` (optional).
     ///
     /// Embedding: an `ollama` CLI with an `embeddinggemma-2` (else `qwen3-embedding`) model is used
     /// by default; `AV_OLLAMA_EMBED_MODEL` names the one model to use instead.
@@ -116,6 +117,13 @@ impl Config {
             api_key: embed_api_key.as_deref(),
             provider: provider.as_deref(),
         })?;
+        let listen = get("AV_LISTEN").unwrap_or_else(|| DEFAULT_LISTEN.into());
+        let token = normalize_secret(get("AV_TOKEN"));
+        let open = match get("AV_LISTEN_OPEN") {
+            None => false,
+            v => parse_switch("AV_LISTEN_OPEN", v.as_deref())?,
+        };
+        check_listen(&listen, token.as_deref(), open)?;
         let av_home = get("AV_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(default_av_home);
@@ -130,7 +138,7 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| ws_root.clone()),
             ws_root,
-            listen: get("AV_LISTEN").unwrap_or_else(|| "0.0.0.0:7420".into()),
+            listen,
             embed_api_key,
             embed,
             qdrant_url: get("AV_QDRANT_URL"),
@@ -184,7 +192,7 @@ impl Config {
             },
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
-            token: normalize_secret(get("AV_TOKEN")),
+            token,
         })
     }
 }
@@ -322,6 +330,32 @@ fn parse_backup_remotes(value: Option<&str>) -> Result<Vec<(String, String)>> {
         .collect()
 }
 
+pub(crate) const DEFAULT_LISTEN: &str = "127.0.0.1:7420";
+
+/// Refuses to serve every route without auth beyond this host: a listen address whose host is not
+/// loopback needs `AV_TOKEN`, or `AV_LISTEN_OPEN=1` when something outside the daemon limits who
+/// can reach it (a container whose port is published only on the host's `127.0.0.1`).
+fn check_listen(listen: &str, token: Option<&str>, open: bool) -> Result<()> {
+    if token.is_some() || open {
+        return Ok(());
+    }
+    let host = listen.rsplit_once(':').map_or(listen, |(h, _)| h);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if loopback {
+        return Ok(());
+    }
+    Err(AvError::Invalid(format!(
+        "AV_LISTEN={listen} would serve every route without a token beyond this host: set \
+         AV_TOKEN (and the same AV_TOKEN for the CLI), listen on 127.0.0.1, or set \
+         AV_LISTEN_OPEN=1 if only this host can reach that address (a container port \
+         published on 127.0.0.1)"
+    )))
+}
+
 /// Blank and whitespace-only secrets are absent. Surrounding whitespace is stripped.
 fn normalize_secret(value: Option<String>) -> Option<String> {
     value.and_then(|raw| {
@@ -388,6 +422,27 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_open_listen_address_needs_a_token_or_an_explicit_yes() {
+        for loopback in [
+            "127.0.0.1:7420",
+            "localhost:7420",
+            "[::1]:7420",
+            "127.0.0.9:1",
+        ] {
+            check_listen(loopback, None, false).unwrap();
+        }
+        for open in ["0.0.0.0:7420", "[::]:7420", "10.0.0.5:7420", "daemon:7420"] {
+            let err = check_listen(open, None, false).unwrap_err().to_string();
+            assert!(
+                err.contains("AV_TOKEN") && err.contains("AV_LISTEN_OPEN"),
+                "{open}: {err}"
+            );
+            check_listen(open, Some("t"), false).unwrap();
+            check_listen(open, None, true).unwrap();
+        }
+    }
 
     #[test]
     fn backup_remotes_parse_repo_url_pairs() {

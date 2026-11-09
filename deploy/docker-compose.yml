@@ -85,6 +85,9 @@ services:
       # The same directory as the host sees it; this is the path clients are told to work in.
       AV_WS_HOST_ROOT: ${AV_WS_ROOT:-${HOME}/ws}
       AV_LISTEN: 0.0.0.0:7420
+      # The port above is published on the host's 127.0.0.1 only, so no token is required here.
+      # Publish it wider and set AV_TOKEN instead: without one the daemon refuses an open address.
+      AV_LISTEN_OPEN: "1"
       # Semantic layer: Qdrant (gRPC) + an embedding API. The container has no `ollama` CLI, so it
       # uses AV_EMBED_URL (TEI by default). The daemon does not wait for either: a down embedder
       # only degrades packs to Postgres full-text and never blocks `av checkpoint`.

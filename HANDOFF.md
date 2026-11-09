@@ -42,9 +42,10 @@ its next sync).
 
 Left open on purpose:
 
-- **Branch `loopback-default`**: the daemon refuses an open listen address without a token. It
-  also rewrites `CLAUDE.md`, so it needs a rebase onto the renamed tree. Merge it before this
-  repository is public.
+- **Branch `loopback-default`**: its daemon change is on `main` (the daemon refuses an open
+  listen address without a token). Its other two commits, an architecture review and a shorter
+  `CLAUDE.md` with the module detail moved to `docs/architecture.md`, are not: the second rewrites
+  a file that has changed much since and needs redoing, not rebasing.
 - **Branch `wrong-lesson-cell`**: an older draft of the first benchmark run, probably superseded.
 - **Release tags** are not here yet, and there is no release: `scripts/install.sh`, the README,
   the Docker image and the plugin command still name the old repository on purpose. Point them

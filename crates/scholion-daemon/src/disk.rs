@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -1216,9 +1216,49 @@ async fn gc(State(st): State<AppState>, Json(b): Json<GcBody>) -> ApiResult<Recl
     Ok(Json(out))
 }
 
+#[derive(Deserialize)]
+struct DiskQuery {
+    /// `1` or `true`: only the filesystem numbers (`fs_only`).
+    fs: Option<String>,
+}
+
+impl DiskQuery {
+    fn fs_only(&self) -> Result<bool> {
+        match self.fs.as_deref().map(str::to_ascii_lowercase).as_deref() {
+            None | Some("0" | "false") => Ok(false),
+            Some("1" | "true") => Ok(true),
+            Some(other) => Err(AvError::Invalid(format!(
+                "fs must be 1, true, 0 or false, not {other:?}"
+            ))),
+        }
+    }
+}
+
+/// The filesystem holding `ws_root` (null where not measured), the floor (0 = off) and the
+/// build budget (0 = off): measured by `fs_space` alone, so it costs no directory walk.
+fn fs_fields(st: &AppState) -> serde_json::Map<String, Value> {
+    let fs = fs_space(&st.ws_root);
+    let below = below_floor(st).is_some();
+    [
+        ("fs_free_bytes", json!(fs.map(|(free, _)| free))),
+        ("fs_total_bytes", json!(fs.map(|(_, total)| total))),
+        ("min_free_bytes", json!(st.floor.bytes())),
+        ("below_floor", json!(below)),
+        // AV_BUILD_CACHE_MAX_GB, per repo (0 = off)
+        ("build_budget_bytes", json!(st.budget.bytes())),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect()
+}
+
 /// Every repo's workspaces (with their task's status, how long it has had it, and whether a
-/// reclaim would remove it), scratch, build cache and store, with totals.
-async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
+/// reclaim would remove it), scratch, build cache and store, with totals. With `?fs=1` only
+/// `fs_fields`: no store query and no walk (Scholion Cloud's `disk_low` alert asks every 60 s).
+async fn disk(State(st): State<AppState>, Query(q): Query<DiskQuery>) -> ApiResult<Value> {
+    if q.fs_only()? {
+        return Ok(Json(Value::Object(fs_fields(&st))));
+    }
     let now = Utc::now();
     let mut tasks: BTreeMap<(String, String), (Task, chrono::DateTime<Utc>)> = BTreeMap::new();
     for (task, since) in st.store.tasks_with_status_since(None).await? {
@@ -1304,20 +1344,11 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
         .iter()
         .cloned()
         .collect();
-    let fs = fs_space(&st.ws_root);
-    let below = below_floor(&st).is_some();
-    Ok(Json(json!({
+    let mut out = json!({
         "ws_root": st.ws_host_root,
         "store_root": st.store_root,
         "pg_dir": st.pg_dir,
         "retain_secs": st.ws_retain,
-        // the filesystem holding ws_root (null where not measured) and the floor (0 = off)
-        "fs_free_bytes": fs.map(|(free, _)| free),
-        "fs_total_bytes": fs.map(|(_, total)| total),
-        "min_free_bytes": st.floor.bytes(),
-        "below_floor": below,
-        // AV_BUILD_CACHE_MAX_GB, per repo (0 = off)
-        "build_budget_bytes": budget,
         "repos": repos,
         "outside": outside,
         "totals": {
@@ -1328,12 +1359,30 @@ async fn disk(State(st): State<AppState>) -> ApiResult<Value> {
             "scratch_bytes": scratch_total,
             "over_budget": any_over,
         },
-    })))
+    });
+    if let Value::Object(m) = &mut out {
+        m.extend(fs_fields(&st));
+    }
+    Ok(Json(out))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fs_1_or_true_asks_for_the_filesystem_numbers_only() {
+        let q = |fs: Option<&str>| DiskQuery {
+            fs: fs.map(str::to_owned),
+        };
+        for on in ["1", "true", "TRUE"] {
+            assert!(q(Some(on)).fs_only().unwrap(), "{on}");
+        }
+        for off in [None, Some("0"), Some("false")] {
+            assert!(!q(off).fs_only().unwrap(), "{off:?}");
+        }
+        assert!(q(Some("yes")).fs_only().is_err());
+    }
 
     #[test]
     fn free_space_of_a_temp_dir_is_measured_here() {

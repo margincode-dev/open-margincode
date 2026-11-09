@@ -1,8 +1,11 @@
 //! Containers are footprint too. Everything a session starts through docker carries the labels
 //! `av.task=<task id>` and `av.agent=<agent>` (the session-start hook exports them as
 //! `AV_DOCKER_LABELS`); the Stop hook counts what carries the task's label and `av gc
-//! --containers` removes what finished tasks left. The daemon never runs docker: all of it is
-//! here, in the CLI, and only when `docker` is on `PATH`.
+//! --containers` removes what finished tasks left. A container started without the labels is
+//! caught by a second net: the session-start snapshot keeps the ids of every container then
+//! (`container_ids`), and the Stop hook reports the ones that are new and carry no `av.task`
+//! label (`unlabelled_since`); nothing removes those, since nothing says whose they are. The
+//! daemon never runs docker: all of it is here, in the CLI, and only when `docker` is on `PATH`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -80,6 +83,9 @@ pub const INSPECT_FORMAT: &str =
     "{{.Id}}\t{{index .Config.Labels \"av.task\"}}\t{{.Size}}\t{{join .RepoTags \",\"}}";
 /// `docker volume ls` columns: name and the task label.
 pub const VOLUME_FORMAT: &str = "{{.Name}}\t{{.Label \"av.task\"}}";
+/// `docker ps -a --no-trunc` columns for the unlabelled net: id, name, state and the task label.
+/// No `.Size`, which would make docker measure every container.
+pub const ALL_FORMAT: &str = "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label \"av.task\"}}";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Container {
@@ -119,17 +125,25 @@ pub struct Volume {
     pub task: String,
 }
 
-/// What carries an `av.task` label on this host's docker.
+/// What carries an `av.task` label on this host's docker and, from the Stop hook, the
+/// containers the session started without one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
     pub containers: Vec<Container>,
     pub images: Vec<Image>,
     pub volumes: Vec<Volume>,
+    /// Containers not there at session start that carry no `av.task` label (`unlabelled_since`);
+    /// never filled by `scan`, so `gc` never sees them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unlabelled: Vec<Container>,
 }
 
 impl Report {
     pub fn is_empty(&self) -> bool {
-        self.containers.is_empty() && self.images.is_empty() && self.volumes.is_empty()
+        self.containers.is_empty()
+            && self.images.is_empty()
+            && self.volumes.is_empty()
+            && self.unlabelled.is_empty()
     }
 
     pub fn running(&self) -> impl Iterator<Item = &Container> {
@@ -171,6 +185,56 @@ pub fn parse_ps(text: &str) -> Vec<Container> {
             task: c[4].to_owned(),
         })
         .collect()
+}
+
+/// `docker ps` output in `ALL_FORMAT` (no size); lines that are not are skipped.
+pub fn parse_all(text: &str) -> Vec<Container> {
+    text.lines()
+        .map(columns)
+        .filter(|c| c.len() >= 3 && !c[0].is_empty())
+        .map(|c| Container {
+            id: c[0].to_owned(),
+            name: c[1].to_owned(),
+            state: c[2].to_owned(),
+            size: String::new(),
+            task: c.get(3).copied().unwrap_or_default().to_owned(),
+        })
+        .collect()
+}
+
+/// Of `all`, the containers whose id is not in `before` and that carry no `av.task` label.
+pub fn new_unlabelled(all: Vec<Container>, before: &[String]) -> Vec<Container> {
+    all.into_iter()
+        .filter(|c| c.task.is_empty() && !before.contains(&c.id))
+        .collect()
+}
+
+/// The id of every container on this host, running or not (`docker ps -aq --no-trunc`,
+/// read-only), by `deadline`. `None` when docker fails or is late: then no container can be
+/// told new, and the Stop hook reports none as unlabelled.
+pub fn container_ids(docker: &Path, deadline: Instant) -> Option<Vec<String>> {
+    let text = run(docker, &["ps", "-aq", "--no-trunc"], deadline)?;
+    Some(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// The containers that were not on this host at session start (`before`, from
+/// `container_ids`) and carry no `av.task` label: what a session started without
+/// `$AV_DOCKER_LABELS`. One read-only `docker ps -a --no-trunc` by `deadline`; empty when it
+/// fails.
+pub fn unlabelled_since(docker: &Path, before: &[String], deadline: Instant) -> Vec<Container> {
+    run(
+        docker,
+        &["ps", "-a", "--no-trunc", "--format", ALL_FORMAT],
+        deadline,
+    )
+    .map(|text| new_unlabelled(parse_all(&text), before))
+    .unwrap_or_default()
 }
 
 /// `docker image inspect` output in `INSPECT_FORMAT`.
@@ -398,9 +462,43 @@ mod tests {
             containers: ps,
             images,
             volumes,
+            unlabelled: Vec::new(),
         };
         assert_eq!(report.tasks(), ["t1", "t2"]);
         assert!(!report.is_empty() && Report::default().is_empty());
+    }
+
+    #[test]
+    fn unlabelled_are_the_new_containers_without_a_task_label() {
+        let all = parse_all(
+            "old\tav-old\trunning\t\nnew\tstray\trunning\t\nmine\tav-build\trunning\tt1\n\
+             gone\tstray-tmp\texited\nnot a row\n",
+        );
+        assert_eq!(all.len(), 4, "{all:?}");
+        assert_eq!(
+            all[3].task, "",
+            "a line without the label column is unlabelled"
+        );
+        let fresh = new_unlabelled(all, &["old".to_owned()]);
+        let ids: Vec<&str> = fresh.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["new", "gone"]);
+        let only = Report {
+            unlabelled: fresh,
+            ..Report::default()
+        };
+        assert!(!only.is_empty());
+        assert!(only.tasks().is_empty(), "gc never sees an unlabelled one");
+        // the section sent: id, name, state; nothing when there are none
+        assert_eq!(
+            serde_json::to_value(&only).unwrap()["unlabelled"][0],
+            json!({"id": "new", "name": "stray", "state": "running"})
+        );
+        assert!(
+            serde_json::to_value(Report::default())
+                .unwrap()
+                .get("unlabelled")
+                .is_none()
+        );
     }
 
     #[test]

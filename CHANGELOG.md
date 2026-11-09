@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Containers started without the labels are footprint too.** With `docker` on `PATH`, the
+  session-start snapshot also keeps the id of every container then (`docker ps -aq --no-trunc`),
+  and in a task the Stop hook reports the containers that are new since and carry no `av.task`
+  label as `containers.unlabelled` (`{id, name, state}`) with the footprint; `av disk` shows them
+  under the session. Running ones count toward `AV_FOOTPRINT_CONTAINERS` with the task's labelled
+  ones, and the block names them and says to add `$AV_DOCKER_LABELS` next time. `av gc
+  --containers` still never touches an unlabelled container. Without docker, or without the ids
+  from session start, nothing changes.
+- **`GET /v1/disk?fs=1`: the filesystem numbers without the walk.** With `fs=1` (or `fs=true`) the
+  answer carries only `fs_free_bytes`, `fs_total_bytes`, `min_free_bytes`, `below_floor` and
+  `build_budget_bytes`, measured as the free-space floor measures them, and reads neither the store
+  nor any workspace, `target/` or footprint; without the flag the answer is unchanged. A monitor
+  that polls free space (Scholion Cloud's `disk_low` alert, every 60 s) no longer pays for a walk
+  of every workspace. `av disk --fs` prints the line, `--json` the object.
 - **Containers are footprint.** Everything a session starts through docker is to carry the
   labels `av.task=<task id>` and `av.agent=<agent>`: in a task the session-start hook exports
   them as `$AV_DOCKER_LABELS` for `docker run`/`docker build` and, with `docker` on `PATH`, says so

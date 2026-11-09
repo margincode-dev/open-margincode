@@ -881,6 +881,73 @@ async fn disk_reports_the_filesystems_free_and_total_bytes() {
     }
 }
 
+/// `GET /v1/disk?fs=1` (or `fs=true`): only the filesystem numbers, the floor and the build
+/// budget, what Scholion Cloud's `disk_low` alert polls every 60 s. No repo, workspace or
+/// footprint is listed, and no store query or directory walk runs: with the store gone the full
+/// answer fails and this one still comes.
+#[tokio::test]
+async fn disk_fs_answers_the_filesystem_numbers_without_walking_the_workspaces() {
+    let e = env().await;
+    let t = start_task(&e, "Wave hello").await;
+    assert!(ws_dir(&e, &t).exists());
+    e.state.set_build_budget(7 << 30);
+    let full = disk_of(&e).await;
+    assert!(
+        listed(&full["repos"][0]["workspaces"], &t).is_some(),
+        "{full}"
+    );
+
+    for flag in ["1", "true"] {
+        let (status, fs) = call(&e.app, "GET", &format!("/v1/disk?fs={flag}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{fs}");
+        let mut keys: Vec<&str> = fs.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "below_floor",
+                "build_budget_bytes",
+                "fs_free_bytes",
+                "fs_total_bytes",
+                "min_free_bytes"
+            ],
+            "{fs}"
+        );
+        for key in keys {
+            assert_eq!(
+                fs[key], full[key],
+                "{key}: the same numbers as the full answer"
+            );
+        }
+        assert_eq!(fs["build_budget_bytes"], 7u64 << 30, "{fs}");
+        assert!(
+            fs.get("repos").is_none() && fs.get("totals").is_none(),
+            "{fs}"
+        );
+    }
+    // fs=0 is the full answer; anything else is a malformed request
+    let (status, body) = call(&e.app, "GET", "/v1/disk?fs=0", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body["repos"].is_array() && body["totals"].is_object(),
+        "{body}"
+    );
+    let (status, body) = call(&e.app, "GET", "/v1/disk?fs=yes", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // the fast path: no store query, so none of the walk behind it either
+    e.store.pool().close().await;
+    let (status, body) = call(&e.app, "GET", "/v1/disk", None).await;
+    assert_ne!(
+        status,
+        StatusCode::OK,
+        "the full answer reads the store: {body}"
+    );
+    let (status, fs) = call(&e.app, "GET", "/v1/disk?fs=1", None).await;
+    assert_eq!(status, StatusCode::OK, "{fs}");
+    assert_eq!(fs["min_free_bytes"], 0, "{fs}");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_working() {

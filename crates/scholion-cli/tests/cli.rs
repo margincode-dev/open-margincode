@@ -1912,10 +1912,12 @@ impl Footprint {
     }
 
     /// A fake `docker` on the hooks' `PATH`: logs every call to `docker.log` in `bin` (one line
-    /// of arguments each), answers `ps`, `images -q`, `image inspect` and `volume ls` with the
-    /// files `ps`, `images`, `inspect` and `volumes` of `bin` (empty when missing; the filters
-    /// are ignored, so a test writes only what docker would match), and succeeds silently on
-    /// anything else (`rm`, `rmi`, `volume rm`).
+    /// of arguments each), answers `ps -a --size …` (the labelled scan), `images -q`,
+    /// `image inspect` and `volume ls` with the files `ps`, `images`, `inspect` and `volumes` of
+    /// `bin`, `ps -aq` (the session-start ids) with `ids` and `ps -a --no-trunc …` (the
+    /// unlabelled net) with `all` (empty when missing; the filters are ignored, so a test writes
+    /// only what docker would match), and succeeds silently on anything else (`rm`, `rmi`,
+    /// `volume rm`).
     #[cfg(unix)]
     fn fake_docker(&self) {
         let bin = self.bin.path().display();
@@ -1924,6 +1926,9 @@ impl Footprint {
             &format!(
                 "#!/bin/sh\nPATH=/usr/bin:/bin\necho \"$*\" >> '{bin}/docker.log'\n\
                  case \"$1 $2\" in\n\
+                 \"ps -aq\") cat '{bin}/ids' 2>/dev/null ;;\n\
+                 \"ps -a\") if [ \"$3\" = --no-trunc ]; then cat '{bin}/all'; \
+                 else cat '{bin}/ps'; fi 2>/dev/null ;;\n\
                  \"ps \"*) cat '{bin}/ps' 2>/dev/null ;;\n\
                  \"images \"*) cat '{bin}/images' 2>/dev/null ;;\n\
                  \"image inspect\") cat '{bin}/inspect' 2>/dev/null ;;\n\
@@ -1998,6 +2003,10 @@ fn hook_session_start_gives_the_task_a_scratch_dir_and_snapshots_the_footprint()
     assert!(!printed.contains("AV_DOCKER_LABELS"), "{printed}");
     let snap: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(fp.snapshot("cc-fp")).unwrap()).unwrap();
+    assert!(
+        snap.get("container_ids").is_none(),
+        "no docker, no ids: {snap}"
+    );
     assert_eq!(snap["partial"], false, "{snap}");
     assert_eq!(
         snap["dirs"],
@@ -2132,8 +2141,8 @@ fn hook_session_start_exports_docker_labels_and_says_so_when_docker_is_on_path()
         "{line}"
     );
     assert!(line.contains("av gc --containers"), "{line}");
-    // session-start only looks for docker; it runs nothing yet
-    assert_eq!(fp.docker_log(), "");
+    // session-start runs one read-only listing: the ids of the containers there now
+    assert_eq!(fp.docker_log(), "ps -aq --no-trunc\n");
 }
 
 #[test]
@@ -2358,6 +2367,192 @@ fn hook_stop_allows_running_containers_up_to_av_footprint_containers() {
     );
 }
 
+/// The second net under the labels: a container the session started without
+/// `$AV_DOCKER_LABELS` is new since session start (`docker ps -aq --no-trunc` then) and carries no
+/// `av.task` label. The Stop hook reports it under `containers.unlabelled`, counts a running one
+/// with the task's own, and blocks once saying to add the labels next time. One there at session
+/// start, the task's labelled one and another task's are not reported as unlabelled.
+#[cfg(unix)]
+#[test]
+fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    fp.fake_docker();
+    fp.docker_answers("ids", "old0\n");
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-stray"),
+    ));
+    let snap: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fp.snapshot("cc-stray")).unwrap()).unwrap();
+    assert_eq!(snap["container_ids"], serde_json::json!(["old0"]), "{snap}");
+    assert_eq!(fp.docker_log(), "ps -aq --no-trunc\n");
+
+    let task = task_id_of(&ws);
+    fp.docker_answers(
+        "ps",
+        &format!("lab1\tav-build\trunning\t12MB (virtual 1.2GB)\t{task}\n"),
+    );
+    fp.docker_answers(
+        "all",
+        &format!(
+            "old0\tbefore-db\trunning\t\n\
+             new1\tstray-redis\trunning\t\n\
+             new2\tstray-tmp\texited\t\n\
+             lab1\tav-build\trunning\t{task}\n\
+             oth1\tother-build\trunning\t00000000-0000-0000-0000-000000000000\n"
+        ),
+    );
+    let o = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-stray"),
+    ));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap_or_else(|_| panic!("{o}"));
+    assert_eq!(v["decision"], "block", "{o}");
+    let reason = v["reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with(
+            "av: 2 containers of this task are still running: av-build, stray-redis (unlabelled)."
+        ),
+        "{reason}"
+    );
+    assert!(
+        reason.contains("1 of them carries no av.task label: add $AV_DOCKER_LABELS"),
+        "{reason}"
+    );
+    assert!(reason.contains("next time"), "{reason}");
+    for never in ["before-db", "other-build", "stray-tmp"] {
+        assert!(!reason.contains(never), "{never}: {reason}");
+    }
+    let log = fp.docker_log();
+    assert!(
+        log.contains("ps -a --no-trunc --format {{.ID}}"),
+        "the stop lists every container: {log}"
+    );
+    for verb in [" rm", "kill", "stop", "rmi", "prune"] {
+        assert!(
+            !log.contains(verb),
+            "the hook never removes anything: {log}"
+        );
+    }
+    // once per session
+    let o = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-stray"),
+    ));
+    assert_eq!(o, "");
+    // the daemon has them as sent: the labelled one once, under containers
+    let disk: serde_json::Value = ureq::get(&format!("{}/v1/disk", d.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    let c = &disk["outside"][0]["containers"];
+    assert_eq!(
+        c["unlabelled"],
+        serde_json::json!([
+            {"id": "new1", "name": "stray-redis", "state": "running"},
+            {"id": "new2", "name": "stray-tmp", "state": "exited"},
+        ]),
+        "{disk}"
+    );
+    let labelled: Vec<&str> = c["containers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(labelled, ["av-build"], "{disk}");
+    // `av disk` shows them under the session
+    let text = ok(av(&d, &ws, &["disk"]));
+    assert!(
+        text.contains("unlabelled  stray-redis (running), stray-tmp (exited)"),
+        "{text}"
+    );
+}
+
+/// A running unlabelled container counts toward `AV_FOOTPRINT_CONTAINERS` with the task's
+/// labelled ones: one labelled may run, and one more without labels blocks.
+#[cfg(unix)]
+#[test]
+fn hook_stop_counts_running_unlabelled_containers_with_the_tasks_own() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    fp.fake_docker();
+    let mut env = fp.env("on");
+    env.push(("AV_FOOTPRINT_CONTAINERS", "1"));
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &env,
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-both"),
+    ));
+    let task = task_id_of(&ws);
+    fp.docker_answers("ps", &format!("lab1\tav-build\trunning\t\t{task}\n"));
+    fp.docker_answers(
+        "all",
+        &format!("lab1\tav-build\trunning\t{task}\nnew1\tstray-redis\trunning\t\n"),
+    );
+    let o = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &env,
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-both"),
+    ));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap_or_else(|_| panic!("{o}"));
+    assert_eq!(v["decision"], "block", "{o}");
+    assert!(
+        v["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("av: 2 containers of this task are still running"),
+        "{o}"
+    );
+}
+
+/// Without the ids from session start (docker was not on PATH then) nothing can be told new,
+/// so no container is reported as unlabelled and the stop is not blocked for one.
+#[cfg(unix)]
+#[test]
+fn hook_stop_reports_no_unlabelled_containers_without_the_session_start_ids() {
+    let (d, ws, _scratch) = started();
+    let fp = Footprint::new();
+    ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "session-start"],
+        &hook_input(&ws, "SessionStart", "cc-late"),
+    ));
+    fp.fake_docker();
+    fp.docker_answers("all", "new1\tstray-redis\trunning\t\n");
+    let o = av_stdin_env(
+        &d.url,
+        &ws,
+        &fp.env("on"),
+        &["hook", "stop"],
+        &hook_input(&ws, "Stop", "cc-late"),
+    );
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o), "");
+    assert!(
+        !fp.docker_log().contains("--no-trunc --format"),
+        "{}",
+        fp.docker_log()
+    );
+}
+
 /// `av gc --containers`: what merged and abandoned tasks left in docker goes (stopped
 /// containers, dangling images, volumes with their label); open and unknown tasks' things stay;
 /// a running container is listed, never stopped. `--dry-run` only lists.
@@ -2387,7 +2582,8 @@ fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
              c2\tb-db\trunning\t\t{merged}\n\
              c3\ta-build\texited\t\t{open}\n\
              c4\tc-db\tcreated\t\t{abandoned}\n\
-             c5\tghost\texited\t\t{unknown}\n"
+             c5\tghost\texited\t\t{unknown}\n\
+             c6\tstray\texited\t\t\n"
         ),
     );
     fp.docker_answers("images", "sha256:b\nsha256:a\n");
@@ -2469,6 +2665,7 @@ fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
         "rm c2",
         "rm c3",
         "rm c5",
+        "rm c6",
         "rmi sha256:a",
         "rm a-vol",
         "kill",
@@ -4535,6 +4732,30 @@ fn disk_shows_workspaces_caches_and_what_sessions_left_outside() {
     let o = ok(av_with(&c.url, dir.path(), &["disk", "--json"]));
     let v: serde_json::Value = serde_json::from_str(&o).unwrap();
     assert_eq!(v, serde_json::from_str::<serde_json::Value>(DISK).unwrap());
+}
+
+const DISK_FS: &str = r#"{"fs_free_bytes": 53687091200, "fs_total_bytes": 214748364800,
+ "min_free_bytes": 21474836480, "below_floor": false, "build_budget_bytes": 0}"#;
+
+/// `av disk --fs` asks for the filesystem numbers only (`?fs=1`, no walk on the daemon) and
+/// prints the one line; `--json` passes the answer through.
+#[test]
+fn disk_fs_prints_only_the_filesystem_line() {
+    let c = canned(DISK_FS);
+    let dir = TempDir::new().unwrap();
+    let o = ok(av_with(&c.url, dir.path(), &["disk", "--fs"]));
+    assert_eq!(
+        o,
+        "disk: 50.0 GB free of 200.0 GB, floor 20.0 GB (AV_DISK_MIN_FREE_GB)\n"
+    );
+    assert_eq!(c.seen.lock().unwrap()[0].trim(), "GET /v1/disk?fs=1");
+    let o = ok(av_with(&c.url, dir.path(), &["disk", "--fs", "--json"]));
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    assert_eq!(
+        v,
+        serde_json::from_str::<serde_json::Value>(DISK_FS).unwrap()
+    );
+    assert_eq!(c.seen.lock().unwrap()[1].trim(), "GET /v1/disk?fs=1");
 }
 
 const GC: &str = r#"{"reclaimed": [{"repo": "demo", "slug": "improve-greeting", "status": "merged",

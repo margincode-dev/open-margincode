@@ -179,6 +179,10 @@ enum Cmd {
     /// What the daemon's workspaces (and their build output), scratch dirs, caches and store
     /// take on disk, and what agent sessions added outside any workspace.
     Disk {
+        /// Only the filesystem under the workspaces: free and total space, the free-space floor
+        /// and the build budget (`GET /v1/disk?fs=1`, which walks no directory).
+        #[arg(long)]
+        fs: bool,
         /// Print the daemon's answer as JSON.
         #[arg(long)]
         json: bool,
@@ -1722,10 +1726,13 @@ fn run(cli: Cli) -> Result<()> {
                 print!("{}", attention::render(&r));
             }
         }
-        Cmd::Disk { json } => {
-            let r = client.get("/v1/disk", &[])?;
+        Cmd::Disk { fs, json } => {
+            let query: &[(&str, &str)] = if *fs { &[("fs", "1")] } else { &[] };
+            let r = client.get("/v1/disk", query)?;
             if *json {
                 println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+            } else if *fs {
+                print!("{}", disk::render_disk_fs(&r));
             } else {
                 print!("{}", disk::render_disk(&r));
             }

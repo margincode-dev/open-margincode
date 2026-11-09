@@ -828,6 +828,7 @@ scratch files. Nothing used to own their lifetime. One machine filled 333 GB thi
 ```bash
 av disk                     # workspaces (build output apart), scratch, caches and store per repo, and what sessions left outside
 av disk --json              # the same, as GET /v1/disk returns it
+av disk --fs                # only free and total space, the floor and the build budget (GET /v1/disk?fs=1: no walk)
 av gc --dry-run             # what would be removed now
 av gc                       # remove workspaces past the retention (POST /v1/gc)
 av gc --retain 0            # every merged or abandoned task's workspace, whatever its age
@@ -856,7 +857,11 @@ while it is still below, refuse to start a task with HTTP 507 and a reason namin
 the free bytes; `GET /v1/attention` lists `disk_low`. Tasks already started keep working, and
 reviews, handoffs and merges are still offered. `GET /v1/disk` reports `fs_free_bytes` and
 `fs_total_bytes` of that filesystem (null where not measured: the check then never refuses),
-`min_free_bytes` and `below_floor`; `av disk` prints them on its second line.
+`min_free_bytes` and `below_floor`; `av disk` prints them on its second line. `GET /v1/disk?fs=1`
+(or `fs=true`) answers only those four and `build_budget_bytes`, measured the same way, without
+listing repos, workspaces or footprints and without walking a directory, so a monitor can poll it
+cheaply (the full answer measures every workspace and `target/`); `av disk --fs` prints that line
+and `av disk --fs --json` the object.
 
 **The build budget.** `AV_BUILD_CACHE_MAX_GB` (default `0`, off) caps each repo's build output:
 every task workspace's own `target/` plus the repo's `.cache/` (the deps cache and the build
@@ -1003,13 +1008,26 @@ footprint as a `containers` section (`{containers: [{id, name, state, size}], im
 bytes, tags}], volumes: [{name}]}`); `av disk` shows it under the session. When more than
 `AV_FOOTPRINT_CONTAINERS` (default 0: any) of those containers are still running, the stop is
 blocked once per session with their names and `docker stop`; av never stops a container.
+A container started without the labels is caught by a second net. With `docker` on `PATH`,
+`SessionStart` also keeps the id of every container then in its snapshot (`container_ids`, from
+`docker ps -aq --no-trunc`, read-only, within the same `AV_FOOTPRINT_SECS`), and in a task `Stop`
+lists every container (`docker ps -a --no-trunc` with id, name, state and the `av.task` label):
+the ones not in the snapshot that carry no `av.task` label go into the same `containers` section
+as `unlabelled: [{id, name, state}]`, and `av disk` shows them under the session. Running ones
+count toward `AV_FOOTPRINT_CONTAINERS` together with the task's labelled ones; the block names
+them, marked `(unlabelled)`, and says to add `$AV_DOCKER_LABELS` next time. A container labelled
+for another task is not this net's, and one present at session start is never reported. Without
+the ids (docker was not on `PATH`, or did not answer, at session start) nothing is reported as
+unlabelled.
 `av gc --containers` (the CLI runs docker, the daemon never does) lists everything labelled
 `av.task` on the host, asks the daemon each task's status (`GET /v1/tasks/{id}`) and, for the
 merged and abandoned ones, removes stopped containers, then dangling images, then volumes, one
 docker call each, printing what went; running containers are listed and left running, and what
 belongs to open tasks, or to tasks the daemon does not know, is only counted. `--dry-run` lists
 the plan and `--json` carries it as `containers`. Without `docker` on `PATH` the flag says so
-on stderr and the rest of `gc` runs. Unlabelled containers are never touched.
+on stderr and the rest of `gc` runs. Unlabelled containers are never touched, not even the ones
+a stop reported as `unlabelled`: nothing says whose they are, so the block tells the agent to
+remove its own once stopped.
 
 **`$AV_SCRATCH`.** In a task, `SessionStart` creates `<ws_root>/<repo>/.scratch/<slug>` and
 appends `export AV_SCRATCH=…` to Claude Code's `$CLAUDE_ENV_FILE`, so every later Bash command
@@ -1121,9 +1139,11 @@ opens with a warning naming the culprit merge.
   them again: a session that added `AV_FOOTPRINT_WARN_MB` (default 512) or more outside any task
   workspace is stopped once and told where. In a task, `SessionStart` also exports
   `$AV_DOCKER_LABELS` (`--label av.task=… --label av.agent=…`) for the session's `docker run` and
-  `docker build`, and with `docker` on `PATH` `Stop` reports what carries the task's label and
-  blocks once while more than `AV_FOOTPRINT_CONTAINERS` (default 0) of its containers still run,
-  never stopping them (`av gc --containers` removes stopped ones once the task is done).
+  `docker build`, and with `docker` on `PATH` `Stop` reports what carries the task's label and,
+  as `unlabelled`, the containers started since `SessionStart` without any `av.task` label, and
+  blocks once while more than `AV_FOOTPRINT_CONTAINERS` (default 0) of both still run, never
+  stopping them (`av gc --containers` removes the task's stopped ones once it is done, never an
+  unlabelled one).
   `AV_FOOTPRINT=off` turns all of that off. See
   [Disk](#disk-what-agents-create-and-what-av-reclaims).
 

@@ -914,6 +914,15 @@ async fn disk_fs_answers_the_filesystem_numbers_without_walking_the_workspaces()
             "{fs}"
         );
         for key in keys {
+            if key == "fs_free_bytes" {
+                // other tests write to this filesystem between the two calls
+                let (a, b) = (fs[key].as_u64(), full[key].as_u64());
+                assert_eq!(a.is_some(), b.is_some(), "{key}: {fs} vs {full}");
+                if let (Some(a), Some(b)) = (a, b) {
+                    assert!(a.abs_diff(b) < 256 << 20, "{key}: {a} vs {b}");
+                }
+                continue;
+            }
             assert_eq!(
                 fs[key], full[key],
                 "{key}: the same numbers as the full answer"

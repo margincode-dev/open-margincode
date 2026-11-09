@@ -1,0 +1,71 @@
+## Task
+# fd-68edfde · fd-68edfde · open
+
+## Map
+- repo map (59 files):
+  .cargo/ (1 files)
+  .github/ (7 files)
+  .gitignore
+  CHANGELOG.md
+  CONTRIBUTING.md
+  Cargo.lock
+  Cargo.toml
+  Cross.toml
+  LICENSE-APACHE
+  LICENSE-MIT
+  Makefile
+  README.md
+  SECURITY.md
+  contrib/ (4 files)
+  doc/ (8 files)
+  rustfmt.toml
+  scripts/ (3 files)
+  src/ (22 files)
+  tests/ (2 files)
+
+## Code
+- sym:40950 DirEntryInner (src/dir_entry.rs:12-17)
+```rust
+enum DirEntryInner {
+    Normal(ignore::DirEntry),
+    // Broken symlinks are surfaced by the walker as errors that carry no depth,
+    // so we record the depth (relative to the search root) at creation time.
+    BrokenSymlink(PathBuf, usize),
+}
+```
+- sym:40953 DirEntry.broken_symlink (src/dir_entry.rs:36-42)
+```rust
+    pub fn broken_symlink(path: PathBuf, depth: usize) -> Self {
+        Self {
+            inner: DirEntryInner::BrokenSymlink(path, depth),
+            metadata: OnceCell::new(),
+            style: OnceCell::new(),
+        }
+    }
+```
+- sym:40960 DirEntry.depth (src/dir_entry.rs:100-105)
+  pub fn depth(&self) -> Option<usize>
+- sym:40954 DirEntry.path (src/dir_entry.rs:44-49)
+  pub fn path(&self) -> &Path
+- sym:40955 DirEntry.into_path (src/dir_entry.rs:51-56)
+  pub fn into_path(self) -> PathBuf
+- sym:40958 DirEntry.file_type (src/dir_entry.rs:84-89)
+  pub fn file_type(&self) -> Option<FileType>
+- sym:40959 DirEntry.metadata (src/dir_entry.rs:91-98)
+  pub fn metadata(&self) -> Option<&Metadata>
+- sym:40951 DirEntry (src/dir_entry.rs:20-24)
+  pub struct DirEntry
+- sym:40961 DirEntry.style (src/dir_entry.rs:107-111)
+- sym:40975 OutputBuffer.new (src/exec/command.rs:19-24)
+  pub fn new(null_separator: bool) -> Self
+- sym:40984 CommandSet.new (src/exec/mod.rs:36-49)
+- sym:40990 CommandBuilder.new (src/exec/mod.rs:136-162)
+- sym:41275 test_min_depth_broken_symlink (tests/tests.rs:1216-1246)
+- sym:41276 test_min_depth_broken_symlink_absolute_path (tests/tests.rs:1254-1286)
+- sym:41271 test_follow_broken_symlink (tests/tests.rs:1112-1135)
+- sym:41287 test_symlink_as_root (tests/tests.rs:1605-1643)
+  fn test_symlink_as_root()
+- sym:41273 test_max_depth (tests/tests.rs:1155-1188)
+
+---
+tokens: 687/800

@@ -1,0 +1,116 @@
+## Task
+# fd-a3942db · fd-a3942db · open
+Goal: fix: don't sanitize error message
+
+Calling `maybe_sanitize` on error messages results in newlines getting
+replaced with "\x0a". This is not desirable for error messages that have
+newlines.
+
+I audited everwhere we construct an error, and call print_error and
+confirmed that none of those places have inputs that include found
+paths. I'm not too worried about inputs that come from command line
+arguments.
+
+This bug was introduced in 92c54d37c0a3425b4d8b25dd8c9e4ddbbecfbe0a.
+
+Fixes: #2104
+
+## Map
+- src/error.rs
+  L5: pub fn print_error(msg: impl Into<String>)
+- src/sanitize.rs
+- src/cli.rs
+- src/exec/command.rs
+  L9: struct Outputs
+  L13: pub struct OutputBuffer
+  L19: pub fn new(null_separator: bool) -> Self
+  L26: fn push(&mut self, stdout: Vec<u8>, stderr: Vec<u8>)
+  L30: fn write(self)
+  L60: pub fn execute_commands<I: Iterator<Item = io::Result<Command>>>( cmds: I, mut output_buffer: OutputBuffer, enable_output_buffering: bool, ) -> ExitCode
+  L101: pub fn handle_cmd_error(cmd: Option<&Command>, err: io::Error) -> ExitCode
+- src/exec/job.rs
+  L11: pub fn job( results: impl IntoIterator<Item = WorkerResult>, cmd: &CommandSet, config: &Config, ) -> ExitCode
+  L46: pub fn batch( results: impl IntoIterator<Item = WorkerResult>, cmd: &CommandSet, config: &Config, ) -> ExitCode
+- src/main.rs
+- src/output.rs
+- src/walk.rs
+- src/config.rs
+  L14: pub struct Config
+  L140: pub fn is_printing(&self) -> bool
+- src/dir_entry.rs
+- src/exec/mod.rs
+- src/exit_codes.rs
+- repo map: .cargo/ .github/ .gitignore CHANGELOG.md CONTRIBUTING.md Cargo.lock Cargo.toml Cross.toml LICENSE-APACHE LICENSE-MIT Makefile README.md (59 files)
+
+## Code
+- sym:40328 maybe_sanitize (src/sanitize.rs:49-55)
+  pub fn maybe_sanitize<'a>(s: &'a str, is_terminal: bool) -> Cow<'a, str>
+- sym:40159 print_error (src/error.rs:5-9)
+  pub fn print_error(msg: impl Into<String>)
+- sym:40315 print_entry_colorized (src/output.rs:89-139)
+  fn print_entry_colorized<W: Write>( stdout: &mut W, entry: &DirEntry, config: &Config, ls_colors: &LsColors, ) -> io::Result<()>
+- sym:40316 print_entry_uncolorized_base (src/output.rs:142-156)
+  fn print_entry_uncolorized_base<W: Write>( stdout: &mut W, entry: &DirEntry, config: &Config, ) -> io::Result<()>
+- sym:40314 print_entry_format (src/output.rs:69-86)
+  fn print_entry_format<W: Write>( stdout: &mut W, entry: &DirEntry, config: &Config, format: &FormatTemplate, ) -> io::Result<()>
+- sym:40327 sanitize_for_terminal (src/sanitize.rs:28-46)
+  pub fn sanitize_for_terminal(s: &str) -> Cow<'_, str>
+- sym:40359 ReceiverBuffer.poll (src/walk.rs:198-249)
+  fn poll(&mut self) -> Result<(), ExitCode>
+- sym:40206 merge_exitcodes (src/exit_codes.rs:46-51)
+  pub fn merge_exitcodes(results: impl IntoIterator<Item = ExitCode>) -> ExitCode
+- sym:40340 maybe_sanitize_passthrough_when_not_terminal (src/sanitize.rs:159-167)
+  fn maybe_sanitize_passthrough_when_not_terminal()
+- sym:40113 Opts.search_paths (src/cli.rs:696-721)
+  pub fn search_paths(&self) -> anyhow::Result<Vec<PathBuf>>
+- sym:40166 handle_cmd_error (src/exec/command.rs:101-115)
+  pub fn handle_cmd_error(cmd: Option<&Command>, err: io::Error) -> ExitCode
+- sym:40167 job (src/exec/job.rs:11-44)
+  pub fn job( results: impl IntoIterator<Item = WorkerResult>, cmd: &CommandSet, config: &Config, ) -> ExitCode
+- sym:40168 batch (src/exec/job.rs:46-64)
+  pub fn batch( results: impl IntoIterator<Item = WorkerResult>, cmd: &CommandSet, config: &Config, ) -> ExitCode
+- sym:40297 main (src/main.rs:62-73)
+  fn main()
+- sym:40360 ReceiverBuffer.print (src/walk.rs:252-267)
+  fn print(&mut self, entry: &DirEntry) -> Result<(), ExitCode>
+- sym:40367 WorkerState.build_walker (src/walk.rs:347-404)
+  fn build_walker(&self, paths: &[PathBuf]) -> Result<WalkParallel>
+- sym:40114 Opts.normalize_path (src/cli.rs:723-736)
+  fn normalize_path(&self, path: &Path) -> PathBuf
+- sym:40117 Opts.max_depth (src/cli.rs:747-749)
+  pub fn max_depth(&self) -> Option<usize>
+- sym:40119 Opts.threads (src/cli.rs:755-757)
+- sym:40120 Opts.max_results (src/cli.rs:759-763)
+- sym:40134 ensure_current_directory_exists (src/cli.rs:963-971)
+- sym:40135 Config (src/config.rs:14-136)
+  pub struct Config
+- sym:40138 DirEntry (src/dir_entry.rs:18-22)
+  pub struct DirEntry
+- sym:40141 DirEntry.path (src/dir_entry.rs:42-47)
+- sym:40143 DirEntry.stripped_path (src/dir_entry.rs:59-71)
+- sym:40144 DirEntry.into_stripped_path (src/dir_entry.rs:74-80)
+- sym:40148 DirEntry.style (src/dir_entry.rs:105-109)
+- sym:40162 OutputBuffer.new (src/exec/command.rs:19-24)
+- sym:40163 OutputBuffer.push (src/exec/command.rs:26-28)
+- sym:40164 OutputBuffer.write (src/exec/command.rs:30-56)
+- sym:40165 execute_commands (src/exec/command.rs:60-99)
+- sym:40170 CommandSet (src/exec/mod.rs:30-33)
+- sym:40171 CommandSet.new (src/exec/mod.rs:36-49)
+- sym:40174 CommandSet.execute (src/exec/mod.rs:76-88)
+- sym:40175 CommandSet.execute_batch (src/exec/mod.rs:90-120)
+- sym:40177 CommandBuilder.new (src/exec/mod.rs:136-162)
+- sym:40179 CommandBuilder.push (src/exec/mod.rs:173-189)
+- sym:40181 CommandBuilder.exit_code (src/exec/mod.rs:205-207)
+- sym:40183 CommandTemplate.new (src/exec/mod.rs:220-256)
+- sym:40185 CommandTemplate.generate (src/exec/mod.rs:266-272)
+- sym:40202 ExitCode (src/exit_codes.rs:7-12)
+- sym:40203 i32.from (src/exit_codes.rs:15-22)
+- sym:40205 ExitCode.exit (src/exit_codes.rs:31-43)
+- sym:40335 strips_newline (src/sanitize.rs:110-112)
+- sym:40336 escape_preserves_information (src/sanitize.rs:115-118)
+- sym:40334 strips_bel_and_null (src/sanitize.rs:104-107)
+- sym:40333 strips_del (src/sanitize.rs:99-101)
+- sym:40338 strips_bidi_overrides_and_zero_width (src/sanitize.rs:131-140)
+
+---
+tokens: 1783/2000

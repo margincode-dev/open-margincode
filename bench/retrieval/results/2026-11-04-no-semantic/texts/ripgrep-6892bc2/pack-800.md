@@ -1,0 +1,49 @@
+## Task
+# ripgrep-6892bc2 · ripgrep-6892bc2-2 · open
+
+## Map
+- repo map: .cargo/ .github/ .gitignore .ignore .nvim.lua AI_POLICY.md CHANGELOG.md CONTRIBUTING.md COPYING Cargo.lock Cargo.toml FAQ.md (226 files)
+
+## Code
+- sym:13040 IncrementalIgnore.matched_with_errors_ignore (crates/ignore/src/incremental.rs:310-391)
+  fn matched_with_errors_ignore( &mut self, relative: &Path, is_dir: bool, errs: &mut PartialErrorBuilder, ) -> Option<IncrementalMatch>
+- sym:13055 normalize_absolute (crates/ignore/src/incremental.rs:542-555)
+```rust
+fn normalize_absolute(path: &Path) -> Option<PathBuf> {
+    let absolute = std::path::absolute(path).ok()?;
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    Some(normalized)
+}
+```
+- sym:13224 DirEntryRaw (crates/ignore/src/walk.rs:238-256)
+  struct DirEntryRaw
+- sym:12907 IgnoreInner (crates/ignore/src/dir.rs:115-169)
+  struct IgnoreInner
+- sym:13039 IncrementalIgnore.matched_with_errors_impl (crates/ignore/src/incremental.rs:224-308)
+  fn matched_with_errors_impl( &mut self, relative: &Path, is_dir: bool, errs: &mut PartialErrorBuilder, ) -> IncrementalMatch
+- sym:12876 incremental_ignored_parent (crates/ignore/benches/workloads.rs:380-388)
+  fn incremental_ignored_parent(b: &mut test::Bencher)
+- sym:11293 DecompressionMatcherBuilder.new (crates/cli/src/decompress.rs:42-44)
+  pub fn new() -> DecompressionMatcherBuilder
+- sym:11300 DecompressionMatcher.new (crates/cli/src/decompress.rs:167-171)
+  pub fn new() -> DecompressionMatcher
+- sym:11304 DecompressionReaderBuilder.new (crates/cli/src/decompress.rs:205-207)
+  pub fn new() -> DecompressionReaderBuilder
+- sym:11310 DecompressionReader.new (crates/cli/src/decompress.rs:352-356)
+  pub fn new<P: AsRef<Path>>( path: P, ) -> Result<DecompressionReader, CommandError>
+- sym:13068 parent_ignore_and_custom_ignore (crates/ignore/src/incremental.rs:679-695)
+  fn parent_ignore_and_custom_ignore()
+- sym:13078 cached_parent_matcher_is_used_for_directory (crates/ignore/src/incremental.rs:863-877)
+  fn cached_parent_matcher_is_used_for_directory()
+
+---
+tokens: 643/800

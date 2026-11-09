@@ -1,0 +1,117 @@
+## Task
+# click-9f0bcdf · click-9f0bcdf · open
+Goal: Add `Parameter.spec` and deprecate `human_readable_name`
+Workspace: /root/bench/av_gemma/ws/rec728b-click-9f0bcdf/click-9f0bcdf
+Changed (0): nothing yet
+
+## Map
+- src/click/core.py
+- src/click/_compat.py
+- src/click/_winconsole.py
+- src/click/testing.py
+- src/click/types.py
+- examples/aliases/aliases.py
+  L7: class Config:
+  L10: def __init__(self):
+  L14: def add_alias(self, alias, cmd):
+  L17: def read_config(self, filename):
+  L25: def write_config(self, filename):
+  L37: class AliasedGroup(click.Group):
+  L42: def get_command(self, ctx, cmd_name): # Step one: built-in commands as normal
+  L70: def resolve_command(self, ctx, args): # always return the command's name, not the alias
+  L76: def read_config(ctx, param, value):
+  L97: def cli():
+  L102: def push():
+  L108: def pull():
+  L114: def clone():
+  L120: def commit():
+  L127: def status(config):
+  L139: def alias(config, alias_, cmd, config_file):
+- examples/complex/complex/cli.py
+  L7: CONTEXT_SETTINGS = dict(auto_envvar_prefix="COMPLEX")
+  L10: class Environment:
+  L11: def __init__(self):
+  L15: def log(self, msg, *args):
+  L21: def vlog(self, msg, *args):
+  L31: class ComplexCLI(click.Group):
+  L32: def list_commands(self, ctx):
+  L40: def get_command(self, ctx, name):
+  L56: def cli(ctx, verbose, home):
+- examples/naval/naval.py
+- src/click/__init__.py
+  L76: def __getattr__(name: str) -> object:
+- src/click/_termui_impl.py
+- src/click/_utils.py
+- repo map: .devcontainer/ .editorconfig .github/ .gitignore .pre-commit-config.yaml .readthedocs.yaml CHANGES.md LICENSE.txt README.md docs/ examples/ pyproject.toml (178 files)
+
+## Code
+- sym:334 Parameter.human_readable_name (src/click/core.py:2520-2524)
+  def human_readable_name(self) -> str:
+- sym:375 Argument.human_readable_name (src/click/core.py:3838-3841)
+  def human_readable_name(self) -> str:
+- sym:373 Argument (src/click/core.py:3800-3905)
+  class Argument(Parameter):
+- sym:349 Parameter.get_error_hint (src/click/core.py:2929-2937)
+  def get_error_hint(self, ctx: Context | None) -> str:
+- sym:380 Argument.get_error_hint (src/click/core.py:3899-3902)
+  def get_error_hint(self, ctx: Context | None) -> str:
+- sym:328 Parameter.__init__ (src/click/core.py:2356-2438)
+- sym:327 Parameter (src/click/core.py:2237-2960)
+  class Parameter(ABC):
+- sym:683 Path.convert (src/click/types.py:1161-1233)
+  def convert( self, value: str | os.PathLike[str], param: Parameter | None, ctx: Context | None, ) -> _PathT_co:
+- sym:678 PathInfoDict (src/click/types.py:1050-1056)
+  class PathInfoDict(ParamTypeInfoDict):
+- sym:124 _AtomicFile.name (src/click/_compat.py:463-464)
+  def name(self) -> str:
+- sym:214 ConsoleStream.name (src/click/_winconsole.py:196-197)
+  def name(self) -> str:
+- sym:346 Parameter.handle_parse_result (src/click/core.py:2835-2921)
+  def handle_parse_result( self, ctx: Context, opts: cabc.Mapping[str, t.Any], args: list[str] ) -> tuple[t.Any, list[str]]:
+- sym:586 _NamedTextIOWrapper.name (src/click/testing.py:203-204)
+  def name(self) -> str:
+- sym:689 Tuple.name (src/click/types.py:1282-1283)
+  def name(self) -> str: # type: ignore[override]
+- sym:8 AliasedGroup.resolve_command (examples/aliases/aliases.py:70-73)
+- sym:32 ComplexCLI.get_command (examples/complex/complex/cli.py:40-45)
+- sym:57 ship_new (examples/naval/naval.py:22-24)
+- sym:87 __getattr__ (src/click/__init__.py:76-144)
+- sym:91 is_ascii_encoding (src/click/_compat.py:43-48)
+- sym:99 _FixupStream.__getattr__ (src/click/_compat.py:105-106)
+- sym:121 open_stream (src/click/_compat.py:374-452)
+- sym:126 _AtomicFile.__getattr__ (src/click/_compat.py:473-474)
+  def __getattr__(self, name: str) -> t.Any:
+- sym:162 _PagerWriter.__getattr__ (src/click/_termui_impl.py:419-420)
+- sym:168 _tempfilepager (src/click/_termui_impl.py:636-667)
+- sym:186 Sentinel.__repr__ (src/click/_utils.py:18-19)
+- sym:189 Sentinel.__reduce_ex__ (src/click/_utils.py:27-28)
+- sym:190 UNSET (src/click/_utils.py:31-31)
+- sym:217 ConsoleStream.__getattr__ (src/click/_winconsole.py:212-213)
+- sym:219 ConsoleStream.__repr__ (src/click/_winconsole.py:218-219)
+- sym:226 _complete_visible_commands (src/click/core.py:64-80)
+- sym:227 _check_nested_chain (src/click/core.py:83-100)
+- sym:230 _format_deprecated_label (src/click/core.py:128-133)
+- sym:231 _format_deprecated_suffix (src/click/core.py:136-142)
+- sym:233 augment_usage_errors (src/click/core.py:150-165)
+- sym:235 ParameterSource (src/click/core.py:195-231)
+- sym:236 Context (src/click/core.py:234-982)
+  class Context:
+- sym:253 Context._default_map_has (src/click/core.py:787-799)
+- sym:254 Context.lookup_default (src/click/core.py:802-804)
+- sym:262 Context._make_sub_context (src/click/core.py:867-873)
+- sym:267 Context.set_parameter_source (src/click/core.py:957-964)
+- sym:268 Context.get_parameter_source (src/click/core.py:966-982)
+- sym:270 Command.__init__ (src/click/core.py:1061-1103)
+- sym:271 Command.to_info_dict (src/click/core.py:1105-1114)
+- sym:272 Command.__repr__ (src/click/core.py:1116-1117)
+- sym:274 Command.get_params (src/click/core.py:1128-1182)
+- sym:277 Command.get_help_option_names (src/click/core.py:1203-1216)
+- sym:1004 NAME_ARGUMENT (tests/test_info_dict.py:30-45)
+- sym:1012 PARAM_KINDS (tests/test_info_dict.py:279-282)
+- sym:759 PARAM_KINDS (tests/test_arguments.py:119-122)
+- sym:769 test_parameter_name_not_an_identifier_is_deprecated (tests/test_arguments.py:278-293)
+- sym:761 NAME_TRANSFORM_DECLS (tests/test_arguments.py:134-142)
+- sym:1025 test_help_spec (tests/test_options.py:87-98)
+
+---
+tokens: 1769/2000

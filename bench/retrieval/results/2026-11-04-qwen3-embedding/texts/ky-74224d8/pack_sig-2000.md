@@ -1,0 +1,128 @@
+## Task
+# ky-74224d8 · ky-74224d8 · open
+Goal: Make a non-Error progress-callback throw non-retriable too
+Workspace: /root/bench/ws/rebf815-ky-74224d8/ky-74224d8
+Changed (0): nothing yet
+
+## Map
+- repo map (106 files):
+  .editorconfig
+  .gitattributes
+  .github/ (3 files)
+    funding.yml
+    security.md
+    workflows/ (1 files)
+  .gitignore
+  .npmrc
+  AGENTS.md
+  license
+  media/ (3 files)
+    logo.ai
+    logo.png
+    logo.svg
+  package.json
+  readme.md
+  source/ (31 files)
+    core/ (3 files)
+    errors/ (8 files)
+    index.ts
+    types/ (9 files)
+    utils/ (10 files)
+  test-d/ (20 files)
+    error-names.ts
+    fetch-options.ts
+    fetch-request.ts
+    forced-retry.ts
+    headers.ts
+    hooks.ts
+    init-search-params.ts
+    json-undefined-schema.ts
+    method-options.ts
+    network-error-cause.ts
+    normalized-options.ts
+    request-clone.ts
+    request-options.ts
+    response-clone.ts
+    response-promise.ts
+    response-size.ts
+    retry.ts
+    search-params.ts
+    timeout-options.ts
+    url-options.ts
+  test/ (38 files)
+    base-url.ts
+    body-size.ts
+    browser.ts
+    bytes.ts
+    context.ts
+    fetch.ts
+    formdata-searchparams.ts
+    headers.ts
+    helpers/ (6 files)
+    hooks.ts
+    http-error.ts
+    http-metadata.ts
+    http-redirects.ts
+    http-response-bodies.ts
+    http-semantics.ts
+    main.ts
+    memory-leak.ts
+    methods.ts
+    network-error.ts
+    normalize.ts
+    prefix.ts
+    request-body-serialization.ts
+    request-options.ts
+    request-stream-support-runtimes.ts
+    request-stream-support.ts
+    response-consumption.ts
+    response-size.ts
+    retry-timing.ts
+    retry.ts
+    stream.ts
+    type-guards.ts
+    validation.ts
+    with-page.ts
+  tsconfig.dist.json
+  tsconfig.json
+  tsconfig.test.json
+
+## Code
+- sym:42441 Ky.#calculateRetryDelay (source/core/Ky.ts:701-781)
+  async #calculateRetryDelay(error: unknown)
+- sym:42550 getProgressCallbackError (source/utils/body.ts:104-105)
+  const getProgressCallbackError = (stream: ReadableStream | undefined): unknown =>
+- sym:42447 Ky.#raceBodyRead (source/core/Ky.ts:913-979)
+  async #raceBodyRead(createBodyPromise: () => Promise<unknown>, response: Response): Promise<unknown>
+- sym:42538 ShouldRetryState (source/types/retry.ts:9-19)
+  type ShouldRetryState = { /** The error that caused the request to fail. */ error: Error; /** The number of retries attempted. Starts at 1 for the first retry. */ retryCount: number; }
+- sym:42443 Ky.#throwProcessedError (source/core/Ky.ts:805-835)
+  async #throwProcessedError(error: unknown, request: Request = this.#sentRequest): Promise<never>
+- sym:42551 copyResponseMetadata (source/utils/body.ts:107-171)
+  const copyResponseMetadata = (response: Response, originalResponse: Response, getError = originalResponse.body ? responseSizeErrors.get(originalResponse.body) : undefined): Response =>
+- sym:42513 BeforeErrorState (source/types/hooks.ts:57-70)
+  type BeforeErrorState = { request: KyRequest; options: Readonly<NormalizedOptions>; // `Error` (not `KyError`) because this receives all errors, including non-Ky ones. error: Error; /** The number of retries attempted. `0` for the initial request, increments with each retry. This allows you to distinguish between the initial request and retries, which is useful when you need different error handling based on retry attempts (e.g., showing different error messages on the final attempt). */ retryCount: number; }
+- sym:42549 withProgress (source/utils/body.ts:53-99)
+  const withProgress = (stream: ReadableStream<Uint8Array>, totalBytes: number, onProgress: Options['onDownloadProgress'] | Options['onUploadProgress']): ReadableStream<Uint8Array> =>
+- sym:42488 ForceRetryError (source/errors/ForceRetryError.ts:10-39)
+  class ForceRetryError extends KyError
+- sym:42650 ExpectedProgressCallbacks (test-d/normalized-options.ts:34-37)
+  type ExpectedProgressCallbacks = { readonly onDownloadProgress?: NonNullable<Options['onDownloadProgress']>; readonly onUploadProgress?: NonNullable<Options['onUploadProgress']>; }
+- sym:42439 Ky.#validateCallbackOptions (source/core/Ky.ts:662-675)
+  #validateCallbackOptions(): void
+- sym:42496 NonError (source/errors/NonError.ts:6-28)
+  class NonError extends Error
+- sym:42539 RetryOptions (source/types/retry.ts:21-187)
+- sym:42595 isForceRetryError (source/utils/type-guards.ts:129-131)
+  function isForceRetryError(error: unknown): error is ForceRetryError
+- sym:42463 Ky.#fetch (source/core/Ky.ts:1404-1468)
+  async #fetch(): Promise<Response>
+- sym:42480 retry (source/core/constants.ts:256-256)
+  const retry = (options?: ForceRetryOptions) =>
+- sym:42483 getRetryTimingHeader (source/core/retry-timing.ts:25-49)
+  const getRetryTimingHeader = (headers: Headers): RetryTimingHeader | undefined =>
+- sym:42487 calculateRetryTimingDelay (source/core/retry-timing.ts:151-173)
+  const calculateRetryTimingDelay = ({value, allowTimestamp}: RetryTimingHeader): number | undefined =>
+
+---
+tokens: 1327/2000

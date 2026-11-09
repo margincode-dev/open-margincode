@@ -1,0 +1,197 @@
+## Task
+# ripgrep-435f59f · ripgrep-435f59f · open
+Goal: ignore: skip loading unreachable ignore files
+
+When parallelism isn't used (e.g., when sorting results), then
+it's possible in some cases for the `ignore` crate to still try and
+load gitignore files inside of directories that are never
+descended into. This can occur when `--max-depth` is used, or
+even just when a directory is skipped for some other reason.
+
+Fixes #2565, PR #3496
+Workspace: /root/bench/av_tei/ws/rec09fc-ripgrep-435f59f/ripgrep-435f59f
+Changed (0): nothing yet
+
+## Map
+- crates/ignore/src/dir.rs
+  L38: pub(crate) struct IgnoreMatch<'a>
+  L44: enum IgnoreMatchInner<'a>
+  L52: fn overrides(x: overrides::Glob<'a>) -> IgnoreMatch<'a>
+  L56: fn gitignore(x: &'a gitignore::Glob) -> IgnoreMatch<'a>
+  L60: fn types(x: types::Glob<'a>) -> IgnoreMatch<'a>
+  L64: fn hidden() -> IgnoreMatch<'static>
+  L72: struct IgnoreOptions
+  L94: pub(crate) struct Ignore
+  L115: struct IgnoreInner
+  L171: pub(crate) fn path(&self) -> &Path
+  L176: pub(crate) fn is_root(&self) -> bool
+  L181: pub(crate) fn parent(&self) -> Option<Ignore>
+  L192: pub(crate) fn add_parents<P: AsRef<Path>>( &self, path: P, ) -> (Ignore, Option<Error>)
+  L268: pub(crate) fn add_child<P: AsRef<Path>>( &self, dir: P, ) -> (Ignore, Option<Error>)
+  L284: pub(crate) fn add_child_with_entries<P: AsRef<Path>>( &self, dir: P, entries: &[fs::DirEntry], ) -> (Ignore, Option<Error>)
+  L304: fn add_child_path(&self, dir: &Path) -> (IgnoreInner, Option<Error>)
+  L308: fn collect_ignore_files( &self, entries: &[fs::DirEntry], ) -> IgnoreFilesFound
+  L340: fn add_child_path_with_found_ignore_files( &self, dir: &Path, ignore_files_list: Option<&IgnoreFilesFound>, ) -> (IgnoreInner, Option<Error>)
+  L470: fn has_any_ignore_rules(&self) -> bool
+  L485: pub(crate) fn matched_dir_entry<'a>( &'a self, dent: &DirEntry, ) -> Match<IgnoreMatch<'a>>
+  L500: pub(crate) fn matched<'a, P: AsRef<Path>>( &'a self, path: P, is_dir: bool, ) -> Match<IgnoreMatch<'a>>
+  L548: pub(crate) fn matched_ignore<'a>( &'a self, path: &Path, is_dir: bool, ) -> Match<IgnoreMatch<'a>>
+  L688: pub(crate) fn parents(&self) -> Parents<'_>
+  L694: fn absolute_base(&self) -> Option<&Path>
+  L707: struct IgnoreFilesFound
+  L716: pub(crate) struct IgnoreRef<'a>
+  L721: pub(crate) fn path(&self) -> &Path
+  L725: pub(crate) fn is_absolute_parent(&self) -> bool
+  L731: pub(crate) struct Parents<'a>
+  L734: type Item = IgnoreRef<'a>
+- crates/cli/src/decompress.rs
+- crates/cli/src/process.rs
+- crates/core/flags/hiargs.rs
+- crates/core/flags/lowargs.rs
+- crates/core/flags/parse.rs
+- crates/core/haystack.rs
+  L16: pub(crate) struct HaystackBuilder
+  L22: pub(crate) fn new() -> HaystackBuilder
+  L31: pub(crate) fn build_from_result( &self, result: Result<ignore::DirEntry, ignore::Error>, ) -> Option<Haystack>
+  L49: fn build(&self, dent: ignore::DirEntry) -> Option<Haystack>
+  L85: pub(crate) fn strip_dot_prefix( &mut self, yes: bool, ) -> &mut HaystackBuilder
+  L98: pub(crate) struct Haystack
+  L108: pub(crate) fn path(&self) -> &Path
+  L117: pub(crate) fn is_stdin(&self) -> bool
+  L131: pub(crate) fn is_explicit(&self) -> bool
+  L143: fn is_dir(&self) -> bool
+  L157: fn is_file(&self) -> bool
+- crates/core/search.rs
+- crates/globset/src/glob.rs
+- crates/globset/src/lib.rs
+- repo map: .cargo/ .github/ .gitignore .ignore .nvim.lua AI_POLICY.md CHANGELOG.md CONTRIBUTING.md COPYING Cargo.lock Cargo.toml FAQ.md (237 files)
+
+## Code
+- sym:33189 IgnoreBuilder (crates/ignore/src/dir.rs:753-776)
+  pub(crate) struct IgnoreBuilder
+- sym:33166 IgnoreInner (crates/ignore/src/dir.rs:115-166)
+  struct IgnoreInner
+- sym:32739 HiArgs.walk_builder (crates/core/flags/hiargs.rs:885-929)
+  pub(crate) fn walk_builder(&self) -> anyhow::Result<ignore::WalkBuilder>
+- sym:33165 Ignore (crates/ignore/src/dir.rs:94-112)
+  pub(crate) struct Ignore
+- sym:32509 Sort.doc_long (crates/core/flags/defs.rs:6694-6728)
+  fn doc_long(&self) -> &'static str
+- sym:32519 Sortr.doc_long (crates/core/flags/defs.rs:6795-6830)
+  fn doc_long(&self) -> &'static str
+- sym:33164 IgnoreOptions (crates/ignore/src/dir.rs:72-90)
+  struct IgnoreOptions
+- sym:33207 create_gitignore (crates/ignore/src/dir.rs:1016-1051)
+  pub(crate) fn create_gitignore<T: AsRef<OsStr>>( dir: &Path, dir_for_ignorefile: &Path, names: &[T], case_insensitive: bool, ) -> (Gitignore, Option<Error>)
+- sym:32809 SortMode.supported (crates/core/flags/lowargs.rs:689-720)
+  pub(crate) fn supported(&self) -> anyhow::Result<()>
+- sym:33544 WalkState (crates/ignore/src/walk.rs:1318-1330)
+  pub enum WalkState
+- sym:33294 IncrementalIgnore.matched (crates/ignore/src/incremental.rs:194-204)
+  pub fn matched<P: AsRef<Path>>( &mut self, path: P, is_dir: bool, ) -> IncrementalMatch
+- sym:32805 MmapMode (crates/core/flags/lowargs.rs:637-650)
+  pub(crate) enum MmapMode
+- sym:32893 ignore_messages (crates/core/messages.rs:113-115)
+  pub(crate) fn ignore_messages() -> bool
+- sym:33161 IgnoreMatch.gitignore (crates/ignore/src/dir.rs:56-58)
+  fn gitignore(x: &'a gitignore::Glob) -> IgnoreMatch<'a>
+- sym:32775 BinaryMode (crates/core/flags/lowargs.rs:245-265)
+  pub(crate) enum BinaryMode
+- sym:31900 FilesWithMatches.doc_long (crates/core/flags/defs.rs:2269-2283)
+  fn doc_long(&self) -> &'static str
+- sym:33174 Ignore.collect_ignore_files (crates/ignore/src/dir.rs:308-338)
+  fn collect_ignore_files( &self, entries: &[fs::DirEntry], ) -> IgnoreFilesFound
+- sym:32779 ColorChoice (crates/core/flags/lowargs.rs:318-334)
+  pub(crate) enum ColorChoice
+- sym:33175 Ignore.add_child_path_with_found_ignore_files (crates/ignore/src/dir.rs:340-467)
+  fn add_child_path_with_found_ignore_files( &self, dir: &Path, ignore_files_list: Option<&IgnoreFilesFound>, ) -> (IgnoreInner, Option<Error>)
+- sym:33261 GitignoreBuilder.build_global (crates/ignore/src/gitignore.rs:375-394)
+  pub fn build_global(mut self) -> (Gitignore, Option<Error>)
+- sym:33496 WalkBuilder (crates/ignore/src/walk.rs:488-512)
+  pub struct WalkBuilder
+- sym:33636 gitignore_skip_bom (crates/ignore/tests/gitignore_skip_bom.rs:10-17)
+  fn gitignore_skip_bom()
+- sym:33635 IGNORE_FILE (crates/ignore/tests/gitignore_skip_bom.rs:3-3)
+  const IGNORE_FILE: &'static str = "tests/gitignore_skip_bom.gitignore"
+- sym:31548 DecompressionMatcherBuilder.new (crates/cli/src/decompress.rs:42-44)
+  pub fn new() -> DecompressionMatcherBuilder
+- sym:31549 DecompressionMatcherBuilder.build (crates/cli/src/decompress.rs:50-69)
+  pub fn build(&self) -> Result<DecompressionMatcher, CommandError>
+- sym:31555 DecompressionMatcher.new (crates/cli/src/decompress.rs:167-171)
+  pub fn new() -> DecompressionMatcher
+- sym:31559 DecompressionReaderBuilder.new (crates/cli/src/decompress.rs:205-207)
+  pub fn new() -> DecompressionReaderBuilder
+- sym:31560 DecompressionReaderBuilder.build (crates/cli/src/decompress.rs:221-244)
+  pub fn build<P: AsRef<Path>>( &self, path: P, ) -> Result<DecompressionReader, CommandError>
+- sym:31565 DecompressionReader.new (crates/cli/src/decompress.rs:352-356)
+  pub fn new<P: AsRef<Path>>( path: P, ) -> Result<DecompressionReader, CommandError>
+- sym:31631 CommandReaderBuilder.new (crates/cli/src/process.rs:90-92)
+  pub fn new() -> CommandReaderBuilder
+- sym:31632 CommandReaderBuilder.build (crates/cli/src/process.rs:104-118)
+  pub fn build( &self, command: &mut process::Command, ) -> Result<CommandReader, CommandError>
+- sym:31635 CommandReader.new (crates/cli/src/process.rs:195-199)
+  pub fn new( cmd: &mut process::Command, ) -> Result<CommandReader, CommandError>
+- sym:32715 HiArgs (crates/core/flags/hiargs.rs:36-107)
+  pub(crate) struct HiArgs
+- sym:32738 HiArgs.types (crates/core/flags/hiargs.rs:872-874)
+  pub(crate) fn types(&self) -> &ignore::types::Types
+- sym:32744 State.new (crates/core/flags/hiargs.rs:986-996)
+  fn new() -> anyhow::Result<State>
+- sym:32752 BinaryDetection.is_none (crates/core/flags/hiargs.rs:1215-1218)
+  pub(crate) fn is_none(&self) -> bool
+- sym:32753 types (crates/core/flags/hiargs.rs:1222-1242)
+  fn types(low: &LowArgs) -> anyhow::Result<ignore::types::Types>
+- sym:32754 globs (crates/core/flags/hiargs.rs:1246-1267)
+  fn globs( state: &State, low: &LowArgs, ) -> anyhow::Result<ignore::overrides::Override>
+- sym:32755 preprocessor_globs (crates/core/flags/hiargs.rs:1270-1282)
+  fn preprocessor_globs( state: &State, low: &LowArgs, ) -> anyhow::Result<ignore::overrides::Override>
+- sym:32791 ContextSeparator.new (crates/core/flags/lowargs.rs:495-503)
+  pub(crate) fn new(os: &OsStr) -> anyhow::Result<ContextSeparator>
+- sym:32798 FieldContextSeparator.new (crates/core/flags/lowargs.rs:573-581)
+  pub(crate) fn new(os: &OsStr) -> anyhow::Result<FieldContextSeparator>
+- sym:32802 FieldMatchSeparator.new (crates/core/flags/lowargs.rs:607-615)
+  pub(crate) fn new(os: &OsStr) -> anyhow::Result<FieldMatchSeparator>
+- sym:32839 Parser.new (crates/core/flags/parse.rs:176-216)
+  fn new() -> &'static Parser
+- sym:32848 FlagMap.new (crates/core/flags/parse.rs:374-387)
+  fn new(infos: &[FlagInfo]) -> FlagMap
+- sym:32856 HaystackBuilder.new (crates/core/haystack.rs:22-24)
+  pub(crate) fn new() -> HaystackBuilder
+- sym:32857 HaystackBuilder.build_from_result (crates/core/haystack.rs:31-42)
+  pub(crate) fn build_from_result( &self, result: Result<ignore::DirEntry, ignore::Error>, ) -> Option<Haystack>
+- sym:32858 HaystackBuilder.build (crates/core/haystack.rs:49-79)
+  fn build(&self, dent: ignore::DirEntry) -> Option<Haystack>
+- sym:32860 Haystack (crates/core/haystack.rs:98-101)
+  pub(crate) struct Haystack
+- sym:32861 Haystack.path (crates/core/haystack.rs:108-114)
+  pub(crate) fn path(&self) -> &Path
+- sym:32897 Config (crates/core/search.rs:19-25)
+  struct Config
+- sym:32898 Config.default (crates/core/search.rs:28-36)
+  fn default() -> Config
+- sym:32901 SearchWorkerBuilder.new (crates/core/search.rs:54-59)
+  pub(crate) fn new() -> SearchWorkerBuilder
+- sym:32902 SearchWorkerBuilder.build (crates/core/search.rs:63-85)
+  pub(crate) fn build<W: WriteColor>( &self, matcher: PatternMatcher, searcher: grep::searcher::Searcher, printer: Printer<W>, ) -> SearchWorker<W>
+- sym:32904 SearchWorkerBuilder.preprocessor_globs (crates/core/search.rs:108-114)
+  pub(crate) fn preprocessor_globs( &mut self, globs: ignore::overrides::Override, ) -> &mut SearchWorkerBuilder
+- sym:32952 MatchStrategy.new (crates/globset/src/glob.rs:51-67)
+  pub(crate) fn new(pat: &Glob) -> MatchStrategy
+- sym:32976 Glob.new (crates/globset/src/glob.rs:283-285)
+  pub fn new(glob: &str) -> Result<Glob, Error>
+- sym:32988 GlobBuilder.new (crates/globset/src/glob.rs:574-576)
+- sym:32989 GlobBuilder.build (crates/globset/src/glob.rs:579-610)
+- sym:33050 GlobSet.new (crates/globset/src/lib.rs:461-553)
+- sym:33053 GlobSetBuilder.new (crates/globset/src/lib.rs:574-576)
+- sym:33054 GlobSetBuilder.build (crates/globset/src/lib.rs:581-583)
+- sym:33058 Candidate.new (crates/globset/src/lib.rs:617-619)
+- sym:33220 ignore (crates/ignore/src/dir.rs:1226-1235)
+- sym:33231 stops_at_git_dir (crates/ignore/src/dir.rs:1365-1385)
+- sym:33224 ignore_over_gitignore (crates/ignore/src/dir.rs:1289-1297)
+- sym:33329 directly_ignored_directory_is_not_descended (crates/ignore/src/incremental.rs:751-761)
+- sym:33216 gitignore (crates/ignore/src/dir.rs:1173-1183)
+- sym:33330 ignored_ancestor_wins (crates/ignore/src/incremental.rs:767-783)
+- sym:33352 descendants_of_hidden_directories_are_ignored (crates/ignore/src/incremental.rs:1236-1250)
+
+---
+tokens: 3602/4000

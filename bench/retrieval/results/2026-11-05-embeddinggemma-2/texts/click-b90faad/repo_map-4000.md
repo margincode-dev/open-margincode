@@ -1,0 +1,258 @@
+src/click/testing.py:
+  L203: def name(self) -> str:
+  L382: def get_default_prog_name(self, cli: Command) -> str:
+  L32: class EchoingStdin:
+  L37: def __init__(self, input: t.BinaryIO, output: t.BinaryIO) -> None:
+  L42: def __getattr__(self, x: str) -> t.Any:
+  L45: def _echo(self, rv: bytes) -> bytes:
+  L51: def read(self, n: int = -1) -> bytes:
+  L54: def read1(self, n: int = -1) -> bytes:
+  L57: def readline(self, n: int = -1) -> bytes:
+  L60: def readlines(self) -> list[bytes]:
+  L63: def __iter__(self) -> cabc.Iterator[bytes]:
+  L66: def __repr__(self) -> str:
+  L71: def _pause_echo(stream: EchoingStdin | None) -> cabc.Generator[None]:
+  L80: class _FDCapture:
+  L95: def __init__(self, targetfd: int) -> None:
+  L100: def start(self) -> None:
+  L105: def stop(self) -> bytes:
+  L117: class BytesIOCopy(io.BytesIO):
+  L125: def __init__(self, copy_to: io.BytesIO) -> None:
+  L129: def flush(self) -> None:
+  L133: def write(self, b: ReadableBuffer) -> int:
+  L138: class StreamMixer:
+  L150: def __init__(self) -> None:
+  L156: class _NamedTextIOWrapper(io.TextIOWrapper):
+  L172: def __init__(
+  L184: def close(self) -> None:
+  L192: def fileno(self) -> int:
+  L207: def mode(self) -> str:
+  L211: def make_input_stream(
+  L231: class Result:
+  L262: def __init__(
+  L283: def output(self) -> str:
+  L295: def stdout(self) -> str:
+  L302: def stderr(self) -> str:
+  L312: def __repr__(self) -> str:
+  L317: class CliRunner:
+  L360: def __init__(
+  L389: def make_env(
+  L399: def isolation(
+  L596: def invoke(
+  L742: def isolated_filesystem(
+src/click/core.py:
+  L2462: def human_readable_name(self) -> str:
+  L60: _HELP_OPTION_STORAGE_NAME = "_click_default_help"
+  L174: class ParameterSource(enum.IntEnum):
+  L936: def set_parameter_source(self, name: str, source: ParameterSource) -> None:
+  L945: def get_parameter_source(self, name: str) -> ParameterSource | None:
+  L2216: class Parameter(ABC):
+  L2335: def __init__(
+  L2420: def _hide_unset(value: t.Any) -> t.Any:
+  L2427: def to_info_dict(self) -> dict[str, t.Any]:
+  L2453: def __repr__(self) -> str:
+  L2457: def _parse_decls(
+  L2468: def make_metavar(self, ctx: Context) -> str:
+  L2483: def get_default(
+  L2488: def get_default(
+  L2492: def get_default(
+  L2526: def add_to_parser(self, parser: _OptionParser, ctx: Context) -> None: ...
+  L2528: def consume_value(
+  L2576: def type_cast_value(self, ctx: Context, value: t.Any) -> t.Any:
+  L2632: def value_is_missing(self, value: t.Any) -> bool:
+  L2650: def process_value(self, ctx: Context, value: t.Any) -> t.Any:
+  L2716: def resolve_envvar_value(self, ctx: Context) -> str | None:
+  L2761: def value_from_envvar(self, ctx: Context) -> str | cabc.Sequence[str] | None:
+  L2777: def handle_parse_result(
+  L2865: def get_help_record(self, ctx: Context) -> tuple[str, str] | None:
+  L2868: def get_usage_pieces(self, ctx: Context) -> list[str]:
+  L2871: def get_error_hint(self, ctx: Context | None) -> str:
+  L2881: def shell_complete(self, ctx: Context, incomplete: str) -> list[CompletionItem]:
+  L3754: def human_readable_name(self) -> str:
+  L63: def _complete_visible_commands(
+  L82: def _check_nested_chain(
+  L102: def _echo_aborted() -> None:
+  L107: def _format_deprecated_label(deprecated: bool | str) -> str:
+  L115: def _format_deprecated_suffix(deprecated: bool | str) -> str:
+  L124: def batch(iterable: cabc.Iterable[V], batch_size: int) -> list[tuple[V, ...]]:
+  L129: def augment_usage_errors(
+  L147: def iter_params_for_processing(
+  L213: class Context:
+  L345: def __init__(
+  L522: def protected_args(self) -> list[str]:
+  L533: def to_info_dict(self) -> dict[str, t.Any]:
+  L554: def __enter__(self) -> Self:
+  L559: def __exit__(
+  L574: def scope(self, cleanup: bool = True) -> cabc.Generator[Context]:
+  L612: def meta(self) -> dict[str, t.Any]:
+  L639: def make_formatter(self) -> HelpFormatter:
+  L653: def with_resource(self, context_manager: AbstractContextManager[V]) -> V:
+  L682: def call_on_close(self, f: t.Callable[..., t.Any]) -> t.Callable[..., t.Any]:
+  L694: def close(self) -> None:
+  L701: def _close_with_exception_info(
+  L720: def command_path(self) -> str:
+  L738: def find_root(self) -> Context:
+  L745: def find_object(self, object_type: type[V]) -> V | None:
+  L757: def ensure_object(self, object_type: type[V]) -> V:
+  L766: def _default_map_has(self, name: str | None) -> bool:
+  L781: def lookup_default(
+  L786: def lookup_default(
+  L790: def lookup_default(self, name: str, call: bool = True) -> t.Any | None:
+  L812: def fail(self, message: str) -> t.NoReturn:
+  L820: def abort(self) -> t.NoReturn:
+  L824: def exit(self, code: int = 0) -> t.NoReturn:
+  L834: def get_usage(self) -> str:
+  L840: def get_help(self) -> str:
+  L846: def _make_sub_context(self, command: Command) -> Context:
+  L855: def invoke(
+  L860: def invoke(self, callback: Command, /, *args: t.Any, **kwargs: t.Any) -> t.Any: ...
+  L862: def invoke(
+  L917: def forward(self, cmd: Command, /, *args: t.Any, **kwargs: t.Any) -> t.Any:
+  L964: class Command:
+  L1040: def __init__(
+  L1084: def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+  L1095: def __repr__(self) -> str:
+  L1098: def get_usage(self, ctx: Context) -> str:
+  L1107: def get_params(self, ctx: Context) -> list[Parameter]:
+  L1163: def format_usage(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1171: def collect_usage_pieces(self, ctx: Context) -> list[str]:
+  L1182: def get_help_option_names(self, ctx: Context) -> list[str]:
+  L1197: def get_help_option(self, ctx: Context) -> Option | None:
+  L1231: def make_parser(self, ctx: Context) -> _OptionParser:
+  L1238: def get_help(self, ctx: Context) -> str:
+  L1247: def get_short_help_str(self, limit: int = 45) -> str:
+  L1263: def format_help(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1282: def format_help_text(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1300: def format_options(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1312: def format_arguments(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1325: def format_epilog(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1334: def make_context(
+  L1371: def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
+  L1407: def invoke(self, ctx: Context) -> t.Any:
+  L1423: def shell_complete(self, ctx: Context, incomplete: str) -> list[CompletionItem]:
+  L1471: def main(
+  L1481: def main(
+  L1490: def main(
+  L1626: def _main_shell_completion(
+  L1658: def __call__(self, *args: t.Any, **kwargs: t.Any) -> t.Any:
+  L1663: class _FakeSubclassCheck(type):
+  L1664: def __subclasscheck__(cls, subclass: type) -> bool:
+  L1667: def __instancecheck__(cls, instance: t.Any) -> bool:
+  L1671: class _BaseCommand(Command, metaclass=_FakeSubclassCheck):
+  L1678: class Group(Command):
+  L1737: def __init__(
+  L1792: def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+  L1810: def add_command(self, cmd: Command, name: str | None = None) -> None:
+  L1821: def command(self, __func: t.Callable[..., t.Any]) -> Command: ...
+  L1824: def command(
+  L1828: def command(
+  L1870: def group(self, __func: t.Callable[..., t.Any]) -> Group: ...
+  L1873: def group(
+  L1877: def group(
+  L1921: def result_callback(self, replace: bool = False) -> t.Callable[[F], F]:
+  L1966: def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+  L1972: def list_commands(self, ctx: Context) -> list[str]:
+  L1976: def collect_usage_pieces(self, ctx: Context) -> list[str]:
+  L1981: def format_options(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L1985: def format_commands(self, ctx: Context, formatter: HelpFormatter) -> None:
+  L2013: def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
+  L2027: def invoke(self, ctx: Context) -> t.Any:
+  L2095: def resolve_command(
+  L2121: def shell_complete(self, ctx: Context, incomplete: str) -> list[CompletionItem]:
+  L2141: class _MultiCommand(Group, metaclass=_FakeSubclassCheck):
+  L2148: class CommandCollection(Group):
+  L2166: def __init__(
+  L2176: def add_source(self, group: Group) -> None:
+  L2180: def get_command(self, ctx: Context, cmd_name: str) -> Command | None:
+  L2197: def list_commands(self, ctx: Context) -> list[str]:
+  L2206: def _check_iter(value: cabc.Iterable[V]) -> cabc.Iterator[V]:
+  L2905: class Option(Parameter):
+  L2997: def __init__(
+  L3076: def is_bool_flag(self) -> bool:
+  L3085: def flag_activation_value(self) -> t.Any:
+  L3097: def _infer_flag_kind(
+  L3130: def _pick_type(
+  L3169: def _resolve_lazy_default(self, value: t.Any) -> t.Any:
+  L3193: def _validate(self, prompt: bool | str, deprecated: bool | str) -> None:
+  L3215: def to_info_dict(self) -> dict[str, t.Any]:
+  L3237: def get_default(
+  L3271: def get_error_hint(self, ctx: Context | None) -> str:
+  L3277: def _parse_decls(
+  L3338: def add_to_parser(self, parser: _OptionParser, ctx: Context) -> None:
+  L3380: def get_help_spec(self, ctx: Context) -> str:
+  L3411: def get_help_record(self, ctx: Context) -> tuple[str, str] | None:
+  L3436: def get_help_extra(self, ctx: Context) -> types.OptionHelpExtra:
+  L3520: def prompt_for_value(self, ctx: Context) -> t.Any:
+  L3570: def resolve_envvar_value(self, ctx: Context) -> str | None:
+  L3594: def value_from_envvar(self, ctx: Context) -> t.Any:
+  L3642: def consume_value(
+  L3698: def process_value(self, ctx: Context, value: t.Any) -> t.Any:
+  L3716: class Argument(Parameter):
+  L3731: def __init__(
+  L3759: def make_metavar(self, ctx: Context) -> str:
+  L3778: def _parse_decls(
+  L3797: def get_usage_pieces(self, ctx: Context) -> list[str]:
+  L3800: def get_help_record(self, ctx: Context) -> tuple[str, str]:
+  L3813: def get_error_hint(self, ctx: Context | None) -> str:
+  L3818: def add_to_parser(self, parser: _OptionParser, ctx: Context) -> None:
+  L3822: def __getattr__(name: str) -> object:
+src/click/types.py:
+  L888: class UUIDParameterType(ParamType[uuid.UUID]):
+  L891: def convert(
+  L906: def __repr__(self) -> str:
+  L1282: def name(self) -> str:  # type: ignore[override]
+  L60: class ParamTypeInfoDict(t.TypedDict):
+  L65: class ParamType(t.Generic[_ValueT_co, _InputT_contra], abc.ABC):
+  L122: def to_info_dict(self) -> ParamTypeInfoDict:
+  L144: def __call__(
+  L152: def __call__(
+  L159: def __call__(
+  L169: def get_metavar(self, param: Parameter, ctx: Context) -> str | None:
+  L172: def get_missing_message(self, param: Parameter, ctx: Context | None) -> str | None:
+  L179: def convert(
+  L205: def split_envvar_value(self, rv: str) -> cabc.Sequence[str]:
+  L215: def fail(
+  L224: def shell_complete(
+  L242: class CompositeParamType(ParamType[_ValueT_co]):
+  L247: def arity(self) -> int: ...  # type: ignore[override]
+  L264: class FuncParamType(ParamType[_ValueT_co], t.Generic[_ValueT_contra, _ValueT_co]):
+  L268: def __init__(self, func: t.Callable[[_ValueT_contra], _ValueT_co]) -> None:
+  L272: def to_info_dict(self) -> FuncParamTypeInfoDict[_ValueT_contra, _ValueT_co]:
+  L275: def convert(
+  L292: class UnprocessedParamType(ParamType[t.Any]):
+  L295: def convert(
+  L300: def __repr__(self) -> str:
+  L304: class StringParamType(ParamType[str]):
+  L307: def convert(
+  L325: def __repr__(self) -> str:
+  L342: class Choice(ParamType[_ValueT_co], t.Generic[_ValueT_co]):
+  L375: def __init__(
+  L381: def to_info_dict(self) -> ChoiceInfoDict[_ValueT_co]:
+  L388: def _normalized_mapping(
+  L406: def normalize_choice(self, choice: object, ctx: Context | None) -> str:
+  L426: def get_metavar(self, param: Parameter, ctx: Context) -> str | None:
+  L444: def get_missing_message(self, param: Parameter, ctx: Context | None) -> str:
+  L454: def convert(
+  L478: def get_invalid_choice_message(self, value: t.Any, ctx: Context | None) -> str:
+  L492: def __repr__(self) -> str:
+  L495: def shell_complete(
+  L518: class DateTimeInfoDict(ParamTypeInfoDict):
+  L522: class DateTime(ParamType[datetime]):
+  L547: def __init__(self, formats: cabc.Sequence[str] | None = None):
+  L554: def to_info_dict(self) -> DateTimeInfoDict:
+  L557: def get_metavar(self, param: Parameter, ctx: Context) -> str:
+  L560: def _try_to_convert_date(self, value: t.Any, format: str) -> datetime | None:
+  L566: def convert(
+  L589: def __repr__(self) -> str:
+  L593: class _NumberParamTypeBase(
+  L598: def convert(
+  L632: class _NumberRangeBase(
+  L642: def __init__(
+  L656: def to_info_dict(self) -> NumberRangeInfoDict[_FloatValueT_co]:
+  L666: def convert(
+  L700: def _clamp(
+  L717: def _describe_range(self) -> str:
+  L731: def __repr__(self) -> str:
+  L736: class IntParamType(_NumberParamTypeBase[t.SupportsInt | t.SupportsIndex, int]):
+  L740: def __repr__(self) -> str:
+  L744: class IntRange(_NumberRangeBase[int, int], IntParamType):

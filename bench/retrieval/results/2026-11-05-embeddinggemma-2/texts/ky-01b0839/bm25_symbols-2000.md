@@ -1,0 +1,223 @@
+- cloneShallow (source/utils/merge.ts:91-113)
+```typescript
+export const cloneShallow = <T>(value: T): T => {
+	if (value instanceof URLSearchParams) {
+		const copy = new URLSearchParams(value) as URLSearchParams & {[deletedParametersSymbol]?: Set<string>};
+		const deleted = (value as URLSearchParams & {[deletedParametersSymbol]?: Set<string>})[deletedParametersSymbol];
+		if (deleted) {
+			// Preserve internal deletion markers so init-hook cloning does not resurrect params removed during option merging.
+			copy[deletedParametersSymbol] = new Set(deleted);
+		}
+
+		return copy as T;
+	}
+
+	if (Array.isArray(value)) {
+		return [...value] as T;
+	}
+
+	if (isPlainObject(value)) {
+		const copy = {...value};
+		return copy as T;
+	}
+
+	return value;
+};
+```
+- createInstance (source/index.ts:10-33)
+```typescript
+const createInstance = (defaults?: Partial<Options>): KyInstance => {
+	// eslint-disable-next-line @typescript-eslint/promise-function-async
+	const ky: Partial<Mutable<KyInstance>> = (input: Input, options?: Options) => Ky.create(input, validateAndMerge(defaults, options));
+
+	for (const method of requestMethods) {
+		// eslint-disable-next-line @typescript-eslint/promise-function-async
+		ky[method] = (input: Input, options?: Options) => Ky.create(input, validateAndMerge(defaults, options, {method}));
+	}
+
+	ky.create = (newDefaults?: Partial<Options>) => createInstance(validateAndMerge(newDefaults));
+	ky.extend = (newDefaults?: Partial<Options> | ((parentDefaults: Partial<Options>) => Partial<Options>)) => {
+		if (typeof newDefaults === 'function') {
+			// Pass a deep copy so mutations inside the callback cannot leak into this instance's defaults. Deep, because options like `context` are merged shallowly, so a nested value would still point at the parent's object.
+			newDefaults = newDefaults(validateAndMerge(cloneDeep(defaults)));
+		}
+
+		return createInstance(validateAndMerge(defaults, newDefaults));
+	};
+
+	ky.stop = stop;
+	ky.retry = retry;
+
+	return ky as KyInstance;
+};
+```
+- RetryMarker (source/core/constants.ts:157-163)
+```typescript
+export class RetryMarker {
+	options: ForceRetryOptions | undefined;
+
+	constructor(options?: ForceRetryOptions) {
+		this.options = options;
+	}
+}
+```
+- KyInstance (source/types/ky.ts:5-204)
+```typescript
+export type KyInstance = {
+	/**
+	Fetch the given `url`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` method added.
+
+	@example
+	```
+	import ky from 'ky';
+
+	const json = await ky('https://example.com', {json: {foo: true}}).json();
+
+	console.log(json);
+	//=> `{data: '🦄'}`
+	```
+	*/
+	<T>(url: Input, options?: Options): ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'get'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	get: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'post'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	post: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'put'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	put: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'delete'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	delete: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'patch'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	patch: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Fetch the given `url` using the option `{method: 'head'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	head: (url: Input, options?: Options) => ResponsePromise;
+
+	/**
+	Fetch the given `url` using the option `{method: 'query'}`.
+
+	@param url - `Request` object, `URL` object, or URL string.
+	@returns A promise with `Body` methods added.
+	*/
+	query: <T>(url: Input, options?: Options) => ResponsePromise<T>;
+
+	/**
+	Create a new Ky instance with complete new defaults, without inheriting from any parent instance.
+
+	@returns A new Ky instance.
+	*/
+	create: (defaultOptions?: Options) => KyInstance;
+
+	/**
+	Create a new Ky instance with some defaults overridden with your own.
+
+	In contrast to `ky.create()`, `ky.extend()` inherits defaults from its parent.
+
+	You can pass headers as a `Headers` instance or a plain object. Headers are normalized to a plain object with lowercase names when options are merged, so `init` hooks always see a plain object with lowercase keys. A header removed with `undefined` stays in that object with an `undefined` value.
+
+	You can remove a header with `.extend()` by passing the header with an `undefined` value. Passing `undefined` as a string removes the header only if it comes from a `Headers` instance.
+
+	Similarly, you can remove existing `hooks` entries by extending the hook with an explicit `undefined`.
+
+	By default, `.extend()` deep-merges options: hooks are appended, headers are merged, and search parameters are accumulated. Use `replaceOption` when you want to fully replace a merged property instead.
+
+	When extending an instance, signals are combined. Use `replaceOption(signal)` to replace inherited signals, or `signal: undefined` to remove them.
+
+	You can also refer to parent defaults by providing a function to `.extend()`.
+
+	@example
+	```
+	import ky from 'ky';
+
+	const api = ky.create({prefix: 'https://example.com/api'});
+
+	const usersApi = api.extend((options) => ({prefix: `${options.prefix}/users`}));
+
+	const response = await usersApi.get('123');
+	//=> 'https://example.com/api/users/123'
+
+	const response = await api.get('version');
+	//=> 'https://example.com/api/version'
+	```
+
+	@returns A new Ky instance.
+	*/
+	extend: (defaultOptions: Options | ((parentOptions: Options) => Options)) => KyInstance;
+
+	/**
+	A `Symbol` that can be returned by a `beforeRetry` hook to stop the retry. This will also short circuit the remaining `beforeRetry` hooks.
+
+	Note: Returning this symbol makes Ky abort and return with an `undefined` response. Be sure to check for a response before accessing any properties on it or use [optional chaining](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Optional_chaining). It is also incompatible with body methods, such as `.json()` or `.text()`, because there is no response to parse. In general, we recommend throwing an error instead of returning this symbol, as that will cause Ky to abort and then throw, which avoids these limitations.
+
+	A valid use-case for `ky.stop` is to prevent retries when making requests for side effects, where the returned data is not important. For example, logging client activity to the server.
+
+	@example
+	```
+	import ky from 'ky';
+
+	const options = {
+		hooks: {
+			beforeRetry: [
+				async ({request, options, error, retryCount}) => {
+					const shouldStopRetry = await ky('https://example.com/api');
+					if (shouldStopRetry) {
+						return ky.stop;
+					}
+				}
+			]
+		}
+	};
+
+	// Note that response will be `undefined` in case `ky.stop` is returned.
+	const response = await ky.post('https://example.com', options);
+
+	// Using `.text()` or other body methods is not supported.
+	const text = await ky('https://example.com', options).text();
+	```
+	*/
+	readonly stop: typeof stop;
+
+	/**
+	Force a retry from an `afterResponse` hook.
+
+	This allows you to retry a request based on the response content, even if the response has a successful status code. The retry will respect the `retry.limit` option and skip the `shouldRetry` check. The forced retry is observable in `beforeRetry` hooks, where the error will be a `ForceRetryError`.
+
+	@example
+	```

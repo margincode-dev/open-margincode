@@ -1,0 +1,1847 @@
+{
+ "why": "Stale repo left by the av session in flight (relay-customer-region, av, rep 2) when the stack was stopped for the planned host restart at about 13:00 UTC on 2026-11-10. It blocked the resume of n0 (import failed: repo already exists). scholion fbc5bb0 has no API to remove a repo, so it was removed by hand with the daemon stopped and the harness idle, on the director's instruction. Dumped here before the removal.",
+ "dumped_at_utc": "2026-11-10T15:07:11Z",
+ "postgres": {
+  "repo": "bn0-relay-customer-region-av-2",
+  "repos": [
+   {
+    "name": "bn0-relay-customer-region-av-2",
+    "git_source": "/root/bench-work/src/bn0-relay-customer-region-av-2",
+    "added_at": "2026-11-10T12:56:29.692197+00:00"
+   }
+  ],
+  "tasks": [
+   {
+    "id": "20ccd21f-7160-460b-9ca1-ae0bca816c7f",
+    "repo": "bn0-relay-customer-region-av-2",
+    "slug": "relay-customer-region",
+    "title": "relay-customer-region",
+    "goal": "Customer regions are never checked, so typos such as \"us-ca\" end up in the store. Validate the region when a Customer is created and raise ValidationError (with field \"region\") for an invalid one.",
+    "status": "open",
+    "owner_agent": "claude-code",
+    "base_change": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+    "head_change": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+    "workspace_path": "/root/bench-work/ws/bn0-relay-customer-region-av-2/relay-customer-region",
+    "created_at": "2026-11-10T12:56:31.372354+00:00",
+    "pre_merge_commit": null,
+    "merge_commit": null,
+    "merged_by": null,
+    "merged_at": null,
+    "conflicts": [],
+    "generation": 1,
+    "lease_expires": "2026-11-10T13:26:31.5552+00:00",
+    "pack_mode": "full",
+    "needs": [],
+    "prefer": null,
+    "needs_set_at": null
+   },
+   {
+    "id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "repo": "bn0-relay-customer-region-av-2",
+    "slug": "earlier-work",
+    "title": "earlier work",
+    "goal": "Earlier work on this code",
+    "status": "open",
+    "owner_agent": "agent-a",
+    "base_change": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+    "head_change": "e956814a9b5e315c2d24c7de34d6db3f03786598",
+    "workspace_path": "/root/bench-work/ws/bn0-relay-customer-region-av-2/earlier-work",
+    "created_at": "2026-11-10T12:56:30.646322+00:00",
+    "pre_merge_commit": null,
+    "merge_commit": null,
+    "merged_by": null,
+    "merged_at": null,
+    "conflicts": [],
+    "generation": 1,
+    "lease_expires": "2026-11-10T13:26:31.332402+00:00",
+    "pack_mode": "full",
+    "needs": [],
+    "prefer": null,
+    "needs_set_at": null
+   }
+  ],
+  "records": [
+   {
+    "id": "3f70bd49-667d-42c4-8ab7-b0e978c12975",
+    "task_id": "20ccd21f-7160-460b-9ca1-ae0bca816c7f",
+    "kind": "intent",
+    "summary": "Customer regions are never checked, so typos such as \"us-ca\" end up in the store. Validate the region when a Customer is created and raise ValidationError (with field \"region\") for an invalid one.",
+    "body": "",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "claude-code",
+    "created_at": "2026-11-10T12:56:31.548633+00:00",
+    "tsv": "'ca':12 'check':5 'creat':25 'custom':1,23 'end':13 'field':30 'invalid':34 'never':4 'one':35 'rais':27 'region':2,20,31 'store':17 'typo':7 'us':11 'us-ca':10 'valid':18 'validationerror':28",
+    "receipt_id": null
+   },
+   {
+    "id": "9e99ae1b-098f-4fb1-bc33-4a0fa7d5caa0",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "decision",
+    "summary": "A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id.",
+    "body": "Not \"refund of order ...\" or \"order ... refund\": the report matches the memo prefix exactly.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.319576+00:00",
+    "tsv": "'account':15 'book':4 'credit':19 'debit':17 'exact':7,46 'id':32 'match':42 'memo':21,44 'order':36,38 'pair':25 'prefix':45 'refund':2,22,30,34,39 'report':24,41 'revers':8 'sale':11,27 'swap':20 'three':14",
+    "receipt_id": null
+   },
+   {
+    "id": "36e543b6-9ec6-4961-845c-3d7912e313b1",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "decision",
+    "summary": "Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value.",
+    "body": "Applies to region, email and anything else from a customer. Older messages that include the value are being cleaned up as they are touched.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.226578+00:00",
+    "tsv": "'anyth':35 'appli':30 'clean':48 'custom':3,39 'data':4 'echo':7 'els':36 'email':33 'error':1 'field':25 'includ':27,43 'invalid':22 'log':13 'messag':41 'must':5 'never':26 'older':40 'region':23,32 'reject':9 'say':18 'sent':15 'set':24 'support':17 'touch':53 'valu':10,29,45 'wrong':21",
+    "receipt_id": null
+   },
+   {
+    "id": "74a6a660-e1d1-4b51-ab5c-ebca47dfcc9d",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "attempt",
+    "summary": "list_page never returns more than max_page_size (100) records, whatever limit asks for, and iter_records/count_records only read its first page. Counting through them stops at 100.",
+    "body": "Found when a 250-order export came back with 100 rows. Count the backend's own data instead (MemoryStore._keys, JsonFileStore._load).",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.075423+00:00",
+    "tsv": "'100':10,29,39 '250':33 'ask':14 'back':37 'backend':43 'came':36 'count':24,41 'data':46 'export':35 'first':22 'found':30 'instead':47 'iter':17 'jsonfilestore._load':49 'limit':13 'list':1 'max':7 'memorystore._keys':48 'never':3 'order':34 'page':2,8,23 'read':20 'record':11 'records/count_records':18 'return':4 'row':40 'size':9 'stop':27 'whatev':12",
+    "receipt_id": null
+   },
+   {
+    "id": "5ffbdbd6-ce60-42e5-b16e-7c7af4d98505",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "intent",
+    "summary": "Earlier work on this code",
+    "body": "",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:30.78807+00:00",
+    "tsv": "'code':5 'earlier':1 'work':2",
+    "receipt_id": null
+   },
+   {
+    "id": "16f444b6-a71c-4320-9927-90124e1634d9",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "attempt",
+    "summary": "Currencies have different minor units (JPY 0 decimals, KWD 3). A fixed :.2f or minor/100 prints 1200 yen as 12.00 and drops a KWD digit. Take the decimals from _exponent(currency).",
+    "body": "format() already does this; any other formatting of amounts should too.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.199019+00:00",
+    "tsv": "'0':7 '12.00':20 '1200':17 '2f':13 '3':10 'alreadi':33 'amount':40 'currenc':1,31 'decim':8,28 'differ':3 'digit':25 'drop':22 'expon':30 'fix':12 'format':32,38 'jpi':6 'kwd':9,24 'minor':4 'minor/100':15 'print':16 'take':26 'unit':5 'yen':18",
+    "receipt_id": null
+   },
+   {
+    "id": "a8428bb6-8f18-4a92-96d1-0169245871a5",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "decision",
+    "summary": "Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs.",
+    "body": "The sequence is the number of orders stored so far plus one.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.362096+00:00",
+    "tsv": "'chronolog':29 'digit':9 'far':41 'id':2,21,26 'keep':27 'list':18,28 'number':36 'o':4 'o000001':14 'o000002':15 'one':43 'order':1,22,38 'pad':12,24 'plus':5,42 'record':19 'sequenc':13,25,33 'six':8 'six-digit':7 'store':17,39 'uuid':31 'zero':11 'zero-pad':10",
+    "receipt_id": null
+   },
+   {
+    "id": "04e59405-5aec-4a59-b658-946b105e060b",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "decision",
+    "summary": "Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads.",
+    "body": "Use text.slugify on f\"{sku} {name}\" so the rules for spaces and punctuation stay in one place.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.284616+00:00",
+    "tsv": "'-1':11,15 'alon':20 'alway':30 'blue':12,17,25 'blue-mug':16 'call':24 'collid':21 'f':35 'lead':31 'mug':10,13,14,18,26 'name':8,19,37 'one':47 'place':48 'product':1 'punctuat':44 'rule':40 'sku':6,29,36 'skus':23 'slug':2 'slugifi':5 'space':42 'stay':45 'text.slugify':33 'togeth':9 'two':22 'use':32",
+    "receipt_id": null
+   },
+   {
+    "id": "1c8a6b7f-299b-4733-a4bb-909b7cf3f9e5",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "decision",
+    "summary": "Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages.",
+    "body": "Agreed with the accounting service team. Keep the order id under \"id\" as the existing events do.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.251553+00:00",
+    "tsv": "'4681':16 'account':31 'agre':28 'amount':14 'carri':3 'code':12 'consum':23 'currenc':11,17 'decim':20 'event':1,43 'exist':42 'id':13,37,39 'integ':6 'keep':34 'languag':27 'minor':7,15 'money':4 'never':19 'order':36 'payload':2 'plus':9 'servic':32 'string':22 'team':33 'unit':8 'usd':18",
+    "receipt_id": null
+   },
+   {
+    "id": "94620b47-9256-4fc4-a98d-63dc63a7cf54",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "attempt",
+    "summary": "Splitting Money by multiplying with 1/n (total.times(Decimal(1) / n)) drops or adds cents, so the parts stop adding up to the total. Money.allocate(n) splits exactly.",
+    "body": "Tried it for gift-card splits: 46.81 in three parts gave 15.60 each (46.80). allocate() hands out the remainder one cent at a time and raises ValidationError for parts < 1.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.044991+00:00",
+    "tsv": "'1':9,58 '1/n':6 '15.60':40 '46.80':42 '46.81':35 'ad':19 'add':13 'alloc':43 'card':33 'cent':14,49 'decim':8 'drop':11 'exact':27 'gave':39 'gift':32 'gift-card':31 'hand':44 'money':2 'money.allocate':24 'multipli':4 'n':10,25 'one':48 'part':17,38,57 'rais':54 'remaind':47 'split':1,26,34 'stop':18 'three':37 'time':52 'total':23 'total.times':7 'tri':28 'validationerror':55",
+    "receipt_id": null
+   },
+   {
+    "id": "25ef3230-12a0-423d-a308-8e4e057cb0c1",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "attempt",
+    "summary": "Taxing each line separately (taxes.tax per line) and rounding per line drifts from Quote.tax by a cent or more. Compute the tax once, then split it across lines by largest remainder.",
+    "body": "Three 0.10 pens in US-CA: 1 cent tax each per line, but 2 cents on the 0.30 total. Split the order's tax in proportion to each taxable line's subtotal, giving leftover cents to the largest remainders.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.119644+00:00",
+    "tsv": "'0.10':33 '0.30':50 '1':39 '2':46 'across':27 'ca':38 'cent':17,40,47,67 'comput':20 'drift':12 'give':65 'largest':30,70 'leftov':66 'line':3,7,11,28,44,62 'order':54 'pen':34 'per':6,10,43 'proport':58 'quote.tax':14 'remaind':31,71 'round':9 'separ':4 'split':25,52 'subtot':64 'tax':1,22,41,56 'taxabl':61 'taxes.tax':5 'three':32 'total':51 'us':37 'us-ca':36",
+    "receipt_id": null
+   },
+   {
+    "id": "db887135-e2b9-45f5-9113-cb08339fa980",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "kind": "attempt",
+    "summary": "CouponBook stores codes as code.upper() and get() looks them up with code.strip().upper(). Indexing _by_code with the code as typed misses ' save10 ' or 'save10'.",
+    "body": "Staff type codes in any case with stray spaces. Any new lookup or removal must normalize exactly as get() does.",
+    "change_id": null,
+    "supersedes": null,
+    "author_agent": "agent-a",
+    "created_at": "2026-11-10T12:56:31.155191+00:00",
+    "tsv": "'case':31 'code':3,16,19,28 'code.strip':12 'code.upper':5 'couponbook':1 'exact':42 'get':7,44 'index':14 'look':8 'lookup':37 'miss':22 'must':40 'new':36 'normal':41 'remov':39 'save10':23,25 'space':34 'staff':26 'store':2 'stray':33 'type':21,27 'upper':13",
+    "receipt_id": null
+   }
+  ],
+  "anchors": [
+   {
+    "record_id": "25ef3230-12a0-423d-a308-8e4e057cb0c1",
+    "path": "tallyho/pricing/quote.py",
+    "symbol": "quote_order",
+    "content_hash": "6b6cd6fcd8e0c774205fb8ecff0d91bbe8b4bcca9dfabc947b17a3a2aa0435f8"
+   },
+   {
+    "record_id": "04e59405-5aec-4a59-b658-946b105e060b",
+    "path": "tallyho/models.py",
+    "symbol": "Product",
+    "content_hash": "3aae181e588aed0c31a6a4dff8cdeb41291d5771b5043e5a88f910eb927f18ba"
+   },
+   {
+    "record_id": "9e99ae1b-098f-4fb1-bc33-4a0fa7d5caa0",
+    "path": "tallyho/ledger.py",
+    "symbol": "Ledger.record_sale",
+    "content_hash": "ffcc1ac1550d59fd9a765aa6d8125afe786f0f57ce4ac6e134d9c74e2a71bc97"
+   },
+   {
+    "record_id": "74a6a660-e1d1-4b51-ab5c-ebca47dfcc9d",
+    "path": "tallyho/store/base.py",
+    "symbol": "RecordStore.list_page",
+    "content_hash": "5cc664ce641e2ba485cb15d55755d27a8ade40f9d25451d99b12302a45d11f63"
+   },
+   {
+    "record_id": "a8428bb6-8f18-4a92-96d1-0169245871a5",
+    "path": "tallyho/repository.py",
+    "symbol": "Repository",
+    "content_hash": "07cc4276243dd5b2e514f6adcdc93702771c496ad6ca4f22b84ca963d6513858"
+   },
+   {
+    "record_id": "db887135-e2b9-45f5-9113-cb08339fa980",
+    "path": "tallyho/pricing/coupons.py",
+    "symbol": "CouponBook",
+    "content_hash": "a7d6f8e978207d9e8563c9d0a2589d1b63e38721c19593e62fc7f3a5f0196d13"
+   },
+   {
+    "record_id": "16f444b6-a71c-4320-9927-90124e1634d9",
+    "path": "tallyho/money.py",
+    "symbol": "Money.format",
+    "content_hash": "842da2f8199be2b60913cb6102bca57ff18b815d43c44a251e9f4d9357e4ede3"
+   },
+   {
+    "record_id": "94620b47-9256-4fc4-a98d-63dc63a7cf54",
+    "path": "tallyho/money.py",
+    "symbol": "Money.allocate",
+    "content_hash": "d9e728ba3b281b39066a93b21a9ab1b4dc7ca463b322b1344dec9191958cd240"
+   },
+   {
+    "record_id": "1c8a6b7f-299b-4733-a4bb-909b7cf3f9e5",
+    "path": "tallyho/workflow.py",
+    "symbol": "Workflow",
+    "content_hash": "5a08425a58f1a185132b170ee3fcbc1340077ce30b158ccbca666ec44d843b82"
+   },
+   {
+    "record_id": "36e543b6-9ec6-4961-845c-3d7912e313b1",
+    "path": "tallyho/validate.py",
+    "symbol": "check_region",
+    "content_hash": "45ab628a31a449af65f2c0bab84d235822014f71362cf37d5ac324b4fe486453"
+   }
+  ],
+  "events": [
+   {
+    "id": 302,
+    "repo": "bn0-relay-customer-region-av-2",
+    "kind": "checkpoint",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "change": "e956814a9b5e315c2d24c7de34d6db3f03786598",
+    "payload": {
+     "from": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+     "touched": 0
+    },
+    "at": "2026-11-10T12:56:31.035522+00:00"
+   },
+   {
+    "id": 303,
+    "repo": "bn0-relay-customer-region-av-2",
+    "kind": "started",
+    "task_id": "20ccd21f-7160-460b-9ca1-ae0bca816c7f",
+    "change": null,
+    "payload": {
+     "slug": "relay-customer-region",
+     "agent": "claude-code"
+    },
+    "at": "2026-11-10T12:56:31.374287+00:00"
+   },
+   {
+    "id": 301,
+    "repo": "bn0-relay-customer-region-av-2",
+    "kind": "started",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "change": null,
+    "payload": {
+     "slug": "earlier-work",
+     "agent": "agent-a"
+    },
+    "at": "2026-11-10T12:56:30.660749+00:00"
+   }
+  ],
+  "task_touched": [],
+  "context_receipts": [
+   {
+    "id": "ab711ca1-a383-4fac-9203-eb87fdb538b8",
+    "task_id": "20ccd21f-7160-460b-9ca1-ae0bca816c7f",
+    "session": "bench-start-c5b087d6-f49a-45d4-b800-6f6df7bf67de",
+    "head_change": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+    "packer_version": 5,
+    "budget": 800,
+    "tokens": 722,
+    "items": [
+     {
+      "id": "task:relay-customer-region",
+      "tier": "summary",
+      "score": 1.0,
+      "reason": "task",
+      "source": null,
+      "tokens": 58
+     },
+     {
+      "id": "file:tallyho/errors.py",
+      "tier": "handle",
+      "score": 0.6000000238418579,
+      "reason": "map",
+      "source": null,
+      "tokens": 5
+     },
+     {
+      "id": "file:tallyho/ledger.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 6
+     },
+     {
+      "id": "file:tallyho/models.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 5
+     },
+     {
+      "id": "file:tallyho/money.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 6
+     },
+     {
+      "id": "file:tallyho/pricing/coupons.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 9
+     },
+     {
+      "id": "file:tallyho/pricing/discounts.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 8
+     },
+     {
+      "id": "file:tallyho/store/jsonfile.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 7
+     },
+     {
+      "id": "file:tallyho/store/memory.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 6
+     },
+     {
+      "id": "file:tallyho/validate.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 6
+     },
+     {
+      "id": "file:tallyho/workflow.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 6
+     },
+     {
+      "id": "file:tests/test_models.py",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "map",
+      "source": null,
+      "tokens": 5
+     },
+     {
+      "id": "file:tallyho/events.py",
+      "tier": "handle",
+      "score": 0.36666667461395264,
+      "reason": "map",
+      "source": null,
+      "tokens": 5
+     },
+     {
+      "id": "map:tree",
+      "tier": "handle",
+      "score": 0.30000001192092896,
+      "reason": "map",
+      "source": null,
+      "tokens": 22
+     },
+     {
+      "id": "rec:94620b47",
+      "tier": "handle",
+      "score": 0.5249999761581421,
+      "reason": "anchored",
+      "source": null,
+      "tokens": 30
+     },
+     {
+      "id": "rec:36e543b6",
+      "tier": "handle",
+      "score": 0.48500001430511475,
+      "reason": "anchored",
+      "source": null,
+      "tokens": 24
+     },
+     {
+      "id": "rec:16f444b6",
+      "tier": "handle",
+      "score": 0.46666669845581055,
+      "reason": "anchored",
+      "source": null,
+      "tokens": 31
+     },
+     {
+      "id": "rec:9e99ae1b",
+      "tier": "handle",
+      "score": 0.4266666769981384,
+      "reason": "anchored",
+      "source": null,
+      "tokens": 28
+     },
+     {
+      "id": "sym:7884",
+      "tier": "full",
+      "score": 0.6499999761581421,
+      "reason": "hop1",
+      "source": [
+       "tallyho/validate.py",
+       24,
+       26
+      ],
+      "tokens": 30
+     },
+     {
+      "id": "sym:7886",
+      "tier": "handle",
+      "score": 0.6463709473609924,
+      "reason": "hop1",
+      "source": [
+       "tallyho/validate.py",
+       34,
+       42
+      ],
+      "tokens": 19
+     },
+     {
+      "id": "sym:7882",
+      "tier": "handle",
+      "score": 0.6428571343421936,
+      "reason": "hop1",
+      "source": [
+       "tallyho/validate.py",
+       14,
+       16
+      ],
+      "tokens": 19
+     },
+     {
+      "id": "sym:7883",
+      "tier": "handle",
+      "score": 0.639453113079071,
+      "reason": "hop1",
+      "source": [
+       "tallyho/validate.py",
+       19,
+       21
+      ],
+      "tokens": 19
+     },
+     {
+      "id": "sym:7885",
+      "tier": "handle",
+      "score": 0.6361538171768188,
+      "reason": "hop1",
+      "source": [
+       "tallyho/validate.py",
+       29,
+       31
+      ],
+      "tokens": 19
+     },
+     {
+      "id": "sym:7778",
+      "tier": "handle",
+      "score": 0.626838207244873,
+      "reason": "hop1",
+      "source": [
+       "tallyho/models.py",
+       30,
+       35
+      ],
+      "tokens": 21
+     },
+     {
+      "id": "sym:7760",
+      "tier": "handle",
+      "score": 0.6000000238418579,
+      "reason": "seed",
+      "source": [
+       "tallyho/errors.py",
+       8,
+       17
+      ],
+      "tokens": 17
+     },
+     {
+      "id": "sym:7784",
+      "tier": "full",
+      "score": 0.5746212005615234,
+      "reason": "hop2",
+      "source": [
+       "tallyho/models.py",
+       64,
+       109
+      ],
+      "tokens": 21
+     },
+     {
+      "id": "sym:7857",
+      "tier": "handle",
+      "score": 0.5423507690429688,
+      "reason": "lexical",
+      "source": [
+       "tallyho/store/jsonfile.py",
+       14,
+       72
+      ],
+      "tokens": 21
+     },
+     {
+      "id": "sym:7759",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "hop1",
+      "source": [
+       "tallyho/errors.py",
+       4,
+       5
+      ],
+      "tokens": 19
+     },
+     {
+      "id": "sym:7772",
+      "tier": "handle",
+      "score": 0.42499998211860657,
+      "reason": "hop1",
+      "source": [
+       "tallyho/ledger.py",
+       28,
+       35
+      ],
+      "tokens": 19
+     }
+    ],
+    "omitted": [
+     "- rec:04e59405 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\u2026",
+     "- sym:7786 Order.add (tallyho/models.py:76-84)",
+     "- sym:7787 Order.remove (tallyho/models.py:86-89)",
+     "- sym:7792 _exponent (tallyho/money.py:14-18)",
+     "- sym:7801 Money.allocate (tallyho/money.py:63-68)",
+     "- sym:7808 Coupon.discount (tallyho/pricing/coupons.py:23-28)",
+     "- sym:7818 PercentDiscount.__post_init__ (tallyho/pricing/discounts.py:30-32)",
+     "- sym:7859 JsonFileStore._path (tallyho/store/jsonfile.py:20-23)"
+    ],
+    "created_at": "2026-11-10T12:56:31.726675+00:00"
+   },
+   {
+    "id": "15b9c910-646d-4bde-9249-9a86a235ea00",
+    "task_id": "e56a68f6-7898-41c7-9b0c-95db87475760",
+    "session": "relay-5a15432f-b721-47b8-8a95-0018ab15a4c1",
+    "head_change": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2",
+    "packer_version": 5,
+    "budget": 800,
+    "tokens": 611,
+    "items": [
+     {
+      "id": "task:earlier-work",
+      "tier": "full",
+      "score": 1.0,
+      "reason": "task",
+      "source": null,
+      "tokens": 48
+     },
+     {
+      "id": "map:tree",
+      "tier": "full",
+      "score": 0.30000001192092896,
+      "reason": "map",
+      "source": null,
+      "tokens": 144
+     },
+     {
+      "id": "sym:7810",
+      "tier": "full",
+      "score": 0.5625,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       40,
+       63
+      ],
+      "tokens": 27
+     },
+     {
+      "id": "sym:7813",
+      "tier": "full",
+      "score": 0.5588709712028503,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       49,
+       50
+      ],
+      "tokens": 37
+     },
+     {
+      "id": "sym:7812",
+      "tier": "full",
+      "score": 0.5553571581840515,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       46,
+       47
+      ],
+      "tokens": 35
+     },
+     {
+      "id": "sym:7814",
+      "tier": "full",
+      "score": 0.551953136920929,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       52,
+       63
+      ],
+      "tokens": 53
+     },
+     {
+      "id": "sym:7811",
+      "tier": "full",
+      "score": 0.5486538410186768,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       43,
+       44
+      ],
+      "tokens": 46
+     },
+     {
+      "id": "sym:7824",
+      "tier": "full",
+      "score": 0.5454545617103577,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/quote.py",
+       23,
+       27
+      ],
+      "tokens": 30
+     },
+     {
+      "id": "sym:7823",
+      "tier": "full",
+      "score": 0.5423507690429688,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/quote.py",
+       16,
+       27
+      ],
+      "tokens": 24
+     },
+     {
+      "id": "sym:7815",
+      "tier": "full",
+      "score": 0.539338231086731,
+      "reason": "lexical",
+      "source": [
+       "tallyho/pricing/discounts.py",
+       17,
+       23
+      ],
+      "tokens": 24
+     },
+     {
+      "id": "sym:7758",
+      "tier": "full",
+      "score": 0.36666667461395264,
+      "reason": "hit-neighbor",
+      "source": [
+       "tallyho/config.py",
+       23,
+       47
+      ],
+      "tokens": 31
+     },
+     {
+      "id": "sym:7769",
+      "tier": "full",
+      "score": 0.36666667461395264,
+      "reason": "hit-neighbor",
+      "source": [
+       "tallyho/events.py",
+       19,
+       22
+      ],
+      "tokens": 34
+     },
+     {
+      "id": "sym:7807",
+      "tier": "full",
+      "score": 0.36666667461395264,
+      "reason": "hit-neighbor",
+      "source": [
+       "tallyho/pricing/coupons.py",
+       15,
+       37
+      ],
+      "tokens": 25
+     },
+     {
+      "id": "sym:7827",
+      "tier": "full",
+      "score": 0.36666667461395264,
+      "reason": "hit-neighbor",
+      "source": [
+       "tallyho/pricing/tax.py",
+       19,
+       23
+      ],
+      "tokens": 34
+     }
+    ],
+    "omitted": [],
+    "created_at": "2026-11-10T12:56:30.996043+00:00"
+   }
+  ],
+  "review_verdicts": [],
+  "backlog": [],
+  "outbox": [],
+  "symbols_count": 166,
+  "symbol_refs_count": 466,
+  "code_chunks": [
+   {
+    "symbol_id": 7780,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7799,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7760,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7753,
+    "path": "tallyho/cli.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7754,
+    "path": "tallyho/cli.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7755,
+    "path": "tallyho/cli.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7756,
+    "path": "tallyho/cli.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7757,
+    "path": "tallyho/config.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7758,
+    "path": "tallyho/config.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7759,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7761,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7762,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7763,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7764,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7765,
+    "path": "tallyho/errors.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7766,
+    "path": "tallyho/events.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7767,
+    "path": "tallyho/events.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7768,
+    "path": "tallyho/events.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7769,
+    "path": "tallyho/events.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7770,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7771,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7772,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7773,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7774,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7775,
+    "path": "tallyho/ledger.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7776,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7777,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7778,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7779,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7781,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7782,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7783,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7784,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7785,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7786,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7787,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7788,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7789,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7841,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7790,
+    "path": "tallyho/models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7791,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7792,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7793,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7794,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7795,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7796,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7797,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7798,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7800,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7801,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7802,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7803,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7804,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7805,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7806,
+    "path": "tallyho/money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7807,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7822,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7808,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7809,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7810,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7811,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7812,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7813,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7823,
+    "path": "tallyho/pricing/quote.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7842,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7814,
+    "path": "tallyho/pricing/coupons.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7815,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7816,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7817,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7818,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7819,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7820,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7821,
+    "path": "tallyho/pricing/discounts.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7824,
+    "path": "tallyho/pricing/quote.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7825,
+    "path": "tallyho/pricing/quote.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7826,
+    "path": "tallyho/pricing/tax.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7827,
+    "path": "tallyho/pricing/tax.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7828,
+    "path": "tallyho/pricing/tax.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7829,
+    "path": "tallyho/pricing/tax.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7830,
+    "path": "tallyho/report/csv_export.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7831,
+    "path": "tallyho/report/csv_export.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7839,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7832,
+    "path": "tallyho/report/csv_export.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7833,
+    "path": "tallyho/report/csv_export.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7834,
+    "path": "tallyho/report/table.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7835,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7836,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7837,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7838,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7840,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7843,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7844,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7845,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7846,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7847,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7848,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7849,
+    "path": "tallyho/repository.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7850,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7851,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7852,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7853,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7854,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7855,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7856,
+    "path": "tallyho/store/base.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7857,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7858,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7859,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7860,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7868,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7861,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7862,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7863,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7864,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7865,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7866,
+    "path": "tallyho/store/jsonfile.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7867,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7869,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7870,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7871,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7872,
+    "path": "tallyho/store/memory.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7873,
+    "path": "tallyho/store/scan.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7874,
+    "path": "tallyho/store/scan.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7884,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7875,
+    "path": "tallyho/text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7876,
+    "path": "tallyho/text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7877,
+    "path": "tallyho/text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7878,
+    "path": "tallyho/text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7879,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7880,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7881,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7882,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7883,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7885,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7886,
+    "path": "tallyho/validate.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7887,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7888,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7889,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7890,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7891,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7892,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7893,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7894,
+    "path": "tallyho/workflow.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7895,
+    "path": "tests/conftest.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7896,
+    "path": "tests/conftest.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7897,
+    "path": "tests/conftest.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7898,
+    "path": "tests/conftest.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7899,
+    "path": "tests/test_models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7900,
+    "path": "tests/test_models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7901,
+    "path": "tests/test_models.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7902,
+    "path": "tests/test_money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7903,
+    "path": "tests/test_money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7904,
+    "path": "tests/test_money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7905,
+    "path": "tests/test_money.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7916,
+    "path": "tests/test_text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7906,
+    "path": "tests/test_pricing.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7907,
+    "path": "tests/test_pricing.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7908,
+    "path": "tests/test_pricing.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7909,
+    "path": "tests/test_pricing.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7910,
+    "path": "tests/test_report.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7911,
+    "path": "tests/test_report.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7912,
+    "path": "tests/test_store.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7913,
+    "path": "tests/test_store.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7914,
+    "path": "tests/test_store.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7915,
+    "path": "tests/test_text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7917,
+    "path": "tests/test_text.py",
+    "scope": "main"
+   },
+   {
+    "symbol_id": 7918,
+    "path": "tests/test_text.py",
+    "scope": "main"
+   }
+  ],
+  "index_files_count": 32,
+  "index_scopes": [
+   {
+    "repo": "bn0-relay-customer-region-av-2",
+    "scope": "main",
+    "change_id": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2"
+   }
+  ],
+  "scope_overlays": [
+   {
+    "repo": "bn0-relay-customer-region-av-2",
+    "scope": "earlier-work",
+    "main_at": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2"
+   },
+   {
+    "repo": "bn0-relay-customer-region-av-2",
+    "scope": "relay-customer-region",
+    "main_at": "f31dfd1708d9ac6cfbd3235b2a18ed062de0f4a2"
+   }
+  ],
+  "derived_count": 0,
+  "checks": [],
+  "conventions": [],
+  "repo_settings": [],
+  "backup_state": [],
+  "targets": []
+ },
+ "qdrant_point_ids": {
+  "records": [
+   "04e59405-5aec-4a59-b658-946b105e060b",
+   "16f444b6-a71c-4320-9927-90124e1634d9",
+   "1c8a6b7f-299b-4733-a4bb-909b7cf3f9e5",
+   "25ef3230-12a0-423d-a308-8e4e057cb0c1",
+   "36e543b6-9ec6-4961-845c-3d7912e313b1",
+   "3f70bd49-667d-42c4-8ab7-b0e978c12975",
+   "5ffbdbd6-ce60-42e5-b16e-7c7af4d98505",
+   "74a6a660-e1d1-4b51-ab5c-ebca47dfcc9d",
+   "94620b47-9256-4fc4-a98d-63dc63a7cf54",
+   "9e99ae1b-098f-4fb1-bc33-4a0fa7d5caa0",
+   "a8428bb6-8f18-4a92-96d1-0169245871a5",
+   "db887135-e2b9-45f5-9113-cb08339fa980"
+  ],
+  "code_chunks": [
+   7753,
+   7754,
+   7755,
+   7756,
+   7757,
+   7758,
+   7759,
+   7760,
+   7761,
+   7762,
+   7763,
+   7764,
+   7765,
+   7766,
+   7767,
+   7768,
+   7769,
+   7770,
+   7771,
+   7772,
+   7773,
+   7774,
+   7775,
+   7776,
+   7777,
+   7778,
+   7779,
+   7780,
+   7781,
+   7782,
+   7783,
+   7784,
+   7785,
+   7786,
+   7787,
+   7788,
+   7789,
+   7790,
+   7791,
+   7792,
+   7793,
+   7794,
+   7795,
+   7796,
+   7797,
+   7798,
+   7799,
+   7800,
+   7801,
+   7802,
+   7803,
+   7804,
+   7805,
+   7806,
+   7807,
+   7808,
+   7809,
+   7810,
+   7811,
+   7812,
+   7813,
+   7814,
+   7815,
+   7816,
+   7817,
+   7818,
+   7819,
+   7820,
+   7821,
+   7822,
+   7823,
+   7824,
+   7825,
+   7826,
+   7827,
+   7828,
+   7829,
+   7830,
+   7831,
+   7832,
+   7833,
+   7834,
+   7835,
+   7836,
+   7837,
+   7838,
+   7839,
+   7840,
+   7841,
+   7842,
+   7843,
+   7844,
+   7845,
+   7846,
+   7847,
+   7848,
+   7849,
+   7850,
+   7851,
+   7852,
+   7853,
+   7854,
+   7855,
+   7856,
+   7857,
+   7858,
+   7859,
+   7860,
+   7861,
+   7862,
+   7863,
+   7864,
+   7865,
+   7866,
+   7867,
+   7868,
+   7869,
+   7870,
+   7871,
+   7872,
+   7873,
+   7874,
+   7875,
+   7876,
+   7877,
+   7878,
+   7879,
+   7880,
+   7881,
+   7882,
+   7883,
+   7884,
+   7885,
+   7886,
+   7887,
+   7888,
+   7889,
+   7890,
+   7891,
+   7892,
+   7893,
+   7894,
+   7895,
+   7896,
+   7897,
+   7898,
+   7899,
+   7900,
+   7901,
+   7902,
+   7903,
+   7904,
+   7905,
+   7906,
+   7907,
+   7908,
+   7909,
+   7910,
+   7911,
+   7912,
+   7913,
+   7914,
+   7915,
+   7916,
+   7917,
+   7918
+  ],
+  "conventions": []
+ },
+ "jj_store_dir": "/store/jj/bn0-relay-customer-region-av-2",
+ "workspace_dir": "/root/bench-work/ws/bn0-relay-customer-region-av-2",
+ "import_copy_dir": "/root/bench-work/src/bn0-relay-customer-region-av-2"
+}

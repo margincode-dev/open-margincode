@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`scholion-bench` can run Grok.** `--vendor grok` launches `grok -p … --output-format json --always-approve --max-turns N --cwd` and reads `usage.input_tokens`, `usage.cache_read_input_tokens`, `usage.output_tokens`, `total_cost_usd` and `num_turns` into the session usage. It does not pass `--max-budget-usd`; the turn cap stands in for it. Reasoning tokens are not kept: the usage total has no field for them.
+- **`scholion-bench routing-profile`** reads an E-G1 results file and prints accepted rates, Wilson intervals, and the `av agent set` lines the decision rule implies. A tie, or a cell with fewer than 10 trials, is inconclusive and does not replace that agent's profile.
 - **Containers started without the labels are footprint too.** With `docker` on `PATH`, the
   session-start snapshot also keeps the id of every container then (`docker ps -aq --no-trunc`),
   and in a task the Stop hook reports the containers that are new since and carry no `av.task`

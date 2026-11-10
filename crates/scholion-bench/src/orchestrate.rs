@@ -5,10 +5,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::Result;
-use crate::events::parse_stream;
 use crate::metrics::compute_priced;
 use crate::report::{Meta, Row, Status, read_rows, render_report};
-use crate::runner::{Arm, Daemon, RunConfig, run_session};
+use crate::runner::{Arm, Daemon, RunConfig, parse_session, run_session};
 use crate::spec::TaskSpec;
 use crate::stats::{Rng, median};
 
@@ -282,7 +281,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
             let events = std::fs::read_to_string(&o.events_path).unwrap_or_default();
             let m = compute_priced(
                 spec,
-                &parse_stream(&events),
+                &parse_session(cfg.vendor, &events),
                 cfg.session_cap_usd,
                 cfg.prices.as_ref(),
             );

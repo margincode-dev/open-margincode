@@ -1,0 +1,14 @@
+# Pilot code task: slugify collapses runs of separators.
+name = "slug-collapse"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-slug-collapse"
+goal = """slugify in slugify.py should turn text into a URL slug: lowercase ASCII letters and digits stay, every other run of characters becomes a single hyphen, and leading or trailing hyphens are removed. "Hello  World" is "hello-world", " a " is "a" and "A--B" is "a-b". An empty result stays empty."""
+relevant_files = ["slugify.py"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_slug.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_slug.py"
+source = "files/test_slug.py"

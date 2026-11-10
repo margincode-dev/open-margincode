@@ -11,14 +11,14 @@ use scholion_bench::noise::{add_noise, anchors_at, generate};
 use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
 use scholion_bench::retrieval::{self, RetrievalArgs};
-use scholion_bench::runner::{Arm, Daemon, RunConfig, notes_md};
+use scholion_bench::runner::{Arm, Daemon, RunConfig, Vendor, notes_md};
 use scholion_bench::scale::{self, ScaleArgs};
 use scholion_bench::spec::{TaskSpec, check_spec, check_warnings, load_spec_with_root, spec_files};
 
 #[derive(Parser)]
 #[command(
     name = "scholion-bench",
-    about = "Scholion benchmark harness (Plans 4 and 6)"
+    about = "Scholion benchmark harness (Plans 4, 6 and 8)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -41,6 +41,13 @@ struct SessionArgs {
     work_root: PathBuf,
     #[arg(long, default_value = "claude")]
     claude_bin: String,
+    /// Agent CLI. `grok` runs `grok -p PROMPT --output-format json --always-approve --max-turns N
+    /// --cwd DIR` and never passes `--max-budget-usd` (the turn cap stands in for it).
+    #[arg(long, default_value = "claude", value_parser = ["claude", "grok"])]
+    vendor: String,
+    /// grok binary, when --vendor grok.
+    #[arg(long, default_value = "grok")]
+    grok_bin: String,
     /// The av CLI the hooks run.
     #[arg(long, default_value = "av")]
     av_bin: String,
@@ -260,6 +267,15 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Print the E-G1 table, Wilson intervals and `av agent set` commands.
+    /// No daemon and no network. The file is JSONL (one cell per line; `#` comments allowed)
+    /// or a JSON array. Fields: `tag`, `agent`, `trials`, `accepted`, `tokens_per_accepted`
+    /// (null when nothing was accepted). A tie, or a cell with fewer than 10 trials, is
+    /// inconclusive and does not emit a command for that agent.
+    RoutingProfile {
+        /// Results file.
+        results: PathBuf,
+    },
     /// Recommend AV_TOKEN_FACTOR_CLAUDE from stored packs (pack.md files under DIR).
     Calibrate {
         #[arg(long)]
@@ -308,6 +324,11 @@ fn config(s: &SessionArgs) -> RunConfig {
             .unwrap_or_else(|| work_root.join("src")),
         work_root,
         claude_bin: s.claude_bin.clone(),
+        grok_bin: s.grok_bin.clone(),
+        vendor: match s.vendor.as_str() {
+            "grok" => Vendor::Grok,
+            _ => Vendor::Claude,
+        },
         av_bin: s.av_bin.clone(),
         av_url: s.av_url.clone(),
         av_token: s.av_token.clone(),
@@ -486,24 +507,30 @@ fn calibrate(
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result: Result<i32, String> = match cli.cmd {
-        Cmd::Check { tasks } => load_tasks(&tasks).map(|specs| {
-            let mut bad = 0;
-            for s in &specs {
-                match check_spec(s) {
-                    Ok(()) => {
-                        println!("{}: ok", s.name);
-                        for w in check_warnings(s) {
-                            println!("{w}");
+        Cmd::Check { tasks } => {
+            if let Err(e) = ensure_generated_repos(&tasks.tasks) {
+                Err(e)
+            } else {
+                load_tasks(&tasks).map(|specs| {
+                    let mut bad = 0;
+                    for s in &specs {
+                        match check_spec(s) {
+                            Ok(()) => {
+                                println!("{}: ok", s.name);
+                                for w in check_warnings(s) {
+                                    println!("{w}");
+                                }
+                            }
+                            Err(e) => {
+                                println!("{e}");
+                                bad += 1;
+                            }
                         }
                     }
-                    Err(e) => {
-                        println!("{e}");
-                        bad += 1;
-                    }
-                }
+                    if bad > 0 { 1 } else { 0 }
+                })
             }
-            if bad > 0 { 1 } else { 0 }
-        }),
+        }
         Cmd::Run {
             tasks,
             session,
@@ -579,6 +606,12 @@ fn main() -> ExitCode {
                 anchors.len(),
                 cl100k_tokens(&notes_md(&notes))
             );
+            Ok(0)
+        })(),
+        Cmd::RoutingProfile { results } => (|| {
+            let text = std::fs::read_to_string(expand(&results))
+                .map_err(|e| format!("{}: {e}", results.display()))?;
+            print!("{}", scholion_bench::routing_profile::report(&text)?);
             Ok(0)
         })(),
         Cmd::Report { results } => (|| {
@@ -723,6 +756,50 @@ fn main() -> ExitCode {
     }
 }
 
+/// `bench/tasks-routing/make-repo.py` builds the pilot git checkout the specs point at.
+/// A clean tree has no `repo/` (it is generated, and not committed).
+fn ensure_generated_repos(tasks: &[PathBuf]) -> Result<(), String> {
+    for p in tasks {
+        let dir = if p.is_dir() {
+            p.clone()
+        } else {
+            p.parent().unwrap_or(Path::new(".")).to_path_buf()
+        };
+        let script = dir.join("make-repo.py");
+        if !script.is_file() {
+            continue;
+        }
+        let repo = dir.join("repo");
+        if repo.join(".git").exists() {
+            continue;
+        }
+        let py = ["python3", "python"]
+            .into_iter()
+            .find(|bin| {
+                Command::new(bin)
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|s| s.success())
+            })
+            .ok_or_else(|| format!("python is required to build {}", repo.display()))?;
+        let out = Command::new(py)
+            .arg(&script)
+            .arg(&repo)
+            .output()
+            .map_err(|e| format!("{}: {e}", script.display()))?;
+        if !out.status.success() {
+            return Err(format!(
+                "{}: {}",
+                script.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,5 +831,18 @@ mod tests {
     fn av_arms_run_without_mcp_unless_asked() {
         assert!(!run_config(&[]).av_mcp);
         assert!(run_config(&["--av-mcp"]).av_mcp);
+    }
+
+    #[test]
+    fn grok_is_a_vendor_and_routing_profile_reads_a_file() {
+        let c = run_config(&["--vendor", "grok", "--grok-bin", "grok-test"]);
+        assert_eq!(c.vendor, Vendor::Grok);
+        assert_eq!(c.grok_bin, "grok-test");
+        assert!(matches!(
+            Cli::try_parse_from(["scholion-bench", "routing-profile", "cells.jsonl"])
+                .unwrap()
+                .cmd,
+            Cmd::RoutingProfile { .. }
+        ));
     }
 }

@@ -8,6 +8,8 @@ mod noise;
 mod report;
 mod retrieval;
 mod retrieval_gate;
+mod routing_profile;
+mod routing_tasks;
 mod runner;
 mod scale;
 mod spec;

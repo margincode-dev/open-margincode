@@ -82,6 +82,8 @@ fn fixture(mode: &str) -> Fixture {
     let cfg = RunConfig {
         work_root: work.path().to_path_buf(),
         claude_bin: claude.to_string_lossy().into(),
+        grok_bin: "grok".into(),
+        vendor: scholion_bench::runner::Vendor::Claude,
         av_bin: av.to_string_lossy().into(),
         av_url: None,
         av_token: None,
@@ -738,6 +740,72 @@ fn without_path_prepend_the_agents_path_is_inherited_unchanged() {
     run_session(&f.spec, Arm::Baseline, 1, "pp-none", &f.cfg).unwrap();
     let path = std::fs::read_to_string(format!("{}.path", f.marker.display())).unwrap();
     assert_eq!(path.trim_end(), std::env::var("PATH").unwrap());
+}
+
+/// A fake `grok`: records argv, fixes `calc.py`, prints one `--output-format json` object.
+const FAKE_GROK: &str = r#"#!/bin/sh
+: > "$FAKE_GROK_ARGS"
+for a in "$@"; do
+  printf '%s\n' "$a" >> "$FAKE_GROK_ARGS"
+  case "$a" in
+    --max-budget-usd|--confirm) echo "unexpected $a" >&2; exit 8;;
+  esac
+done
+printf 'def add(a, b):\n    return a + b\n' > calc.py
+cat <<'EOF'
+{"sessionId":"s1","num_turns":4,"usage":{"input_tokens":12855,"cache_read_input_tokens":8832,"output_tokens":1975,"reasoning_tokens":1115,"total_tokens":24777},"total_cost_usd":0.031}
+EOF
+"#;
+
+#[test]
+fn grok_session_parses_usage_and_does_not_pass_a_budget_flag() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    let args = f.marker.with_extension("grok-args");
+    let grok = script(f._tools.path(), "grok", FAKE_GROK);
+    f.cfg.vendor = scholion_bench::runner::Vendor::Grok;
+    f.cfg.grok_bin = grok.to_string_lossy().into();
+    // SAFETY: the runner tests hold SERIAL; the fake grok reads this path.
+    unsafe { std::env::set_var("FAKE_GROK_ARGS", &args) };
+    let ran = run_session(&f.spec, Arm::Baseline, 1, "grok1", &f.cfg);
+    unsafe { std::env::remove_var("FAKE_GROK_ARGS") };
+    let o = ran.unwrap();
+    assert!(o.success(), "{o:?}");
+    let argv = std::fs::read_to_string(&args).unwrap();
+    let lines: Vec<&str> = argv.lines().collect();
+    assert_eq!(lines[0], "-p", "{argv}");
+    assert!(
+        lines.windows(2).any(|w| w == ["--output-format", "json"]),
+        "{argv}"
+    );
+    assert!(lines.contains(&"--always-approve"), "{argv}");
+    assert!(
+        lines.windows(2).any(|w| w == ["--max-turns", "12"]),
+        "{argv}"
+    );
+    let cwd = lines
+        .windows(2)
+        .find(|w| w[0] == "--cwd")
+        .map(|w| w[1])
+        .unwrap_or("");
+    assert_eq!(
+        Path::new(cwd).canonicalize().unwrap(),
+        o.run_dir.join("ws").canonicalize().unwrap(),
+        "{argv}"
+    );
+    assert!(!argv.contains("--max-budget-usd"), "{argv}");
+    assert!(!argv.contains("--confirm"), "{argv}");
+    let events = std::fs::read_to_string(&o.events_path).unwrap();
+    let parsed = scholion_bench::runner::parse_grok(&events);
+    let u = parsed.total_usage();
+    assert_eq!(u.input, 12855);
+    assert_eq!(u.cache_read, 8832);
+    assert_eq!(u.output, 1975);
+    assert_eq!(u.cache_creation, 0);
+    let result = parsed.result.unwrap();
+    assert_eq!(result.num_turns, Some(4));
+    assert!((result.cost_usd - 0.031).abs() < 1e-12);
+    assert_eq!(u.input + u.cache_read + u.output, 12855 + 8832 + 1975);
 }
 
 // ---- E4 at scale: `--noise N` irrelevant notes, the same in the notes and av arms ----

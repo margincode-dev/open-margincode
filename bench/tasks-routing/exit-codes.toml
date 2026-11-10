@@ -1,0 +1,14 @@
+# Pilot docs task: README exit codes must match the constants in cli.py.
+name = "exit-codes"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-exit-codes"
+goal = """The exit-code section of README.md does not match the constants in cli.py. Replace that section with three lines, exactly `success: <EXIT_OK>`, `usage: <EXIT_USAGE>` and `missing: <EXIT_MISSING>`, using the integer values from cli.py. Do not change cli.py."""
+relevant_files = ["README.md"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_exit_codes.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_exit_codes.py"
+source = "files/test_exit_codes.py"

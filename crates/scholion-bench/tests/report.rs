@@ -216,6 +216,8 @@ fn setup() -> Setup {
     let cfg = RunConfig {
         work_root: work.path().to_path_buf(),
         claude_bin: claude.to_string_lossy().into(),
+        grok_bin: "grok".into(),
+        vendor: scholion_bench::runner::Vendor::Claude,
         av_bin: "av".into(),
         av_url: None,
         av_token: None,

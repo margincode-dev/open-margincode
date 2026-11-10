@@ -61,6 +61,34 @@ pub fn bootstrap_median_ci(values: &[f64], seed: u64) -> Option<(f64, f64)> {
     Some((meds[49], meds[1949]))
 }
 
+/// 95% Wilson score interval for `accepted` successes in `trials` trials, as fractions in
+/// `0.0..=1.0`. `None` when `trials` is 0.
+pub fn wilson_interval(accepted: u64, trials: u64) -> Option<(f64, f64)> {
+    if trials == 0 || accepted > trials {
+        return None;
+    }
+    let n = trials as f64;
+    let p = accepted as f64 / n;
+    // Standard normal quantile at 0.975.
+    let z = 1.959963984540054;
+    let z2 = z * z;
+    let denom = 1.0 + z2 / n;
+    let center = (p + z2 / (2.0 * n)) / denom;
+    let margin = z * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt() / denom;
+    // Algebra puts the ends at 0 and 1; the float form lands a ulp short.
+    let lo = if accepted == 0 {
+        0.0
+    } else {
+        (center - margin).clamp(0.0, 1.0)
+    };
+    let hi = if accepted == trials {
+        1.0
+    } else {
+        (center + margin).clamp(0.0, 1.0)
+    };
+    Some((lo, hi))
+}
+
 /// `(new - base) / base`, `None` when `base` is missing or 0.
 pub fn relative_change(base: Option<f64>, new: Option<f64>) -> Option<f64> {
     match (base, new) {
@@ -87,6 +115,24 @@ mod tests {
         assert!(lo <= 11.0 && 11.0 <= hi, "{lo} {hi}");
         assert_eq!(bootstrap_median_ci(&v, 7), Some((lo, hi)));
         assert_eq!(bootstrap_median_ci(&[5.0], 7), None);
+    }
+
+    #[test]
+    fn wilson_interval_brackets_the_rate_and_the_ends() {
+        assert_eq!(wilson_interval(0, 0), None);
+        assert_eq!(wilson_interval(3, 2), None);
+        let (lo, hi) = wilson_interval(0, 10).unwrap();
+        assert_eq!(lo, 0.0);
+        assert!(hi > 0.0 && hi < 1.0, "{hi}");
+        let (lo, hi) = wilson_interval(10, 10).unwrap();
+        assert!(lo > 0.0 && lo < 1.0, "{lo}");
+        assert_eq!(hi, 1.0);
+        let (lo, hi) = wilson_interval(1, 1).unwrap();
+        assert!((0.20..0.21).contains(&lo), "{lo}");
+        assert_eq!(hi, 1.0);
+        let (lo, hi) = wilson_interval(16, 18).unwrap();
+        let p = 16.0 / 18.0;
+        assert!(lo <= p && p <= hi && lo < hi, "{lo} {p} {hi}");
     }
 
     #[test]

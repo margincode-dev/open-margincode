@@ -1,0 +1,17 @@
+# E-G1 cell file. One JSON object per line. Blank lines and lines starting with # are ignored.
+# A JSON array of the same objects is also accepted.
+# tag: string (image, ui, code, tests, docs, math, or any other tag)
+# agent: profile name, the name `av agent set` prints
+# trials: integer, sessions in the cell
+# accepted: integer, sessions the hidden tests accepted (not greater than trials)
+# tokens_per_accepted: integer, or null when accepted is 0 (a number is then ignored)
+# A cell with trials < 10 is inconclusive. A tie for best is inconclusive.
+# An agent with any inconclusive cell gets no `av agent set` line.
+{"tag":"image","agent":"grok","trials":20,"accepted":18,"tokens_per_accepted":1000}
+{"tag":"image","agent":"claude","trials":20,"accepted":16,"tokens_per_accepted":5000}
+{"tag":"image","agent":"codex","trials":20,"accepted":4,"tokens_per_accepted":900}
+{"tag":"image","agent":"muse","trials":6,"accepted":6,"tokens_per_accepted":100}
+{"tag":"code","agent":"grok","trials":20,"accepted":15,"tokens_per_accepted":2000}
+{"tag":"code","agent":"claude","trials":20,"accepted":14,"tokens_per_accepted":2000}
+{"tag":"code","agent":"codex","trials":20,"accepted":10,"tokens_per_accepted":1500}
+{"tag":"code","agent":"muse","trials":20,"accepted":12,"tokens_per_accepted":1000}

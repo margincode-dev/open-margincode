@@ -1,5 +1,7 @@
-//! One benchmark session in one arm: prepare the working directory, run headless Claude Code,
-//! verify. Nothing here touches the source repo except `git clone` from it and `git show`.
+//! One benchmark session in one arm: prepare the working directory, run the agent CLI, verify.
+//! Claude Code is the default. Grok is `grok -p … --output-format json --always-approve
+//! --max-turns N --cwd`, with no `--max-budget-usd` (the turn cap stands in for it).
+//! Nothing here touches the source repo except `git clone` from it and `git show`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,6 +15,7 @@ use scholion_agentrun::AgentCommand;
 use scholion_agentrun::process::{run_with_timeout, shell};
 
 use crate::Result;
+use crate::events::{ParsedSession, ResultEvent, Usage};
 use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -78,11 +81,32 @@ impl Arm {
     }
 }
 
+/// Which agent CLI a session runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Vendor {
+    #[default]
+    Claude,
+    Grok,
+}
+
+impl Vendor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Vendor::Claude => "claude",
+            Vendor::Grok => "grok",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RunConfig {
     /// Throwaway copies and per-session files go under here (`~/bench-work`).
     pub work_root: PathBuf,
     pub claude_bin: String,
+    /// The `grok` binary when [`Vendor`] is `Grok`.
+    pub grok_bin: String,
+    /// Claude Code, or Grok. Grok is never passed `--max-budget-usd`.
+    pub vendor: Vendor,
     /// The `av` CLI the hooks run.
     pub av_bin: String,
     /// The bench daemon (av arms only).
@@ -748,51 +772,30 @@ pub fn run_session(
         }
     }
 
-    let mut tools = cfg.allowed_tools.clone();
-    if arm.uses_av() && cfg.av_mcp {
-        tools.push("mcp__av".into());
-    }
-    let mut cmd = AgentCommand::new(&cfg.claude_bin)
-        .arg("-p")
-        .arg(&spec.goal)
-        .args(["--output-format", "stream-json", "--verbose"])
-        .args(["--max-turns", &spec.max_turns.to_string()])
-        .args(["--model", &spec.model])
-        .args(["--setting-sources", "project"])
-        .arg("--settings")
-        .arg(&settings_path)
-        .arg("--strict-mcp-config")
-        .arg("--mcp-config")
-        .arg(&mcp_path)
-        .args(["--permission-mode", &cfg.permission_mode])
-        .arg("--no-session-persistence")
-        .arg("--allowedTools")
-        .args(&tools)
-        .cwd(&workspace)
-        .env("CLAUDE_CONFIG_DIR", &config_dir)
-        .env("AV_AGENT", AGENT)
-        // The Stop hook (`--jit-hooks`) would wait up to 600 s for backlog work; a bench task's
-        // backlog is empty, so that wait would only eat the session timeout. The hook command
-        // also prefixes AV_HOOK_WAIT_SECS=0, in case the CLI does not pass this environment in.
-        .env("AV_HOOK_WAIT_SECS", "0")
-        .path_prepend(spec.path_prepend.clone())
-        .timeout(Duration::from_secs(spec.session_timeout_secs))
-        .events_path(&outcome.events_path)
-        .stderr_path(dir.join("claude.stderr"));
-    if cfg.prices.is_none() {
-        cmd = cmd.max_budget_usd(Some(cfg.session_cap_usd));
-    }
-    for v in NESTED_ENV {
-        cmd = cmd.env_remove(v);
-    }
-    if let Some(url) = &cfg.av_url {
-        cmd = cmd.env("AV_URL", url);
-    }
-    cmd = match &cfg.av_token {
-        Some(t) => cmd.env("AV_TOKEN", t),
-        None => cmd.env_remove("AV_TOKEN"),
+    let stderr_path = dir.join(match cfg.vendor {
+        Vendor::Claude => "claude.stderr",
+        Vendor::Grok => "grok.stderr",
+    });
+    let ran = {
+        let paths = SessionPaths {
+            workspace: &workspace,
+            events: &outcome.events_path,
+            stderr: &stderr_path,
+        };
+        match cfg.vendor {
+            Vendor::Claude => claude_command(
+                spec,
+                arm,
+                cfg,
+                &paths,
+                &settings_path,
+                &mcp_path,
+                &config_dir,
+            )
+            .run()?,
+            Vendor::Grok => grok_command(spec, cfg, &paths).run()?,
+        }
     };
-    let ran = cmd.run()?;
     outcome.wall_secs = ran.wall.as_secs_f64();
     outcome.claude_killed = ran.killed;
     outcome.claude_exit = ran.exit;
@@ -876,5 +879,184 @@ fn remove_work(workspace: &Path, av_task: Option<&AvTask>, daemon: Option<&Daemo
             }
         }
         _ => remove(workspace),
+    }
+}
+
+fn bench_env(mut cmd: AgentCommand, cfg: &RunConfig, agent: &str) -> AgentCommand {
+    cmd = cmd.env("AV_AGENT", agent).env("AV_HOOK_WAIT_SECS", "0");
+    for v in NESTED_ENV {
+        cmd = cmd.env_remove(v);
+    }
+    if let Some(url) = &cfg.av_url {
+        cmd = cmd.env("AV_URL", url);
+    }
+    match &cfg.av_token {
+        Some(t) => cmd.env("AV_TOKEN", t),
+        None => cmd.env_remove("AV_TOKEN"),
+    }
+}
+
+struct SessionPaths<'a> {
+    workspace: &'a Path,
+    events: &'a Path,
+    stderr: &'a Path,
+}
+
+fn claude_command(
+    spec: &TaskSpec,
+    arm: Arm,
+    cfg: &RunConfig,
+    paths: &SessionPaths<'_>,
+    settings_path: &Path,
+    mcp_path: &Path,
+    config_dir: &Path,
+) -> AgentCommand {
+    let mut tools = cfg.allowed_tools.clone();
+    if arm.uses_av() && cfg.av_mcp {
+        tools.push("mcp__av".into());
+    }
+    let mut cmd = AgentCommand::new(&cfg.claude_bin)
+        .arg("-p")
+        .arg(&spec.goal)
+        .args(["--output-format", "stream-json", "--verbose"])
+        .args(["--max-turns", &spec.max_turns.to_string()])
+        .args(["--model", &spec.model])
+        .args(["--setting-sources", "project"])
+        .arg("--settings")
+        .arg(settings_path.as_os_str())
+        .arg("--strict-mcp-config")
+        .arg("--mcp-config")
+        .arg(mcp_path.as_os_str())
+        .args(["--permission-mode", &cfg.permission_mode])
+        .arg("--no-session-persistence")
+        .arg("--allowedTools")
+        .args(&tools)
+        .cwd(paths.workspace)
+        .env("CLAUDE_CONFIG_DIR", config_dir)
+        // The Stop hook (`--jit-hooks`) would wait up to 600 s for backlog work; a bench task's
+        // backlog is empty, so that wait would only eat the session timeout. The hook command
+        // also prefixes AV_HOOK_WAIT_SECS=0, in case the CLI does not pass this environment in.
+        .path_prepend(spec.path_prepend.clone())
+        .timeout(Duration::from_secs(spec.session_timeout_secs))
+        .events_path(paths.events)
+        .stderr_path(paths.stderr);
+    if cfg.prices.is_none() {
+        cmd = cmd.max_budget_usd(Some(cfg.session_cap_usd));
+    }
+    bench_env(cmd, cfg, AGENT)
+}
+
+/// `grok -p <prompt> --output-format json --always-approve --max-turns N --cwd <dir>`.
+/// No `--max-budget-usd` and no `--confirm`: vendors without a budget flag are capped by turns.
+fn grok_command(spec: &TaskSpec, cfg: &RunConfig, paths: &SessionPaths<'_>) -> AgentCommand {
+    let cmd = AgentCommand::new(&cfg.grok_bin)
+        .arg("-p")
+        .arg(&spec.goal)
+        .args(["--output-format", "json"])
+        .arg("--always-approve")
+        .args(["--max-turns", &spec.max_turns.to_string()])
+        .arg("--cwd")
+        .arg(paths.workspace.as_os_str())
+        .cwd(paths.workspace)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .path_prepend(spec.path_prepend.clone())
+        .timeout(Duration::from_secs(spec.session_timeout_secs))
+        .events_path(paths.events)
+        .stderr_path(paths.stderr);
+    bench_env(cmd, cfg, "grok")
+}
+
+fn json_u64(v: &Value) -> u64 {
+    v.as_u64()
+        .or_else(|| {
+            v.as_f64()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+                .map(|n| n as u64)
+        })
+        .unwrap_or(0)
+}
+
+/// Grok `--output-format json` is one JSON object (`usage.input_tokens`,
+/// `usage.cache_read_input_tokens`, `usage.output_tokens`, `total_cost_usd`, `num_turns`).
+/// `usage.reasoning_tokens` is ignored: [`Usage`] has no field for it.
+pub fn parse_grok(text: &str) -> ParsedSession {
+    let mut s = ParsedSession::default();
+    let Ok(v) = serde_json::from_str::<Value>(text.trim()) else {
+        s.bad_lines = 1;
+        return s;
+    };
+    if !v.is_object() {
+        s.bad_lines = 1;
+        return s;
+    }
+    let u = &v["usage"];
+    s.result = Some(ResultEvent {
+        cost_usd: v["total_cost_usd"].as_f64().unwrap_or(0.0),
+        num_turns: v["num_turns"].as_u64().map(|n| n as u32),
+        is_error: v["is_error"].as_bool().unwrap_or(false),
+        usage: Usage {
+            input: json_u64(&u["input_tokens"]),
+            cache_creation: 0,
+            cache_read: json_u64(&u["cache_read_input_tokens"]),
+            output: json_u64(&u["output_tokens"]),
+        },
+        duration_ms: v["duration_ms"].as_u64(),
+    });
+    s
+}
+
+/// Claude's stream-json, or Grok's one JSON object, as a [`ParsedSession`].
+pub fn parse_session(vendor: Vendor, text: &str) -> ParsedSession {
+    match vendor {
+        Vendor::Claude => crate::events::parse_stream(text),
+        Vendor::Grok => parse_grok(text),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grok_json_maps_usage_and_ignores_reasoning_tokens() {
+        let text = r#"{
+            "sessionId": "01a1926b",
+            "num_turns": 3,
+            "usage": {
+                "input_tokens": 12855,
+                "cache_read_input_tokens": 8832,
+                "output_tokens": 1975,
+                "reasoning_tokens": 1115,
+                "total_tokens": 24777
+            },
+            "total_cost_usd": 0.031
+        }"#;
+        let s = parse_grok(text);
+        assert_eq!(
+            s.total_usage(),
+            Usage {
+                input: 12855,
+                cache_creation: 0,
+                cache_read: 8832,
+                output: 1975,
+            }
+        );
+        let r = s.result.as_ref().unwrap();
+        assert_eq!(r.num_turns, Some(3));
+        assert!((r.cost_usd - 0.031).abs() < 1e-12);
+        // 1115 is not added into any Usage field.
+        let u = s.total_usage();
+        assert_eq!(
+            u.input + u.cache_creation + u.cache_read + u.output,
+            12855 + 8832 + 1975
+        );
+    }
+
+    #[test]
+    fn grok_output_that_is_not_json_is_truncated() {
+        let s = parse_grok("not json");
+        assert!(s.truncated());
+        assert_eq!(s.bad_lines, 1);
+        assert_eq!(parse_session(Vendor::Grok, "[]").bad_lines, 1);
     }
 }

@@ -1,0 +1,16 @@
+# Pilot image task: chart to JSON. Not the Chromium SSIM mockup (that needs a browser).
+# The chart is an SVG the build script writes from known numbers. No binary asset.
+name = "chart-json"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-chart-json"
+goal = """Read the bar chart in assets/q3.svg and write assets/q3.json. The file is one JSON object with two fields: "quarter", the quarter named on the chart, and "units", an object mapping each series name to its integer bar value. Do not change the chart."""
+relevant_files = ["assets/q3.svg"]
+created_files = ["assets/q3.json"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_chart.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_chart.py"
+source = "files/test_chart.py"

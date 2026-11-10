@@ -1,0 +1,14 @@
+# Pilot tests task: the implementation is already right; the test file is not.
+name = "version-tests"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-version-tests"
+goal = """tests/test_versions.py does not match versions.py. parse_version("1.2.3") returns the triple (1, 2, 3), and a string that is not three numeric parts raises ValueError. Fix the tests. Do not change versions.py."""
+relevant_files = ["tests/test_versions.py"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 tests/test_versions.py && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_versions_hidden.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_versions_hidden.py"
+source = "files/test_versions_hidden.py"

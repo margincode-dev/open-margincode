@@ -1,0 +1,14 @@
+# Pilot math task: least common multiple, including zero and negatives.
+name = "least-multiple"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-least-multiple"
+goal = """lcm in numtheory.py is not the least common multiple. It must be non-negative, lcm(0, n) and lcm(n, 0) are 0, and gcd(a, b) * lcm(a, b) == abs(a * b) for every pair, including negatives. gcd is already correct; do not change its results."""
+relevant_files = ["numtheory.py"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_lcm.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_lcm.py"
+source = "files/test_lcm.py"

@@ -1,0 +1,14 @@
+# Pilot ui task: a small settings form, checked with the stdlib HTML parser.
+name = "settings-form"
+repo_path = "bench/tasks-routing/repo"
+base_rev = "main"
+fix_rev = "fix-settings-form"
+goal = """The settings page page/index.html is wrong. Keep the form id "profile". It needs a label whose text is exactly "Display name" and whose for attribute is "display-name", pointing at an input with that id, and a button with id "save", type "submit" and text exactly "Save". The nickname field is not that control."""
+relevant_files = ["page/index.html"]
+verify_cmd = "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 checks/test_settings.py"
+max_turns = 20
+model = "claude-haiku-5-5"
+
+[[local_tests]]
+path = "checks/test_settings.py"
+source = "files/test_settings.py"

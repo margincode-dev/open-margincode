@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`scholion-bench run --agent-user` leaves no run directory open.** A finished run sets `<work-root>/runs/<run id>` to 700 (a resume opens it again while it runs), a refused preflight removes the empty directories it made and puts back the modes it changed, the refusal on another run's open directory names it with the `chmod 700` that closes it, and `rows.jsonl`, `meta.json` and `report.md` are mode 600 from their first byte and after a resume that adds no row. Without `--agent-user` nothing changes.
 - **An agent can correct a stored record.** `supersedes` was in the store and the HTTP API, but
   no agent could reach it, and nothing in a pack said that a record is an earlier agent's claim:
   in a benchmark an agent handed a confidently wrong record followed it, where the same text in a

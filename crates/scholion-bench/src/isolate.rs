@@ -13,7 +13,7 @@
 //! `verify_cmd`, which runs what the agent wrote as the harness's user.
 
 use std::io::Write as _;
-use std::os::unix::fs::{MetadataExt, PermissionsExt, lchown};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, lchown};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -109,6 +109,18 @@ pub fn private_dir(path: &Path) -> Result<()> {
 pub fn private_file(path: &Path) -> Result<()> {
     std::fs::write(path, b"").map_err(|e| io_err(path, e))?;
     set_mode(path, 0o600)
+}
+
+/// Opens a file with `options` so that only the harness can read it before anything is written:
+/// a new file is made mode 600, an existing one is set to 600 first.
+pub fn open_private(mut options: std::fs::OpenOptions, path: &Path) -> Result<std::fs::File> {
+    let file = options
+        .mode(0o600)
+        .open(path)
+        .map_err(|e| io_err(path, e))?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| io_err(path, e))?;
+    Ok(file)
 }
 
 /// Every entry under `path` becomes `uid:gid`'s. Symlinks are changed themselves, never
@@ -487,6 +499,141 @@ fn find_copies(
     }
 }
 
+/// What the preflight says of another run's directory under `runs/`.
+const EARLIER_RUN: &str = "an earlier run's sessions";
+
+/// A directory as the preflight found it: where, and which one (device and inode).
+struct Found {
+    path: PathBuf,
+    dev: u64,
+    ino: u64,
+}
+
+impl Found {
+    fn of(path: &Path, m: &std::fs::Metadata) -> Found {
+        Found {
+            path: path.to_path_buf(),
+            dev: m.dev(),
+            ino: m.ino(),
+        }
+    }
+
+    /// Whether the path is still this directory: not a symlink, not another directory.
+    fn still_there(&self) -> bool {
+        std::fs::symlink_metadata(&self.path)
+            .is_ok_and(|m| m.is_dir() && m.dev() == self.dev && m.ino() == self.ino)
+    }
+}
+
+/// What is at `path`, without following a symlink; `None` when nothing is.
+fn look(path: &Path) -> Result<Option<std::fs::Metadata>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => Ok(Some(m)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_err(path, e)),
+    }
+}
+
+/// What the preflight made and changed, put back when it refuses, so a refused run leaves
+/// nothing a later preflight would refuse on (a run directory the agent user may enter). It
+/// remembers which directories they were, and touches a path only while it is still that one.
+#[derive(Default)]
+struct Undo {
+    /// Directories noted as not there, before the creation that may make them.
+    missing: Vec<PathBuf>,
+    /// Directories the preflight made, as found right after.
+    made: Vec<Found>,
+    /// Directories that were there, with their modes.
+    modes: Vec<(Found, u32)>,
+}
+
+impl Undo {
+    /// Notes the directories of the absolute `path`, itself included, that are not there yet. A
+    /// path that cannot be looked at is an error, not a missing directory.
+    fn missing(&mut self, path: &Path) -> Result<()> {
+        for dir in path.ancestors() {
+            if dir.as_os_str().is_empty() || look(dir)?.is_some() {
+                break;
+            }
+            if !self.missing.iter().any(|d| d == dir) {
+                self.missing.push(dir.to_path_buf());
+            }
+        }
+        Ok(())
+    }
+
+    /// After a creation (whether or not it worked): which directory each one noted as missing
+    /// now is, if it is one.
+    fn now_made(&mut self) {
+        for path in std::mem::take(&mut self.missing) {
+            if let Ok(m) = std::fs::symlink_metadata(&path)
+                && m.is_dir()
+            {
+                self.made.push(Found::of(&path, &m));
+            }
+        }
+    }
+
+    /// Notes the mode of the directory at `path`, if one is there (not through a symlink).
+    fn mode(&mut self, path: &Path) -> Result<()> {
+        if let Some(m) = look(path)?
+            && m.is_dir()
+        {
+            self.modes.push((Found::of(path, &m), m.mode() & 0o7777));
+        }
+        Ok(())
+    }
+
+    /// The modes back, and the directories it made removed, deepest first, each only while it is
+    /// empty (`remove_dir` refuses one that is not): what anything else put there stays. One it
+    /// made and cannot remove is closed instead (mode 700), unless it is only the way to one
+    /// deeper that was kept. A path that is no longer the directory it was is left alone.
+    /// Returns a line for each thing it could not put back, saying what to do.
+    fn put_back(mut self) -> Vec<String> {
+        let mut left = vec![];
+        for (dir, mode) in self.modes.iter().rev() {
+            if !dir.still_there() {
+                continue;
+            }
+            if let Err(e) = set_mode(&dir.path, *mode) {
+                left.push(format!(
+                    "  {path}: its mode could not be put back to {mode:o} ({e}): `chmod {mode:o} \
+                     {path}`",
+                    path = dir.path.display()
+                ));
+            }
+        }
+        self.made
+            .sort_by_key(|d| std::cmp::Reverse(d.path.components().count()));
+        let mut kept: Vec<&Path> = vec![];
+        for dir in &self.made {
+            if !dir.still_there() {
+                continue;
+            }
+            let Err(e) = std::fs::remove_dir(&dir.path) else {
+                continue;
+            };
+            let way = kept.iter().any(|k| k.starts_with(&dir.path));
+            kept.push(&dir.path);
+            if way {
+                continue;
+            }
+            let path = dir.path.display();
+            left.push(match set_mode(&dir.path, 0o700) {
+                Ok(()) => format!(
+                    "  {path} could not be removed ({e}), so it was closed instead (mode 700); \
+                     remove it once nothing in it is needed"
+                ),
+                Err(c) => format!(
+                    "  {path} could be neither removed ({e}) nor closed ({c}): `chmod 700 \
+                     {path}`, or remove it"
+                ),
+            });
+        }
+        left
+    }
+}
+
 /// What the preflight says of the agent user's home.
 const HOME_WHAT: &str = "that user's home in the password database: what a session leaves there, \
                          a later one finds";
@@ -553,7 +700,8 @@ fn failing<'a>(
 ///
 /// It makes the harness's own directories as they must be (`runs/` and the run's directory:
 /// entered, never listed; the import dir and `out`, if missing: root's alone) and changes
-/// nothing else.
+/// nothing else. When it refuses it puts them back: the directories it made are removed while
+/// empty, and those that were there get their modes back.
 pub fn preflight(
     specs: &[TaskSpec],
     arms: &[Arm],
@@ -564,6 +712,29 @@ pub fn preflight(
     let Some(user) = &cfg.agent_user else {
         return Ok(());
     };
+    let mut undo = Undo::default();
+    let checked = check(user, specs, arms, cfg, run_id, out, &mut undo);
+    checked.map_err(|mut msg| {
+        let left = undo.put_back();
+        if !left.is_empty() {
+            msg.push_str(&format!(
+                "\nWhat this refused run made or changed and could not put back:\n{}",
+                left.join("\n")
+            ));
+        }
+        msg
+    })
+}
+
+fn check(
+    user: &AgentUser,
+    specs: &[TaskSpec],
+    arms: &[Arm],
+    cfg: &RunConfig,
+    run_id: &str,
+    out: &Path,
+    undo: &mut Undo,
+) -> Result<()> {
     let flag = format!("--agent-user {}", user.name);
     let me = harness_uid()?;
     if me != 0 {
@@ -577,9 +748,10 @@ pub fn preflight(
     let runs = work_root.join("runs");
     let run_dir = runs.join(run_id);
     // Can the user get there at all? Asked of the directories that exist, before anything is
-    // made or changed under the work root.
+    // made or changed under the work root. Not of the run's own directory, which a run closes
+    // when it ends and opens below when it is resumed.
     let mut way: Vec<Check> = vec![];
-    let mut up: Vec<&Path> = run_dir.ancestors().filter(|d| d.is_dir()).collect();
+    let mut up: Vec<&Path> = runs.ancestors().filter(|d| d.is_dir()).collect();
     up.reverse();
     for dir in up {
         add(&mut way, Access::Enter, dir, "");
@@ -596,7 +768,13 @@ pub fn preflight(
             at.path.display()
         ));
     }
-    std::fs::create_dir_all(&run_dir).map_err(|e| io_err(&run_dir, e))?;
+    undo.missing(&run_dir)?;
+    for d in [&runs, &run_dir] {
+        undo.mode(d)?;
+    }
+    let made = std::fs::create_dir_all(&run_dir);
+    undo.now_made();
+    made.map_err(|e| io_err(&run_dir, e))?;
     for d in [&runs, &run_dir] {
         set_mode(d, 0o711)?;
     }
@@ -612,11 +790,17 @@ pub fn preflight(
         (_, false) => None,
     };
     if av {
-        private_dir(&cfg.import_dir)?;
+        undo.missing(&absolute(&cfg.import_dir)?)?;
+        let made = private_dir(&cfg.import_dir);
+        undo.now_made();
+        made?;
     }
     // the results directory is the harness's alone when the harness makes it
     let out = absolute(out)?;
-    private_dir(&out)?;
+    undo.missing(&out)?;
+    let made = private_dir(&out);
+    undo.now_made();
+    made?;
     let mut path: Vec<PathBuf> = vec![];
     for dir in specs.iter().flat_map(|s| &s.path_prepend) {
         if !path.contains(dir) {
@@ -686,7 +870,7 @@ pub fn preflight(
     }
     add(&mut deny, Access::List, &runs, "the runs root");
     for other in entries(&runs).iter().filter(|p| **p != run_dir) {
-        add(&mut deny, Access::Enter, other, "an earlier run's sessions");
+        add(&mut deny, Access::Enter, other, EARLIER_RUN);
     }
     add(&mut deny, Access::List, &run_dir, "the run's directory");
     for session in entries(&run_dir) {
@@ -791,6 +975,21 @@ pub fn preflight(
                 home = home.display()
             ));
         }
+        let earlier: Vec<String> = open
+            .iter()
+            .filter(|c| c.what == EARLIER_RUN)
+            .map(|c| format!("  chmod 700 {}", c.path.display()))
+            .collect();
+        if !earlier.is_empty() {
+            msg.push_str(&format!(
+                "\nAn earlier run's directory under {} is open to that user (a run keeps its own \
+                 open only while it runs; one left open was left by a run that was killed or by an \
+                 older harness). Once no run is using it, close it, or remove it if it is empty:\n{}\nThe harness does not do this \
+                 itself: another run may be using it, and its sessions need to enter it.",
+                runs.display(),
+                earlier.join("\n")
+            ));
+        }
     }
     if !missing.is_empty() {
         let lines: Vec<String> = missing.iter().map(|c| c.line()).collect();
@@ -879,6 +1078,126 @@ mod tests {
         let (mut found, mut budget) = (vec![], 1);
         results_dirs(top, &out, RESULTS_DEPTH, &mut budget, &mut found);
         assert_eq!((found, budget), (vec![], 0));
+    }
+
+    fn mode_of(p: &Path) -> u32 {
+        std::fs::symlink_metadata(p).unwrap().mode() & 0o7777
+    }
+
+    /// A run directory the refused preflight made but cannot remove (something is in it by
+    /// then) is closed instead, and the refusal says so; the directories above it, its way, stay
+    /// as they are.
+    #[test]
+    fn a_made_directory_that_cannot_be_removed_is_closed_and_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runs = tmp.path().join("work/runs");
+        let run_dir = runs.join("gate");
+        let mut undo = Undo::default();
+        undo.missing(&run_dir).unwrap();
+        std::fs::create_dir_all(&run_dir).unwrap();
+        undo.now_made();
+        for d in [&runs, &run_dir] {
+            set_mode(d, 0o711).unwrap();
+        }
+        std::fs::write(run_dir.join("appeared"), "").unwrap();
+        let left = undo.put_back();
+        assert_eq!(
+            mode_of(&run_dir),
+            0o700,
+            "closed, since it cannot be removed"
+        );
+        assert!(run_dir.join("appeared").exists(), "what is in it stays");
+        let text = left.join("\n");
+        assert!(
+            text.contains(&run_dir.display().to_string()) && text.contains("mode 700"),
+            "named, with what was done: {text}"
+        );
+        assert_eq!(left.len(), 1, "one line, for the run directory: {text}");
+        assert_eq!(mode_of(&runs), 0o711, "the way to it is left as it is");
+    }
+
+    /// A symlink where the preflight noted or made a directory is neither removed nor changed,
+    /// nor is what it points at.
+    #[test]
+    fn a_symlink_where_a_directory_was_is_neither_removed_nor_chmodded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        set_mode(&target, 0o755).unwrap();
+        let mut undo = Undo::default();
+        // made by the preflight, a link to another directory by the time it is put back
+        let made = tmp.path().join("made");
+        undo.missing(&made).unwrap();
+        std::fs::create_dir(&made).unwrap();
+        undo.now_made();
+        std::fs::remove_dir(&made).unwrap();
+        std::os::unix::fs::symlink(&target, &made).unwrap();
+        // a link when its mode is noted
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        undo.mode(&link).unwrap();
+        set_mode(&target, 0o711).unwrap();
+        let left = undo.put_back();
+        assert!(
+            std::fs::symlink_metadata(&made)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the link stays"
+        );
+        assert!(target.is_dir());
+        assert_eq!(
+            mode_of(&target),
+            0o711,
+            "nothing was changed through a link"
+        );
+        assert_eq!(left, Vec::<String>::new());
+    }
+
+    /// A directory replaced by another one (another inode) after it was noted is not the one the
+    /// preflight made or changed: it is left alone.
+    #[test]
+    fn a_directory_replaced_by_another_one_is_left_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut undo = Undo::default();
+        let made = tmp.path().join("made");
+        undo.missing(&made).unwrap();
+        std::fs::create_dir(&made).unwrap();
+        undo.now_made();
+        let kept = tmp.path().join("kept");
+        std::fs::create_dir(&kept).unwrap();
+        set_mode(&kept, 0o700).unwrap();
+        undo.mode(&kept).unwrap();
+        set_mode(&kept, 0o711).unwrap();
+        // both replaced, each by a directory that existed beside it (so another inode)
+        for (path, mode) in [(&made, 0o755), (&kept, 0o755)] {
+            let other = tmp.path().join("other");
+            std::fs::create_dir(&other).unwrap();
+            set_mode(&other, mode).unwrap();
+            std::fs::remove_dir(path).unwrap();
+            std::fs::rename(&other, path).unwrap();
+        }
+        let left = undo.put_back();
+        assert!(
+            made.is_dir(),
+            "another directory where the made one was stays"
+        );
+        assert_eq!(mode_of(&kept), 0o755, "its mode is not put back");
+        assert_eq!(left, Vec::<String>::new());
+    }
+
+    /// A path that cannot be looked at is an error of the preflight, not a directory to make.
+    #[test]
+    fn a_path_that_cannot_be_looked_at_is_not_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        let mut undo = Undo::default();
+        let err = undo.missing(&file.join("runs")).unwrap_err();
+        assert!(
+            err.contains(&file.join("runs").display().to_string()),
+            "{err}"
+        );
     }
 
     #[test]

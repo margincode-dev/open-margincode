@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use futures::future::join_all;
-use scholion_core::standing::{Origin, OriginFacts, Standing, standing};
+use scholion_core::standing::{
+    EffectiveVerdict, Origin, OriginFacts, Standing, VerdictKind, standing,
+};
 use scholion_core::*;
 use scholion_index::{AnchorResolution, CodeIndex, IndexedSymbol, ScopeView};
 
@@ -64,6 +66,60 @@ impl Origins {
             .get(&rec.id)
             .map(|facts| standing(facts, rec.kind, rec.created_at))
     }
+
+    /// The verdict in effect on `rec`, for an agent on task `reader` (none on its own records
+    /// or on what was mined from git: a dream judges what agents wrote for others).
+    fn verdict(&self, rec: &Record, reader: TaskId) -> Option<&EffectiveVerdict> {
+        if rec.task_id == reader || history::is_mined(&rec.author_agent) {
+            return None;
+        }
+        self.0.get(&rec.id)?.verdict.as_ref()
+    }
+
+    /// Whether a verdict takes `rec` out of what `reader` is shown: a duplicate of a record
+    /// that is shown, or one the code has outgrown.
+    pub(crate) fn hidden(&self, rec: &Record, reader: TaskId) -> bool {
+        self.verdict(rec, reader).is_some_and(|v| v.kind.hides())
+    }
+
+    /// `rec` as its anchors are judged: under a `confirmed` verdict, "changed since recorded"
+    /// is reckoned from the code that verdict saw, so the mark is cleared until the code
+    /// changes again.
+    pub(crate) fn judged<'r>(
+        &self,
+        rec: &'r Record,
+        reader: TaskId,
+    ) -> std::borrow::Cow<'r, Record> {
+        match self.verdict(rec, reader) {
+            Some(v)
+                if v.kind == VerdictKind::Confirmed
+                    && v.anchor_hashes.len() == rec.anchors.len() =>
+            {
+                let mut seen = rec.clone();
+                seen.anchor_hashes = v.anchor_hashes.clone();
+                std::borrow::Cow::Owned(seen)
+            }
+            _ => std::borrow::Cow::Borrowed(rec),
+        }
+    }
+
+    /// What a line of `rec` says of where it comes from.
+    pub(crate) fn whence(&self, rec: &Record, reader: TaskId) -> Whence<'_> {
+        Whence {
+            origin: self.of(rec, reader).map(|s| s.origin),
+            disputed: self
+                .verdict(rec, reader)
+                .filter(|v| v.kind == VerdictKind::Disputed),
+        }
+    }
+}
+
+/// What a record's line says beyond the record itself: what became of its task (after the
+/// kind, unless it merged) and a `disputed` verdict in effect on it (after the summary).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Whence<'a> {
+    pub origin: Option<Origin>,
+    pub disputed: Option<&'a EffectiveVerdict>,
 }
 
 pub(crate) struct Gathered {
@@ -208,13 +264,14 @@ pub(crate) fn symbol_handle(s: &IndexedSymbol) -> String {
 
 /// `stale`: an anchored symbol or file is gone. `changed`: the anchored code changed after the record
 /// was written, so the claim may no longer hold (Plan 2b). `stale` wins when both apply.
-/// `origin`: what became of the record's task, said after the kind unless it merged
-/// (`decision, reverted: …`).
+/// `whence`: what became of the record's task, said after the kind unless it merged
+/// (`decision, reverted: …`), and a verdict that disputes it, said after the summary with its
+/// reason (`(disputed: …, vd:…)`; the clipped handle says `(disputed)`).
 pub(crate) fn record_texts(
     rec: &Record,
     stale: bool,
     changed: bool,
-    origin: Option<Origin>,
+    whence: Whence<'_>,
 ) -> (String, [String; 3]) {
     let id = short_id("rec", &rec.id.0);
     let flag = if stale {
@@ -231,13 +288,24 @@ pub(crate) fn record_texts(
             rec.kind.as_str(),
             c.0.chars().take(7).collect::<String>()
         ),
-        _ => match origin.and_then(Origin::label) {
+        _ => match whence.origin.and_then(Origin::label) {
             Some(label) => format!("{}, {label}", rec.kind.as_str()),
             None => rec.kind.as_str().to_owned(),
         },
     };
-    let handle = format!("- {id} {kind}: {}{flag}", clip(&rec.summary, 70));
-    let mut summary = format!("- {id} {kind}: {}{flag}", rec.summary);
+    let (short, long) = match whence.disputed {
+        Some(v) if v.reason.is_empty() => (
+            " (disputed)".to_owned(),
+            format!(" (disputed, {})", v.handle()),
+        ),
+        Some(v) => (
+            " (disputed)".to_owned(),
+            format!(" (disputed: {}, {})", v.reason, v.handle()),
+        ),
+        None => (String::new(), String::new()),
+    };
+    let handle = format!("- {id} {kind}: {}{flag}{short}", clip(&rec.summary, 70));
+    let mut summary = format!("- {id} {kind}: {}{flag}{long}", rec.summary);
     if !rec.anchors.is_empty() {
         let anchors: Vec<String> = rec
             .anchors
@@ -868,9 +936,13 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {
             continue;
         }
-        let (hops, stale, on_seed, changed) = anchors.standing(rec).await?;
+        if origins.hidden(rec, task.id) {
+            continue;
+        }
+        let (hops, stale, on_seed, changed) =
+            anchors.standing(&origins.judged(rec, task.id)).await?;
         let origin = origins.of(rec, task.id);
-        let (id, texts) = record_texts(rec, stale, changed, origin.map(|s| s.origin));
+        let (id, texts) = record_texts(rec, stale, changed, origins.whence(rec, task.id));
         let factor = record_factor(rec, task, changed, origin);
         if rec.kind == RecordKind::Intent && rec.task_id == task.id {
             items.push(rec_item(rec, id, Section::Task, 0.9, texts).because("task"));
@@ -949,11 +1021,13 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             .extend(d.store, theirs.iter().map(|r| r.id).collect())
             .await?;
         for rec in theirs {
-            if rec.task_id == task.id || records.contains_key(&rec.id.to_string()) {
+            if rec.task_id == task.id
+                || records.contains_key(&rec.id.to_string())
+                || origins.hidden(&rec, task.id)
+            {
                 continue;
             }
-            let origin = origins.of(&rec, task.id).map(|s| s.origin);
-            let (id, texts) = record_texts(&rec, false, false, origin);
+            let (id, texts) = record_texts(&rec, false, false, origins.whence(&rec, task.id));
             items.push(
                 rec_item(&rec, id, Section::Conflicts, 1.5, texts).because("conflict-record"),
             );
@@ -1365,6 +1439,9 @@ async fn include_record(
     if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {
         return Ok(());
     }
+    if parts.origins.hidden(rec, task.id) {
+        return Ok(());
+    }
     let id = short_id("rec", &rec.id.0);
     let origin = parts.origins.of(rec, task.id);
     if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == id) {
@@ -1386,10 +1463,10 @@ async fn include_record(
             seed_paths: &parts.seed_paths,
             neighbor_paths: &parts.neighbor_paths,
         }
-        .standing(rec)
+        .standing(&parts.origins.judged(rec, task.id))
         .await?
     };
-    let (id, texts) = record_texts(rec, stale, changed, origin.map(|s| s.origin));
+    let (id, texts) = record_texts(rec, stale, changed, parts.origins.whence(rec, task.id));
     let factor = record_factor(rec, task, changed, origin);
     if rec.kind == RecordKind::Intent && rec.task_id == task.id {
         parts.gathered.items.push(
@@ -1574,11 +1651,25 @@ pub(crate) async fn anchor_hash(
     a: &Anchor,
 ) -> Option<String> {
     use sha2::{Digest, Sha256};
+    let hashed = anchored_text(vcs, index, repo, scope, change, a).await?;
+    Some(format!("{:x}", Sha256::digest(&hashed)))
+}
+
+/// The bytes `a` points at in `change`: the anchored symbol's source lines, or the whole file
+/// for a path anchor. `None` when the file or symbol does not exist there.
+pub(crate) async fn anchored_text(
+    vcs: &dyn Vcs,
+    index: &dyn CodeIndex,
+    repo: &str,
+    scope: &str,
+    change: &ChangeId,
+    a: &Anchor,
+) -> Option<Vec<u8>> {
     if change.0.is_empty() {
         return None;
     }
     let bytes = vcs.read_file(repo, change, &a.path).await.ok()?;
-    let hashed = match &a.symbol {
+    let text = match &a.symbol {
         None => bytes,
         Some(_) => {
             let AnchorResolution::Symbol(id) =
@@ -1597,7 +1688,7 @@ pub(crate) async fn anchor_hash(
                 .into_bytes()
         }
     };
-    Some(format!("{:x}", Sha256::digest(&hashed)))
+    Some(text)
 }
 
 /// Multiplier on a History record's score: changed anchors, other tasks' intents, what was mined
@@ -1741,13 +1832,19 @@ mod tests {
         let agent = super::record_factor(&rec("claude"), &task, false, None);
         assert_eq!(agent, 1.0);
         assert_eq!(mined, crate::score::MINED_FACTOR);
-        let (_, texts) = super::record_texts(&rec(history::MINED_AUTHOR), false, false, None);
+        let (_, texts) = super::record_texts(
+            &rec(history::MINED_AUTHOR),
+            false,
+            false,
+            super::Whence::default(),
+        );
         assert!(
             texts[1].starts_with("- rec:00000000 note (git 1a2b3c4): Parse config"),
             "{}",
             texts[1]
         );
-        let (_, texts) = super::record_texts(&rec("claude"), false, false, None);
+        let (_, texts) =
+            super::record_texts(&rec("claude"), false, false, super::Whence::default());
         assert!(
             texts[1].starts_with("- rec:00000000 note: Parse"),
             "{}",

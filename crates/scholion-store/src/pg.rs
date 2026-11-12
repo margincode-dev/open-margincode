@@ -1716,13 +1716,20 @@ impl IntentStore for PgStore {
             return Ok(HashMap::new());
         }
         let ids: Vec<Uuid> = ids.iter().map(|id| id.0).collect();
-        let rows = sqlx::query(
+        let state = crate::dreams::VERDICT_STATE;
+        let rows = sqlx::query(&format!(
             "SELECT r.id, t.status,
                     (SELECT max(e.at) FROM events e
-                     WHERE e.task_id = t.id AND e.kind = 'revert') AS reverted_at
+                     WHERE e.task_id = t.id AND e.kind = 'revert') AS reverted_at,
+                    ev.id AS verdict_id, ev.verdict, ev.reason, ev.anchor_hashes
              FROM records r JOIN tasks t ON t.id = r.task_id
-             WHERE r.id = ANY($1)",
-        )
+             LEFT JOIN LATERAL (
+               SELECT v.id, v.verdict, v.reason, v.anchor_hashes FROM record_verdicts v
+               WHERE v.record_id = r.id AND ({state}) = 'effective'
+               ORDER BY v.created_at DESC, v.id LIMIT 1
+             ) ev ON true
+             WHERE r.id = ANY($1)"
+        ))
         .bind(&ids)
         .fetch_all(&self.pool)
         .await
@@ -1730,11 +1737,28 @@ impl IntentStore for PgStore {
         rows.iter()
             .map(|r| {
                 let status: String = r.try_get("status").map_err(serr)?;
+                let kind: Option<String> = r.try_get("verdict").map_err(serr)?;
+                let verdict = match kind
+                    .as_deref()
+                    .and_then(scholion_core::standing::VerdictKind::parse)
+                {
+                    Some(kind) => {
+                        let hashes: serde_json::Value = r.try_get("anchor_hashes").map_err(serr)?;
+                        Some(scholion_core::standing::EffectiveVerdict {
+                            id: r.try_get("verdict_id").map_err(serr)?,
+                            kind,
+                            reason: r.try_get("reason").map_err(serr)?,
+                            anchor_hashes: serde_json::from_value(hashes).unwrap_or_default(),
+                        })
+                    }
+                    None => None,
+                };
                 Ok((
                     RecordId(r.try_get("id").map_err(serr)?),
                     scholion_core::standing::OriginFacts {
                         status: status.parse()?,
                         reverted_at: r.try_get("reverted_at").map_err(serr)?,
+                        verdict,
                     },
                 ))
             })

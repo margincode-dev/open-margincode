@@ -558,6 +558,57 @@ agents: check against the code; correct wrong ones with `av record --supersedes 
 left out when the section holds only the task's own records, or only back-references to an earlier
 pack of the session. The pre-read hook's answer ends with the same advice once per session.
 
+### A second look at records: dreams and verdicts
+
+Records pile up, and a wrong one is trusted by the agent that reads it. A **dream** is an offline
+look at records: an agent, started by a client and never by the daemon, is handed a short list
+the daemon chose, checks each record against the code, and proposes a **verdict**. The daemon
+runs no model. It chooses the list, checks every quote a verdict cites, and applies the effect
+in packs. A verdict never edits a record, and it has no effect until a second look agrees. (The
+API is here; the `av dream` command that starts the agent is not built yet.)
+
+- `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?}` starts a run and answers what it
+  is to look at. `mode` is `review` (the default) or `verify`; `area` is a path prefix (the whole
+  repository without it); `limit` is 20 by default and at most 50. One run of a mode per area at
+  a time (`409` when a running one's area contains this one's or is inside it); a run past its
+  lease (`AV_DREAM_LEASE_SECS`, default 3600) is failed by the next start and holds nothing.
+  With nothing to look at no run is made (`dream: null`).
+- A `review` run's list is ranked over the newest 400 live decisions, attempts and notes that
+  agents wrote: 3 for a record whose task's merge was reverted (or a decision of abandoned
+  work), 2 when its anchored code on `main` differs from what it was recorded against (or last
+  confirmed against), 2 when another live record of its kind shares an anchor, up to 2 for the
+  packs of the last 30 days that showed it, 1 when it never had a verdict. Each item carries the
+  record with its standing, its task (goal, status, lifecycle events), the anchored code on
+  `main` now, the other live records on the same anchors and earlier verdicts, word for word.
+- `POST /v1/dreams/{id}/verdicts` `{verdicts: [{record, verdict, reason?, canonical?,
+  evidence}]}` answers per item `accepted` or `why` it was refused; a refused item writes
+  nothing. The record must be on the run's list. Evidence entries are `{code: path, commit?,
+  quote}`, `{record: id, quote}` and `{event: id}`; a quote has at least 12 characters that are
+  not white space and must be found word for word in the file at that commit (the run's own
+  without `commit`) or in the record's summary or body.
+
+| Verdict | Needs | Effect once a second look agrees |
+|---|---|---|
+| `confirmed` | a quote of the code | "changed since recorded" is reckoned from the code the verdict saw, so the mark is cleared until that code changes again |
+| `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
+| `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
+| `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
+
+- **The second look.** `POST /v1/verdicts/{id}/review` `{reviewer, agree, dream?, evidence?}`
+  (`id`: the full id or `vd:…`). From a `verify` run (`dream`), the verdict must be on that run's
+  list, which holds the proposed verdicts with their records and evidence, and the review needs a
+  quote of its own, checked the same way. Without `dream` the reviewer is a person. A verdict is
+  reviewed once (`409` after); it is `effective` when the review agrees and `rejected` when not.
+- **Taking it back.** `POST /v1/verdicts/{id}/retract` `{by}` writes a `retracted` row that names
+  the verdict, whatever its state; `POST /v1/dreams/{id}/undo` `{by}` retracts everything a
+  review run wrote. Packs are then what they were before, byte for byte.
+- `POST /v1/dreams/{id}/finish` ends a run (`{failed: true}` to say it failed);
+  `GET /v1/dreams/{id}` and `GET /v1/repos/{repo}/verdicts?state=&record=` read them. Search and
+  a task's records still list a hidden record, with `verdict: {kind, reason, handle}`. The feed
+  gets `dream:started`, `dream:finished` and `verdict` (with its state).
+- Verdicts apply to what other tasks' agents read. The reading task's own records and records
+  mined from git are shown as before.
+
 ### Cold start from git history
 
 A newly added repo has no records, so its first agents learn nothing from its past. Mining is

@@ -3948,6 +3948,7 @@ dependencies = [
  "globset",
  "scholion-core",
  "scholion-testutil",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx 0.8.6",

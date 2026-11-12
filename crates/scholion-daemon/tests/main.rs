@@ -5,6 +5,7 @@
 mod api;
 mod common;
 mod disk;
+mod dream;
 mod embedded_pg;
 mod history;
 mod mcp;

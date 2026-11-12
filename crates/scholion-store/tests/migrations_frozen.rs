@@ -127,6 +127,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0030_backlog_propose.sql",
         "d46654a405f20befd0c17f01fb6409b00a83991e10e33824cc375247b367d355",
     ),
+    (
+        "0031_verdicts.sql",
+        "925a4293ef68f04928791d957d03e422ab0cd18d74e0b647025fa212e210cdef",
+    ),
 ];
 
 #[test]

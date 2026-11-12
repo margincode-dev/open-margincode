@@ -46,12 +46,77 @@ impl Origin {
     }
 }
 
-/// What the store knows about a record's task (`IntentStore::record_origins`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the store knows about a record's task, and the verdict in effect on the record, if one
+/// is (`IntentStore::record_origins`).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OriginFacts {
     pub status: TaskStatus,
     /// When the task's merge was last reverted, if it ever was.
     pub reverted_at: Option<DateTime<Utc>>,
+    /// The newest verdict on the record that a second look confirmed and nothing retracted.
+    pub verdict: Option<EffectiveVerdict>,
+}
+
+/// What a later look at a record (a dream, `av dream`) found, once a second run or a person
+/// agreed. A verdict judges a record and never edits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerdictKind {
+    /// Checked against the code as it is now; still true.
+    Confirmed,
+    /// The code or a later outcome contradicts it. Shown, marked and ranked low: a disputed
+    /// decision is a dead end worth a warning.
+    Disputed,
+    /// Says what another live record says; that one is shown.
+    Duplicate,
+    /// Was true; the code it describes is gone or replaced.
+    Outdated,
+}
+
+impl VerdictKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VerdictKind::Confirmed => "confirmed",
+            VerdictKind::Disputed => "disputed",
+            VerdictKind::Duplicate => "duplicate",
+            VerdictKind::Outdated => "outdated",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "confirmed" => VerdictKind::Confirmed,
+            "disputed" => VerdictKind::Disputed,
+            "duplicate" => VerdictKind::Duplicate,
+            "outdated" => VerdictKind::Outdated,
+            _ => return None,
+        })
+    }
+
+    /// Whether packs and the pre-read hook leave the record out (search still finds it).
+    pub fn hides(self) -> bool {
+        matches!(self, VerdictKind::Duplicate | VerdictKind::Outdated)
+    }
+}
+
+/// A verdict in effect on a record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EffectiveVerdict {
+    pub id: uuid::Uuid,
+    pub kind: VerdictKind,
+    /// Why, in at most 200 characters (always set for `disputed`).
+    pub reason: String,
+    /// For `confirmed`: per anchor of the record, the hash of the anchored code the verdict
+    /// saw. "Changed since recorded" is then reckoned from these, not from the record's own.
+    #[serde(skip)]
+    pub anchor_hashes: Vec<Option<String>>,
+}
+
+impl EffectiveVerdict {
+    /// `vd:<8 hex>`, as a record's line names it.
+    pub fn handle(&self) -> String {
+        format!("vd:{}", &self.id.simple().to_string()[..8])
+    }
 }
 
 /// A record's origin and the multiplier on its score in packs.
@@ -65,6 +130,8 @@ pub struct Standing {
 pub const REVERTED_FACTOR: f32 = 0.4;
 /// Factor of a claim whose task was abandoned.
 pub const ABANDONED_FACTOR: f32 = 0.6;
+/// Factor of a record under a `disputed` verdict, on top of its origin's.
+pub const DISPUTED_FACTOR: f32 = 0.3;
 
 /// The standing of a record of kind `kind`, written at `written`, whose task is as `facts` say.
 ///
@@ -85,11 +152,19 @@ pub fn standing(facts: &OriginFacts, kind: RecordKind, written: DateTime<Utc>) -
         _ if facts.reverted_at.is_some_and(|at| at > written) => Origin::Reverted,
         _ => Origin::Open,
     };
-    let factor = match (origin, kind) {
+    let mut factor = match (origin, kind) {
         (Origin::Merged | Origin::Open, _) | (_, RecordKind::Attempt) => 1.0,
         (Origin::Reverted, _) => REVERTED_FACTOR,
         (Origin::Abandoned, _) => ABANDONED_FACTOR,
     };
+    // a disputed record of any kind: an attempt someone showed to be wrong is not a dead end
+    if facts
+        .verdict
+        .as_ref()
+        .is_some_and(|v| v.kind == VerdictKind::Disputed)
+    {
+        factor *= DISPUTED_FACTOR;
+    }
     Standing { origin, factor }
 }
 
@@ -121,6 +196,7 @@ mod tests {
         let facts = OriginFacts {
             status,
             reverted_at: reverted_after.map(|s| written + Duration::seconds(s)),
+            verdict: None,
         };
         standing(&facts, kind, written)
     }
@@ -197,6 +273,59 @@ mod tests {
             let s = at(status, None, RecordKind::Decision);
             assert_eq!((s.origin, s.factor), (Origin::Open, 1.0));
         }
+    }
+
+    #[test]
+    fn a_disputed_record_ranks_low_whatever_its_origin_and_kind() {
+        let written = Utc::now();
+        let verdict = |kind| EffectiveVerdict {
+            id: uuid::Uuid::nil(),
+            kind,
+            reason: String::new(),
+            anchor_hashes: vec![],
+        };
+        let with = |status, kind, record| {
+            let facts = OriginFacts {
+                status,
+                reverted_at: None,
+                verdict: Some(verdict(kind)),
+            };
+            standing(&facts, record, written).factor
+        };
+        assert_eq!(
+            with(
+                TaskStatus::Merged,
+                VerdictKind::Disputed,
+                RecordKind::Decision
+            ),
+            DISPUTED_FACTOR
+        );
+        assert_eq!(
+            with(
+                TaskStatus::Merged,
+                VerdictKind::Disputed,
+                RecordKind::Attempt
+            ),
+            DISPUTED_FACTOR
+        );
+        assert_eq!(
+            with(
+                TaskStatus::Abandoned,
+                VerdictKind::Disputed,
+                RecordKind::Note
+            ),
+            ABANDONED_FACTOR * DISPUTED_FACTOR
+        );
+        // the other verdicts do not rank: they hide, or confirm
+        for kind in [
+            VerdictKind::Confirmed,
+            VerdictKind::Duplicate,
+            VerdictKind::Outdated,
+        ] {
+            assert_eq!(with(TaskStatus::Merged, kind, RecordKind::Decision), 1.0);
+        }
+        assert!(VerdictKind::Duplicate.hides() && VerdictKind::Outdated.hides());
+        assert!(!VerdictKind::Disputed.hides() && !VerdictKind::Confirmed.hides());
     }
 
     #[test]

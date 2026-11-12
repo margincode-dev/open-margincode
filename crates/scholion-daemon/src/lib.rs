@@ -9,6 +9,7 @@ mod checks;
 mod deps_cache;
 mod derived;
 mod disk;
+mod dream;
 mod embed_choice;
 mod embedded_pg;
 mod error;

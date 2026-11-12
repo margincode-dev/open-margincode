@@ -175,6 +175,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::attention::routes())
         .merge(crate::disk::routes())
         .merge(crate::remote::routes())
+        .merge(crate::dream::routes())
 }
 
 /// Sessions idle this long lose their ledger in `prune`.
@@ -673,6 +674,10 @@ async fn with_standing(st: &AppState, records: Vec<Record>) -> Result<Vec<Value>
             let mut v = json!(r);
             if let Some(s) = standing {
                 v["standing"] = json!(s);
+            }
+            if let Some(verdict) = origins.get(&r.id).and_then(|f| f.verdict.as_ref()) {
+                v["verdict"] = json!(verdict);
+                v["verdict"]["handle"] = json!(verdict.handle());
             }
             v
         })

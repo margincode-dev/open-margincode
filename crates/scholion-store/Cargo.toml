@@ -10,6 +10,7 @@ scholion-core.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 globset = "0.4"
+serde.workspace = true
 serde_json.workspace = true
 sqlx = { workspace = true, features = ["chrono", "uuid", "migrate", "macros", "json"] }
 uuid.workspace = true

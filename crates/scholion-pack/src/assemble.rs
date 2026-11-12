@@ -22,6 +22,9 @@ pub(crate) struct Deps<'a> {
 pub(crate) struct Gathered {
     pub items: Vec<Item>,
     pub degraded: Vec<String>,
+    /// Ids of the History items that are records of another task which this one may supersede:
+    /// an earlier agent's claims, which the reading agent can correct (`render::CORRECT_HINT`).
+    pub foreign: HashSet<String>,
 }
 
 struct Structural {
@@ -49,6 +52,8 @@ struct RecordFacts {
     may_lead: bool,
     /// Its `record_factor`, applied to a lead's score too.
     factor: f32,
+    /// A record of another task that a record of this one may supersede.
+    foreign: bool,
 }
 
 impl RecordFacts {
@@ -58,6 +63,8 @@ impl RecordFacts {
             text: format!("{} {}", rec.summary, rec.body),
             may_lead: !history::is_mined(&rec.author_agent) && !foreign_intent,
             factor: record_factor(rec, task, changed),
+            foreign: rec.task_id != task.id
+                && supersede_refusal(rec.kind, RecordKind::Note, false).is_none(),
         }
     }
 }
@@ -338,6 +345,12 @@ pub(crate) async fn gather(
         expand_best_hits(d, task, limit, &mut parts).await?;
     }
     lead_goal_matches(query.as_deref(), &mut parts);
+    parts.gathered.foreign = parts
+        .records
+        .iter()
+        .filter(|(_, facts)| facts.foreign)
+        .map(|(id, _)| id.clone())
+        .collect();
     Ok(parts.gathered)
 }
 
@@ -1016,7 +1029,11 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     }
 
     Ok(Structural {
-        gathered: Gathered { items, degraded },
+        gathered: Gathered {
+            items,
+            degraded,
+            foreign: HashSet::new(),
+        },
         hops_by_sym,
         seed_set,
         seed_paths,

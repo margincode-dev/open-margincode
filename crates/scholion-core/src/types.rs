@@ -81,6 +81,34 @@ str_enum!(RecordKind {
     Validation => "validation",
 });
 
+/// Why a record of kind `by`, of another task (`own_task` false) or of the same one, must not
+/// supersede a record of kind `old`; `None` when it may. The one rule for the daemon, the store
+/// and the packer (which asks with `by` a note: could any record of another task correct this).
+///
+/// Superseding hides a record from every pack, hook and search, so no agent may hide a review
+/// finding or a validation (a failed check stays visible), and only a task itself restates its
+/// `intent` or its `handoff` state, with a record of the same kind (a note in its place would
+/// leave the task without the intent a pack leads with, or without the state a claim reads).
+/// What corrects a decision, an attempt or a note is one of those three: packs and the pre-read
+/// hook show them where the old record was, and would not show an intent, a handoff or a
+/// validation there, so the claim would vanish instead of being corrected.
+pub fn supersede_refusal(old: RecordKind, by: RecordKind, own_task: bool) -> Option<&'static str> {
+    use RecordKind::*;
+    match (old, by) {
+        (Review | Validation, _) => Some("reviews and validations cannot be superseded"),
+        (Intent | Handoff, _) if !own_task => {
+            Some("only its own task can supersede a task's intent or handoff")
+        }
+        (Intent, Intent) | (Handoff, Handoff) => None,
+        (Intent, _) => Some("a task restates its intent with an intent record only"),
+        (Handoff, _) => Some("a task restates its handoff with a handoff record only"),
+        (Decision | Attempt | Note, Decision | Attempt | Note) => None,
+        (Decision | Attempt | Note, _) => {
+            Some("only a decision, attempt or note corrects a decision, attempt or note")
+        }
+    }
+}
+
 str_enum!(Verdict {
     Approve => "approve",
     RequestChanges => "request_changes",
@@ -613,6 +641,50 @@ mod tests {
         assert_eq!(obj["symbol_id"], 7);
         assert!(obj["task_id"].is_null());
         assert_eq!(obj["superseded"], false);
+    }
+
+    #[test]
+    fn what_may_be_superseded() {
+        use RecordKind::*;
+        let corrects = [Decision, Attempt, Note];
+        let all = [Intent, Decision, Attempt, Note, Handoff, Review, Validation];
+        for old in corrects {
+            for by in corrects {
+                assert_eq!(supersede_refusal(old, by, false), None, "{old:?} by {by:?}");
+                assert_eq!(supersede_refusal(old, by, true), None, "{old:?} by {by:?}");
+            }
+            // a correction that packs and the pre-read hook would not show in the old one's place
+            for by in [Intent, Handoff, Review, Validation] {
+                for own in [false, true] {
+                    let why = supersede_refusal(old, by, own);
+                    assert!(
+                        why.is_some_and(|w| w.contains("decision, attempt or note")),
+                        "{old:?} by {by:?}: {why:?}"
+                    );
+                }
+            }
+        }
+        for old in [Review, Validation] {
+            for by in all {
+                assert!(supersede_refusal(old, by, false).is_some(), "{old:?}");
+                assert!(supersede_refusal(old, by, true).is_some(), "{old:?}");
+            }
+        }
+        // a task restates its own intent or handoff, with a record of the same kind only
+        for old in [Intent, Handoff] {
+            for by in all {
+                assert!(supersede_refusal(old, by, false).is_some(), "{old:?}");
+                let own = supersede_refusal(old, by, true);
+                if by == old {
+                    assert_eq!(own, None, "{old:?} by {by:?}");
+                } else {
+                    assert!(
+                        own.is_some_and(|w| w.contains(old.as_str())),
+                        "{old:?} by {by:?}: {own:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

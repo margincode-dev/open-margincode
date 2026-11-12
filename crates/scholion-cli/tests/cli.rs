@@ -399,6 +399,110 @@ fn record_json_checks_every_item_before_sending_any() {
     );
 }
 
+/// The `rec:<8 hex>` handle in a `recorded rec:… (kind)` line.
+fn recorded_handle(line: &str) -> String {
+    let at = line.find("rec:").unwrap_or_else(|| panic!("{line}"));
+    line[at..at + 12].to_owned()
+}
+
+#[test]
+fn record_supersedes_corrects_a_record_of_another_task() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Earlier try",
+            "--goal",
+            "Cache names",
+        ],
+    ));
+    let other = d.ws.join("demo/earlier-try");
+    let wrong = recorded_handle(&ok(av(
+        &d,
+        &other,
+        &[
+            "record",
+            "--kind",
+            "attempt",
+            "--summary",
+            "caching hello can never work",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    )));
+
+    let line = ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            "caching hello works with a ttl",
+            "--supersedes",
+            &wrong,
+        ],
+    ));
+    let fixed = recorded_handle(&line);
+    assert_eq!(
+        line.trim(),
+        format!("recorded {fixed} (note), supersedes {wrong}")
+    );
+    // the correction took the old record's anchor, and the old record is no longer shown
+    let md = ok(av(&d, &ws, &["context", "--budget", "3000", "--fresh"]));
+    assert!(md.contains("caching hello works with a ttl"), "{md}");
+    assert!(md.contains("anchors: app/greeter.py"), "{md}");
+    assert!(!md.contains("can never work"), "{md}");
+
+    // per entry in the batch form too
+    let batch = format!(
+        r#"[{{"kind": "note", "summary": "the ttl is 60 seconds", "supersedes": "{fixed}"}}]"#
+    );
+    let line = ok(av_stdin(&d, &ws, &["record", "--json", "-"], &batch));
+    assert!(
+        line.trim()
+            .ends_with(&format!("(note), supersedes {fixed}")),
+        "{line}"
+    );
+
+    // a refusal says why, and names the record to correct instead
+    let again = av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            "once more",
+            "--supersedes",
+            &wrong,
+        ],
+    );
+    let e = err(&again);
+    assert!(
+        !again.status.success() && e.contains("already superseded") && e.contains("rec:"),
+        "{e}"
+    );
+    let not_a_handle = r#"[{"kind": "note", "summary": "fine"},
+                           {"kind": "note", "summary": "x", "supersedes": 7}]"#;
+    let o = av_stdin(&d, &ws, &["record", "--json", "-"], not_a_handle);
+    let e = err(&o);
+    assert!(
+        !o.status.success() && e.contains("records[1]") && e.contains("supersedes"),
+        "{e}"
+    );
+    let both = av(&d, &ws, &["record", "--json", "-", "--supersedes", &wrong]);
+    assert!(!both.status.success(), "{}", err(&both));
+}
+
 #[test]
 fn context_defaults_to_800_tokens() {
     let (d, ws, _scratch) = started();
@@ -1746,6 +1850,10 @@ fn hook_pre_read_adds_what_other_tasks_recorded_about_the_file() {
         .as_str()
         .unwrap();
     assert!(ctx.contains("greetings went stale"), "{ctx}");
+    assert!(
+        ctx.contains("`av record --supersedes <id>`"),
+        "says how to correct a wrong one: {ctx}"
+    );
     // once per session: the same read again adds nothing
     let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
     assert_eq!((ok(o).as_str()), "");

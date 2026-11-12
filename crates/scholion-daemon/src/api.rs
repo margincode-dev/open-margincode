@@ -741,14 +741,16 @@ pub(crate) struct RecordBody {
     anchors: Option<Vec<Anchor>>,
     agent: String,
     change_id: Option<ChangeId>,
-    supersedes: Option<RecordId>,
+    /// The record this one corrects: the `rec:<hex>` handle a pack prints, a prefix of the id
+    /// (6 or more hex characters, hyphens optional) or the full id.
+    supersedes: Option<String>,
     /// `rcp:…` of the pack the author worked from (Plan 2b).
     receipt: Option<String>,
 }
 
 /// Everything `write_record` could refuse on that does not depend on the write itself, so a batch
 /// (inline records on `submit`) can be checked whole before any of it is written.
-pub(crate) async fn check_record(st: &AppState, b: &RecordBody) -> Result<()> {
+pub(crate) async fn check_record(st: &AppState, task: &Task, b: &RecordBody) -> Result<()> {
     let n = b.summary.chars().count();
     if n > MAX_SUMMARY_CHARS {
         return Err(AvError::SummaryTooLong(n));
@@ -756,18 +758,94 @@ pub(crate) async fn check_record(st: &AppState, b: &RecordBody) -> Result<()> {
     if let Some(rc) = &b.receipt {
         st.store.get_receipt(rc).await?;
     }
-    if let Some(s) = b.supersedes {
-        st.store.get_record(s).await?;
+    if let Some(s) = &b.supersedes {
+        superseded_by_task(st, task, s, b.kind).await?;
     }
     Ok(())
 }
 
+/// `rec:<8 hex>`, as packs print a record.
+fn rec_handle(id: RecordId) -> String {
+    format!("rec:{}", &id.0.simple().to_string()[..8])
+}
+
+/// Longest chain of superseded records followed to its live end.
+const MAX_SUPERSEDE_CHAIN: usize = 64;
+
+/// The record a new record of `task`, of kind `by`, names in `supersedes`, when it may supersede
+/// it. Records are append-only: superseding leaves the old record as it is and hides it from
+/// packs, the pre-read hook and search, so what one agent may hide from every other is limited
+/// here, and again by the store inside the insert (`PgStore`'s `insert_record`), where two tasks
+/// superseding one record at once are told apart.
+///
+/// Refused: a record of another repo (422); what `supersede_refusal` refuses (422): a `review`
+/// or `validation` record (a finding or a failed check must not be hidden by writing a note),
+/// another task's `intent` or `handoff` (they say what that task is for and where it stands),
+/// a task's own `intent` or `handoff` by a record of another kind, and a decision, attempt or
+/// note by a record that is not one of those three (packs would show nothing in its place); a
+/// record that is already superseded (409, naming the live record at the end of the chain, which
+/// is the one to correct, when the chain is short enough to follow).
+async fn superseded_by_task(
+    st: &AppState,
+    task: &Task,
+    named: &str,
+    by: RecordKind,
+) -> Result<Record> {
+    let named = named.trim();
+    let old = st
+        .store
+        .find_record(named.strip_prefix("rec:").unwrap_or(named))
+        .await?;
+    let shown = rec_handle(old.id);
+    if st.store.get_task(old.task_id).await?.repo != task.repo {
+        return Err(AvError::IllegalState(format!(
+            "{shown} is not a record of repo {}",
+            task.repo
+        )));
+    }
+    if let Some(why) = supersede_refusal(old.kind, by, old.task_id == task.id) {
+        return Err(AvError::IllegalState(format!(
+            "{shown} ({}) cannot be superseded by a record of kind {}: {why}",
+            old.kind.as_str(),
+            by.as_str()
+        )));
+    }
+    if old.superseded_by.is_some() {
+        let mut live = old;
+        for _ in 0..MAX_SUPERSEDE_CHAIN {
+            match live.superseded_by {
+                Some(next) => live = st.store.get_record(next).await?,
+                None => break,
+            }
+        }
+        // a chain longer than is followed: the row the walk stopped on is not the live one
+        return Err(AvError::Conflict(match live.superseded_by {
+            None => format!(
+                "{shown} is already superseded; the live record is {} (supersede that one)",
+                rec_handle(live.id)
+            ),
+            Some(_) => format!("{shown} is already superseded"),
+        }));
+    }
+    Ok(old)
+}
+
 /// Stores one record of `task`, remembering what the anchored code looked like so later packs can
-/// flag the claim when it changes. The caller holds `AppState::lock_task` and has run `fence`.
+/// flag the claim when it changes. A record that supersedes another and names no anchors takes
+/// the old one's, so the correction is shown wherever the record it corrects was. The caller
+/// holds `AppState::lock_task` and has run `fence`.
 pub(crate) async fn write_record(st: &AppState, task: &Task, b: RecordBody) -> Result<Record> {
-    let anchors = b.anchors.unwrap_or_default();
+    let old = match b.supersedes.as_deref() {
+        Some(named) => Some(superseded_by_task(st, task, named, b.kind).await?),
+        None => None,
+    };
+    let mut anchors = b.anchors.unwrap_or_default();
+    if let (true, Some(old)) = (anchors.is_empty(), &old) {
+        anchors = old.anchors.clone();
+    }
     let hashes = st.packer.anchor_hashes(task.id, &anchors).await?;
-    st.store
+    let record = st
+        .store
         .add_record_with(
             NewRecord {
                 task_id: task.id,
@@ -775,14 +853,26 @@ pub(crate) async fn write_record(st: &AppState, task: &Task, b: RecordBody) -> R
                 summary: b.summary,
                 body: b.body.unwrap_or_default(),
                 change_id: b.change_id,
-                supersedes: b.supersedes,
+                supersedes: old.as_ref().map(|o| o.id),
                 author_agent: b.agent,
                 anchors,
             },
             &hashes,
             b.receipt.as_deref(),
         )
-        .await
+        .await?;
+    if let Some(old) = old {
+        // The feed says who corrected what. The record is written: a failure here is logged.
+        let payload = json!({"old": old.id, "new": record.id, "by": record.author_agent});
+        if let Err(e) = st
+            .store
+            .add_event(&task.repo, "record:superseded", Some(task.id), payload)
+            .await
+        {
+            tracing::warn!(error = %e, record = %record.id, "record:superseded event not written");
+        }
+    }
+    Ok(record)
 }
 
 async fn add_record(

@@ -278,6 +278,101 @@ async fn start_task_then_get_context_roundtrip_over_mcp() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_record_tool_corrects_a_record_by_the_handle_a_pack_prints() {
+    let e = env().await;
+    // an earlier task recorded something wrong about a file
+    let earlier = start_task(&e, "Earlier work").await;
+    let (status, wrong) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/records", id(&earlier)),
+        Some(
+            json!({"kind": "decision", "summary": "names stay lower case", "agent": "claude",
+                    "anchors": [{"path": "app/util.py"}]}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{wrong}");
+    let handle = format!(
+        "rec:{}",
+        &wrong["id"].as_str().unwrap().replace('-', "")[..8]
+    );
+
+    let s = connect(&e, "grok").await;
+    let list = send(
+        &e,
+        Some(&s),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    let record = list.body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "record")
+        .unwrap();
+    let property = &record["inputSchema"]["properties"]["supersedes"];
+    assert_eq!(property["type"], "string", "{record}");
+    assert!(
+        property["description"].as_str().unwrap().contains("rec:"),
+        "says what to pass: {record}"
+    );
+
+    tool(
+        &e,
+        &s,
+        "start_task",
+        json!({"repo": "demo", "title": "Later work", "goal": "Make hello louder"}),
+    )
+    .await;
+    let said = text(
+        &tool(
+            &e,
+            &s,
+            "record",
+            json!({"kind": "note", "summary": "names are title case", "supersedes": handle}),
+        )
+        .await,
+    );
+    assert!(said.starts_with("recorded rec:"), "{said}");
+    assert!(
+        said.ends_with(&format!("(note), supersedes {handle}")),
+        "names what was superseded: {said}"
+    );
+    let (_, records) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records", id(&earlier)),
+        None,
+    )
+    .await;
+    let old = &records["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == wrong["id"])
+        .unwrap();
+    assert!(old["superseded_by"].is_string(), "{old}");
+
+    // a refusal is a tool error that says why
+    let r = tool(
+        &e,
+        &s,
+        "record",
+        json!({"kind": "note", "summary": "again", "supersedes": handle}),
+    )
+    .await;
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("already superseded"),
+        "{r}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn second_get_context_in_same_session_marks_items_sent_earlier() {
     let e = env().await;
     let s = connect(&e, "claude-code").await;
@@ -492,6 +587,107 @@ async fn submit_tool_accepts_records() {
         status["record_count"], 2,
         "intent + inline decision: {status}"
     );
+}
+
+/// What a refused tool call says.
+fn refusal(reply: &Value) -> &str {
+    reply["result"]["content"][0]["text"].as_str().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_lists_supersedes_for_its_inline_records_and_takes_it() {
+    let e = env().await;
+    let earlier = start_task(&e, "Earlier work").await;
+    let mut handles = vec![];
+    for summary in ["names stay lower case", "hello stays quiet"] {
+        let (status, wrong) = call(
+            &e.app,
+            "POST",
+            &format!("/v1/tasks/{}/records", id(&earlier)),
+            Some(
+                json!({"kind": "decision", "summary": summary, "agent": "claude",
+                        "anchors": [{"path": "app/util.py"}]}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{wrong}");
+        handles.push(format!(
+            "rec:{}",
+            &wrong["id"].as_str().unwrap().replace('-', "")[..8]
+        ));
+    }
+
+    let s = connect(&e, "claude-code").await;
+    let list = send(
+        &e,
+        Some(&s),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    let tools = list.body["result"]["tools"].as_array().unwrap();
+    let named = |name: &str| tools.iter().find(|t| t["name"] == name).unwrap();
+    // `submit` says its records take the same fields as `record`: every one `record` lists but
+    // the task is listed for them too
+    let inline = &named("submit")["inputSchema"]["properties"]["records"]["items"]["properties"];
+    assert_eq!(inline["supersedes"], json!({"type": "string"}), "{inline}");
+    for (field, _) in named("record")["inputSchema"]["properties"]
+        .as_object()
+        .unwrap()
+    {
+        assert!(
+            field == "task_id" || inline[field].is_object(),
+            "`record` takes {field}, submit's records do not list it: {inline}"
+        );
+    }
+
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    // a record that may not correct is refused through the tool as through the API
+    let r = tool(
+        &e,
+        &s,
+        "record",
+        json!({"task_id": id(&t), "kind": "intent", "summary": "Make hello louder",
+               "supersedes": handles[0]}),
+    )
+    .await;
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(refusal(&r).contains("decision, attempt or note"), "{r}");
+    let r = tool(
+        &e,
+        &s,
+        "submit",
+        json!({"task_id": id(&t), "records": [
+            {"kind": "intent", "summary": "Make hello louder", "supersedes": handles[0]}]}),
+    )
+    .await;
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(refusal(&r).contains("decision, attempt or note"), "{r}");
+
+    let r = tool(
+        &e,
+        &s,
+        "submit",
+        json!({"task_id": id(&t), "records": [
+            {"kind": "decision", "summary": "names are title case", "supersedes": handles[0]}]}),
+    )
+    .await;
+    assert_ne!(r["result"]["isError"], true, "{r}");
+    let (_, records) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records", id(&earlier)),
+        None,
+    )
+    .await;
+    let superseded: Vec<&Value> = records["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["superseded_by"].is_string())
+        .collect();
+    assert_eq!(superseded.len(), 1, "{records}");
+    assert_eq!(superseded[0]["summary"], "names stay lower case");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1044,10 +1240,14 @@ async fn the_tool_list_stays_small() {
     // tokens) to the 10,040 before it, Plan 9 112 (start_task's wait and its longer description),
     // propose mode 477 (`post_backlog`: before it an agent had no way to leave follow-up work for
     // another agent, or to propose optional work for a human to accept); a bigger tool list needs
-    // a reason that pays for itself.
+    // a reason that pays for itself. `record`'s `supersedes` (85 bytes: how an agent corrects a
+    // stored record that is wrong) was paid for inside the limit: `start_task` lost its empty
+    // `required` list and `submit`'s inline records the receipt description `record` already has.
+    // The inline records' own `supersedes` (31 bytes, so they list every field `record` takes)
+    // was paid for by `records` losing a description that repeated the tool's (52 bytes).
     assert!(
         bytes <= 10_800,
-        "tools/list is {bytes} bytes; it was 10,789 after propose mode"
+        "tools/list is {bytes} bytes; it was 10,800 after `supersedes`"
     );
 }
 

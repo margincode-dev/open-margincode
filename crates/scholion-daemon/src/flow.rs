@@ -225,7 +225,7 @@ pub(crate) async fn submit(
     // Check every inline record before anything is written, so a bad one fails the whole submit.
     let inline = inline_records(&body.agent, body.records)?;
     for r in &inline {
-        check_record(&st, r).await?;
+        check_record(&st, &task, r).await?;
     }
     let (head, changed, _) = snapshot_and_index(&st, &task).await?;
     // the gate reads source at the task's head, which the snapshot just moved

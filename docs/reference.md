@@ -110,7 +110,9 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
   its usual tools; `scholion checkpoint` snapshots them.
 - **Record**: a short, typed note attached to a task: `intent` (the goal), `decision`, `attempt`
   (a dead end and why), `note`, `handoff`, `review`. Summaries are ≤ 200 characters, and records
-  are append-only: a newer record *supersedes* an older one instead of editing it.
+  are append-only: a newer record *supersedes* an older one instead of editing it. That is also
+  how an agent corrects a record that is wrong (`av record --supersedes rec:…`, see
+  [Correcting a record](#correcting-a-record)).
 - **Anchor**: a record's link to code, as a path or `path:Symbol`. Records resurface whenever a
   later task touches that code. The anchored code's hash is stored when the record is written, so
   a pack marks a claim `(changed since recorded)` once that code has moved on.
@@ -486,6 +488,7 @@ scholion task start --repo pantry --title "Atomic save" --goal "write pantry.jso
 cd ~/ws/pantry/atomic-save                   # printed as `workspace:`
 scholion checkpoint                                # snapshot + refresh the index
 scholion record --kind attempt --summary "tried os.rename; fails on Windows if the file exists" --anchor pantry/store.py
+scholion record --kind note --summary "os.replace overwrites on Windows too" --supersedes rec:1a2b3c4d   # correct a stored record
 scholion context                                   # 800 tokens of what an agent needs; --budget N for more
 scholion context --fresh                           # resend everything (e.g. after context compaction)
 scholion submit                                    # to review (needs a decision, attempt or note)
@@ -502,6 +505,49 @@ the Docker stack (`deploy/docker-compose.yml`) the daemon sees only the `/import
 host's `AV_IMPORT_ROOT` (default `~/projects`, read-only), so put the repo under it and pass
 `/import/<dir>`. A path the daemon cannot see (missing, or a directory that is not a git repository)
 is refused at once with `400` and that hint, before any import starts.
+
+### Correcting a record
+
+A record is what an earlier agent believed when it wrote it, and it can be wrong. Records are
+append-only, so a wrong one is corrected by a new record that supersedes it:
+
+```bash
+av record --kind note --summary "os.replace overwrites on Windows too; os.rename was the problem" --supersedes rec:1a2b3c4d
+# recorded rec:9f8e7d6c (note), supersedes rec:1a2b3c4d
+```
+
+`--supersedes` takes the `rec:…` id that a pack, the pre-read hook and `av search` print. A
+prefix of the id (6 or more hex characters) or the full id works too, with or without the id's
+hyphens; a prefix two records share is refused. Each entry of `av record --json` may carry
+`"supersedes": "rec:…"`, the MCP `record` tool has the same `supersedes` argument, and so has the
+body of `POST /v1/tasks/{id}/records` (and each of `submit`'s inline `records`, in the API and in
+the MCP tool).
+
+- The old record is neither deleted nor edited. It stays in its task's records
+  (`GET /v1/tasks/{id}/records`, with `superseded_by` set) and is no longer shown by packs, the
+  pre-read hook or search, which show the new record instead.
+- A correction given no anchor takes the anchors of the record it corrects, so it is shown
+  wherever the wrong one was. Given anchors of its own, it keeps those.
+- Any task of the repo may correct a decision, attempt or note, its own included, and the
+  correction is itself a decision, an attempt or a note: those are what packs and the pre-read
+  hook show in the old record's place. A record of another kind is refused (`422`, saying which
+  kinds may correct), since the claim would vanish instead of being corrected.
+- Also refused: an id no record has (`404`); a malformed or ambiguous one (`400`); a record of
+  another repo (`422`); a `review` or `validation` record (`422`: a finding or a failed check is
+  not hidden by writing a note); another task's `intent` or `handoff` (`422`; a task may restate
+  its own, with a record of the same kind only); and a record that is already superseded (`409`,
+  naming the live record at the end of the chain, which is the one to correct; a chain longer
+  than 64 corrections is not followed to its end, and the answer then names none).
+- The store enforces the same rules inside the insert, with the old record's row locked: when
+  two tasks supersede one record at the same moment, one is written and the other gets the `409`.
+  A record has at most one successor.
+- The feed gets a `record:superseded` event (`{old, new, by}`).
+
+Agents are told. A pack whose *Decisions & dead ends* section shows another task's decision,
+attempt or note starts that section with one line, inside the token budget: ``Claims by earlier
+agents: check against the code; correct wrong ones with `av record --supersedes rec:…` ``. It is
+left out when the section holds only the task's own records, or only back-references to an earlier
+pack of the session. The pre-read hook's answer ends with the same advice once per session.
 
 ### Cold start from git history
 
@@ -1125,7 +1171,8 @@ opens with a warning naming the culprit merge.
   Claude Code must read a file before it edits it, so a body in the pack is paid for twice (bench/README.md,
   "Haiku runs"). `--no-map` leaves out the repo layout and `--max-code N` keeps the N best code items (each
   item named is a file the agent may open; `GET /v1/tasks/{id}/context?map=false&max_code=N`). `PreToolUse` on `Read|Edit|MultiEdit` adds what other tasks recorded about that file (decisions, dead
-  ends, notes; at most 400 tokens, each record once per session and never one the pack already sent) as
+  ends, notes; at most 400 tokens, each record once per session and never one the pack already sent; once per
+  session it ends with how a wrong one is corrected, `av record --supersedes <id>`) as
   `additionalContext`, so the why arrives when the file is opened instead of up front
   (`GET /v1/tasks/{id}/records/at?path=…&session=…`). `PostToolUse` on `Edit|Write|MultiEdit` checkpoints at most
   every 2 s. `Stop` checkpoints and, when changed symbols have no record of the task anchored to them (what

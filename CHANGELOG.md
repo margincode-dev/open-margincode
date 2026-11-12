@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **An agent can correct a stored record.** `supersedes` was in the store and the HTTP API, but
+  no agent could reach it, and nothing in a pack said that a record is an earlier agent's claim:
+  in a benchmark an agent handed a confidently wrong record followed it, where the same text in a
+  notes file was simply edited. Now `av record … --supersedes rec:…` (also per entry of `--json`),
+  the MCP `record` tool's `supersedes` and the API's `supersedes` all take the `rec:` id a pack
+  prints (a prefix of 6 or more hex characters or a full id too, with or without hyphens), and the
+  answer names what was superseded. The old record is kept as it was and marked superseded; a
+  correction without anchors takes the old record's, so it is shown where the wrong one was. What
+  corrects a decision, attempt or note is a decision, attempt or note (another kind would not be
+  shown in its place: `422`). Refused: a record of another repo (`422`; it was accepted before,
+  which let one repo's task hide another repo's record), a `review` or `validation` record
+  (`422`), another task's `intent` or `handoff` (`422`; a task restates its own with the same
+  kind), an already superseded record (`409`, naming the live one; it was accepted before, which
+  left a record with two successors), an unknown id (`404`, was `500`). The store enforces these
+  inside the insert with the old record's row locked, so two tasks superseding one record at once
+  leave it one successor. The feed gets `record:superseded` (`{old, new, by}`). A pack that shows
+  another task's decision, attempt or note says in one line under *Decisions & dead ends* that
+  these are claims to check against the code and how a wrong one is corrected (25 tokens, inside
+  the budget, and no room kept for it by a pack that only refers back to such a record;
+  `PACKER_VERSION` 8), and the pre-read hook says it once per session. The MCP tool list stays
+  within its size guard: `start_task` lost its empty `required` list, `submit`'s inline records
+  the receipt description that `record` already carries (they list `supersedes` too) and
+  `records` a description that repeated the tool's.
 - **`scholion-bench` can run Grok.** `--vendor grok` launches `grok -p … --output-format json --always-approve --max-turns N --cwd` and reads `usage.input_tokens`, `usage.cache_read_input_tokens`, `usage.output_tokens`, `total_cost_usd` and `num_turns` into the session usage. It does not pass `--max-budget-usd`; the turn cap stands in for it. Reasoning tokens are not kept: the usage total has no field for them.
 - **`scholion-bench routing-profile`** reads an E-G1 results file and prints accepted rates, Wilson intervals, and the `av agent set` lines the decision rule implies. A tie, or a cell with fewer than 10 trials, is inconclusive and does not replace that agent's profile.
 - **Containers started without the labels are footprint too.** With `docker` on `PATH`, the

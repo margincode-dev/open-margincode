@@ -111,15 +111,20 @@ enum Cmd {
         kind: Option<String>,
         #[arg(long, required_unless_present = "json", requires = "kind")]
         summary: Option<String>,
-        /// Record many at once: a JSON list of {kind, summary, body?, anchors?: ["path[:Symbol]"]}
-        /// from FILE, or from stdin with `-`. Replaces --kind and --summary.
-        #[arg(long, value_name = "FILE|-", conflicts_with_all = ["kind", "summary", "body", "anchors"])]
+        /// Record many at once: a JSON list of {kind, summary, body?, anchors?: ["path[:Symbol]"],
+        /// supersedes?: "rec:…"} from FILE, or from stdin with `-`. Replaces --kind and --summary.
+        #[arg(long, value_name = "FILE|-", conflicts_with_all = ["kind", "summary", "body", "anchors", "supersedes"])]
         json: Option<String>,
         #[arg(long)]
         body: Option<String>,
         /// path or path:symbol (repeatable)
         #[arg(long = "anchor")]
         anchors: Vec<String>,
+        /// Correct a stored record that is wrong: the `rec:…` id a pack shows (or a full id).
+        /// The old record is kept and marked superseded; packs show this one in its place.
+        /// Without --anchor, this record takes the old one's anchors.
+        #[arg(long, value_name = "rec:ID")]
+        supersedes: Option<String>,
         /// The `rcp:…` id of the pack you worked from (printed by `av context`).
         #[arg(long)]
         receipt: Option<String>,
@@ -914,6 +919,16 @@ fn parse_record_spec(s: &str) -> Result<Value> {
 
 /// The items of `av record --json`: a JSON list read from FILE or stdin (`-`); anchors are
 /// `path[:Symbol]` strings.
+/// What `av record` prints for one stored record: its handle and kind, and the record it
+/// superseded when it corrected one.
+fn recorded_line(r: &Value) -> String {
+    let mut line = format!("recorded rec:{} ({})", short(s(&r["id"])), s(&r["kind"]));
+    if let Some(old) = r["supersedes"].as_str() {
+        line.push_str(&format!(", supersedes rec:{}", short(old)));
+    }
+    line
+}
+
 fn read_record_items(src: &str) -> Result<Vec<Value>> {
     let text = if src == "-" {
         let mut t = String::new();
@@ -926,7 +941,7 @@ fn read_record_items(src: &str) -> Result<Vec<Value>> {
     };
     let items: Vec<Value> = serde_json::from_str(&text).map_err(|e| {
         CliError::Local(format!(
-            "--json expects a list of {{kind, summary, body?, anchors?}}: {e}"
+            "--json expects a list of {{kind, summary, body?, anchors?, supersedes?}}: {e}"
         ))
     })?;
     items
@@ -953,6 +968,13 @@ fn read_record_items(src: &str) -> Result<Vec<Value>> {
             if n > MAX_SUMMARY_CHARS {
                 return Err(CliError::Local(format!(
                     "records[{i}]: summary is {n} chars, max {MAX_SUMMARY_CHARS}"
+                )));
+            }
+            if !item["supersedes"].is_null()
+                && item["supersedes"].as_str().is_none_or(str::is_empty)
+            {
+                return Err(CliError::Local(format!(
+                    "records[{i}]: supersedes takes the rec:… id of the record to correct: {item}"
                 )));
             }
             let anchors: Vec<Value> = item["anchors"]
@@ -1521,6 +1543,7 @@ fn run(cli: Cli) -> Result<()> {
             json: json_src,
             body,
             anchors,
+            supersedes,
             receipt,
         } => {
             let items = match (json_src, kind, summary) {
@@ -1528,7 +1551,7 @@ fn run(cli: Cli) -> Result<()> {
                 (None, Some(kind), Some(summary)) => {
                     let anchors: Vec<Value> = anchors.iter().map(|a| parse_anchor(a)).collect();
                     vec![json!({"kind": kind, "summary": summary, "body": body,
-                                "anchors": anchors})]
+                                "anchors": anchors, "supersedes": supersedes})]
                 }
                 _ => {
                     return Err(CliError::Local(
@@ -1549,7 +1572,7 @@ fn run(cli: Cli) -> Result<()> {
                     &item,
                     generation_for(&cli, &task),
                 )?;
-                println!("recorded rec:{} ({})", short(s(&r["id"])), s(&r["kind"]));
+                println!("{}", recorded_line(&r));
             }
         }
         Cmd::Context {

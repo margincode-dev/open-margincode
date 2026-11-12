@@ -1724,18 +1724,22 @@ impl IntentStore for PgStore {
     }
 
     async fn find_record(&self, id_or_prefix: &str) -> Result<Record> {
-        let p = id_or_prefix.trim().to_lowercase();
-        if p.len() < 6 || !p.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        let typed = id_or_prefix.trim().to_lowercase();
+        // an id is matched without its hyphens, so a prefix may run past the first one whether
+        // it was copied with them (a full id) or without (a pack's handle and more)
+        let p = typed.replace('-', "");
+        if p.len() < 6 || !p.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(AvError::Invalid(format!(
                 "record id prefix must be >= 6 hex chars: {id_or_prefix:?}"
             )));
         }
-        let ids: Vec<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM records WHERE id::text LIKE $1 LIMIT 2")
-                .bind(format!("{p}%"))
-                .fetch_all(&self.pool)
-                .await
-                .map_err(serr)?;
+        let ids: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM records WHERE replace(id::text, '-', '') LIKE $1 LIMIT 2",
+        )
+        .bind(format!("{p}%"))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
         match ids.as_slice() {
             [] => Err(AvError::NotFound(format!("record {p}"))),
             [(id,)] => self.get_record(RecordId(*id)).await,
@@ -2200,6 +2204,59 @@ async fn insert_record(
     receipt_hex: Option<String>,
 ) -> Result<RecordId> {
     let id = Uuid::new_v4();
+    let repo: String = sqlx::query_scalar("SELECT repo FROM tasks WHERE id = $1")
+        .bind(r.task_id.0)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(serr)?
+        .ok_or_else(|| AvError::NotFound(format!("task {}", r.task_id)))?;
+    // Superseding hides the old record from every pack and search of its repo, so what may
+    // supersede what is enforced here, whoever the caller is: only a record of the same repo,
+    // only what `supersede_refusal` allows, and one successor per record. The old record's row is
+    // locked first, so of two inserts superseding it at once the second waits for the first to
+    // commit, then sees its record and is refused (callers that check beforehand, like the
+    // daemon, cannot tell them apart: they hold a lock per task). Records are never deleted, so
+    // what is read here still holds when the outbox row below is written.
+    let superseded: Option<(RecordId, Uuid)> = match r.supersedes {
+        Some(old) => {
+            let (old_repo, old_task, old_kind): (String, Uuid, String) = sqlx::query_as(
+                "SELECT t.repo, r.task_id, r.kind FROM records r
+                 JOIN tasks t ON t.id = r.task_id WHERE r.id = $1 FOR UPDATE OF r",
+            )
+            .bind(old.0)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(serr)?
+            .ok_or_else(|| AvError::NotFound(format!("record {old}")))?;
+            if old_repo != repo {
+                return Err(AvError::IllegalState(format!(
+                    "record {old} is not a record of repo {repo}, so it cannot be superseded there"
+                )));
+            }
+            let old_kind: RecordKind = old_kind.parse()?;
+            if let Some(why) = supersede_refusal(old_kind, r.kind, old_task == r.task_id.0) {
+                return Err(AvError::IllegalState(format!(
+                    "record {old} ({}) cannot be superseded by a record of kind {}: {why}",
+                    old_kind.as_str(),
+                    r.kind.as_str()
+                )));
+            }
+            let successor: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM records WHERE supersedes = $1 LIMIT 1")
+                    .bind(old.0)
+                    .fetch_optional(&mut **tx)
+                    .await
+                    .map_err(serr)?;
+            if let Some(by) = successor {
+                return Err(AvError::Conflict(format!(
+                    "record {old} is already superseded, by record {}",
+                    RecordId(by)
+                )));
+            }
+            Some((old, old_task))
+        }
+        None => None,
+    };
     sqlx::query(
         "INSERT INTO records (id, task_id, kind, summary, body, change_id, supersedes, author_agent,
                               receipt_id)
@@ -2231,11 +2288,6 @@ async fn insert_record(
         .await
         .map_err(serr)?;
     }
-    let repo: String = sqlx::query_scalar("SELECT repo FROM tasks WHERE id = $1")
-        .bind(r.task_id.0)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(serr)?;
     let text = if r.body.is_empty() {
         r.summary.clone()
     } else {
@@ -2260,22 +2312,14 @@ async fn insert_record(
         },
     )
     .await?;
-    if let Some(old) = r.supersedes {
-        let (old_repo, old_task): (String, Uuid) = sqlx::query_as(
-            "SELECT t.repo, r.task_id FROM records r
-             JOIN tasks t ON t.id = r.task_id WHERE r.id = $1",
-        )
-        .bind(old.0)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(serr)?;
+    if let Some((old, old_task)) = superseded {
         PgStore::enqueue(
             &mut **tx,
             &NewOutbox {
                 kind: SemanticKind::Record,
                 op: OutboxOp::Supersede,
                 entity_id: old.to_string(),
-                repo: old_repo,
+                repo,
                 task_id: Some(TaskId(old_task)),
                 record_id: Some(old),
                 symbol_id: None,

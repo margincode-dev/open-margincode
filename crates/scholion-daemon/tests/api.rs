@@ -3533,6 +3533,510 @@ async fn reindex_refreshes_mains_code_index_and_skips_unchanged_files() {
     assert_eq!(body["code_files_reindexed"], 0, "all repos, same: {body}");
 }
 
+// ---- correcting a stored record: `supersedes` ----
+
+/// The `rec:<8 hex>` handle a pack prints for a record.
+fn handle(rec: &Value) -> String {
+    format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8])
+}
+
+/// Posts a record of `t` that supersedes `target` (a handle, a prefix or a full id).
+async fn correct(e: &Env, t: &Value, summary: &str, target: &str) -> (StatusCode, Value) {
+    post(
+        e,
+        t,
+        "records",
+        json!({"kind": "note", "summary": summary, "agent": "grok", "supersedes": target}),
+    )
+    .await
+}
+
+/// Posts a record of kind `kind` of `t` that supersedes `target`.
+async fn correct_as(e: &Env, t: &Value, kind: &str, target: &str) -> (StatusCode, Value) {
+    post(
+        e,
+        t,
+        "records",
+        json!({"kind": kind, "summary": format!("a {kind} in its place"), "agent": "grok",
+               "supersedes": target}),
+    )
+    .await
+}
+
+async fn record_by_id(e: &Env, t: &Value, rec: &Value) -> Value {
+    task_records(e, t)
+        .await
+        .into_iter()
+        .find(|r| r["id"] == rec["id"])
+        .unwrap_or_else(|| panic!("record {} is gone", rec["id"]))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_record_corrects_another_tasks_record_by_the_handle_a_pack_prints() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let wrong = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let b = start_task(&e, "Later work").await;
+
+    let (status, new) = correct(&e, &b, "names are title case", &handle(&wrong)).await;
+    assert_eq!(status, StatusCode::OK, "{new}");
+    assert_eq!(new["supersedes"], wrong["id"], "{new}");
+
+    // the old record is neither deleted nor edited: it is marked superseded by the new one
+    let old = record_by_id(&e, &a, &wrong).await;
+    assert_eq!(old["summary"], "names stay lower case", "{old}");
+    assert_eq!(old["superseded_by"], new["id"], "{old}");
+    assert_eq!(old["author_agent"], "claude", "{old}");
+
+    // a later agent is shown the correction where the wrong record was
+    let c = start_task(&e, "Third work").await;
+    let md = records_at(&e, &c, "app/util.py", "jit-1").await["markdown"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(md.contains("names are title case"), "{md}");
+    assert!(!md.contains("stay lower case"), "{md}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_correction_without_anchors_takes_the_anchors_of_the_record_it_corrects() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let (_, wrong) = post(
+        &e,
+        &a,
+        "records",
+        json!({"kind": "decision", "summary": "names stay lower case", "agent": "claude",
+               "anchors": [{"path": "app/util.py", "symbol": "format_name"}]}),
+    )
+    .await;
+    let b = start_task(&e, "Later work").await;
+
+    // a bare prefix (6 or more hex characters) names the record too
+    let prefix = handle(&wrong)["rec:".len()..].to_owned();
+    let (status, new) = correct(&e, &b, "names are title case", &prefix).await;
+    assert_eq!(status, StatusCode::OK, "{new}");
+    assert_eq!(
+        new["anchors"],
+        json!([{"path": "app/util.py", "symbol": "format_name"}]),
+        "{new}"
+    );
+    assert!(
+        new["anchor_hashes"][0].is_string(),
+        "the anchored code is hashed as the correcting task sees it: {new}"
+    );
+
+    // anchors given with the correction are kept as given
+    let (status, own) = post(
+        &e,
+        &b,
+        "records",
+        json!({"kind": "note", "summary": "greeter adds the mark", "agent": "grok",
+               "anchors": [{"path": "app/greeter.py"}], "supersedes": new["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert_eq!(
+        own["anchors"],
+        json!([{"path": "app/greeter.py", "symbol": null}]),
+        "{own}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn superseding_an_unknown_or_malformed_id_is_refused_and_writes_nothing() {
+    let e = env().await;
+    let t = start_task(&e, "Work").await;
+    let before = task_records(&e, &t).await.len();
+
+    let (status, body) = correct(&e, &t, "fix", "rec:deadbeef").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let unknown = uuid::Uuid::new_v4().to_string();
+    let (status, body) = correct(&e, &t, "fix", &unknown).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    for malformed in ["rec:zz", "rec:", "", "rec:abc"] {
+        let (status, body) = correct(&e, &t, "fix", malformed).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{malformed:?}: {body}");
+    }
+    assert_eq!(task_records(&e, &t).await.len(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_record_of_another_repo_cannot_be_superseded() {
+    let e = env().await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos",
+        Some(json!({"name": "other", "git_source": e.src_path})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, theirs) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "other", "title": "Other work", "goal": "Make hello louder",
+                    "agent": "claude", "session": "s-2"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{theirs}");
+    let secret = record_on(&e, &theirs, "decision", "their decision", "app/util.py").await;
+    let ours = start_task(&e, "Our work").await;
+    let before = task_records(&e, &ours).await.len();
+
+    for target in [handle(&secret), secret["id"].as_str().unwrap().to_owned()] {
+        let (status, body) = correct(&e, &ours, "hide it", &target).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        let said = body["error"].as_str().unwrap();
+        assert!(said.contains("repo demo"), "{said}");
+        assert!(!said.contains("their decision"), "leaks the record: {said}");
+    }
+    assert_eq!(task_records(&e, &ours).await.len(), before);
+    let kept = record_by_id(&e, &theirs, &secret).await;
+    assert!(kept["superseded_by"].is_null(), "{kept}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reviews_validations_and_other_tasks_intents_and_handoffs_cannot_be_superseded() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let mut refused = vec![];
+    for kind in ["validation", "review", "intent", "handoff"] {
+        let (status, rec) = post(
+            &e,
+            &a,
+            "records",
+            json!({"kind": kind, "summary": format!("a {kind} record"), "agent": "claude"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{rec}");
+        refused.push(rec);
+    }
+    let b = start_task(&e, "Later work").await;
+    for rec in &refused {
+        let (status, body) = correct(&e, &b, "hide it", &handle(rec)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}: {body}",
+            rec["kind"]
+        );
+        let kept = record_by_id(&e, &a, rec).await;
+        assert!(kept["superseded_by"].is_null(), "{kept}");
+    }
+    // a task may not hide its own validation or review either
+    for rec in &refused[..2] {
+        let (status, body) = correct(&e, &a, "hide it", &handle(rec)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    }
+    // but it may restate its own intent and handoff, with a record of the same kind only: a
+    // note in their place would leave the task without the intent or the state a claim reads
+    for rec in &refused[2..] {
+        let (status, body) = correct(&e, &a, "restated", &handle(rec)).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}: {body}",
+            rec["kind"]
+        );
+        let said = body["error"].as_str().unwrap();
+        assert!(
+            said.contains(rec["kind"].as_str().unwrap()),
+            "says which kind restates it: {said}"
+        );
+        let kept = record_by_id(&e, &a, rec).await;
+        assert!(kept["superseded_by"].is_null(), "{kept}");
+        let (status, body) = correct_as(&e, &a, rec["kind"].as_str().unwrap(), &handle(rec)).await;
+        assert_eq!(status, StatusCode::OK, "{}: {body}", rec["kind"]);
+        let old = record_by_id(&e, &a, rec).await;
+        assert_eq!(old["superseded_by"], body["id"], "{old}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_decision_an_attempt_or_a_note_corrects_a_record() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let b = start_task(&e, "Later work").await;
+    let events_before = superseded_events(&e).await;
+    let records_before = task_records(&e, &b).await.len();
+    // superseding hides the old record from packs and the pre-read hook, and neither shows an
+    // intent, a validation or a handoff in its place: the claim would vanish, not be corrected
+    for old_kind in ["decision", "attempt", "note"] {
+        let claim = record_on(&e, &a, old_kind, "names stay lower case", "app/util.py").await;
+        for kind in ["intent", "review", "validation", "handoff"] {
+            for t in [&b, &a] {
+                let (status, body) = correct_as(&e, t, kind, &handle(&claim)).await;
+                assert_eq!(
+                    status,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "{old_kind} by {kind}: {body}"
+                );
+                let said = body["error"].as_str().unwrap();
+                assert!(
+                    said.contains("decision, attempt or note"),
+                    "says which kinds may correct: {said}"
+                );
+            }
+        }
+        let kept = record_by_id(&e, &a, &claim).await;
+        assert!(kept["superseded_by"].is_null(), "{kept}");
+    }
+    assert_eq!(task_records(&e, &b).await.len(), records_before);
+    assert_eq!(superseded_events(&e).await, events_before);
+
+    // inline on submit: checked with the rest before anything is written
+    let claim = record_on(&e, &a, "decision", "hello stays quiet", "app/greeter.py").await;
+    edit_greeter(&e, &b);
+    let (status, body) = submit_with(
+        &e,
+        &b,
+        json!([
+            {"kind": "decision", "summary": "Greet by name"},
+            {"kind": "intent", "summary": "Make hello louder", "supersedes": handle(&claim)}
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        task_records(&e, &b).await.len(),
+        records_before,
+        "nothing written"
+    );
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&b)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+
+    // each of the three corrects each of the three
+    for (old_kind, kind) in [
+        ("decision", "attempt"),
+        ("attempt", "note"),
+        ("note", "decision"),
+    ] {
+        let claim = record_on(&e, &a, old_kind, "names stay lower case", "app/util.py").await;
+        let (status, body) = correct_as(&e, &b, kind, &handle(&claim)).await;
+        assert_eq!(status, StatusCode::OK, "{old_kind} by {kind}: {body}");
+    }
+}
+
+/// How many `record:superseded` events the repo has.
+async fn superseded_events(e: &Env) -> usize {
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|ev| ev["kind"] == "record:superseded")
+        .count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn supersedes_takes_a_longer_prefix_and_an_id_without_hyphens() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let b = start_task(&e, "Later work").await;
+    let bare = |rec: &Value| rec["id"].as_str().unwrap().replace('-', "");
+    let forms: [&dyn Fn(&Value) -> String; 4] = [
+        &|r| bare(r),
+        &|r| format!("rec:{}", &bare(r)[..14]),
+        &|r| bare(r)[..10].to_owned(),
+        &|r| r["id"].as_str().unwrap()[..13].to_owned(),
+    ];
+    for form in forms {
+        let wrong = record_on(&e, &a, "note", "names stay lower case", "app/util.py").await;
+        let named = form(&wrong);
+        let (status, new) = correct(&e, &b, "names are title case", &named).await;
+        assert_eq!(status, StatusCode::OK, "{named}: {new}");
+        assert_eq!(new["supersedes"], wrong["id"], "{named}");
+    }
+
+    // a prefix two records share names neither: 400, and it says so
+    for twin in [
+        "5eed5eed-1111-4111-8111-111111111111",
+        "5eed5eed-2222-4222-8222-222222222222",
+    ] {
+        sqlx::query(
+            "INSERT INTO records (id, task_id, kind, summary, author_agent)
+             VALUES ($1::uuid, $2::uuid, 'note', 'twin', 'claude')",
+        )
+        .bind(twin)
+        .bind(id(&a))
+        .execute(e.store.pool())
+        .await
+        .unwrap();
+    }
+    let before = task_records(&e, &b).await.len();
+    let (status, body) = correct(&e, &b, "fix", "rec:5eed5eed").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("ambiguous"),
+        "{body}"
+    );
+    assert_eq!(task_records(&e, &b).await.len(), before);
+    let (status, body) = correct(&e, &b, "fix", "rec:5eed5eed2").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["supersedes"], "5eed5eed-2222-4222-8222-222222222222",
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conflict_past_the_longest_chain_followed_names_no_live_record() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let first = record_on(&e, &a, "note", "version 0", "app/util.py").await;
+    // 70 corrections of corrections: more than the daemon follows to find the live end
+    let mut chain = vec![first];
+    for i in 1..=70 {
+        let (status, next) = correct(
+            &e,
+            &a,
+            &format!("version {i}"),
+            &handle(chain.last().unwrap()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{next}");
+        chain.push(next);
+    }
+    let b = start_task(&e, "Later work").await;
+    let (status, body) = correct(&e, &b, "another version", &handle(&chain[0])).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let said = body["error"].as_str().unwrap();
+    assert!(said.contains("already superseded"), "{said}");
+    assert_eq!(
+        said.matches("rec:").count(),
+        1,
+        "names only the record asked about, not one that is not the live end: {said}"
+    );
+    // within reach, the live end is named
+    let (status, body) = correct(&e, &b, "another version", &handle(&chain[40])).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let said = body["error"].as_str().unwrap();
+    assert!(said.contains(&handle(&chain[70])), "{said}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn superseding_a_superseded_record_is_a_conflict_that_names_the_live_one() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let first = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let b = start_task(&e, "Later work").await;
+    let (_, second) = correct(&e, &b, "names are upper case", &handle(&first)).await;
+    let (status, third) = correct(&e, &b, "names are title case", &handle(&second)).await;
+    assert_eq!(status, StatusCode::OK, "{third}");
+
+    let c = start_task(&e, "Third work").await;
+    let before = task_records(&e, &c).await.len();
+    for stale in [&first, &second] {
+        let (status, body) = correct(&e, &c, "names are snake case", &handle(stale)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        let said = body["error"].as_str().unwrap();
+        assert!(
+            said.contains(&handle(&third)),
+            "names the live record: {said}"
+        );
+    }
+    assert_eq!(task_records(&e, &c).await.len(), before);
+    // the live one can be corrected
+    let (status, body) = correct(&e, &c, "names are snake case", &handle(&third)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_may_supersede_the_record_it_just_wrote() {
+    let e = env().await;
+    let t = start_task(&e, "Work").await;
+    let first = record_on(&e, &t, "note", "the cache is keyed on name", "app/util.py").await;
+    let (status, second) = correct(&e, &t, "the cache is keyed on id", &handle(&first)).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let old = record_by_id(&e, &t, &first).await;
+    assert_eq!(old["superseded_by"], second["id"], "{old}");
+    let live: Vec<Value> = task_records(&e, &t)
+        .await
+        .into_iter()
+        .filter(|r| r["kind"] == "note" && r["superseded_by"].is_null())
+        .collect();
+    assert_eq!(live.len(), 1, "{live:?}");
+    assert_eq!(live[0]["summary"], "the cache is keyed on id");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn superseding_adds_a_record_superseded_event() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let wrong = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let b = start_task(&e, "Later work").await;
+    let (status, new) = correct(&e, &b, "names are title case", &handle(&wrong)).await;
+    assert_eq!(status, StatusCode::OK, "{new}");
+
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    let found: Vec<&Value> = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|ev| ev["kind"] == "record:superseded")
+        .collect();
+    assert_eq!(found.len(), 1, "{events}");
+    assert_eq!(found[0]["task_id"], b["task"]["id"], "{events}");
+    assert_eq!(
+        found[0]["payload"],
+        json!({"old": wrong["id"], "new": new["id"], "by": "grok"}),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_an_inline_record_that_supersedes_what_it_may_not_writes_nothing() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let validation = validate(&e, &a, 1).await;
+    let failed = task_records(&e, &a)
+        .await
+        .into_iter()
+        .find(|r| r["kind"] == "validation")
+        .unwrap_or_else(|| panic!("no validation record: {validation}"));
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([
+            {"kind": "decision", "summary": "Greet by name"},
+            {"kind": "note", "summary": "the check passes", "supersedes": handle(&failed)}
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+    let recs = task_records(&e, &t).await;
+    assert!(
+        !recs.iter().any(|r| r["kind"] == "decision"),
+        "no inline record may be written: {recs:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_an_inline_record_that_supersedes_by_handle() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let wrong = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([{"kind": "decision", "summary": "names are title case",
+                "supersedes": handle(&wrong)}]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let old = record_by_id(&e, &a, &wrong).await;
+    assert_eq!(old["superseded_by"], body["recorded"][0], "{old}");
+}
+
 // ---- just-in-time records (handoff B6): what others recorded about the file an agent opens ----
 
 async fn record_on(e: &Env, t: &Value, kind: &str, summary: &str, path: &str) -> Value {

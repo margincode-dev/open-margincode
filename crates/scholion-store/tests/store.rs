@@ -235,6 +235,192 @@ async fn superseded_record_hidden_from_anchor_query_but_still_in_task_records() 
 }
 
 #[tokio::test]
+async fn a_record_cannot_supersede_a_record_of_another_repo() {
+    let (_db, s) = store().await;
+    let ours = s.create_task(new_task("Ours")).await.unwrap();
+    let mut elsewhere = new_task("Theirs");
+    elsewhere.repo = "other".into();
+    let theirs = s.create_task(elsewhere).await.unwrap();
+    let old = s
+        .add_record(rec(
+            theirs.id,
+            RecordKind::Decision,
+            "use md5",
+            vec![anchor("a.py", None)],
+        ))
+        .await
+        .unwrap();
+    let mut newer = rec(ours.id, RecordKind::Decision, "use argon2", vec![]);
+    newer.supersedes = Some(old.id);
+    let err = s.add_record(newer).await.unwrap_err();
+    assert!(matches!(err, AvError::IllegalState(_)), "{err}");
+    // nothing was written, and the other repo's record still shows
+    assert_eq!(s.task_records(ours.id).await.unwrap().len(), 0);
+    assert_eq!(s.get_record(old.id).await.unwrap().superseded_by, None);
+    assert_eq!(
+        s.records_anchored_to("other", &["a.py".into()], &[])
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn superseding_an_unknown_record_is_not_found() {
+    let (_db, s) = store().await;
+    let t = s.create_task(new_task("T")).await.unwrap();
+    let mut newer = rec(t.id, RecordKind::Decision, "use argon2", vec![]);
+    newer.supersedes = Some(RecordId(uuid::Uuid::new_v4()));
+    let err = s.add_record(newer).await.unwrap_err();
+    assert!(matches!(err, AvError::NotFound(_)), "{err}");
+    assert_eq!(s.task_records(t.id).await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn the_store_refuses_a_superseding_record_of_a_kind_that_may_not_correct() {
+    use RecordKind::*;
+    let (_db, s) = store().await;
+    let theirs = s.create_task(new_task("Theirs")).await.unwrap();
+    let ours = s.create_task(new_task("Ours")).await.unwrap();
+    let add = |task: TaskId, kind: RecordKind, old: Option<RecordId>| {
+        let mut r = rec(task, kind, "a record", vec![]);
+        r.supersedes = old;
+        s.add_record(r)
+    };
+    let claim = add(theirs.id, Decision, None).await.unwrap();
+    // the correction must be a kind that is shown where the old record was
+    for by in [Intent, Handoff, Review, Validation] {
+        for task in [ours.id, theirs.id] {
+            let err = add(task, by, Some(claim.id)).await.unwrap_err();
+            assert!(matches!(err, AvError::IllegalState(_)), "{by:?}: {err}");
+            assert!(
+                err.to_string().contains("decision, attempt or note"),
+                "says which kinds correct: {err}"
+            );
+        }
+    }
+    // what must not be hidden cannot be superseded by any record
+    let finding = add(theirs.id, Review, None).await.unwrap();
+    let check = add(theirs.id, Validation, None).await.unwrap();
+    let intent = add(theirs.id, Intent, None).await.unwrap();
+    let state = add(theirs.id, Handoff, None).await.unwrap();
+    for (old, task) in [
+        (&finding, ours.id),
+        (&finding, theirs.id),
+        (&check, ours.id),
+        (&check, theirs.id),
+        (&intent, ours.id),
+        (&state, ours.id),
+    ] {
+        let err = add(task, Note, Some(old.id)).await.unwrap_err();
+        assert!(
+            matches!(err, AvError::IllegalState(_)),
+            "{:?}: {err}",
+            old.kind
+        );
+    }
+    // a task restates its own intent or handoff, with a record of the same kind only
+    for (old, by) in [
+        (&intent, Note),
+        (&intent, Handoff),
+        (&state, Note),
+        (&state, Intent),
+    ] {
+        let err = add(theirs.id, by, Some(old.id)).await.unwrap_err();
+        assert!(
+            matches!(err, AvError::IllegalState(_)),
+            "{:?} by {by:?}: {err}",
+            old.kind
+        );
+    }
+    assert_eq!(s.task_records(ours.id).await.unwrap().len(), 0);
+    assert_eq!(s.task_records(theirs.id).await.unwrap().len(), 5);
+    for old in [&claim, &finding, &check, &intent, &state] {
+        assert_eq!(s.get_record(old.id).await.unwrap().superseded_by, None);
+    }
+    add(theirs.id, Intent, Some(intent.id)).await.unwrap();
+    add(theirs.id, Handoff, Some(state.id)).await.unwrap();
+    add(ours.id, Attempt, Some(claim.id)).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_superseded_record_cannot_be_superseded_again() {
+    let (_db, s) = store().await;
+    let t = s.create_task(new_task("T")).await.unwrap();
+    let old = s
+        .add_record(rec(t.id, RecordKind::Decision, "use md5", vec![]))
+        .await
+        .unwrap();
+    let mut second = rec(t.id, RecordKind::Decision, "use sha1", vec![]);
+    second.supersedes = Some(old.id);
+    let second = s.add_record(second).await.unwrap();
+    let mut third = rec(t.id, RecordKind::Decision, "use argon2", vec![]);
+    third.supersedes = Some(old.id);
+    let err = s.add_record(third.clone()).await.unwrap_err();
+    assert!(matches!(err, AvError::Conflict(_)), "{err}");
+    assert_eq!(s.task_records(t.id).await.unwrap().len(), 2);
+    // the live end of the chain is the one to correct
+    third.supersedes = Some(second.id);
+    s.add_record(third).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tasks_superseding_one_record_at_once_leave_it_one_successor() {
+    let (_db, s) = store().await;
+    let author = s.create_task(new_task("Author")).await.unwrap();
+    let mut tasks = vec![];
+    for i in 0..8 {
+        tasks.push(s.create_task(new_task(&format!("T{i}"))).await.unwrap());
+    }
+    for round in 0..4 {
+        let old = s
+            .add_record(rec(
+                author.id,
+                RecordKind::Decision,
+                &format!("claim {round}"),
+                vec![],
+            ))
+            .await
+            .unwrap();
+        let mut racers = vec![];
+        for t in &tasks {
+            let mut newer = rec(t.id, RecordKind::Note, "corrected", vec![]);
+            newer.supersedes = Some(old.id);
+            let s = s.clone();
+            racers.push(tokio::spawn(async move { s.add_record(newer).await }));
+        }
+        let mut outcomes = vec![];
+        for r in racers {
+            outcomes.push(r.await.unwrap());
+        }
+        let won: Vec<&Record> = outcomes.iter().filter_map(|o| o.as_ref().ok()).collect();
+        assert_eq!(won.len(), 1, "round {round}: {outcomes:?}");
+        for lost in outcomes.iter().filter_map(|o| o.as_ref().err()) {
+            assert!(
+                matches!(lost, AvError::Conflict(_)),
+                "round {round}: {lost}"
+            );
+        }
+        assert_eq!(
+            s.get_record(old.id).await.unwrap().superseded_by,
+            Some(won[0].id)
+        );
+        let mut written = 0;
+        for t in &tasks {
+            written += s
+                .task_records(t.id)
+                .await
+                .unwrap()
+                .iter()
+                .filter(|r| r.supersedes == Some(old.id))
+                .count();
+        }
+        assert_eq!(written, 1, "round {round}");
+    }
+}
+
+#[tokio::test]
 async fn summary_201_chars_rejected_by_store() {
     let (_db, s) = store().await;
     let t = s.create_task(new_task("T")).await.unwrap();
@@ -395,6 +581,63 @@ async fn find_record_resolves_unique_prefix_and_rejects_bad_ones() {
         s.find_record("deadbeef").await,
         Err(AvError::NotFound(_))
     ));
+}
+
+#[tokio::test]
+async fn find_record_takes_any_prefix_with_or_without_hyphens() {
+    let (db, s) = store().await;
+    let t = s.create_task(new_task("T")).await.unwrap();
+    let r = s
+        .add_record(rec(t.id, RecordKind::Note, "hello", vec![]))
+        .await
+        .unwrap();
+    let hyphened = r.id.to_string();
+    let bare = hyphened.replace('-', "");
+    // past the first hyphen of the id, as a pack's handle plus more of the id would be
+    for form in [
+        &bare[..],
+        &bare[..12],
+        &bare[..20],
+        &hyphened[..13],
+        &hyphened[..9],
+        &bare.to_uppercase()[..],
+    ] {
+        assert_eq!(s.find_record(form).await.unwrap().id, r.id, "{form}");
+    }
+    assert!(
+        matches!(s.find_record("-------").await, Err(AvError::Invalid(_))),
+        "hyphens are not hex digits"
+    );
+    assert!(
+        matches!(s.find_record("abc-de").await, Err(AvError::Invalid(_))),
+        "five hex digits"
+    );
+
+    // two records whose ids start alike: the prefix they share names neither
+    let pool = sqlx::PgPool::connect(&db.url).await.unwrap();
+    let twins = [
+        "5eed5eed-1111-4111-8111-111111111111",
+        "5eed5eed-2222-4222-8222-222222222222",
+    ];
+    for id in twins {
+        sqlx::query(
+            "INSERT INTO records (id, task_id, kind, summary, author_agent)
+             VALUES ($1::uuid, $2, 'note', 'twin', 'claude')",
+        )
+        .bind(id)
+        .bind(t.id.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    for shared in ["5eed5eed", "5eed5e", "5eed5eed-"] {
+        let err = s.find_record(shared).await.unwrap_err();
+        assert!(matches!(err, AvError::Invalid(_)), "{shared}: {err}");
+        assert!(err.to_string().contains("ambiguous"), "{err}");
+    }
+    for (longer, id) in [("5eed5eed1", twins[0]), ("5eed5eed-2222", twins[1])] {
+        assert_eq!(s.find_record(longer).await.unwrap().id.to_string(), id);
+    }
 }
 
 #[tokio::test]

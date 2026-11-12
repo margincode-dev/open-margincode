@@ -51,6 +51,12 @@ if [ -n "$FAKE_LEAVE_BEHIND" ]; then
   # what an agent could leave for verify and for the next session: a link where a hidden test
   # will be written, and a process that outlives it
   ln -s "$out/stolen" test_local.py
+  # and a hard link where the other hidden test will be written, its other name kept in a
+  # directory of the agent's own: writing through it would hand the test to that name
+  echo "the agent's" > "$out/kept" || exit 8
+  rm -f test_calc.py
+  ln "$out/kept" test_calc.py || exit 8
+  stat -c %h test_calc.py > "$out/kept-links"
   (setsid sleep 300 > /dev/null 2>&1 &)
 fi
 cmd=$(hook PostToolUse)
@@ -319,6 +325,14 @@ fn gate(agent: Option<AgentUser>, av_bin: Option<&Path>) -> Gate {
         "daemon workspace root: listing".into(),
         g.daemon.ws_root.clone(),
     );
+    // the results directory: by the second sessions it holds the first sessions' rows
+    add("list", "results: listing".into(), g.out.clone());
+    add(
+        "read",
+        "results: rows.jsonl".into(),
+        g.out.join("rows.jsonl"),
+    );
+    add("read", "results: meta.json".into(), g.out.join("meta.json"));
     for arm in ARMS {
         let a = arm.as_str();
         let s = g.session_dir(arm, 1);
@@ -592,7 +606,53 @@ fn a_session_cannot_read_the_grading_files_or_an_earlier_session() {
                 "{} is a file of the harness's, not the agent's link",
                 test.display()
             );
+            // nor through its hard link: the agent did link a file of its own there (two names),
+            // and the test is a new file, with the agent's other name left holding its own bytes
+            let who = format!("{} r{rep}", arm.as_str());
+            let config = g.session_dir(arm, rep).join("claude-config");
+            assert_eq!(
+                read(&config.join("kept-links")).trim(),
+                "2",
+                "{who}: the agent hard-linked its file where the hidden test goes"
+            );
+            let kept = config.join("kept");
+            let test = g.working_copy(arm, rep).join("test_calc.py");
+            let (k, t) = (
+                std::fs::symlink_metadata(&kept).unwrap(),
+                std::fs::symlink_metadata(&test).unwrap(),
+            );
+            assert!(t.is_file(), "{who}: {}", test.display());
+            assert_ne!(t.ino(), k.ino(), "{who}: the hidden test is a new file");
+            assert_eq!(
+                (t.nlink(), k.nlink()),
+                (1, 1),
+                "{who}: neither file has another name"
+            );
+            assert_eq!(
+                read(&kept),
+                "the agent's\n",
+                "{who}: the agent's other name"
+            );
+            assert!(
+                read(&test).contains("assert add(2, 3) == 5"),
+                "{who}: the hidden test is at its path"
+            );
         }
+    }
+    // the results are root's alone: the directory the preflight made, and each file in it
+    for path in [
+        g.out.clone(),
+        g.out.join("rows.jsonl"),
+        g.out.join("meta.json"),
+        g.out.join("report.md"),
+    ] {
+        let m = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            (m.uid(), m.mode() & 0o077),
+            (0, 0),
+            "{} is root's and closed to others",
+            path.display()
+        );
     }
     // what the sessions left is root's alone: the directories, and the transcript by itself
     for arm in ARMS {
@@ -627,7 +687,8 @@ fn a_session_cannot_read_the_grading_files_or_an_earlier_session() {
         "agent-isolation gate: RAN as root with --agent-user {} (uid {}): the second sessions \
          read 0 of {tried} probed paths ({} paths x {} arms: cold, notes, av), each refused \
          with a permission error; {} of {} sessions passed verify; the av hooks fired in both \
-         av sessions",
+         av sessions; in each of the 6 sessions the agent hard-linked a file of its own where a \
+         hidden test goes, and the test was written as a new file (another inode, one name)",
         user.name,
         user.uid,
         g.probes.len(),
@@ -920,6 +981,135 @@ fn the_preflight_refuses_a_copy_of_a_hidden_test_in_a_shared_directory() {
     assert!(r.rows[0].success, "{:?}", r.rows);
 }
 
+/// Results hold what a `cold` or `baseline` session must not see: `first-packs` writes packs
+/// with the tasks' lessons, `run` the rows of earlier sessions. An `--out` that is there and
+/// open is refused, and so is a results directory beside it; a missing `--out` is made root's
+/// alone, with the files in it.
+#[test]
+fn the_preflight_refuses_results_the_agent_user_can_read() {
+    let _g = serial();
+    let Some(g) = isolated_gate("preflight, results directories") else {
+        return;
+    };
+    let results = g.out.parent().unwrap().to_path_buf();
+    // as `first-packs --out` and an earlier `run --out` leave them: default modes
+    let packs = results.join("first-pack/n500");
+    let earlier = results.join("pilot");
+    for d in [&g.out, &packs.join("packs"), &earlier] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let lesson = packs.join("packs/calc-add-start.md");
+    let report = g.out.join("report.md");
+    for f in [
+        &lesson,
+        &packs.join("first-packs.jsonl"),
+        &earlier.join("rows.jsonl"),
+        &report,
+    ] {
+        std::fs::write(f, "").unwrap();
+        chmod(f, 0o644);
+    }
+    for d in [
+        &g.cfg.work_root,
+        &results,
+        &results.join("first-pack"),
+        &packs,
+        &packs.join("packs"),
+        &earlier,
+        &g.out,
+    ] {
+        chmod(d, 0o755);
+    }
+    let err = two_reps(&g).err().expect("the run must be refused");
+    assert!(err.contains("refusing to run"), "{err}");
+    for line in [
+        format!("enter {}", g.out.display()),
+        format!("list {}", g.out.display()),
+        format!("read {}", report.display()),
+        format!("enter {}", packs.display()),
+        format!("enter {}", earlier.display()),
+    ] {
+        assert!(err.contains(&line), "`{line}` is named in: {err}");
+    }
+    assert!(err.contains("chmod 700"), "{err}");
+    assert_nothing_launched(&g);
+
+    // closed, each of them, the same run starts, and what it writes is root's alone
+    for d in [&g.out, &packs, &earlier] {
+        chmod(d, 0o700);
+    }
+    let r = sessions(&g, &[Arm::Cold], 1).unwrap();
+    assert!(r.rows[0].success, "{:?}", r.rows);
+    for f in ["rows.jsonl", "meta.json", "report.md"] {
+        let m = std::fs::metadata(g.out.join(f)).unwrap();
+        assert_eq!(
+            (m.uid(), m.mode() & 0o077),
+            (0, 0),
+            "{f} is root's and closed to others"
+        );
+    }
+    say(
+        "agent-isolation, results directories: RAN as root with --agent-user nobody: an open \
+         --out (enter, list, a file in it) and two open results directories beside it (one of \
+         first-packs, one of run) were refused by name; closed, the run started and wrote \
+         rows.jsonl, meta.json and report.md as root's, mode 600",
+    );
+}
+
+/// The harness gives the agent a `HOME` of its own per session, but a program can ask the
+/// password database for the user's home (`getpwuid`). If that directory is there and the user
+/// can write to it, a session can leave its work in it for a later one.
+#[test]
+fn the_preflight_refuses_a_home_the_agent_user_can_write_to_or_list() {
+    let _g = serial();
+    let Some(mut g) = isolated_gate("preflight, the agent user's own home") else {
+        return;
+    };
+    let user = g.cfg.agent_user.clone().unwrap();
+    let resolved = user.home.clone();
+    // the home `nobody` has here, when it is no directory: nothing to refuse, as in every other
+    // test of this file. A directory stands in for a home that exists.
+    let home = g.open.join("passwd-home");
+    std::fs::create_dir(&home).unwrap();
+    std::os::unix::fs::chown(&home, Some(user.uid), Some(user.gid)).unwrap();
+    chmod(&home, 0o700);
+    g.cfg.agent_user.as_mut().unwrap().home = Some(home.clone());
+    let err = two_reps(&g).err().expect("the run must be refused");
+    assert!(err.contains("refusing to run"), "{err}");
+    let (write, list) = (
+        format!("write to {}", home.display()),
+        format!("list {}", home.display()),
+    );
+    for line in [&write, &list] {
+        assert!(err.contains(line.as_str()), "`{line}` is named in: {err}");
+    }
+    assert!(err.contains("usermod -d"), "how to close it: {err}");
+    assert_nothing_launched(&g);
+
+    // root's but open to read: nothing can be left there, what is there can still be listed
+    std::os::unix::fs::chown(&home, Some(0), Some(0)).unwrap();
+    chmod(&home, 0o755);
+    let err = two_reps(&g).err().expect("the run must be refused");
+    assert!(err.contains(&list) && !err.contains(&write), "{err}");
+    assert_nothing_launched(&g);
+
+    // root's and closed, the run starts; so it does when the directory is not there at all
+    chmod(&home, 0o700);
+    let r = sessions(&g, &[Arm::Cold], 1).unwrap();
+    assert!(r.rows[0].success, "{:?}", r.rows);
+    std::fs::remove_dir(&home).unwrap();
+    let r = sessions(&g, &[Arm::Notes], 1).unwrap();
+    assert!(r.rows[0].success, "{:?}", r.rows);
+    say(&format!(
+        "agent-isolation, the agent user's home: RAN as root with --agent-user {} (uid {}), \
+         whose home in the password database is {resolved:?}: a home that user owns was refused \
+         (write, list), one of root's open to read was refused (list), one closed or missing \
+         was accepted. The directory was set on the fixture's user, not in the password \
+         database",
+        user.name, user.uid
+    ));
+}
+
 /// A session that stops before its agent ran (here: `setup_cmd` fails) leaves nothing open for
 /// the next one.
 #[test]
@@ -952,6 +1142,7 @@ fn the_flag_is_refused_when_the_harness_is_not_root() {
         name: "nobody".into(),
         uid: 65534,
         gid: 65534,
+        home: None,
     };
     let g = gate(Some(other), None);
     let err = two_reps(&g).err().expect("the run must be refused");

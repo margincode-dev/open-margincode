@@ -28,6 +28,39 @@ pub struct AgentUser {
     pub name: String,
     pub uid: u32,
     pub gid: u32,
+    /// The home the password database names for the user (what `getpwuid` answers, whatever
+    /// `HOME` says); `None` when the entry names none.
+    pub home: Option<PathBuf>,
+}
+
+/// The home of the user `name` (or of the entry with that `uid`) in password-database text:
+/// `getent passwd` output or `/etc/passwd`. `None`: no such entry. `Some(None)`: an entry whose
+/// home field is empty.
+fn passwd_home(text: &str, name: &str, uid: u32) -> Option<Option<PathBuf>> {
+    let uid = uid.to_string();
+    text.lines().find_map(|line| {
+        let f: Vec<&str> = line.split(':').collect();
+        if f.len() < 6 || f[0].starts_with('#') || (f[0] != name && f[2] != uid) {
+            return None;
+        }
+        Some((!f[5].is_empty()).then(|| PathBuf::from(f[5])))
+    })
+}
+
+/// The user's home as the password database has it: `getent passwd NAME` (which asks every
+/// source the host is set up with), else `/etc/passwd`.
+fn home_of(name: &str, uid: u32) -> Result<Option<PathBuf>> {
+    let asked = Command::new("getent").args(["passwd", name]).output();
+    let text = match asked {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+        _ => std::fs::read_to_string("/etc/passwd").unwrap_or_default(),
+    };
+    passwd_home(&text, name, uid).ok_or_else(|| {
+        format!(
+            "--agent-user {name}: no entry for that user in the password database (`getent \
+             passwd {name}`, /etc/passwd), so its home cannot be checked"
+        )
+    })
 }
 
 /// `id FLAG [NAME]` as a number.
@@ -151,6 +184,8 @@ pub enum Access {
     Enter,
     /// Find a program to execute, by path or on `PATH`.
     Execute,
+    /// Write to a path: for a directory, make or remove entries in it.
+    Write,
 }
 
 impl Access {
@@ -160,6 +195,7 @@ impl Access {
             Access::List => 'l',
             Access::Enter => 'e',
             Access::Execute => 'x',
+            Access::Write => 'w',
         }
     }
 }
@@ -174,13 +210,15 @@ while IFS= read -r line; do
     l) ls -- "$p" >/dev/null 2>&1 && echo "$n";;
     e) (cd -- "$p") >/dev/null 2>&1 && echo "$n";;
     x) command -v -- "$p" >/dev/null 2>&1 && echo "$n";;
+    w) [ -w "$p" ] && echo "$n";;
   esac
   n=$((n+1))
 done
 "#;
 
 impl AgentUser {
-    /// Looks the user up by name (`id -u`, `id -g`). Root is refused: it reads everything.
+    /// Looks the user up by name (`id -u`, `id -g`, and its home in the password database).
+    /// Root is refused: it reads everything.
     pub fn resolve(name: &str) -> Result<AgentUser> {
         let unknown = |e: String| format!("--agent-user {name}: no such user ({e})");
         let uid = id("-u", Some(name)).map_err(unknown)?;
@@ -194,6 +232,7 @@ impl AgentUser {
             name: name.to_owned(),
             uid,
             gid,
+            home: home_of(name, uid)?,
         })
     }
 
@@ -344,6 +383,7 @@ impl Check {
             Access::List => "list",
             Access::Enter => "enter",
             Access::Execute => "execute",
+            Access::Write => "write to",
         };
         format!("  {verb} {} ({})", self.path.display(), self.what)
     }
@@ -447,6 +487,45 @@ fn find_copies(
     }
 }
 
+/// What the preflight says of the agent user's home.
+const HOME_WHAT: &str = "that user's home in the password database: what a session leaves there, \
+                         a later one finds";
+
+/// The files that make a directory a results directory: `run` writes the first, `first-packs`
+/// the second (beside `packs/`, which holds the tasks' lessons).
+const RESULT_FILES: [&str; 2] = ["rows.jsonl", "first-packs.jsonl"];
+
+/// How far below the parent of `--out` the preflight looks for other results directories, and
+/// how many entries it looks at in all.
+const RESULTS_DEPTH: usize = 3;
+const RESULTS_ENTRIES: usize = 20_000;
+
+/// Adds to `found` the directories under `dir` that hold a results file (`RESULT_FILES`), down
+/// to `depth` levels. `skip` (this run's own `--out`) is left out, a directory that is found is
+/// not looked into further (closing it closes what is in it), and symlinks are not followed.
+fn results_dirs(
+    dir: &Path,
+    skip: &Path,
+    depth: usize,
+    budget: &mut usize,
+    found: &mut Vec<PathBuf>,
+) {
+    for path in entries(dir) {
+        if *budget == 0 {
+            return;
+        }
+        *budget -= 1;
+        if path == skip || !std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir()) {
+            continue;
+        }
+        if RESULT_FILES.iter().any(|f| path.join(f).is_file()) {
+            found.push(path);
+        } else if depth > 1 {
+            results_dirs(&path, skip, depth - 1, budget, found);
+        }
+    }
+}
+
 /// The checks the agent user did not get the `want`ed answer on.
 fn failing<'a>(
     user: &AgentUser,
@@ -468,12 +547,20 @@ fn failing<'a>(
 /// Before the first session, with no model: as the agent user, what a session needs must work
 /// (its run directory, the agent CLI, `av`, the `path_prepend` directories) and what it must
 /// not see must fail (the bench tree and its grading tests, the source repos, the import dir,
-/// earlier runs and sessions, the workspaces the daemon kept). Refuses to run otherwise and
-/// names each path. Nothing when the run has no agent user.
+/// earlier runs and sessions, the workspaces the daemon kept, the results directory `out` and
+/// the results directories beside it, its own home in the password database). Refuses to run
+/// otherwise and names each path. Nothing when the run has no agent user.
 ///
 /// It makes the harness's own directories as they must be (`runs/` and the run's directory:
-/// entered, never listed; the import dir, if missing: root's alone) and changes nothing else.
-pub fn preflight(specs: &[TaskSpec], arms: &[Arm], cfg: &RunConfig, run_id: &str) -> Result<()> {
+/// entered, never listed; the import dir and `out`, if missing: root's alone) and changes
+/// nothing else.
+pub fn preflight(
+    specs: &[TaskSpec],
+    arms: &[Arm],
+    cfg: &RunConfig,
+    run_id: &str,
+    out: &Path,
+) -> Result<()> {
     let Some(user) = &cfg.agent_user else {
         return Ok(());
     };
@@ -527,6 +614,9 @@ pub fn preflight(specs: &[TaskSpec], arms: &[Arm], cfg: &RunConfig, run_id: &str
     if av {
         private_dir(&cfg.import_dir)?;
     }
+    // the results directory is the harness's alone when the harness makes it
+    let out = absolute(out)?;
+    private_dir(&out)?;
     let mut path: Vec<PathBuf> = vec![];
     for dir in specs.iter().flat_map(|s| &s.path_prepend) {
         if !path.contains(dir) {
@@ -614,6 +704,45 @@ pub fn preflight(specs: &[TaskSpec], arms: &[Arm], cfg: &RunConfig, run_id: &str
             );
         }
     }
+    // Results: the rows and reports of earlier sessions, and where `first-packs` wrote, packs
+    // with the tasks' lessons, which a `cold` or `baseline` session must not see. This run's
+    // `--out`, and the results directories found beside it.
+    let what = "the results directory (--out)";
+    add(&mut deny, Access::Enter, &out, what);
+    add(&mut deny, Access::List, &out, what);
+    for entry in entries(&out) {
+        let access = if entry.is_dir() {
+            Access::Enter
+        } else {
+            Access::Read
+        };
+        add(&mut deny, access, &entry, "in the results directory");
+    }
+    if let Some(beside) = out.parent() {
+        let mut found = vec![];
+        let mut budget = RESULTS_ENTRIES;
+        results_dirs(beside, &out, RESULTS_DEPTH, &mut budget, &mut found);
+        if budget == 0 {
+            eprintln!(
+                "scholion-bench: {flag}: the search for other results directories under {} \
+                 stopped after {RESULTS_ENTRIES} entries; the rest was not looked at",
+                beside.display()
+            );
+        }
+        for dir in &found {
+            let what = "results beside --out: rows, or packs with the tasks' lessons";
+            add(&mut deny, Access::Enter, dir, what);
+        }
+    }
+    // The user's own home, as the password database has it: the harness sets `HOME` to the
+    // session's directory, but a program can look the home up (`getpwuid`). One user serves
+    // every session, so a home it can write to carries work from one session to the next, and
+    // one it can list shows what was left there.
+    let home = user.home.as_deref().filter(|h| h.is_dir());
+    if let Some(home) = home {
+        add(&mut deny, Access::Write, home, HOME_WHAT);
+        add(&mut deny, Access::List, home, HOME_WHAT);
+    }
     // A copy of a grading file where every user reads: a session of an earlier, open run (or
     // someone looking into it) may have left one in a temp dir, and no permission of the
     // harness's own directories covers that.
@@ -653,6 +782,15 @@ pub fn preflight(specs: &[TaskSpec], arms: &[Arm], cfg: &RunConfig, run_id: &str
              `chmod 711`.",
             shown.join("\n")
         ));
+        if let Some(home) = home.filter(|_| open.iter().any(|c| c.what == HOME_WHAT)) {
+            msg.push_str(&format!(
+                " The user's own home is closed by giving the user one that does not exist \
+                 (`usermod -d /nonexistent {}`) or by making it root's alone (`chown root:root \
+                 {home} && chmod 700 {home}`).",
+                user.name,
+                home = home.display()
+            ));
+        }
     }
     if !missing.is_empty() {
         let lines: Vec<String> = missing.iter().map(|c| c.line()).collect();
@@ -675,6 +813,72 @@ mod tests {
         assert!(err.contains("is root"), "{err}");
         let err = AgentUser::resolve("no-such-user-here").unwrap_err();
         assert!(err.contains("no such user"), "{err}");
+    }
+
+    #[test]
+    fn the_home_is_read_from_the_password_database() {
+        let text = "root:x:0:0:root:/root:/bin/bash\n\
+                    # a comment:x:1:1::/commented:/bin/sh\n\
+                    short:x:7\n\
+                    nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n\
+                    agent:x:1001:1001:the bench agent,,,:/home/agent:/bin/sh\n\
+                    homeless:x:1002:1002:::/bin/sh\n";
+        let home = |name: &str, uid: u32| passwd_home(text, name, uid);
+        assert_eq!(home("nobody", 65534), Some(Some("/nonexistent".into())));
+        assert_eq!(home("agent", 1001), Some(Some("/home/agent".into())));
+        // a user given by number is found by its uid
+        assert_eq!(home("1001", 1001), Some(Some("/home/agent".into())));
+        assert_eq!(home("homeless", 1002), Some(None), "an empty home field");
+        assert_eq!(home("ghost", 4242), None, "no entry");
+        assert_eq!(home("short", 7), None, "a line without a home field");
+        // what `getent passwd NAME` prints: the one line
+        let one = "agent:x:1001:1001::/srv/agent:/bin/sh\n";
+        assert_eq!(
+            passwd_home(one, "agent", 1001),
+            Some(Some("/srv/agent".into()))
+        );
+    }
+
+    #[test]
+    fn results_directories_beside_out_are_found_by_the_files_they_hold() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path();
+        let out = top.join("tonight");
+        for d in [
+            "tonight",
+            "pilot",
+            "first-pack/before/n500/packs",
+            "first-pack/a/b/too-deep",
+            "venv/lib",
+            "pilot/nested",
+        ] {
+            std::fs::create_dir_all(top.join(d)).unwrap();
+        }
+        for f in [
+            "tonight/rows.jsonl",
+            "pilot/rows.jsonl",
+            "pilot/nested/rows.jsonl",
+            "first-pack/before/n500/first-packs.jsonl",
+            "first-pack/a/b/too-deep/rows.jsonl",
+            "venv/lib/rows.py",
+            "rows.jsonl",
+        ] {
+            std::fs::write(top.join(f), "{}\n").unwrap();
+        }
+        // a link to a results directory is not one: what it points at is found where it is
+        std::os::unix::fs::symlink(top.join("pilot"), top.join("latest")).unwrap();
+        let mut found = vec![];
+        let mut budget = RESULTS_ENTRIES;
+        results_dirs(top, &out, RESULTS_DEPTH, &mut budget, &mut found);
+        assert_eq!(
+            found,
+            [top.join("first-pack/before/n500"), top.join("pilot")],
+            "not --out itself, nothing inside one that is found, nothing below the depth"
+        );
+        // a search that ran out of entries stops
+        let (mut found, mut budget) = (vec![], 1);
+        results_dirs(top, &out, RESULTS_DEPTH, &mut budget, &mut found);
+        assert_eq!((found, budget), (vec![], 0));
     }
 
     #[test]

@@ -197,13 +197,16 @@ itself (`bench/tasks-relay/files/`, `reference/`).
   the directories above them.
 
 Everything else the harness writes is root's alone: `events.jsonl`, the stderr file,
-`setup.log`, `pack.md`, `verify.log`, `outcome.json`, the import dir. When the agent exits, and
+`setup.log`, `pack.md`, `verify.log`, `outcome.json`, the import dir, and the results: a `--out`
+directory the harness makes is mode 700, and `rows.jsonl`, `meta.json` and `report.md` are mode
+600 wherever they are written. When the agent exits, and
 before the checkpoint, the hidden tests and verify, the harness kills every process of that
 user and takes the working copy back (root's, no permission left for group or other, the
 session directory and the daemon's directory of that repo closed). One user serves every
 session, so this is what keeps session N from reading session N−1, with or without
 `--keep-work`. The hidden tests are then written as new files: a symlink the agent left on the
-way is removed, not followed. The hooks write in the agent's home (their count, and with
+way is removed, not followed, and so is a file at the test's own path, which may be a hard link
+to one the agent kept elsewhere. The hooks write in the agent's home (their count, and with
 `--jit-hooks` what the pre-read hook told the agent); the harness copies both to
 `<session>/hook-count` and `<session>/pre-read.out` afterwards, as files of its own. The agent
 could write to them during the session, so they are its account, not the harness's. `setup_cmd` and `verify_cmd` run as before, as the
@@ -220,10 +223,30 @@ read one: a copy someone made while looking into a run is a leak like any other.
 copies only, and prints a line when it stopped at the entry limit. It also checks what a
 session needs: the run directory, the agent CLI, `av`, and each `path_prepend` directory.
 
+Results are checked too, because they hold what a `cold` or `baseline` session must not see:
+`first-packs --out DIR` writes packs with the tasks' lessons to `DIR/packs/`, and `run --out`
+the rows of earlier sessions. A `--out` that does not exist is made root's alone. One that
+exists is tried (enter, list, and each entry in it: read a file, enter a directory) and the run
+is refused if one works: `chmod 700` it. The harness also looks beside `--out`, three levels
+down from its parent (20,000 entries at most, with a line when it stopped there), for other
+results directories, known by a `rows.jsonl` or a `first-packs.jsonl`, and refuses when that
+user can enter one. Results anywhere else it does not look for.
+
+Last, that user's own home. The harness gives each session a `HOME` of its own, but a program
+can ask the password database instead (`getpwuid`). The preflight reads the home from it
+(`getent passwd NAME`, else `/etc/passwd`) and refuses to run when that directory exists and
+the user can write to it (a session could leave its work there for a later one) or list it. A
+home that does not exist passes: `nobody` on Debian has `/nonexistent`.
+
 What you set up:
 
 - **A dedicated user.** Its processes are killed after every session, all of them, so use a
-  user nothing else runs as, and one run at a time per user.
+  user nothing else runs as, and one run at a time per user. Give it no home directory
+  (`useradd -M -d /nonexistent NAME`), or one that is root's and `chmod 700`.
+- **Results that user cannot enter.** Keep every `--out`, of `run` and of `first-packs`, under
+  a directory closed to that user (`chmod 700`), such as the bench tree's `bench/results`.
+  `first-packs` starts no agent and writes with default modes, and the preflight of a later
+  run finds its output only beside that run's own `--out`.
 - **A work root that user can reach.** Not under `/root` or another home that is closed to
   other users: the harness says so and stops, and does not move or change the one you have.
   The Python env the tasks name in `path_prepend` and `verify_cmd` (`~/bench-work/venv`) must
@@ -250,7 +273,13 @@ results directory holds one setting. Results from before the option have no valu
 - **Directories every user can write** (`/tmp`, `/dev/shm`, a shared `CARGO_HOME`). One user
   serves all sessions, so a session can leave its own work there for a later one. The harness
   puts no grading file there, and the preflight refuses an exact copy it finds in the temp
-  directories; an edited copy, or one somewhere else, it does not find.
+  directories; an edited copy, or one somewhere else, it does not find. The same goes for any
+  other directory that user can write to. Of those the preflight checks one, the user's home in
+  the password database, and only when it exists: a home that is missing under a directory the
+  user can write to can be made by a session.
+- **Results outside the preflight's reach.** It checks this run's `--out` and the results
+  directories beside it. Packs or rows written elsewhere (another `first-packs --out`, a copy
+  of a results directory, a `--pilot` directory somewhere else) are yours to keep closed.
 - **Vendors other than Claude Code.** `--vendor grok` keeps its login in the harness user's
   home, which the agent user cannot read; the option is untested with it.
 - **`verify_cmd` runs what the agent wrote, as the harness's user.** A session that plants code

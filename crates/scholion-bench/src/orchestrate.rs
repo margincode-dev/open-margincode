@@ -166,12 +166,27 @@ pub fn plan_text(
     t
 }
 
-fn append_row(path: &Path, row: &Row) -> Result<()> {
+/// With an agent user (`private`), a results file is the harness's alone whatever the mode of
+/// the directory it is in: rows and reports say what earlier sessions did.
+fn close_result(path: &Path, private: bool) -> Result<()> {
+    if private {
+        crate::isolate::set_mode(path, 0o600)?;
+    }
+    Ok(())
+}
+
+fn write_result(path: &Path, bytes: impl AsRef<[u8]>, private: bool) -> Result<()> {
+    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    close_result(path, private)
+}
+
+fn append_row(path: &Path, row: &Row, private: bool) -> Result<()> {
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
+    close_result(path, private)?;
     writeln!(f, "{}", serde_json::to_string(row).expect("json")).map_err(|e| e.to_string())
 }
 
@@ -253,7 +268,8 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
         .unwrap_or_else(|| "run".into())
         .to_lowercase();
     // with --agent-user: nothing is launched while that user can read what it must not
-    crate::isolate::preflight(specs, &args.arms, cfg, &run_id)?;
+    crate::isolate::preflight(specs, &args.arms, cfg, &run_id, &args.out)?;
+    let private = cfg.agent_user.is_some();
     std::fs::create_dir_all(&args.out).map_err(|e| format!("{}: {e}", args.out.display()))?;
     let rows_path = args.out.join("rows.jsonl");
     let mut rows = if rows_path.exists() {
@@ -268,7 +284,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
             .iter()
             .map(|r| serde_json::to_string(r).expect("json") + "\n")
             .collect();
-        std::fs::write(&rows_path, kept).map_err(|e| e.to_string())?;
+        write_result(&rows_path, kept, private)?;
     }
     let mut spent: f64 = rows.iter().map(|r| r.cost_usd).sum();
     // from the configuration, not the caller: a result must not be labelled by hand
@@ -282,11 +298,11 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
     };
     check_noise_level(&args.out, &meta)?;
     check_isolation(&args.out, &meta)?;
-    std::fs::write(
-        args.out.join("meta.json"),
+    write_result(
+        &args.out.join("meta.json"),
         serde_json::to_vec_pretty(&meta).expect("json"),
-    )
-    .map_err(|e| e.to_string())?;
+        private,
+    )?;
     let mut over_budget = false;
     for p in &sessions {
         let spec = &specs[p.task];
@@ -344,11 +360,14 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
                 memory_tokens: o.memory_tokens,
             }
         };
-        append_row(&rows_path, &row)?;
+        append_row(&rows_path, &row, private)?;
         rows.push(row);
     }
-    std::fs::write(args.out.join("report.md"), render_report(&rows, &meta))
-        .map_err(|e| e.to_string())?;
+    write_result(
+        &args.out.join("report.md"),
+        render_report(&rows, &meta),
+        private,
+    )?;
     Ok(RunReport {
         rows,
         plan_text: text,

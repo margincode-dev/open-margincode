@@ -56,7 +56,7 @@ line) and the page's `<lastmod>` in `sitemap.xml`.
 
 ## Deploy to Cloudflare
 
-`wrangler.jsonc` at the repo root serves `site/` as static assets (Worker name `scholion-deploy`).
+`wrangler.jsonc` at the repo root serves `site/` as static assets (Worker name `open-margincode`).
 
 **Git integration.** Cloudflare dashboard → Workers & Pages → Create → Import a repository →
 this repo. Leave the build command empty and keep the deploy command `npx wrangler deploy`.
@@ -72,19 +72,23 @@ a `custom_domain` route, so `wrangler deploy` attaches it.
 ## The move to open.margincode.dev (2026-11-12)
 
 The project is now Margincode and its site is `open.margincode.dev` (the commercial edition's
-is `cloud.margincode.dev`, from its own repository). The pages, the sitemap and
-`wrangler.jsonc` name the new host. The Worker keeps its name, `scholion-deploy`: a new name
-would be a new Worker without this one's domains and secrets. Owner steps, in order, **before
-this change is merged** (a deploy that declares a custom domain of a zone Cloudflare does not
-have fails):
+is `cloud.margincode.dev`, from its own repository). The repository moved to
+`margincode-dev/open-margincode`, and the site has a Worker of its own there, `open-margincode`;
+`wrangler.jsonc` names it and the new host. The earlier Worker, `scholion-deploy`, still serves
+the old address from the old repository. Owner steps, in order:
 
-1. Add the zone `margincode.dev` to the Cloudflare account that holds the Worker.
-2. Merge. The deploy attaches `open.margincode.dev`; check that
+1. The zone `margincode.dev` is on the Cloudflare account (bought there).
+2. A custom domain belongs to one Worker. If `open.margincode.dev` was attached to
+   `scholion-deploy`, remove it there (Workers & Pages -> scholion-deploy -> Settings -> Domains
+   & Routes) before the first deploy of `open-margincode`, or that deploy fails.
+3. Deploy `open-margincode` from this repository (its Git integration, or
+   `.github/workflows/site.yml` with the secrets `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID`). The deploy attaches `open.margincode.dev`; check that
    `https://open.margincode.dev/demo` loads.
-3. Keep the old address alive: links to `scholion.openevaluations.si` are in earlier releases
+4. Keep the old address alive: links to `scholion.openevaluations.si` are in earlier releases
    and posts. In the zone `openevaluations.si`, add a Single Redirect rule from
    `scholion.openevaluations.si/*` to the same path on `open.margincode.dev` (301), and leave
-   the old custom domain on the Worker until the rule answers.
+   the old custom domain on `scholion-deploy` so the name keeps resolving.
 
 ## Earlier: the cutover from the root to a subdomain (2026-11-04)
 

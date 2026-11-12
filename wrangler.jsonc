@@ -1,6 +1,6 @@
 {
   // Static site for open.margincode.dev: serves site/ as is, no Worker code.
-  "name": "scholion-deploy",
+  "name": "open-margincode",
   "compatibility_date": "2026-10-28",
   "assets": {
     "directory": "./site",
@@ -9,9 +9,9 @@
   // Cloudflare's Git integration runs `wrangler preview` for non-production branches; it needs
   // this block, even empty.
   "previews": {},
-  // Custom domain: the zone margincode.dev must be on the Cloudflare account before a deploy.
-  // The Worker keeps its earlier name: a new name would be a new Worker without its domains
-  // and secrets. The old address is redirected in its own zone (site/README.md).
+  // Custom domain: the zone margincode.dev is on the Cloudflare account. A custom domain belongs
+  // to one Worker: if open.margincode.dev is still attached to the earlier Worker
+  // (scholion-deploy), remove it there first, or this deploy fails (site/README.md).
   "routes": [
     { "pattern": "open.margincode.dev", "custom_domain": true }
   ]

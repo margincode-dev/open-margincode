@@ -1,6 +1,55 @@
-# Handoff: 2026-11-03
+# Handoff: 2026-11-12
 
 Delete this once you've acted on the open items. It links; the detail lives in the files named.
+
+## 0. Since 2026-11-12: the project is Margincode, and this repository is its new home
+
+The project was Scholion until 2026-11-12. This repository, `margincode-dev/open-margincode`,
+continues `vinhqbui/scholion` with its whole history; the old one still holds the releases, the
+issues and the pull-request discussions. `CLAUDE.md` ("What this is") says which names were kept
+on purpose.
+
+Landed on `main` with the move (detail in `CHANGELOG.md`, `Unreleased`):
+
+- correctable records (`av record --supersedes`), review follow-ups, and the summary limit said
+  before an agent writes;
+- tests use an installed PostgreSQL before downloading one;
+- a record's standing: its origin in ranking and in its line (`margincode_core::standing`);
+- dreams and verdicts, the daemon's side (`dream.rs`, migration 0031; `docs/reference.md`, "A
+  second look at records");
+- the wrong-lesson benchmark, three runs (`bench/results/2026-11-wrong-lesson*`): with a wrong
+  note as a record an agent was accepted 12 of 30 times once it could correct records (2 of 30
+  before), against 28 of 30 with the same note in a notes file.
+
+None of it had a second reviewer: the tested tree became the base of the new repository. The
+gate was green on it (fmt, clippy, 1160 tests) before the rename's last commit.
+
+Next:
+
+1. **The agent side of dreaming**: `av dream [--verify] [--area P] [--limit N] -- <agent
+   command>`, `av dream undo`, `av verdict list|show|accept|reject|retract`, and the
+   instructions file the dreaming agent reads (`integrations/dream/DREAM.md`; its hash goes in
+   `instructions_sha`). Tests with a fake agent script, as `av watch` has. Until it exists the
+   verdict routes cannot be tried with a real model.
+2. **A guard for memory writes** in `ext.rs` (`Guarded::MemoryWrite`), asked before a verdict
+   takes effect, with a dummy-guard test.
+3. **Measurements, prepared and not run**: seed a wrong note as the record of a reverted task
+   (the free replay for standing), and pre-register raw memory against dreamed memory.
+
+Left open on purpose:
+
+- **Branch `loopback-default`**: the daemon refuses an open listen address without a token. It
+  also rewrites `CLAUDE.md`, so it needs a rebase onto the renamed tree. Merge it before this
+  repository is public.
+- **Branch `wrong-lesson-cell`**: an older draft of the first benchmark run, probably superseded.
+- **Release tags** are not here yet, and there is no release: `scripts/install.sh`, the README,
+  the Docker image and the plugin command still name the old repository on purpose. Point them
+  here with the first release (`release/0.0.4`).
+- `scripts/install.sh` was syntax-checked only after the rename; `site/og.png` and the
+  `demo-replay.png` images were not regenerated.
+
+Sections 1 to 3 below are the state of 2026-11-03 and still hold where this section does not
+say otherwise.
 
 ## 1. Merged
 

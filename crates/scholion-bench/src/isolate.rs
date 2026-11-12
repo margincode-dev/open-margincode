@@ -1116,6 +1116,37 @@ mod tests {
         assert_eq!(mode_of(&runs), 0o711, "the way to it is left as it is");
     }
 
+    /// A path noted as missing that cannot be looked at after the creation may be a directory
+    /// the preflight made: it is not dropped, the refusal names it.
+    #[test]
+    fn a_path_that_cannot_be_looked_at_after_the_creation_is_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        // below a regular file: `symlink_metadata` fails, and not with "not found"
+        let unseen = file.join("made");
+        let mut undo = Undo::default();
+        undo.missing.push(unseen.clone());
+        undo.now_made();
+        let left = undo.put_back();
+        let text = left.join("\n");
+        assert_eq!(left.len(), 1, "{text}");
+        assert!(
+            text.contains(&unseen.display().to_string()) && text.contains("chmod 700"),
+            "named, with what to do: {text}"
+        );
+    }
+
+    /// A path noted as missing that is still missing after the creation is nothing to put back.
+    #[test]
+    fn a_path_still_missing_after_the_creation_is_not_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut undo = Undo::default();
+        undo.missing(&tmp.path().join("never/made")).unwrap();
+        undo.now_made();
+        assert!(undo.put_back().is_empty());
+    }
+
     /// A symlink where the preflight noted or made a directory is neither removed nor changed,
     /// nor is what it points at.
     #[test]

@@ -627,6 +627,57 @@ fn a_no_commit_note_is_in_notes_md_and_in_no_commit_message() {
     );
 }
 
+/// A note kept off the git log (`no_commit`) is still what the `av` arm's agent is handed: a
+/// record of the earlier task. Only the commit message is left out.
+#[test]
+fn a_no_commit_note_is_a_record_in_the_av_arm_and_in_no_commit_message() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES_ONE_OFF_THE_LOG).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+    assert!(f.spec.relay_notes[0].no_commit && !f.spec.relay_notes[1].no_commit);
+
+    let o = run_session(&f.spec, Arm::Av, 1, "rx", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    let task = task_of(&ws);
+    let t = get(&format!("{}/v1/tasks/{task}", d.url));
+    let repo = t["task"]["repo"].as_str().unwrap();
+    let hits = get(&format!("{}/v1/repos/{repo}/search?q=README", d.url));
+    let earlier = hits["records"][0]["task_id"].as_str().unwrap();
+    assert_ne!(earlier, task, "the notes are an earlier task's: {hits}");
+    let recs = get(&format!("{}/v1/tasks/{earlier}/records", d.url));
+    let seeded: Vec<&str> = recs["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["kind"] != "intent")
+        .map(|r| r["summary"].as_str().unwrap())
+        .collect();
+    assert_eq!(seeded.len(), 2, "both notes, the one off the log too: {recs}");
+    assert!(
+        seeded.iter().any(|s| s.contains("add() is right as it stands")),
+        "{recs}"
+    );
+    // the history the daemon imported: the other note's commit, and not this one's
+    let src = f.cfg.import_dir.join(format!("brx-{}-av-1", f.spec.name));
+    let log = log_messages(&src);
+    assert!(log.contains("README stays one line"), "{log}");
+    assert!(
+        !log.contains("add() is right as it stands") && !log.contains("Leave calc.py alone"),
+        "kept out of the git log channel: {log}"
+    );
+}
+
 #[test]
 fn the_cold_arm_gets_nothing_the_earlier_agent_learned() {
     let _g = serial();

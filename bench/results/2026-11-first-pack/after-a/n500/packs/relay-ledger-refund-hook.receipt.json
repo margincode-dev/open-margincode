@@ -1,0 +1,296 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T19:17:07.557268+00:00",
+  "head_change": "a06441ce8339b5ef14764b7f6ac918158e9b403d",
+  "id": "rcp:3b8ecec3",
+  "items": [
+    {
+      "id": "task:relay-ledger-refund",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/quote.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/tax.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/report/csv_export.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:efb21a68",
+      "reason": "anchored",
+      "score": 1.9314119815826416,
+      "source": null,
+      "tier": "summary",
+      "tokens": 49
+    },
+    {
+      "id": "rec:87b35545",
+      "reason": "anchored",
+      "score": 1.9180378913879397,
+      "source": null,
+      "tier": "summary",
+      "tokens": 47
+    },
+    {
+      "id": "rec:fd957eff",
+      "reason": "anchored",
+      "score": 1.9083759784698489,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:c30ab739",
+      "reason": "anchored",
+      "score": 1.89559006690979,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:20813",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:20932",
+      "reason": "hop1",
+      "score": 0.8713709712028503,
+      "source": [
+        "tallyho/workflow.py",
+        41,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:20811",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:20865",
+      "reason": "hop1",
+      "score": 0.626838207244873,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:20863",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "full",
+      "tokens": 24
+    },
+    {
+      "id": "sym:20816",
+      "reason": "hop2",
+      "score": 0.5715174078941345,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:20928",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:20893",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/store/base.py",
+        28,
+        29
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:20888",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:20804",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/errors.py",
+        24,
+        25
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:20927",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        14,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 20
+    }
+  ],
+  "omitted": [
+    "- rec:f298f02d decision: Constants that `Ledger.record_sale` depends on live at the top of its…",
+    "- rec:b1c72d45 decision: `Ledger.record_sale` keeps its docstring as the one place its behaviou…",
+    "- rec:baeee932 note: Benchmarks for `Ledger.record_sale` are in a separate, manual job; the…",
+    "- rec:d31aadff attempt: Moving the imports inside `Ledger.record_sale` to speed up start-up sa…",
+    "- rec:dc615cc1 attempt: Wrapping `Quote` in a bare try/except with a retry loop hid the real e…",
+    "- rec:0747a9af decision: `Quote` keeps its docstring as the one place its behaviour is describe…"
+  ],
+  "packer_version": 5,
+  "session": "7baedf34-ba69-4d37-8fcc-8c165e940ea9",
+  "task_id": "facedd4d-e9b3-4966-afb3-ae09ce565327",
+  "tokens": 714
+}

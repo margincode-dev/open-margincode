@@ -90,6 +90,13 @@ task-stratified test was run.
   cut to fewer than 50 characters. Otherwise the agent gets the lesson from the pre-read hook or
   the commit messages. The hook's output is not in the transcript
   (`smoke/README.md`), so which of the two it was cannot be told.
+  - **Erratum, 2026-11-10.** `pack.md` was not the pack the agents read. The harness kept the
+    answer to the task start, which is built before the seeded records are embedded; the agent
+    reads the session-start hook's pack, built after. `../2026-11-first-pack/README.md` replays
+    the same inputs without an agent: it reproduces these counts (4, 4 and 2 tasks of 10), and
+    finds the lesson shown in full by one of the two hooks for 9 of 10 tasks at N = 0 and N = 50
+    and for 1 of 10 at N = 500. The "median memory tokens" of the `av` rows in the table above
+    are of that same early pack. No session, cost or acceptance figure is affected.
 - **One repo, one model, ten tasks**: tallyho, `deepseek-flash`, Claude Code 2.1.318, seeded noise
   templates (DESIGN, "The noise notes").
 - **N = 200 was not run** (Amendment 1, budget). N = 50 is the only point between the ends.

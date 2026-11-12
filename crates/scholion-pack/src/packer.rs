@@ -85,7 +85,7 @@ pub struct RecordsAt {
 pub const RECORDS_AT_TOKENS: u32 = 400;
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 5;
+pub const PACKER_VERSION: u32 = 6;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -373,10 +373,15 @@ impl Packer {
                     scholion_core::RecordKind::Intent | scholion_core::RecordKind::Validation
                 )
         });
-        // agents' records first, then what was mined from git history
-        recs.sort_by(|a, b| {
+        // agents' records first, then what was mined from git history; within each, what matches
+        // the reading task's goal best, then the stronger kind, then the newer record
+        let relevance = self.goal_relevance(&task, &recs).await;
+        let mut order: Vec<usize> = (0..recs.len()).collect();
+        order.sort_by(|&i, &j| {
+            let (a, b) = (&recs[i], &recs[j]);
             history::is_mined(&a.author_agent)
                 .cmp(&history::is_mined(&b.author_agent))
+                .then_with(|| relevance[j].total_cmp(&relevance[i]))
                 .then_with(|| {
                     crate::score::kind_priority(b.kind)
                         .total_cmp(&crate::score::kind_priority(a.kind))
@@ -384,6 +389,7 @@ impl Packer {
                         .then_with(|| a.id.0.cmp(&b.id.0))
                 })
         });
+        let recs: Vec<&scholion_core::Record> = order.into_iter().map(|i| &recs[i]).collect();
         let sent = match session {
             Some(s) => self.store.ledger_get(s).await?,
             None => Default::default(),
@@ -392,7 +398,7 @@ impl Packer {
         let foot = "Full text: `av expand <id>`.";
         let mut used = estimate_tokens(&format!("{head}\n{foot}"), AgentFamily::default());
         let (mut lines, mut ids) = (vec![], vec![]);
-        for rec in &recs {
+        for rec in recs {
             let (id, texts) = record_texts(rec, false, false);
             // a handle (a clipped summary) does not count as sent
             if sent
@@ -422,6 +428,38 @@ impl Packer {
             markdown: format!("{head}\n{}\n{foot}", lines.join("\n")),
             records: ids,
         })
+    }
+
+    /// How well each of `recs` matches the goal of `task`, for ordering them: its words, and
+    /// embedding similarity when the semantic layer answers in time (it is not waited for, and
+    /// its failure only leaves the words). All 0.0 for a task without a goal.
+    async fn goal_relevance(
+        &self,
+        task: &scholion_core::Task,
+        recs: &[scholion_core::Record],
+    ) -> Vec<f32> {
+        let goal = task.goal.trim();
+        if goal.is_empty() || recs.len() < 2 {
+            return vec![0.0; recs.len()];
+        }
+        let texts: Vec<String> = recs
+            .iter()
+            .map(|r| format!("{} {}", r.summary, r.body))
+            .collect();
+        let words = crate::relevance::word_scores(goal, &texts);
+        let mut similarity = vec![None; recs.len()];
+        if let Some(sem) = &self.semantic {
+            let search = sem.search_with(&task.repo, goal, 0, crate::score::RECORD_HITS);
+            if let Ok(Ok(hits)) = tokio::time::timeout(crate::score::SEMANTIC_TIMEOUT, search).await
+            {
+                for hit in hits.iter().filter(|h| !h.superseded) {
+                    if let Some(i) = recs.iter().position(|r| Some(r.id) == hit.record_id) {
+                        similarity[i] = Some(hit.score);
+                    }
+                }
+            }
+        }
+        crate::relevance::fuse(&words, &similarity)
     }
 
     /// Full text of one item id shown in a pack: `rec:<hex>` or `sym:<n>`.

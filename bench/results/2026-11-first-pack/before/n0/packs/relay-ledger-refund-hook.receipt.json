@@ -1,0 +1,297 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T18:38:22.803954+00:00",
+  "head_change": "f170099440ab8362f4c86f11e51faaf9d056be30",
+  "id": "rcp:5c447f2d",
+  "items": [
+    {
+      "id": "task:relay-ledger-refund",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/quote.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/tax.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/report/csv_export.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:e5032707",
+      "reason": "anchored",
+      "score": 1.9083764553070068,
+      "source": null,
+      "tier": "summary",
+      "tokens": 61
+    },
+    {
+      "id": "rec:2b6127ac",
+      "reason": "anchored",
+      "score": 0.7089967131614685,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:daf5e02b",
+      "reason": "anchored",
+      "score": 0.6538031101226807,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:6856cdec",
+      "reason": "semantic",
+      "score": 0.6219034790992737,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "sym:5333",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:5452",
+      "reason": "hop1",
+      "score": 0.8713709712028503,
+      "source": [
+        "tallyho/workflow.py",
+        41,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:5331",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:5385",
+      "reason": "hop1",
+      "score": 0.626838207244873,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:5383",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "full",
+      "tokens": 24
+    },
+    {
+      "id": "sym:5336",
+      "reason": "hop2",
+      "score": 0.5715174078941345,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:5448",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:5413",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/store/base.py",
+        28,
+        29
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:5408",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:5324",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/errors.py",
+        24,
+        25
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:5447",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        14,
+        20
+      ],
+      "tier": "summary",
+      "tokens": 26
+    }
+  ],
+  "omitted": [
+    "- rec:d64ab117 decision: Event payloads carry money as integer minor units plus the currency co…",
+    "- rec:175a3a88 decision: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:a8fdead4 decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:e0fab675 attempt: Currencies have different minor units (JPY 0 decimals, KWD 3). A fixed…",
+    "- rec:b890a6c9 attempt: Splitting Money by multiplying with 1/n (total.times(Decimal(1) / n))…",
+    "- sym:5399 Repository (tallyho/repository.py:32-74)",
+    "- sym:5409 Repository.orders (tallyho/repository.py:72-74)"
+  ],
+  "packer_version": 5,
+  "session": "8401d076-abdf-4462-b5a7-2f03e995856d",
+  "task_id": "b162fc14-06f2-4ff0-b31b-50a3b1145a23",
+  "tokens": 724
+}

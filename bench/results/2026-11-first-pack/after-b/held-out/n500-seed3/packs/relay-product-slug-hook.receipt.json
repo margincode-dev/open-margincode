@@ -1,0 +1,232 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:40:12.860611+00:00",
+  "head_change": "d2b1b163a32dacd2e186fdfa0ee92d394bc13a8a",
+  "id": "rcp:5b26bf4c",
+  "items": [
+    {
+      "id": "task:relay-product-slug",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 35
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:cbd3c1cd",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "summary",
+      "tokens": 67
+    },
+    {
+      "id": "rec:3a1ecb43",
+      "reason": "goal-lead",
+      "score": 2.0313961505889893,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:4b0264ec",
+      "reason": "semantic",
+      "score": 0.6003208160400391,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:c5c86ac1",
+      "reason": "semantic",
+      "score": 0.5953138470649719,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:d8ad34c6",
+      "reason": "semantic",
+      "score": 0.5948125720024109,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:41385",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/repository.py",
+        44,
+        46
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41381",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:41300",
+      "reason": "lexical",
+      "score": 0.7643382549285889,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41417",
+      "reason": "semantic",
+      "score": 0.5625,
+      "source": [
+        "tallyho/text.py",
+        8,
+        19
+      ],
+      "tier": "summary",
+      "tokens": 29
+    },
+    {
+      "id": "sym:41319",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/models.py",
+        23,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:41323",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        51,
+        60
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41383",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/repository.py",
+        38,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:41384",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/repository.py",
+        41,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41326",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:41378",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/repository.py",
+        19,
+        21
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:41299",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:41296",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/cli.py",
+        20,
+        23
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41298",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/cli.py",
+        31,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 17
+    }
+  ],
+  "omitted": [
+    "- rec:36030062 decision: `RecordStore.put` keeps its docstring as the one place its behaviour i…",
+    "- rec:015ac330 decision: New optional parameters of `Page` are keyword-only (after *), so call…",
+    "- rec:64b1809d decision: New optional parameters of `CouponBook` are keyword-only (after *), so…",
+    "- rec:d2ed8553 decision: `Order` keeps its docstring as the one place its behaviour is describe…",
+    "- rec:2c5fc47e decision: `Repository.customer` keeps its docstring as the one place its behavio…",
+    "- rec:f0c89362 decision: `MemoryStore.put` keeps its docstring as the one place its behaviour i…"
+  ],
+  "packer_version": 6,
+  "session": "8f085536-0abc-4687-8238-f2548aa6c29a",
+  "task_id": "6591e0bd-c1bc-45e4-b62d-e3180003e692",
+  "tokens": 695
+}

@@ -1,0 +1,308 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T18:47:31.486464+00:00",
+  "head_change": "a919d9aa1b77eebebbc3fd76027881a9264cad18",
+  "id": "rcp:52f07847",
+  "items": [
+    {
+      "id": "task:relay-customer-region",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/store/jsonfile.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/store/memory.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/validate.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:1f4f8509",
+      "reason": "anchored",
+      "score": 1.7000000476837158,
+      "source": null,
+      "tier": "summary",
+      "tokens": 49
+    },
+    {
+      "id": "rec:c16cb1a2",
+      "reason": "anchored",
+      "score": 1.6599998474121094,
+      "source": null,
+      "tier": "summary",
+      "tokens": 43
+    },
+    {
+      "id": "rec:6969d1ce",
+      "reason": "anchored",
+      "score": 1.579999923706055,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:bf56e1b9",
+      "reason": "anchored",
+      "score": 0.5249999761581421,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:10258",
+      "reason": "hop1",
+      "score": 0.6499999761581421,
+      "source": [
+        "tallyho/validate.py",
+        24,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10260",
+      "reason": "hop1",
+      "score": 0.6463709473609924,
+      "source": [
+        "tallyho/validate.py",
+        34,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10256",
+      "reason": "hop1",
+      "score": 0.6428571343421936,
+      "source": [
+        "tallyho/validate.py",
+        14,
+        16
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10257",
+      "reason": "hop1",
+      "score": 0.639453113079071,
+      "source": [
+        "tallyho/validate.py",
+        19,
+        21
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10259",
+      "reason": "hop1",
+      "score": 0.6361538171768188,
+      "source": [
+        "tallyho/validate.py",
+        29,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10152",
+      "reason": "hop1",
+      "score": 0.626838207244873,
+      "source": [
+        "tallyho/models.py",
+        30,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:10134",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/errors.py",
+        8,
+        17
+      ],
+      "tier": "summary",
+      "tokens": 24
+    },
+    {
+      "id": "sym:10158",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:10231",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        14,
+        72
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:10133",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10146",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:10160",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/models.py",
+        76,
+        84
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:57ccaff7 attempt: Wrapping `Money.allocate` in a bare try/except with a retry loop hid t…",
+    "- rec:2f873bb5 attempt: Tried calling `check_email` twice to force a refresh; the second call…",
+    "- rec:a0a67f1c attempt: Tried calling `JsonFileStore._path` twice to force a refresh; the seco…",
+    "- rec:f50a0d41 attempt: Tried calling `Coupon.discount` twice to force a refresh; the second c…",
+    "- rec:229c4d21 attempt: Wrapping the `errors` module in a bare try/except with a retry loop hi…",
+    "- rec:439d3e71 attempt: Adding type: ignore comments around `Money.allocate` to quiet the chec…"
+  ],
+  "packer_version": 5,
+  "session": "bench-start-3c486200-11c4-44a2-b139-e3f0b23335ae",
+  "task_id": "fba1ee58-2b8f-4109-b7de-12af5332d826",
+  "tokens": 716
+}

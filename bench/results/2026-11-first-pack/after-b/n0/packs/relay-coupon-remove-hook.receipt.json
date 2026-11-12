@@ -1,0 +1,205 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:18:48.956093+00:00",
+  "head_change": "6ca37bfc38782426f57d49c711d2ab160ed26dfa",
+  "id": "rcp:a91d8f1d",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:e1cc7f09",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 64
+    },
+    {
+      "id": "rec:5faf9223",
+      "reason": "goal-lead",
+      "score": 2.0320019721984863,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:8dbde3e1",
+      "reason": "semantic",
+      "score": 0.602121889591217,
+      "source": null,
+      "tier": "handle",
+      "tokens": 32
+    },
+    {
+      "id": "rec:b8a58876",
+      "reason": "semantic",
+      "score": 0.5949605703353882,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:72dfce4a",
+      "reason": "semantic",
+      "score": 0.5926080346107483,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:a2a73ef7",
+      "reason": "semantic",
+      "score": 0.59096759557724,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "sym:32056",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "summary",
+      "tokens": 27
+    },
+    {
+      "id": "sym:32059",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:32058",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:32057",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:32060",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:32135",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:32053",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:32071",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:32055",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:32155",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:8c8793d5 decision: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:5c633c0e decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:4d1a52cd decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:d2cbc7d4 decision: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:88f21b50 intent: Earlier work on this code",
+    "- sym:32004 load_config (tallyho/config.py:23-47)",
+    "- sym:32015 EventBus.publish (tallyho/events.py:19-22)"
+  ],
+  "packer_version": 6,
+  "session": "fd028d8d-2b0d-493e-a804-518c8ce831a1",
+  "task_id": "07da4c16-71ba-4d49-85a7-1aaafda6e325",
+  "tokens": 702
+}

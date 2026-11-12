@@ -1,0 +1,215 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:39:13.559595+00:00",
+  "head_change": "783236b366e84177e615271513fd690520197c4a",
+  "id": "rcp:bf4fb47d",
+  "items": [
+    {
+      "id": "task:relay-money-plain",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:da4f71aa",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:ca6f8ef2",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "summary",
+      "tokens": 76
+    },
+    {
+      "id": "rec:24d5a4de",
+      "reason": "semantic",
+      "score": 0.6521826982498169,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:433c7ec7",
+      "reason": "semantic",
+      "score": 0.6517152786254883,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:0d23f68a",
+      "reason": "semantic",
+      "score": 0.6498784422874451,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:225a5940",
+      "reason": "semantic",
+      "score": 0.6405755877494812,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "sym:41014",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/money.py",
+        77,
+        80
+      ],
+      "tier": "summary",
+      "tokens": 27
+    },
+    {
+      "id": "sym:41016",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41004",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/money.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:41003",
+      "reason": "lexical",
+      "score": 0.7571954131126404,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:41005",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:41015",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/money.py",
+        82,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:41018",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:41039",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:40995",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        73,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:41017",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:41032",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:6ad3c8a3 attempt: Wrapping `Money.__sub__` in a bare try/except with a retry loop hid th…",
+    "- rec:94b9a7fa attempt: Wrapping `Money._check` in a bare try/except with a retry loop hid the…",
+    "- rec:4ca86c7a attempt: Wrapping `Money.__neg__` in a bare try/except with a retry loop hid th…",
+    "- rec:b5494f0b attempt: Adding type: ignore comments around `Money.format` to quiet the checke…",
+    "- rec:5d2f4f51 attempt: Tried calling `Money.format` twice to force a refresh; the second call…"
+  ],
+  "packer_version": 6,
+  "session": "9e540138-3350-428e-904a-21f87c412404",
+  "task_id": "9aaa64ff-3d0e-49f9-ab90-db71ad576f30",
+  "tokens": 691
+}

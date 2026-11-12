@@ -31,6 +31,25 @@ pub fn rrf_sim(rank: usize) -> f32 {
 pub fn candidate_limit(budget: u32) -> usize {
     (budget as usize / 250).clamp(SEMANTIC_LIMIT, MAX_CANDIDATES)
 }
+/// Record hits asked of the semantic layer, whatever the budget: a record costs a line, and
+/// whether it is shown is the ranking's decision, not the search's. The pre-read hook orders a
+/// file's records by these, and a pack asks for at least as many (`record_hit_limit`).
+pub const RECORD_HITS: usize = 32;
+
+/// Record hits a pack whose code hits are capped at `code_limit` asks for: more than its code
+/// hits at every budget. The task's own intent, which semantic search ranks first because it
+/// restates the goal, is asked for on top of these and does not take one of them.
+pub fn record_hit_limit(code_limit: usize) -> usize {
+    RECORD_HITS.max(2 * code_limit)
+}
+
+/// The records that match a pack's goal best lead its History section ("Decisions & dead
+/// ends"), ahead of records that are only anchored on a symbol the goal names: at most this
+/// many. Chosen on the design set of `bench/results/2026-11-first-pack/PREREG.md`.
+pub const GOAL_LEADS: usize = 2;
+/// Score of a goal lead before its `record_factor`: above every `record_score` (at most
+/// `1 + SEED_BONUS`), plus how well it matches, so the leads keep their own order.
+pub const GOAL_LEAD_SCORE: f32 = 1.0 + SEED_BONUS;
 /// Semantic search is abandoned this long after it starts.
 pub const SEMANTIC_TIMEOUT: Duration = Duration::from_millis(150);
 /// Hop distance assigned to anything not connected to the seeds.
@@ -257,6 +276,21 @@ mod tests {
         assert_eq!(candidate_limit(4000), 16);
         assert_eq!(candidate_limit(8000), 32);
         assert_eq!(candidate_limit(100_000), MAX_CANDIDATES);
+    }
+
+    #[test]
+    fn a_pack_asks_for_more_record_hits_than_code_hits_at_every_budget() {
+        for budget in [0, 800, 2000, 8000, 10_000, 100_000] {
+            let code = candidate_limit(budget);
+            assert!(record_hit_limit(code) > code, "budget {budget}");
+        }
+        assert_eq!(record_hit_limit(candidate_limit(800)), RECORD_HITS);
+    }
+
+    #[test]
+    fn a_goal_lead_outranks_every_record_score() {
+        let best = record_score(RecordKind::Attempt, 0, 0.0, true, 1.0);
+        assert!(GOAL_LEAD_SCORE >= best, "{GOAL_LEAD_SCORE} < {best}");
     }
 
     #[test]

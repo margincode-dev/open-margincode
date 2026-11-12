@@ -1,0 +1,216 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T19:02:39.201429+00:00",
+  "head_change": "d37980193b217ad4c418a8abf3bcd6527b62f8b0",
+  "id": "rcp:2b975392",
+  "items": [
+    {
+      "id": "task:relay-money-plain",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 55
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:e80319b4",
+      "reason": "semantic",
+      "score": 0.6698510050773621,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:a1b2b16a",
+      "reason": "semantic",
+      "score": 0.624462902545929,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:4dbeb85e",
+      "reason": "semantic",
+      "score": 0.6122145056724548,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:9c28b3ca",
+      "reason": "semantic",
+      "score": 0.5365254878997803,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:913092c3",
+      "reason": "semantic",
+      "score": 0.5362784266471863,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:151ab280",
+      "reason": "semantic",
+      "score": 0.5349191427230835,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:15656",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/money.py",
+        77,
+        80
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:15658",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:15646",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/money.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:15645",
+      "reason": "lexical",
+      "score": 0.7571954131126404,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:15647",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:15657",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/money.py",
+        82,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:15660",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:15681",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:15637",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        73,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:15659",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:15674",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:f5621c79 note: `Money._check` reads files as UTF-8 explicitly; the platform default e…",
+    "- sym:15625 Ledger.record_sale (tallyho/ledger.py:37-44)",
+    "- sym:15640 Order.subtotal (tallyho/models.py:92-93)",
+    "- sym:15644 _exponent (tallyho/money.py:14-18)",
+    "- sym:15654 Money.amount (tallyho/money.py:71-72)",
+    "- sym:15754 test_of_and_format (tests/test_money.py:9-12)"
+  ],
+  "packer_version": 5,
+  "session": "bb6c9f61-ea81-46d6-a189-4395c00abdae",
+  "task_id": "0321ffa0-0ac3-4279-add9-9be50c3d8257",
+  "tokens": 656
+}

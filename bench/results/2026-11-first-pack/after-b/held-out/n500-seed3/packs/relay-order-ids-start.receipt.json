@@ -1,0 +1,209 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:39:21.006878+00:00",
+  "head_change": "529b1706988db726ce267c10829361ede9404a46",
+  "id": "rcp:20b91672",
+  "items": [
+    {
+      "id": "task:relay-order-ids",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 66
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:41223",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/repository.py",
+        57,
+        59
+      ],
+      "tier": "full",
+      "tokens": 30
+    },
+    {
+      "id": "sym:41222",
+      "reason": "lexical",
+      "score": 0.7802419662475586,
+      "source": [
+        "tallyho/repository.py",
+        54,
+        55
+      ],
+      "tier": "full",
+      "tokens": 32
+    },
+    {
+      "id": "sym:41225",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/repository.py",
+        72,
+        74
+      ],
+      "tier": "full",
+      "tokens": 37
+    },
+    {
+      "id": "sym:41224",
+      "reason": "lexical",
+      "score": 0.7633116841316223,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "full",
+      "tokens": 36
+    },
+    {
+      "id": "sym:41215",
+      "reason": "lexical",
+      "score": 0.7598077058792114,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:41226",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/store/base.py",
+        10,
+        14
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:41162",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/models.py",
+        76,
+        84
+      ],
+      "tier": "full",
+      "tokens": 37
+    },
+    {
+      "id": "sym:41160",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:41198",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "full",
+      "tokens": 51
+    },
+    {
+      "id": "sym:41158",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/models.py",
+        55,
+        56
+      ],
+      "tier": "full",
+      "tokens": 33
+    },
+    {
+      "id": "sym:41166",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        98,
+        109
+      ],
+      "tier": "full",
+      "tokens": 28
+    },
+    {
+      "id": "sym:41189",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "full",
+      "tokens": 37
+    },
+    {
+      "id": "sym:41201",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "full",
+      "tokens": 60
+    },
+    {
+      "id": "sym:41228",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/store/base.py",
+        24,
+        25
+      ],
+      "tier": "summary",
+      "tokens": 36
+    },
+    {
+      "id": "sym:41290",
+      "reason": "lexical",
+      "score": 0.32360294461250305,
+      "source": [
+        "tests/test_store.py",
+        20,
+        25
+      ],
+      "tier": "full",
+      "tokens": 27
+    }
+  ],
+  "omitted": [],
+  "packer_version": 6,
+  "session": "bench-start-866b4979-d200-4b36-a4b4-3bf12d19580c",
+  "task_id": "8083238e-44fb-4a40-84fe-f1f95ca4543f",
+  "tokens": 629
+}

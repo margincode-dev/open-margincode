@@ -1,0 +1,204 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:37:07.777455+00:00",
+  "head_change": "c9227cb6f308ff895e9bacdef3a9fcf48adf3107",
+  "id": "rcp:d6694e54",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:514aae92",
+      "reason": "goal-lead",
+      "score": 2.0306217670440674,
+      "source": null,
+      "tier": "summary",
+      "tokens": 63
+    },
+    {
+      "id": "rec:e99fd842",
+      "reason": "goal-lead",
+      "score": 2.0302822589874268,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:e1e622f4",
+      "reason": "semantic",
+      "score": 0.6714948415756226,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:ceff3389",
+      "reason": "semantic",
+      "score": 0.6688238978385925,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:1de5695f",
+      "reason": "semantic",
+      "score": 0.6682218313217163,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:1873dc7a",
+      "reason": "semantic",
+      "score": 0.6648191809654236,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "sym:40356",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:40359",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:40358",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:40357",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:40360",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:40435",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:40353",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:40371",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:40355",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:40455",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:6f124e66 attempt: Replacing the loop in `CouponBook.__init__` with a comprehension made…",
+    "- rec:e1411129 attempt: Wrapping `Coupon.discount` in a bare try/except with a retry loop hid…",
+    "- rec:e642329d attempt: Wrapping the `coupons` module in a bare try/except with a retry loop h…",
+    "- rec:dc0b5e67 attempt: Tried calling `CouponBook.add` twice to force a refresh; the second ca…",
+    "- rec:e3ba0507 attempt: Replacing the loop in `Discount` with a comprehension made it shorter…",
+    "- rec:ef6fd49c attempt: Wrapping `Discount.amount_off` in a bare try/except with a retry loop…"
+  ],
+  "packer_version": 6,
+  "session": "2ab50f8d-13cb-41a2-abff-240c750ed6e2",
+  "task_id": "2f6cf0c1-b888-4b77-8ccf-0e01f5b689ad",
+  "tokens": 701
+}

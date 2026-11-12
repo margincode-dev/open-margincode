@@ -1,0 +1,308 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T18:56:04.293639+00:00",
+  "head_change": "5c734401cc4bbe487c677bf58a51dc068ecb2e79",
+  "id": "rcp:2200cb1f",
+  "items": [
+    {
+      "id": "task:relay-customer-region",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/store/jsonfile.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/store/memory.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/validate.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:303e4225",
+      "reason": "anchored",
+      "score": 1.6999990940093994,
+      "source": null,
+      "tier": "summary",
+      "tokens": 41
+    },
+    {
+      "id": "rec:dfa9ea23",
+      "reason": "anchored",
+      "score": 1.659999132156372,
+      "source": null,
+      "tier": "summary",
+      "tokens": 42
+    },
+    {
+      "id": "rec:31c70c45",
+      "reason": "anchored",
+      "score": 1.6599990129470823,
+      "source": null,
+      "tier": "summary",
+      "tokens": 43
+    },
+    {
+      "id": "rec:b61cc598",
+      "reason": "anchored",
+      "score": 1.659998893737793,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:13578",
+      "reason": "hop1",
+      "score": 0.875,
+      "source": [
+        "tallyho/validate.py",
+        24,
+        26
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:13576",
+      "reason": "hop1",
+      "score": 0.8573102951049805,
+      "source": [
+        "tallyho/validate.py",
+        14,
+        16
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:13472",
+      "reason": "hop1",
+      "score": 0.8379920721054077,
+      "source": [
+        "tallyho/models.py",
+        30,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:13580",
+      "reason": "hop1",
+      "score": 0.6463709473609924,
+      "source": [
+        "tallyho/validate.py",
+        34,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:13577",
+      "reason": "hop1",
+      "score": 0.639453113079071,
+      "source": [
+        "tallyho/validate.py",
+        19,
+        21
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:13579",
+      "reason": "hop1",
+      "score": 0.6361538171768188,
+      "source": [
+        "tallyho/validate.py",
+        29,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:13454",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/errors.py",
+        8,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:13471",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/models.py",
+        23,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:13478",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:13575",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/validate.py",
+        11,
+        11
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:13473",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/models.py",
+        39,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:13551",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        14,
+        72
+      ],
+      "tier": "handle",
+      "tokens": 21
+    }
+  ],
+  "omitted": [
+    "- rec:5b8452fd note: The repr of objects around `ValidationError` shows up in logs, so keep…",
+    "- rec:e4875d1e decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:efd0301b decision: Event payloads carry money as integer minor units plus the currency co…",
+    "- rec:5ec4e756 note: Deprecation warnings from `Money.format` are turned into errors in CI…",
+    "- rec:739c7c86 note: Deprecation warnings from `CurrencyMismatch` are turned into errors in…",
+    "- rec:737bf7c9 note: Deprecation warnings from `Repository.save_customer` are turned into e…"
+  ],
+  "packer_version": 5,
+  "session": "ae3a6b68-e7be-492b-b5f8-5b1ae657a715",
+  "task_id": "725b87c9-8fc5-4769-b2c6-60aace9e21ed",
+  "tokens": 701
+}

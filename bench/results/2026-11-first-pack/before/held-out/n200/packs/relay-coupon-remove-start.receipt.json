@@ -1,0 +1,209 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-10T18:52:04.620725+00:00",
+  "head_change": "38148519700a4af13593f21ba85e1753789b9f99",
+  "id": "rcp:a42208f1",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 51
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:11678",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:11681",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "full",
+      "tokens": 37
+    },
+    {
+      "id": "sym:11680",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "full",
+      "tokens": 35
+    },
+    {
+      "id": "sym:11679",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "full",
+      "tokens": 46
+    },
+    {
+      "id": "sym:11682",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "full",
+      "tokens": 53
+    },
+    {
+      "id": "sym:11757",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "full",
+      "tokens": 52
+    },
+    {
+      "id": "sym:11675",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:11677",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "full",
+      "tokens": 43
+    },
+    {
+      "id": "sym:11693",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "full",
+      "tokens": 60
+    },
+    {
+      "id": "sym:11652",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:11626",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "summary",
+      "tokens": 31
+    },
+    {
+      "id": "sym:11637",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/events.py",
+        19,
+        22
+      ],
+      "tier": "summary",
+      "tokens": 34
+    },
+    {
+      "id": "sym:11695",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/tax.py",
+        19,
+        23
+      ],
+      "tier": "summary",
+      "tokens": 34
+    },
+    {
+      "id": "sym:11704",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/repository.py",
+        19,
+        21
+      ],
+      "tier": "summary",
+      "tokens": 31
+    },
+    {
+      "id": "sym:11777",
+      "reason": "lexical",
+      "score": 0.32360294461250305,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "full",
+      "tokens": 32
+    }
+  ],
+  "omitted": [],
+  "packer_version": 5,
+  "session": "bench-start-4a7cff28-3ae1-494b-80d3-d8cb2d0940c5",
+  "task_id": "9d91c1a7-9132-4c23-9f40-caeb7b419caa",
+  "tokens": 666
+}

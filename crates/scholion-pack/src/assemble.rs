@@ -35,6 +35,31 @@ struct Structural {
     code_factor: HashMap<String, f32>,
     located: Vec<IndexedSymbol>,
     has_head: bool,
+    /// History items that are records, by item id: what `lead_goal_matches` needs to know.
+    records: HashMap<String, RecordFacts>,
+    /// Embedding similarity of the records that were semantic hits, by item id.
+    similarity: HashMap<String, f32>,
+}
+
+/// A History record as `lead_goal_matches` sees it.
+struct RecordFacts {
+    /// Summary and body, matched against the goal's words.
+    text: String,
+    /// Mined records and other tasks' intents never lead (see `lead_goal_matches`).
+    may_lead: bool,
+    /// Its `record_factor`, applied to a lead's score too.
+    factor: f32,
+}
+
+impl RecordFacts {
+    fn of(rec: &Record, task: &Task, changed: bool) -> Self {
+        let foreign_intent = rec.kind == RecordKind::Intent && rec.task_id != task.id;
+        RecordFacts {
+            text: format!("{} {}", rec.summary, rec.body),
+            may_lead: !history::is_mined(&rec.author_agent) && !foreign_intent,
+            factor: record_factor(rec, task, changed),
+        }
+    }
 }
 
 const MAX_NEIGHBORS: usize = 40;
@@ -282,9 +307,14 @@ pub(crate) async fn gather(
     let repo = task.repo.clone();
     let query_for_search = query.clone();
     // Started here, not after the index reads, so a slow index does not add another 150 ms.
+    // One more record than `merge_hits` keeps: the task's own intent, which restates the goal and
+    // so is usually the best hit, does not take the place of another task's record.
     let search = async move {
         match (sem, query_for_search) {
-            (Some(sem), Some(q)) => Some(sem.search(&repo, &q, limit).await),
+            (Some(sem), Some(q)) => Some(
+                sem.search_with(&repo, &q, limit, score::record_hit_limit(limit) + 1)
+                    .await,
+            ),
             _ => None,
         }
     };
@@ -307,7 +337,52 @@ pub(crate) async fn gather(
     if parts.seed_set.is_empty() {
         expand_best_hits(d, task, limit, &mut parts).await?;
     }
+    lead_goal_matches(query.as_deref(), &mut parts);
     Ok(parts.gathered)
+}
+
+/// Change B of `bench/results/2026-11-first-pack/PREREG.md`: the `score::GOAL_LEADS` History
+/// records that match the pack's query best, by its words and by embedding similarity
+/// (`relevance::leads`), lead their section, ahead of records that are only anchored on a symbol
+/// the goal names (`SEED_BONUS`). Being anchored says a record is about the same code; where that
+/// code has many records, only this says which are about the same thing. Records mined from git
+/// history and other tasks' intents do not lead: both are ranked down already
+/// (`record_factor`) for being rarely what an agent needs.
+fn lead_goal_matches(query: Option<&str>, parts: &mut Structural) {
+    let Some(query) = query.map(str::trim).filter(|q| !q.is_empty()) else {
+        return;
+    };
+    let at: Vec<usize> = parts
+        .gathered
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.section == Section::History && i.reason != "pinned-review")
+        .filter(|(_, i)| parts.records.get(&i.id).is_some_and(|f| f.may_lead))
+        .map(|(n, _)| n)
+        .collect();
+    if at.is_empty() {
+        return;
+    }
+    let ids: Vec<String> = at
+        .iter()
+        .map(|&n| parts.gathered.items[n].id.clone())
+        .collect();
+    let texts: Vec<String> = ids
+        .iter()
+        .map(|id| parts.records[id].text.clone())
+        .collect();
+    let words = crate::relevance::word_scores(query, &texts);
+    let similarity: Vec<Option<f32>> = ids
+        .iter()
+        .map(|id| parts.similarity.get(id).copied())
+        .collect();
+    for (k, fused) in crate::relevance::leads(&words, &similarity, score::GOAL_LEADS) {
+        let factor = parts.records[&ids[k]].factor;
+        let item = &mut parts.gathered.items[at[k]];
+        item.score = (score::GOAL_LEAD_SCORE + fused) * factor;
+        item.reason = "goal-lead";
+    }
 }
 
 /// A cold start has no seeds, so nothing comes in through the reference graph, and an agent
@@ -706,6 +781,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     // The owner works through review findings first: pinned at full tier until resubmitted.
     let owner_at_work = matches!(task.status, TaskStatus::Open | TaskStatus::Conflicted);
     let now = Utc::now();
+    let mut facts: HashMap<String, RecordFacts> = HashMap::new();
     for rec in records.values() {
         if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {
             continue;
@@ -739,6 +815,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             } else {
                 "anchored"
             };
+            facts.insert(id.clone(), RecordFacts::of(rec, task, changed));
             items.push(
                 rec_item(
                     rec,
@@ -939,6 +1016,8 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         code_factor,
         located: located.into_iter().map(|l| l.sym).collect(),
         has_head,
+        records: facts,
+        similarity: HashMap::new(),
     })
 }
 
@@ -1067,6 +1146,9 @@ async fn merge_hits(
         }
     }
 
+    // the task's own intent is asked for on top of these (`gather`), and does not count
+    let record_cap = score::record_hit_limit(limit);
+    let mut records = 0;
     for hit in &hits {
         if hit.superseded {
             continue;
@@ -1081,6 +1163,15 @@ async fn merge_hits(
                     Err(AvError::NotFound(_)) => continue,
                     Err(e) => return Err(e),
                 };
+                if !(rec.kind == RecordKind::Intent && rec.task_id == task.id) {
+                    if records == record_cap {
+                        continue;
+                    }
+                    records += 1;
+                }
+                parts
+                    .similarity
+                    .insert(short_id("rec", &rec.id.0), hit.score);
                 include_record(d, task, parts, &rec, hit.score, "semantic").await?;
             }
             SemanticKind::Convention => {
@@ -1203,6 +1294,9 @@ async fn include_record(
         );
     } else {
         let age_days = (Utc::now() - rec.created_at).num_seconds() as f64 / 86_400.0;
+        parts
+            .records
+            .insert(id.clone(), RecordFacts::of(rec, task, changed));
         parts.gathered.items.push(
             rec_item(
                 rec,

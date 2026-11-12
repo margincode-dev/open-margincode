@@ -335,7 +335,12 @@ fn commit_notes_md(dest: &Path) -> Result<()> {
 
 /// E4, av arms: the relay notes as records of an earlier task, anchored to their code, so
 /// packs and the pre-read hook can show them to the agent's task.
-fn seed_relay_records(spec: &TaskSpec, daemon: &Daemon, repo: &str) -> Result<()> {
+/// Seeds the relay notes as an earlier task's records and returns each one's `(pair, record id)`.
+fn seed_relay_records(
+    spec: &TaskSpec,
+    daemon: &Daemon,
+    repo: &str,
+) -> Result<Vec<(String, String)>> {
     let started = daemon.post(
         "/v1/tasks",
         json!({"repo": repo, "title": "earlier work", "goal": "Earlier work on this code",
@@ -344,19 +349,24 @@ fn seed_relay_records(spec: &TaskSpec, daemon: &Daemon, repo: &str) -> Result<()
     )?;
     let task = started["task"]["id"].as_str().ok_or("no task id")?;
     let generation = started["task"]["generation"].as_i64().unwrap_or(1);
+    let mut seeded = Vec::with_capacity(spec.relay_notes.len());
     for n in &spec.relay_notes {
         let mut anchor = json!({"path": n.path});
         if let Some(sym) = &n.symbol {
             anchor["symbol"] = json!(sym);
         }
-        daemon.post(
+        let rec = daemon.post(
             &format!("/v1/tasks/{task}/records"),
             json!({"kind": n.kind, "summary": n.summary, "body": n.body,
                    "anchors": [anchor], "agent": "agent-a"}),
             Some(generation),
         )?;
+        seeded.push((
+            n.pair.clone(),
+            rec["id"].as_str().unwrap_or_default().to_owned(),
+        ));
     }
-    Ok(())
+    Ok(seeded)
 }
 
 /// Every file of `rev` exists in `dir` with the same bytes.
@@ -487,6 +497,10 @@ struct AvTask {
     workspace: PathBuf,
     /// The scrubbed copy the bench daemon imported the repo from.
     source: PathBuf,
+    /// `(pair, record id)` of every relay note seeded as a record, in pool order.
+    seeded: Vec<(String, String)>,
+    /// The pack the daemon answered the task start with (what `pack.md` holds).
+    start_pack: Value,
 }
 
 fn start_av_task(
@@ -506,9 +520,11 @@ fn start_av_task(
         &name,
         &format!("{}/{name}", cfg.import_mount.trim_end_matches('/')),
     )?;
-    if !spec.relay_notes.is_empty() {
-        seed_relay_records(spec, daemon, &name)?;
-    }
+    let seeded = if spec.relay_notes.is_empty() {
+        vec![]
+    } else {
+        seed_relay_records(spec, daemon, &name)?
+    };
     // The start pack is only kept for calibration (`pack.md`), so it goes to a session of its
     // own: under the agent's session the ledger would mark everything as sent, and the agent's
     // first pack would be nothing but back-references.
@@ -550,6 +566,8 @@ fn start_av_task(
         generation,
         workspace,
         source: src,
+        seeded,
+        start_pack: started["pack"].clone(),
     })
 }
 
@@ -646,7 +664,10 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
                          "hooks": [{"type": "command", "command": edit}]}]
     });
     if cfg.jit_hooks {
-        let read = format!("echo pre-read >> {count}; {av} hook pre-read");
+        // Claude Code's transcript keeps a SessionStart hook's output but not a PreToolUse
+        // hook's, so what the agent was told about a file is kept here (`pre-read.out`).
+        let said = sh_quote(&dir.join("pre-read.out").to_string_lossy());
+        let read = format!("echo pre-read >> {count}; {av} hook pre-read | tee -a {said}");
         // The prefix is on the hook command: a bench backlog is empty, and the default
         // wait is 600s. A Stop hook that does not inherit the session environment would
         // otherwise stall the run.
@@ -1011,6 +1032,298 @@ pub fn parse_session(vendor: Vendor, text: &str) -> ParsedSession {
         Vendor::Claude => crate::events::parse_stream(text),
         Vendor::Grok => parse_grok(text),
     }
+}
+
+/// Where one record stands in one pack.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Standing {
+    /// `handle`, `summary` or `full` when the pack shows the record.
+    pub tier: Option<String>,
+    /// Its 1-based place in the pack's list of omitted items, when it is only listed there.
+    pub omitted_at: Option<usize>,
+    /// Its score, when the pack shows it.
+    pub score: Option<f64>,
+    /// Records the pack shows, at any tier.
+    pub records_shown: usize,
+    /// Items the pack left out, listed or not.
+    pub omitted_total: usize,
+    pub tokens: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded: Vec<String>,
+}
+
+impl Standing {
+    /// `full`, `summary`, `handle`, `omitted #k` or `absent`.
+    pub fn place(&self) -> String {
+        match (&self.tier, self.omitted_at) {
+            (Some(t), _) => t.clone(),
+            (None, Some(k)) => format!("omitted #{k}"),
+            (None, None) => "absent".into(),
+        }
+    }
+
+    /// Whether the pack shows the record (a handle is its clipped summary).
+    pub fn shown(&self) -> bool {
+        self.tier.is_some()
+    }
+}
+
+/// What the pre-read hook answers for one file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PreRead {
+    pub path: String,
+    /// Records in the answer.
+    pub records: usize,
+    /// Whether the lesson of the task is one of them.
+    pub lesson: bool,
+}
+
+/// What a relay task's av session is handed about its own lesson (`first-packs`): no agent runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FirstPack {
+    pub task: String,
+    /// `rec:<8 hex>` of the task's own lesson (the note of its `relay_pair`).
+    pub lesson: String,
+    /// Records seeded on the earlier task: lessons and noise.
+    pub seeded: usize,
+    /// The pack the task start answered with, before the records were embedded. This is the
+    /// `pack.md` a `run` keeps; no agent reads it.
+    pub at_start: Standing,
+    /// The pack the session-start hook prints, once the repo's outbox has drained.
+    pub at_hook: Standing,
+    /// The pre-read hook's answer for each of the task's `relevant_files`, in that order, under
+    /// the hook pack's session (so a record the pack showed is not repeated).
+    pub pre_read: Vec<PreRead>,
+    /// How many of the task's `relevant_files` the hook pack names: records must not be bought
+    /// with the code the agent needs.
+    #[serde(default)]
+    pub files_named: usize,
+    #[serde(default)]
+    pub files: usize,
+}
+
+impl FirstPack {
+    /// Whether either hook gives the agent the lesson's whole summary: the pack at the
+    /// `summary` or `full` tier (a handle is cut to 70 characters), or a pre-read answer.
+    pub fn in_full(&self) -> bool {
+        matches!(self.at_hook.tier.as_deref(), Some("summary" | "full"))
+            || self.pre_read.iter().any(|p| p.lesson)
+    }
+}
+
+/// Where `lesson` stands in `pack`, read from the pack's receipt, which is kept as `keep`.
+fn standing(daemon: &Daemon, pack: &Value, lesson: &str, keep: &Path) -> Result<Standing> {
+    let md = pack["markdown"].as_str().unwrap_or_default();
+    let listed: Vec<&str> = pack["omitted"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let omitted_total = md
+        .lines()
+        .find_map(|l| l.strip_prefix("omitted ")?.split(' ').next()?.parse().ok())
+        .unwrap_or(listed.len());
+    let mut s = Standing {
+        omitted_at: listed
+            .iter()
+            .position(|l| l.contains(lesson))
+            .map(|i| i + 1),
+        omitted_total,
+        tokens: pack["tokens"].as_u64().unwrap_or(0),
+        degraded: pack["degraded"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        ..Standing::default()
+    };
+    let Some(receipt) = pack["receipt"].as_str() else {
+        return Err("the pack has no receipt, so its items cannot be read".into());
+    };
+    let receipt = daemon.get(&format!("/v1/receipts/{receipt}"))?;
+    write_json(keep, &receipt)?;
+    for item in receipt["items"].as_array().into_iter().flatten() {
+        let id = item["id"].as_str().unwrap_or_default();
+        if !id.starts_with("rec:") {
+            continue;
+        }
+        s.records_shown += 1;
+        if id == lesson {
+            s.tier = Some(match &item["tier"] {
+                Value::String(t) => t.to_lowercase(),
+                other => other.to_string(),
+            });
+            s.score = item["score"].as_f64();
+        }
+    }
+    Ok(s)
+}
+
+/// The session-start hook's query, from the same settings `run` gives the hook.
+fn hook_query(cfg: &RunConfig, session: &str) -> Result<String> {
+    let mut q = format!(
+        "budget={}&session={session}&code={}",
+        cfg.hook_budget,
+        cfg.hook_code.as_deref().unwrap_or("signatures")
+    );
+    let mut map = true;
+    for a in &cfg.hook_args {
+        if a == "--no-map" {
+            map = false;
+        } else if let Some(n) = a.strip_prefix("--max-code=") {
+            q.push_str(&format!("&max_code={n}"));
+        } else {
+            return Err(format!("first-packs does not know the hook argument {a}"));
+        }
+    }
+    q.push_str(&format!("&map={map}"));
+    Ok(q)
+}
+
+/// Sets a relay task up as `run` does for the `av` arm, then asks the daemon for what the hooks
+/// would print instead of starting an agent. Writes `pack.md` (at task start), `hook-pack.md`
+/// and `first-pack.json` under the run directory. Costs nothing.
+pub fn first_pack(spec: &TaskSpec, run_id: &str, cfg: &RunConfig) -> Result<FirstPack> {
+    let pair = spec
+        .relay_pair
+        .as_deref()
+        .ok_or_else(|| format!("task {} has no relay_pair", spec.name))?;
+    let dir = first_pack_dir(cfg, run_id, &spec.name);
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let url = cfg.av_url.as_deref().ok_or("first-packs needs --av-url")?;
+    let daemon = Daemon::new(url, cfg.av_token.as_deref());
+    daemon.preflight()?;
+    let t = start_av_task(spec, Arm::Av, 1, run_id, cfg, &daemon, &dir)?;
+    let id = t
+        .seeded
+        .iter()
+        .find(|(p, _)| p == pair)
+        .map(|(_, id)| id.replace('-', ""))
+        .filter(|id| id.len() >= 8)
+        .ok_or_else(|| format!("task {}: no record was seeded for {pair}", spec.name))?;
+    let lesson = format!("rec:{}", &id[..8]);
+    let at_start = standing(&daemon, &t.start_pack, &lesson, &dir.join("receipt.json"))?;
+    wait_for_index(&daemon, &t.repo, cfg)?;
+
+    let session = uuid::Uuid::new_v4().to_string();
+    let pack = daemon.get(&format!(
+        "/v1/tasks/{}/context?{}",
+        t.id,
+        hook_query(cfg, &session)?
+    ))?;
+    std::fs::write(
+        dir.join("hook-pack.md"),
+        pack["markdown"].as_str().unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let at_hook = standing(&daemon, &pack, &lesson, &dir.join("hook-receipt.json"))?;
+    let hook_md = pack["markdown"].as_str().unwrap_or_default();
+    let files_named = spec
+        .relevant_files
+        .iter()
+        .filter(|f| hook_md.contains(f.as_str()))
+        .count();
+    let mut pre_read = vec![];
+    for path in &spec.relevant_files {
+        let r = daemon.get(&format!(
+            "/v1/tasks/{}/records/at?path={path}&session={session}",
+            t.id
+        ))?;
+        let ids: Vec<&str> = r["records"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        pre_read.push(PreRead {
+            path: path.clone(),
+            records: ids.len(),
+            lesson: ids.contains(&lesson.as_str()),
+        });
+    }
+    let out = FirstPack {
+        task: spec.name.clone(),
+        lesson,
+        seeded: t.seeded.len(),
+        at_start,
+        at_hook,
+        pre_read,
+        files_named,
+        files: spec.relevant_files.len(),
+    };
+    write_json(
+        &dir.join("first-pack.json"),
+        &serde_json::to_value(&out).expect("json"),
+    )?;
+    if !cfg.keep_work {
+        remove_work(&t.workspace, Some(&t), Some(&daemon));
+    }
+    Ok(out)
+}
+
+/// Where `first_pack` writes for one task.
+pub fn first_pack_dir(cfg: &RunConfig, run_id: &str, task: &str) -> PathBuf {
+    cfg.work_root
+        .join("runs")
+        .join(run_id)
+        .join(format!("{task}-first-pack"))
+}
+
+/// `first-packs.md`: one line per task, and how many tasks each channel gave their lesson.
+pub fn first_packs_report(rows: &[FirstPack], noise: usize) -> String {
+    let mut out = format!(
+        "# First packs: is the task's own lesson in them?\n\nNoise notes: {noise}. Tasks: {}. \
+         No agent ran.\n\n| task | records seeded | pack at task start | hook pack | records in \
+         hook pack | omitted | relevant files named | pre-read (file: lesson, records) |\n\
+         |---|---|---|---|---|---|---|---|\n",
+        rows.len()
+    );
+    for r in rows {
+        let pre: Vec<String> = r
+            .pre_read
+            .iter()
+            .map(|p| {
+                format!(
+                    "{}: {}, {}",
+                    p.path,
+                    if p.lesson { "yes" } else { "no" },
+                    p.records
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} | {}/{} | {} |\n",
+            r.task,
+            r.seeded,
+            r.at_start.place(),
+            r.at_hook.place(),
+            r.at_hook.records_shown,
+            r.at_hook.omitted_total,
+            r.files_named,
+            r.files,
+            pre.join("; ")
+        ));
+    }
+    let n = |f: &dyn Fn(&FirstPack) -> bool| rows.iter().filter(|r| f(r)).count();
+    let all = rows.len();
+    out.push_str(&format!(
+        "\nLesson shown in the pack at task start: {} of {all}. In the hook pack: {} of {all}. \
+         In the hook pack or a pre-read answer: {} of {all}.\n\nLesson shown in full (the hook \
+         pack at the summary or full tier, or a pre-read answer): {} of {all}. Relevant files \
+         named in the hook pack: {} of {}. Packs marked degraded: {}.\n",
+        n(&|r| r.at_start.shown()),
+        n(&|r| r.at_hook.shown()),
+        n(&|r| r.at_hook.shown() || r.pre_read.iter().any(|p| p.lesson)),
+        n(&|r| r.in_full()),
+        rows.iter().map(|r| r.files_named).sum::<usize>(),
+        rows.iter().map(|r| r.files).sum::<usize>(),
+        n(&|r| !r.at_hook.degraded.is_empty()),
+    ));
+    out
 }
 
 #[cfg(test)]

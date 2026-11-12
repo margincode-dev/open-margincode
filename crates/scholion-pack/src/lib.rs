@@ -5,6 +5,7 @@ pub mod diff;
 mod ledger;
 pub mod lexical;
 mod packer;
+mod relevance;
 mod render;
 mod score;
 mod tokens;

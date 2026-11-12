@@ -3,7 +3,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
-use scholion_bench::runner::{Arm, RunConfig, run_session};
+use scholion_bench::runner::{
+    Arm, RunConfig, first_pack, first_pack_dir, first_packs_report, run_session,
+};
 use scholion_bench::spec::{TaskSpec, load_spec};
 use tempfile::TempDir;
 
@@ -634,6 +636,33 @@ fn jit_hooks_add_pre_read_and_stop_to_the_av_arms() {
         .as_str()
         .unwrap();
     assert!(pre.contains("hook pre-read"), "{s}");
+    // what the hook tells the agent is kept beside hook-count, and still reaches the agent
+    script(
+        f._tools.path(),
+        "av",
+        "#!/bin/sh
+cat > /dev/null
+echo \"said $2\"
+",
+    );
+    for _ in 0..2 {
+        let out = std::process::Command::new("sh")
+            .args(["-c", pre])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "said pre-read
+"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(o.run_dir.join("pre-read.out")).unwrap(),
+        "said pre-read
+said pre-read
+"
+    );
     assert_eq!(
         v["hooks"]["PreToolUse"][0]["matcher"],
         "Read|Edit|MultiEdit"
@@ -916,4 +945,73 @@ fn noise_reaches_the_av_arm_as_n_more_records_with_the_notes_arms_text() {
         in_av, in_notes,
         "both arms carry the same notes, word for word"
     );
+}
+
+#[test]
+fn first_pack_says_where_the_lesson_stands_without_running_an_agent() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = relay_fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    let _ = std::fs::remove_file(&f.marker);
+
+    let r = first_pack(&f.spec, "fp1", &f.cfg).unwrap();
+    assert!(!f.marker.exists(), "no agent was started");
+    assert_eq!(r.task, "calc-add");
+    assert_eq!(r.seeded, 2);
+    assert!(
+        r.lesson.starts_with("rec:") && r.lesson.len() == 12,
+        "{r:?}"
+    );
+    // the lesson is the note of the task's own pair, not the other lesson and not noise
+    let hits = get(&format!(
+        "{}/v1/repos/bfp1-calc-add-av-1/search?q=swapping",
+        d.url
+    ));
+    let id = hits["records"][0]["id"].as_str().unwrap().replace('-', "");
+    assert_eq!(r.lesson, format!("rec:{}", &id[..8]), "{hits}");
+    assert_eq!(r.pre_read.len(), 1, "one relevant file: {r:?}");
+    assert_eq!(r.pre_read[0].path, "calc.py");
+    assert!(
+        r.at_hook.shown() || r.pre_read[0].lesson,
+        "without noise the lesson arrives when calc.py is opened, if not before: {r:?}"
+    );
+    assert!(r.at_hook.tokens > 0 && r.at_hook.tokens <= 800, "{r:?}");
+
+    let dir = first_pack_dir(&f.cfg, "fp1", "calc-add");
+    assert_eq!((r.files_named, r.files), (1, 1), "calc.py is named: {r:?}");
+    assert!(r.in_full(), "{r:?}");
+    for kept in [
+        "pack.md",
+        "receipt.json",
+        "hook-pack.md",
+        "hook-receipt.json",
+        "first-pack.json",
+    ] {
+        assert!(dir.join(kept).exists(), "{kept}");
+    }
+    let hook = std::fs::read_to_string(dir.join("hook-pack.md")).unwrap();
+    assert!(hook.contains("## Task"), "{hook}");
+    assert_eq!(
+        hook.contains(&r.lesson),
+        r.at_hook.shown() || r.at_hook.omitted_at.is_some(),
+        "the receipt and the markdown agree: {r:?}\n{hook}"
+    );
+
+    let report = first_packs_report(std::slice::from_ref(&r), 0);
+    assert!(report.contains("| calc-add | 2 |"), "{report}");
+    assert!(
+        report.contains(
+            "or a pre-read answer): 1 of 1. Relevant files named in the hook pack: 1 of 1."
+        ),
+        "{report}"
+    );
+}
+
+#[test]
+fn first_pack_refuses_a_task_without_a_relay_pair() {
+    let _g = serial();
+    let f = fixture("fix");
+    let e = first_pack(&f.spec, "fp2", &f.cfg).unwrap_err();
+    assert!(e.contains("relay_pair"), "{e}");
 }

@@ -514,4 +514,30 @@ pub trait IntentStore: Send + Sync {
 pub trait Semantic: Send + Sync {
     /// `limit` is per collection. Whitespace-only `query` returns `Ok(vec![])` and does not embed.
     async fn search(&self, repo: &str, query: &str, limit: usize) -> Result<Vec<SemanticHit>>;
+
+    /// As `search`, with a cap of its own for records: `limit` code chunks and conventions,
+    /// `record_limit` records. A pack wants more record hits than code hits, and the pre-read
+    /// hook wants records only (`limit` 0). This default searches once with the larger cap and
+    /// keeps the best of each kind.
+    async fn search_with(
+        &self,
+        repo: &str,
+        query: &str,
+        limit: usize,
+        record_limit: usize,
+    ) -> Result<Vec<SemanticHit>> {
+        let mut hits = self.search(repo, query, limit.max(record_limit)).await?;
+        hits.sort_by(|a, b| b.score.total_cmp(&a.score));
+        let (mut records, mut chunks, mut conventions) = (0, 0, 0);
+        hits.retain(|h| {
+            let (seen, cap) = match h.kind {
+                SemanticKind::Record => (&mut records, record_limit),
+                SemanticKind::CodeChunk => (&mut chunks, limit),
+                SemanticKind::Convention => (&mut conventions, limit),
+            };
+            *seen += 1;
+            *seen <= cap
+        });
+        Ok(hits)
+    }
 }

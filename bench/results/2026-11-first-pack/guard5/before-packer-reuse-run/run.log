@@ -1,0 +1,10 @@
+discount-cap: 1 gold files, 1 gold symbols
+refund-over-captured: 1 gold files, 1 gold symbols
+aging-due-today: 1 gold files, 1 gold symbols
+requeue-attempts: 1 gold files, 1 gold symbols
+backoff-overflow: 1 gold files, 1 gold symbols
+percentile-rank: 1 gold files, 1 gold symbols
+retry-after-date: 1 gold files, 1 gold symbols
+cache-key-order: 2 gold files, 2 gold symbols
+token-skew: 1 gold files, 1 gold symbols
+report: /root/fp/guard5-cc-reuse/report.md

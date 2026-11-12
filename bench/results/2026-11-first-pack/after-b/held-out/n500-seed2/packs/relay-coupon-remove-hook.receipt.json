@@ -1,0 +1,204 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:32:02.128994+00:00",
+  "head_change": "207d9c99c2a57aa0ed51bf724276e3aa1afd28b8",
+  "id": "rcp:199fd13b",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:c700ad3b",
+      "reason": "goal-lead",
+      "score": 2.0313189029693604,
+      "source": null,
+      "tier": "summary",
+      "tokens": 63
+    },
+    {
+      "id": "rec:d5368751",
+      "reason": "goal-lead",
+      "score": 2.03125,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:e9b9dd28",
+      "reason": "semantic",
+      "score": 0.6744280457496643,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:4ccba29b",
+      "reason": "semantic",
+      "score": 0.6682219505310059,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:38ee12ad",
+      "reason": "semantic",
+      "score": 0.6648191213607788,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:b2abf6f3",
+      "reason": "semantic",
+      "score": 0.6488313674926758,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "sym:38696",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:38699",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:38698",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:38697",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:38700",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:38775",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:38693",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:38711",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:38695",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:38795",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:a87a0b33 attempt: Tried calling `Coupon` twice to force a refresh; the second call retur…",
+    "- rec:b0a64661 attempt: Moving the imports inside `CouponBook.discounts_for` to speed up start…",
+    "- rec:67fe6091 attempt: Adding type: ignore comments around the `coupons` module to quiet the…",
+    "- rec:a75d437c attempt: Wrapping the `discounts` module in a bare try/except with a retry loop…",
+    "- rec:de349b45 attempt: Caching what `CouponBook.discounts_for` returns in a module-level dict…",
+    "- rec:005cc0cd attempt: Replacing the loop in `Customer` with a comprehension made it shorter…"
+  ],
+  "packer_version": 6,
+  "session": "b28fa692-8756-438a-94ea-986c37ae97b4",
+  "task_id": "f0dbe4ac-0161-4d1e-a6bd-7cec02f2f76d",
+  "tokens": 696
+}

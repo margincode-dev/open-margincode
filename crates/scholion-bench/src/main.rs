@@ -11,7 +11,9 @@ use scholion_bench::noise::{add_noise, anchors_at, generate};
 use scholion_bench::orchestrate::{RunArgs, run};
 use scholion_bench::report::{Meta, read_rows, render_report};
 use scholion_bench::retrieval::{self, RetrievalArgs};
-use scholion_bench::runner::{Arm, Daemon, RunConfig, Vendor, notes_md};
+use scholion_bench::runner::{
+    Arm, Daemon, RunConfig, Vendor, first_pack, first_pack_dir, first_packs_report, notes_md,
+};
 use scholion_bench::scale::{self, ScaleArgs};
 use scholion_bench::spec::{TaskSpec, check_spec, check_warnings, load_spec_with_root, spec_files};
 
@@ -169,6 +171,26 @@ enum Cmd {
         n: usize,
         #[arg(long, default_value_t = 1)]
         seed: u64,
+    },
+    /// E4 at scale, free: set each relay task up as `run --arms av` does and report where its
+    /// own lesson stands in the packs the hooks would print. No agent, no money; needs the bench
+    /// daemon.
+    FirstPacks {
+        #[command(flatten)]
+        tasks: TaskArgs,
+        #[command(flatten)]
+        session: SessionArgs,
+        /// Results directory (first-packs.jsonl, first-packs.md, packs/).
+        #[arg(long)]
+        out: PathBuf,
+        /// Only these tasks (by name).
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// As `run --noise`.
+        #[arg(long, default_value_t = 0)]
+        noise: usize,
+        #[arg(long, default_value_t = 1)]
+        noise_seed: u64,
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
@@ -590,6 +612,58 @@ fn main() -> ExitCode {
                 }
             }
             Ok(if r.exit_code == 3 { 0 } else { r.exit_code })
+        })(),
+        Cmd::FirstPacks {
+            tasks,
+            session,
+            out,
+            only,
+            noise,
+            noise_seed,
+        } => (|| {
+            let mut specs = load_tasks(&tasks)?;
+            if !only.is_empty() {
+                specs.retain(|s| only.contains(&s.name));
+            }
+            for s in &specs {
+                check_spec(s)?;
+            }
+            add_noise(&mut specs, noise, noise_seed)?;
+            let cfg = config(&session);
+            let out = expand(&out);
+            let packs = out.join("packs");
+            std::fs::create_dir_all(&packs).map_err(|e| format!("{}: {e}", packs.display()))?;
+            let run_id = format!("fp{:x}", std::process::id());
+            let (mut rows, mut lines) = (vec![], String::new());
+            for spec in &specs {
+                let row = first_pack(spec, &run_id, &cfg)?;
+                let dir = first_pack_dir(&cfg, &run_id, &spec.name);
+                for (from, to) in [
+                    ("pack.md", "start.md"),
+                    ("receipt.json", "start.receipt.json"),
+                    ("hook-pack.md", "hook.md"),
+                    ("hook-receipt.json", "hook.receipt.json"),
+                ] {
+                    let to = packs.join(format!("{}-{to}", spec.name));
+                    std::fs::copy(dir.join(from), &to)
+                        .map_err(|e| format!("{}: {e}", to.display()))?;
+                }
+                println!(
+                    "{}: at start {}, hook pack {}, in full {}",
+                    row.task,
+                    row.at_start.place(),
+                    row.at_hook.place(),
+                    row.in_full()
+                );
+                lines.push_str(&serde_json::to_string(&row).map_err(|e| e.to_string())?);
+                lines.push('\n');
+                rows.push(row);
+            }
+            std::fs::write(out.join("first-packs.jsonl"), lines).map_err(|e| e.to_string())?;
+            let report = first_packs_report(&rows, noise);
+            std::fs::write(out.join("first-packs.md"), &report).map_err(|e| e.to_string())?;
+            print!("{report}");
+            Ok(0)
         })(),
         Cmd::Noise { repo, rev, n, seed } => (|| {
             let anchors = anchors_at(&expand(&repo), &rev)?;

@@ -23,6 +23,18 @@ where
     V: VectorIndex,
 {
     async fn search(&self, repo: &str, query: &str, limit: usize) -> Result<Vec<SemanticHit>> {
+        self.search_with(repo, query, limit, limit).await
+    }
+
+    /// One embedding of the query, then each collection with its own cap; a cap of 0 skips the
+    /// collection.
+    async fn search_with(
+        &self,
+        repo: &str,
+        query: &str,
+        limit: usize,
+        record_limit: usize,
+    ) -> Result<Vec<SemanticHit>> {
         let query = query.trim();
         if query.is_empty() {
             return Ok(Vec::new());
@@ -42,12 +54,17 @@ where
                 vector.len()
             )));
         }
+        let capped = |kind, cap: usize| async move {
+            if cap == 0 {
+                Ok(Vec::new())
+            } else {
+                self.index.search(kind, repo, vector, cap).await
+            }
+        };
         let (records, conventions, chunks) = tokio::join!(
-            self.index.search(SemanticKind::Record, repo, vector, limit),
-            self.index
-                .search(SemanticKind::Convention, repo, vector, limit),
-            self.index
-                .search(SemanticKind::CodeChunk, repo, vector, limit),
+            capped(SemanticKind::Record, record_limit),
+            capped(SemanticKind::Convention, limit),
+            capped(SemanticKind::CodeChunk, limit),
         );
         let mut hits = Vec::new();
         hits.extend(records?);

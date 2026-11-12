@@ -1,0 +1,228 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T16:34:32.861714+00:00",
+  "head_change": "daffcd41e36ce49ba7fdc08bcba72b98b13616e9",
+  "id": "rcp:8b34ceff",
+  "items": [
+    {
+      "id": "task:relay-order-ids",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 33
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:0b2583b1",
+      "reason": "goal-lead",
+      "score": 2.03177809715271,
+      "source": null,
+      "tier": "summary",
+      "tokens": 46
+    },
+    {
+      "id": "rec:f416e066",
+      "reason": "goal-lead",
+      "score": 2.0314979553222656,
+      "source": null,
+      "tier": "summary",
+      "tokens": 39
+    },
+    {
+      "id": "rec:6ee54192",
+      "reason": "semantic",
+      "score": 0.6499964594841003,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:f929d88e",
+      "reason": "semantic",
+      "score": 0.6336442232131958,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:40fc3930",
+      "reason": "semantic",
+      "score": 0.63347327709198,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:78b96083",
+      "reason": "semantic",
+      "score": 0.630386233329773,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:39563",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/repository.py",
+        57,
+        59
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:39562",
+      "reason": "lexical",
+      "score": 0.7802419662475586,
+      "source": [
+        "tallyho/repository.py",
+        54,
+        55
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:39565",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/repository.py",
+        72,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:39564",
+      "reason": "lexical",
+      "score": 0.7633116841316223,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:39555",
+      "reason": "lexical",
+      "score": 0.7566083669662476,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:39566",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/store/base.py",
+        10,
+        14
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:39502",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        76,
+        84
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:39538",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:39500",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:39506",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        98,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:39529",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:39614",
+      "reason": "semantic",
+      "score": 0.32919231057167053,
+      "source": [
+        "tests/conftest.py",
+        22,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 17
+    }
+  ],
+  "omitted": [
+    "- rec:a59e3421 attempt: Moving the imports inside `Repository.save_order` to speed up start-up…",
+    "- rec:8eca74db attempt: Wrapping `Order.to_dict` in a bare try/except with a retry loop hid th…",
+    "- rec:5ef3d0dc attempt: Tried calling `Repository.__init__` twice to force a refresh; the seco…",
+    "- rec:c3664fe8 attempt: Wrapping `Order.subtotal` in a bare try/except with a retry loop hid t…",
+    "- rec:26b6609e attempt: Replacing the loop in `OrderStatus` with a comprehension made it short…",
+    "- rec:ec58a5ed attempt: Tried calling `PercentDiscount` twice to force a refresh; the second c…"
+  ],
+  "packer_version": 6,
+  "session": "16400077-8f92-44c6-832c-78a2044415d2",
+  "task_id": "1e43fac0-b9e0-4e04-a441-97a6692785db",
+  "tokens": 703
+}

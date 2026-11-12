@@ -22,7 +22,7 @@ docker compose -f deploy/docker-compose.yml up -d --build   # needs `export UID 
 ```
 
 Test environment:
-- Postgres tests use `scholion_testutil::TestDb`: a fresh database on `AV_TEST_DATABASE_URL` if set, otherwise an embedded user-space Postgres (downloaded on first run). No Docker needed.
+- Postgres tests use `scholion_testutil::TestDb`: a fresh database on `AV_TEST_DATABASE_URL` if set; else, when a PostgreSQL is installed on the machine (`installed_bin`: `AV_TEST_PG_INSTALL_DIR`, `pg_config` on `PATH`, the usual install directories; `AV_TEST_PG_INSTALL_DIR=none` skips this), a private server started from its binaries in a temporary directory, one per `TestDb`, as user `postgres` or `nobody` when the tests run as root, stopped and removed on drop (`installed.rs`; no download, the installed service is not touched); otherwise an embedded user-space Postgres (downloaded on first run). No Docker needed.
 - Qdrant tests silently skip (pass in ~0s) unless `AV_TEST_QDRANT_URL` (gRPC, e.g. `http://127.0.0.1:6334`) is set. A green workspace run does not prove Qdrant works.
 - `warm_build_under_300ms` is `#[ignore]`d (timing).
 - Scheduled, never on pull requests: `.github/workflows/nightly-scale.yml` (`scholion-bench scale` on tokio and `retrieval` on `bench/retrieval/ci/`, release daemon, no semantic layer, floors in the file with their sources) and, by hand only for now, `e4-smoke.yml` (E4 smoke on DeepSeek, weekly schedule off; needs the secret `LLM_API_KEY`, skips with a notice without it). Results are the runs' artifacts.

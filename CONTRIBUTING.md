@@ -7,8 +7,11 @@ README), so expect rough edges, and say so in issues when you hit one.
 
 - Rust is pinned in `rust-toolchain.toml` (1.97.1); `rustup` picks it up. Don't bump it in an
   unrelated change.
-- Tests need Postgres. With nothing set, `scholion-testutil` downloads an embedded user-space
-  Postgres on first run. To use your own server instead, set
+- Tests need Postgres. With nothing set, `scholion-testutil` uses a PostgreSQL installed on the
+  machine if there is one: each test starts a private server from its binaries in a temporary
+  directory and removes it afterwards, so nothing is downloaded and your own service is not
+  touched (`AV_TEST_PG_INSTALL_DIR` names an install; `none` skips this). Without one it
+  downloads an embedded user-space Postgres on first run. To use your own server instead, set
   `AV_TEST_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/postgres`; each test creates its own
   database there.
 - Qdrant tests skip silently unless `AV_TEST_QDRANT_URL` (gRPC, e.g. `http://127.0.0.1:6334`) is

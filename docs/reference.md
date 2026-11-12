@@ -1088,7 +1088,8 @@ Postgres are not garbage-collected. `av up` moves a `daemon.log` over 50 MB to `
 ## Test
 
 ```bash
-cargo test --workspace   # starts a throwaway user-space Postgres when no database is given
+cargo test --workspace   # starts a throwaway Postgres when no database is given: from an
+                         # installed PostgreSQL if the machine has one, else a downloaded one
 # or against the container:
 AV_TEST_DATABASE_URL=postgres://av:av-dev-only@127.0.0.1:5432/postgres cargo test --workspace
 scripts/smoke.sh         # end-to-end against the Docker stack (needs Docker)

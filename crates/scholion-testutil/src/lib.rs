@@ -1,15 +1,24 @@
 //! Test helper: a throwaway PostgreSQL database per call.
 //!
 //! * `AV_TEST_DATABASE_URL` set (e.g. the compose Postgres): creates a fresh database on that server.
+//! * else, when a PostgreSQL is installed on the machine (`installed_bin`): starts a private
+//!   server from its binaries in a temporary directory (one per `TestDb`, stopped and removed
+//!   on drop). Nothing is downloaded and no service is touched, so tests run offline.
 //! * otherwise: downloads and starts a user-space Postgres via `postgresql_embedded`
 //!   (one server per `TestDb`, stopped on drop). Used when Docker is unavailable.
+
+mod installed;
 
 use postgresql_embedded::PostgreSQL;
 use sqlx::{Connection, PgConnection};
 
+pub use installed::installed_bin;
+
 pub struct TestDb {
     pub url: String,
     _server: Option<PostgreSQL>,
+    /// A private server started from an installed PostgreSQL.
+    _local: Option<installed::Server>,
     /// On a shared server: its URL and our database, dropped with us.
     shared: Option<(String, String)>,
 }
@@ -31,8 +40,12 @@ impl TestDb {
             return TestDb {
                 url: format!("{prefix}/{name}"),
                 _server: None,
+                _local: None,
                 shared: Some((base, name)),
             };
+        }
+        if let Some(bin) = installed_bin() {
+            return TestDb::on_installed(&bin).await;
         }
         let mut pg = PostgreSQL::default();
         pg.setup()
@@ -45,6 +58,18 @@ impl TestDb {
         TestDb {
             url,
             _server: Some(pg),
+            _local: None,
+            shared: None,
+        }
+    }
+
+    /// A database on a private server started from the PostgreSQL binaries in `bin`.
+    pub async fn on_installed(bin: &std::path::Path) -> TestDb {
+        let server = installed::Server::start(bin).await;
+        TestDb {
+            url: server.url.clone(),
+            _server: None,
+            _local: Some(server),
             shared: None,
         }
     }
@@ -104,5 +129,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 42);
+    }
+
+    /// With a PostgreSQL installed, a private server is started from it: no download, and
+    /// nothing is left behind when the `TestDb` goes.
+    #[tokio::test]
+    async fn an_installed_postgres_serves_a_private_database_and_leaves_nothing() {
+        let Some(bin) = installed_bin() else {
+            eprintln!("SKIPPED: no PostgreSQL is installed on this machine");
+            return;
+        };
+        let db = TestDb::on_installed(&bin).await;
+        let dir = db._local.as_ref().unwrap().dir().to_path_buf();
+        assert!(dir.join("data/PG_VERSION").exists());
+        let mut conn = PgConnection::connect(&db.url).await.unwrap();
+        sqlx::query("CREATE TABLE t (n int)")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        // sqlx always asks for UTC, and the store's migrations need these
+        let (tz,): (String,) = sqlx::query_as("SHOW TimeZone")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(tz, "UTC");
+        drop(conn);
+        // two at once do not meet
+        let other = TestDb::on_installed(&bin).await;
+        assert_ne!(other.url, db.url);
+        let mut conn = PgConnection::connect(&other.url).await.unwrap();
+        assert!(
+            sqlx::query("SELECT n FROM t")
+                .fetch_one(&mut conn)
+                .await
+                .is_err()
+        );
+        drop(conn);
+        let url = db.url.clone();
+        drop(db);
+        assert!(!dir.exists(), "the server's directory is removed");
+        assert!(
+            PgConnection::connect(&url).await.is_err(),
+            "and it is stopped"
+        );
     }
 }

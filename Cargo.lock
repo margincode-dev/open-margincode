@@ -3961,6 +3961,7 @@ version = "0.0.3"
 dependencies = [
  "postgresql_embedded",
  "sqlx 0.8.6",
+ "tempfile",
  "tokio",
  "uuid",
 ]

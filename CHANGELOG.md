@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Tests run offline on a machine with PostgreSQL installed.** With no `AV_TEST_DATABASE_URL`, `scholion-testutil` downloaded an embedded Postgres on first run, which fails without network access or behind a proxy that refuses the download. It now first looks for an installed PostgreSQL (`AV_TEST_PG_INSTALL_DIR`, `pg_config`, the usual install directories) and starts a private server per test from its binaries in a temporary directory, as `postgres` or `nobody` when the tests run as root; the server and its files are gone when the test ends, and an installed service is never touched. `AV_TEST_PG_INSTALL_DIR=none` keeps the download.
 - **`scholion-bench run --agent-user` leaves no run directory open.** A finished run sets `<work-root>/runs/<run id>` to 700 (a resume opens it again while it runs), a refused preflight removes the empty directories it made and puts back the modes it changed, the refusal on another run's open directory names it with the `chmod 700` that closes it, and `rows.jsonl`, `meta.json` and `report.md` are mode 600 from their first byte and after a resume that adds no row. Without `--agent-user` nothing changes.
 - **An agent can correct a stored record.** `supersedes` was in the store and the HTTP API, but
   no agent could reach it, and nothing in a pack said that a record is an earlier agent's claim:

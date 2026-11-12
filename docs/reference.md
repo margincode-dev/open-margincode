@@ -116,6 +116,15 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
 - **Anchor**: a record's link to code, as a path or `path:Symbol`. Records resurface whenever a
   later task touches that code. The anchored code's hash is stored when the record is written, so
   a pack marks a claim `(changed since recorded)` once that code has moved on.
+- **A record says where it comes from.** Another task's record is printed with what became of
+  that task, unless it merged: `- rec:… decision, reverted: …`, `…, abandoned: …`, `…, open: …`
+  (in packs, in the pre-read hook's answer and in `av expand`). A claim of work whose merge was
+  reverted ranks at 0.4 of its score and one of abandoned work at 0.6; an `attempt` keeps its
+  rank, since a dead end is still one when the work around it failed. Merged and open work rank
+  as before, and nothing ranks above merged work: a merge shows that code passed review, not that
+  a note about it is true. A record written after the revert belongs to the work that follows
+  and is `open`. `GET /v1/tasks/{id}/records` and search answer the same as
+  `standing: {origin, factor}` on each record.
 - **Convention**: a repo rule scoped by path glob (`src/api/**`), shown only to tasks touching
   matching files. A `required` convention is always included, whatever the budget.
 - **Context pack**: Markdown with the sections *Task, Map, Decisions & dead ends, Code,

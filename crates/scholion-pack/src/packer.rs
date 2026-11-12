@@ -92,7 +92,7 @@ const RECORDS_AT_HINT: &str =
 const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 8;
+pub const PACKER_VERSION: u32 = 9;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -442,11 +442,13 @@ impl Packer {
             && recs
                 .iter()
                 .any(|&r| correctable(r) && !is_sent(&short_id("rec", &r.id.0)));
+        let origins = crate::assemble::Origins::load(&*self.store, recs.iter().copied()).await?;
         let (mut lines, mut ids) = (vec![], vec![]);
         // whether a record shown is one the reader may supersede (not a review or a handoff)
         let mut shows_correctable = false;
         for rec in recs {
-            let (id, texts) = record_texts(rec, false, false);
+            let origin = origins.of(rec, task.id).map(|s| s.origin);
+            let (id, texts) = record_texts(rec, false, false, origin);
             if is_sent(&id) {
                 continue;
             }
@@ -521,7 +523,11 @@ impl Packer {
             if self.store.get_task(rec.task_id).await?.repo != task.repo {
                 return Err(elsewhere());
             }
-            return Ok(record_texts(&rec, false, false).1[Tier::Full as usize].clone());
+            let origin = crate::assemble::Origins::load(&*self.store, [&rec])
+                .await?
+                .of(&rec, task.id)
+                .map(|s| s.origin);
+            return Ok(record_texts(&rec, false, false, origin).1[Tier::Full as usize].clone());
         }
         if let Some(n) = item_id.strip_prefix("sym:") {
             let id: i64 = n
@@ -589,7 +595,7 @@ impl Packer {
             for rec in self.store.task_records(t.id).await? {
                 if rec.kind != scholion_core::RecordKind::Intent {
                     out.push('\n');
-                    out.push_str(&record_texts(&rec, false, false).1[Tier::Summary as usize]);
+                    out.push_str(&record_texts(&rec, false, false, None).1[Tier::Summary as usize]);
                 }
             }
             return Ok(out);

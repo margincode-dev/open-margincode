@@ -654,7 +654,29 @@ async fn list_tasks(
 async fn list_records(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
     let task = st.store.get_task(task_id(id)).await?;
     let records = st.store.task_records(task.id).await?;
-    Ok(Json(json!({ "records": records })))
+    Ok(Json(
+        json!({ "records": with_standing(&st, records).await? }),
+    ))
+}
+
+/// Records as JSON, each with `standing` (`{origin, factor}`): what became of its task, and the
+/// multiplier that gives its score in packs (`scholion_core::standing`).
+async fn with_standing(st: &AppState, records: Vec<Record>) -> Result<Vec<Value>> {
+    let ids: Vec<RecordId> = records.iter().map(|r| r.id).collect();
+    let origins = st.store.record_origins(&ids).await?;
+    Ok(records
+        .into_iter()
+        .map(|r| {
+            let standing = origins
+                .get(&r.id)
+                .map(|facts| scholion_core::standing::standing(facts, r.kind, r.created_at));
+            let mut v = json!(r);
+            if let Some(s) = standing {
+                v["standing"] = json!(s);
+            }
+            v
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -1047,7 +1069,9 @@ async fn search(
 ) -> ApiResult<Value> {
     let limit = q.limit.unwrap_or(10).clamp(1, MAX_SEARCH);
     let records = st.store.search_records_fts(&repo, &q.q, limit).await?;
-    Ok(Json(json!({ "records": records })))
+    Ok(Json(
+        json!({ "records": with_standing(&st, records).await? }),
+    ))
 }
 
 #[derive(Deserialize)]

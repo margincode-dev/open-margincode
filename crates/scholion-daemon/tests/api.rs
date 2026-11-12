@@ -3127,6 +3127,32 @@ async fn revert_undoes_an_older_merge_and_the_task_can_merge_again() {
     assert_eq!(main_file(&e, "app/util.py").await, UPPER);
 }
 
+/// The records of a task say what became of it (`standing`), in the task's records and in a
+/// search: merged work, then, once its merge is reverted, reverted work that ranks lower.
+#[tokio::test(flavor = "multi_thread")]
+async fn records_carry_the_standing_of_their_task() {
+    let e = env().await;
+    let (a, _) = merged_task(&e, "Upper names", "app/util.py", UPPER).await;
+    let decision = |recs: Vec<Value>| {
+        recs.into_iter()
+            .find(|r| r["kind"] == "decision")
+            .expect("the task's decision")
+    };
+    let rec = decision(task_records(&e, &a).await);
+    assert_eq!(rec["standing"], json!({"origin": "merged", "factor": 1.0}));
+
+    let (status, body) = post(&e, &a, "revert", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let rec = decision(task_records(&e, &a).await);
+    assert_eq!(rec["standing"]["origin"], "reverted", "{rec}");
+    assert!(rec["standing"]["factor"].as_f64().unwrap() < 1.0, "{rec}");
+
+    let q = rec["summary"].as_str().unwrap().replace(' ', "%20");
+    let (_, hits) = call(&e.app, "GET", &format!("/v1/repos/demo/search?q={q}"), None).await;
+    let hit = decision(hits["records"].as_array().unwrap().clone());
+    assert_eq!(hit["standing"]["origin"], "reverted", "{hits}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revert_that_conflicts_leaves_main_untouched() {
     let e = env().await;

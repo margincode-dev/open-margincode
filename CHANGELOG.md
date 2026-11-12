@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A record's standing: where it comes from.** A pack served a decision of a task whose merge was reverted, or that was abandoned, like one of merged work. Now another task's record is printed with its origin unless that is merged work (`decision, reverted:`, `abandoned`, `open`), in packs, the pre-read hook's answer and `av expand`, and a claim of reverted work ranks at 0.4 and of abandoned work at 0.6 (an `attempt` keeps its rank; merged and open work rank as before; nothing ranks above merged work). No table and no migration: the origin is computed from the task's status and its last `revert` event, in one query per pack. `GET /v1/tasks/{id}/records` and search add `standing: {origin, factor}`. `PACKER_VERSION` 9.
 - **`scholion-bench run --agent-user` leaves no run directory open.** A finished run sets `<work-root>/runs/<run id>` to 700 (a resume opens it again while it runs), a refused preflight removes the empty directories it made and puts back the modes it changed, the refusal on another run's open directory names it with the `chmod 700` that closes it, and `rows.jsonl`, `meta.json` and `report.md` are mode 600 from their first byte and after a resume that adds no row. Without `--agent-user` nothing changes.
 - **An agent can correct a stored record.** `supersedes` was in the store and the HTTP API, but
   no agent could reach it, and nothing in a pack said that a record is an earlier agent's claim:

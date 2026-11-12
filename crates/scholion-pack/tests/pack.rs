@@ -2670,3 +2670,162 @@ async fn records_at_keeps_no_room_for_a_line_no_record_there_can_use() {
         later.markdown
     );
 }
+
+// ---- standing: what became of the task a record comes from ----
+
+/// Another task with one decision anchored on `Greeter.hello`, left in `status` (through a
+/// merge and its revert for `reverted`).
+async fn decision_of_task(fx: &Fx, title: &str, summary: &str, origin: &str) -> Record {
+    use scholion_core::lifecycle::Event;
+    let t = fx.store.create_task(new_task(title)).await.unwrap();
+    let rec = fx
+        .store
+        .add_record(record(
+            t.id,
+            RecordKind::Decision,
+            summary,
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap();
+    match origin {
+        "open" => {}
+        "merged" => fx.store.set_status(t.id, TaskStatus::Merged).await.unwrap(),
+        "abandoned" => {
+            fx.store.transition(t.id, Event::Abandon).await.unwrap();
+        }
+        "reverted" => {
+            fx.store.set_status(t.id, TaskStatus::Merged).await.unwrap();
+            fx.store.transition(t.id, Event::Revert).await.unwrap();
+        }
+        other => panic!("{other}"),
+    }
+    rec
+}
+
+fn line_of<'a>(md: &'a str, needle: &str) -> &'a str {
+    md.lines()
+        .find(|l| l.contains(needle))
+        .unwrap_or_else(|| panic!("no line with {needle:?}:\n{md}"))
+}
+
+#[tokio::test]
+async fn a_records_line_says_where_it_comes_from_unless_that_is_merged_work() {
+    let fx = fixture().await;
+    for origin in ["merged", "open", "abandoned", "reverted"] {
+        decision_of_task(&fx, origin, &format!("hello stays {origin}-pure"), origin).await;
+    }
+    // the reading task's own decision is not labelled: the agent knows where it comes from
+    fx.store
+        .add_record(record(
+            fx.task.id,
+            RecordKind::Decision,
+            "hello is my own call",
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap();
+    let md = fx
+        .packer
+        .build(req(&fx.task, 4000, "origin"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        line_of(&md, "merged-pure").contains(" decision: hello stays"),
+        "{md}"
+    );
+    for origin in ["open", "abandoned", "reverted"] {
+        let line = line_of(&md, &format!("{origin}-pure"));
+        assert!(
+            line.contains(&format!(" decision, {origin}: hello stays")),
+            "{line}"
+        );
+    }
+    assert!(
+        line_of(&md, "my own call").contains(" decision: hello is"),
+        "{md}"
+    );
+}
+
+#[tokio::test]
+async fn a_decision_of_reverted_work_ranks_below_the_same_of_merged_work() {
+    let fx = fixture().await;
+    // the reverted one is written last, so recency alone would put it first
+    let merged = decision_of_task(&fx, "kept", "hello upper-cases the name", "merged").await;
+    let reverted = decision_of_task(&fx, "undone", "hello lower-cases the name", "reverted").await;
+    let pack = fx.packer.build(req(&fx.task, 4000, "rank")).await.unwrap();
+    let md = &pack.markdown;
+    assert!(
+        pos(md, "upper-cases") < pos(md, "lower-cases"),
+        "merged work first:\n{md}"
+    );
+    // without the origin the two tie but for age, and the newer one leads
+    let _ = (merged, reverted);
+    let fx = fixture().await;
+    decision_of_task(&fx, "kept", "hello upper-cases the name", "merged").await;
+    decision_of_task(&fx, "also kept", "hello lower-cases the name", "merged").await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 4000, "rank"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        pos(&md, "lower-cases") < pos(&md, "upper-cases"),
+        "the control: the order above comes from the origin\n{md}"
+    );
+}
+
+#[tokio::test]
+async fn a_dead_end_of_abandoned_work_keeps_its_rank() {
+    let fx = fixture().await;
+    use scholion_core::lifecycle::Event;
+    let gone = fx.store.create_task(new_task("gone")).await.unwrap();
+    fx.store
+        .add_record(record(
+            gone.id,
+            RecordKind::Attempt,
+            "memoizing hello broke the tests",
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap();
+    fx.store.transition(gone.id, Event::Abandon).await.unwrap();
+    decision_of_task(&fx, "kept", "hello upper-cases the name", "merged").await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 4000, "dead"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        line_of(&md, "memoizing").contains(" attempt, abandoned: "),
+        "{md}"
+    );
+    assert!(
+        pos(&md, "memoizing") < pos(&md, "upper-cases"),
+        "an attempt outranks a decision as before:\n{md}"
+    );
+}
+
+#[tokio::test]
+async fn records_at_and_expand_say_the_origin_too() {
+    let fx = fixture().await;
+    let rec = decision_of_task(&fx, "undone", "hello lower-cases the name", "reverted").await;
+    let at = fx
+        .packer
+        .records_at(fx.task.id, "app/greeter.py", None)
+        .await
+        .unwrap();
+    assert!(
+        line_of(&at.markdown, "lower-cases").contains(" decision, reverted: "),
+        "{}",
+        at.markdown
+    );
+    let text = fx.packer.expand(fx.task.id, &short(&rec)).await.unwrap();
+    assert!(text.contains(" decision, reverted: "), "{text}");
+}

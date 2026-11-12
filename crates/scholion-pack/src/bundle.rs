@@ -188,7 +188,7 @@ fn record_items(records: &[Record]) -> Vec<Item> {
                 RecordKind::Review => 1.5,
                 _ => 1.0,
             };
-            let (id, tiers) = record_texts(r, false, false);
+            let (id, tiers) = record_texts(r, false, false, None);
             item(id, "records", kind_score + i as f32 / n * 0.5, tiers)
         })
         .collect()
@@ -380,7 +380,7 @@ fn risk_items(
             .iter()
             .any(|a| a.anchors.iter().any(|x| d.anchors.contains(x)));
         if !weighed {
-            let (id, _) = record_texts(d, false, false);
+            let (id, _) = record_texts(d, false, false, None);
             let h = format!(
                 "- ⚠ {id} decision with no alternatives recorded: {}",
                 d.summary

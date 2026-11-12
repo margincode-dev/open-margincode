@@ -1708,6 +1708,39 @@ impl IntentStore for PgStore {
         self.hydrate_records(rows).await
     }
 
+    async fn record_origins(
+        &self,
+        ids: &[RecordId],
+    ) -> Result<HashMap<RecordId, scholion_core::standing::OriginFacts>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids: Vec<Uuid> = ids.iter().map(|id| id.0).collect();
+        let rows = sqlx::query(
+            "SELECT r.id, t.status,
+                    (SELECT max(e.at) FROM events e
+                     WHERE e.task_id = t.id AND e.kind = 'revert') AS reverted_at
+             FROM records r JOIN tasks t ON t.id = r.task_id
+             WHERE r.id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                let status: String = r.try_get("status").map_err(serr)?;
+                Ok((
+                    RecordId(r.try_get("id").map_err(serr)?),
+                    scholion_core::standing::OriginFacts {
+                        status: status.parse()?,
+                        reverted_at: r.try_get("reverted_at").map_err(serr)?,
+                    },
+                ))
+            })
+            .collect()
+    }
+
     async fn get_record(&self, id: RecordId) -> Result<Record> {
         let rows = sqlx::query(&format!(
             "SELECT {RECORD_COLS} FROM records r WHERE r.id = $1"

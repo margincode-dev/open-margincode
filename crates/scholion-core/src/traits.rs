@@ -453,6 +453,15 @@ pub trait IntentStore: Send + Sync {
         paths: &[String],
         symbols: &[String],
     ) -> Result<Vec<Record>>;
+    /// What became of the task of each of `ids` (`standing::standing` turns it into a record's
+    /// origin), in one query. A record it does not answer for has no known origin and is ranked
+    /// and shown as before; the default answers for none.
+    async fn record_origins(
+        &self,
+        _ids: &[RecordId],
+    ) -> Result<HashMap<RecordId, crate::standing::OriginFacts>> {
+        Ok(HashMap::new())
+    }
     async fn get_record(&self, id: RecordId) -> Result<Record>;
     /// Resolves a full UUID or a unique hex prefix (>= 6 chars), as shown in context packs.
     async fn find_record(&self, id_or_prefix: &str) -> Result<Record>;

@@ -195,6 +195,63 @@ async fn records_anchored_to_matches_by_path_or_symbol_only_in_repo() {
 }
 
 #[tokio::test]
+async fn record_origins_say_what_became_of_each_records_task() {
+    use scholion_core::lifecycle::Event;
+    use scholion_core::standing::{Origin, standing};
+    let (_db, s) = store().await;
+    let origin_of = async |r: &Record| {
+        let facts = s.record_origins(&[r.id]).await.unwrap();
+        standing(&facts[&r.id], r.kind, r.created_at).origin
+    };
+    // open
+    let open = s.create_task(new_task("Open")).await.unwrap();
+    let r_open = s
+        .add_record(rec(open.id, RecordKind::Decision, "open", vec![]))
+        .await
+        .unwrap();
+    assert_eq!(origin_of(&r_open).await, Origin::Open);
+    // merged, then reverted: the record written before the revert is of reverted work
+    let t = s.create_task(new_task("Merged")).await.unwrap();
+    let before = s
+        .add_record(rec(t.id, RecordKind::Decision, "before", vec![]))
+        .await
+        .unwrap();
+    s.set_status(t.id, TaskStatus::Merged).await.unwrap();
+    assert_eq!(origin_of(&before).await, Origin::Merged);
+    s.transition(t.id, Event::Revert).await.unwrap();
+    assert_eq!(origin_of(&before).await, Origin::Reverted);
+    // and one written after it belongs to the work that follows
+    let after = s
+        .add_record(rec(t.id, RecordKind::Decision, "after", vec![]))
+        .await
+        .unwrap();
+    assert_eq!(origin_of(&after).await, Origin::Open);
+    // merged again: nothing of it is reverted work any more
+    s.set_status(t.id, TaskStatus::Merged).await.unwrap();
+    assert_eq!(origin_of(&before).await, Origin::Merged);
+    // abandoned
+    let gone = s.create_task(new_task("Gone")).await.unwrap();
+    let r_gone = s
+        .add_record(rec(gone.id, RecordKind::Note, "gone", vec![]))
+        .await
+        .unwrap();
+    s.transition(gone.id, Event::Abandon).await.unwrap();
+    assert_eq!(origin_of(&r_gone).await, Origin::Abandoned);
+    // one query for many, and nothing for an id no record has
+    let all = s
+        .record_origins(&[
+            r_open.id,
+            before.id,
+            r_gone.id,
+            RecordId(uuid::Uuid::new_v4()),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 3);
+    assert!(s.record_origins(&[]).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn superseded_record_hidden_from_anchor_query_but_still_in_task_records() {
     let (_db, s) = store().await;
     let t = s.create_task(new_task("T")).await.unwrap();

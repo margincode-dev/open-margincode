@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use futures::future::join_all;
+use scholion_core::standing::{Origin, OriginFacts, Standing, standing};
 use scholion_core::*;
 use scholion_index::{AnchorResolution, CodeIndex, IndexedSymbol, ScopeView};
 
@@ -17,6 +18,52 @@ pub(crate) struct Deps<'a> {
     pub store: &'a dyn IntentStore,
     pub index: &'a dyn CodeIndex,
     pub semantic: Option<Arc<dyn Semantic>>,
+}
+
+/// What became of the tasks of the records a pack may show (`scholion_core::standing`), asked of
+/// the store in one query per batch of records.
+#[derive(Default)]
+pub(crate) struct Origins(HashMap<RecordId, OriginFacts>);
+
+impl Origins {
+    pub(crate) async fn load<'r>(
+        store: &dyn IntentStore,
+        recs: impl IntoIterator<Item = &'r Record>,
+    ) -> Result<Self> {
+        let mut origins = Origins::default();
+        origins
+            .extend(store, recs.into_iter().map(|r| r.id).collect())
+            .await?;
+        Ok(origins)
+    }
+
+    /// Asks for the records of `ids` it does not know yet.
+    pub(crate) async fn extend(
+        &mut self,
+        store: &dyn IntentStore,
+        ids: Vec<RecordId>,
+    ) -> Result<()> {
+        let new: Vec<RecordId> = ids
+            .into_iter()
+            .filter(|id| !self.0.contains_key(id))
+            .collect();
+        if !new.is_empty() {
+            self.0.extend(store.record_origins(&new).await?);
+        }
+        Ok(())
+    }
+
+    /// The standing of `rec` for an agent on task `reader`. None for the reader's own records
+    /// (it knows where they come from), for what was mined from git (it has its own factor and
+    /// label) and for a record the store did not answer for.
+    pub(crate) fn of(&self, rec: &Record, reader: TaskId) -> Option<Standing> {
+        if rec.task_id == reader || history::is_mined(&rec.author_agent) {
+            return None;
+        }
+        self.0
+            .get(&rec.id)
+            .map(|facts| standing(facts, rec.kind, rec.created_at))
+    }
 }
 
 pub(crate) struct Gathered {
@@ -42,6 +89,8 @@ struct Structural {
     records: HashMap<String, RecordFacts>,
     /// Embedding similarity of the records that were semantic hits, by item id.
     similarity: HashMap<String, f32>,
+    /// What became of the tasks of the records gathered so far.
+    origins: Origins,
 }
 
 /// A History record as `lead_goal_matches` sees it.
@@ -57,12 +106,12 @@ struct RecordFacts {
 }
 
 impl RecordFacts {
-    fn of(rec: &Record, task: &Task, changed: bool) -> Self {
+    fn of(rec: &Record, task: &Task, changed: bool, origin: Option<Standing>) -> Self {
         let foreign_intent = rec.kind == RecordKind::Intent && rec.task_id != task.id;
         RecordFacts {
             text: format!("{} {}", rec.summary, rec.body),
             may_lead: !history::is_mined(&rec.author_agent) && !foreign_intent,
-            factor: record_factor(rec, task, changed),
+            factor: record_factor(rec, task, changed, origin),
             foreign: rec.task_id != task.id
                 && supersede_refusal(rec.kind, RecordKind::Note, false).is_none(),
         }
@@ -159,7 +208,14 @@ pub(crate) fn symbol_handle(s: &IndexedSymbol) -> String {
 
 /// `stale`: an anchored symbol or file is gone. `changed`: the anchored code changed after the record
 /// was written, so the claim may no longer hold (Plan 2b). `stale` wins when both apply.
-pub(crate) fn record_texts(rec: &Record, stale: bool, changed: bool) -> (String, [String; 3]) {
+/// `origin`: what became of the record's task, said after the kind unless it merged
+/// (`decision, reverted: …`).
+pub(crate) fn record_texts(
+    rec: &Record,
+    stale: bool,
+    changed: bool,
+    origin: Option<Origin>,
+) -> (String, [String; 3]) {
     let id = short_id("rec", &rec.id.0);
     let flag = if stale {
         " (anchor_stale)"
@@ -175,7 +231,10 @@ pub(crate) fn record_texts(rec: &Record, stale: bool, changed: bool) -> (String,
             rec.kind.as_str(),
             c.0.chars().take(7).collect::<String>()
         ),
-        _ => rec.kind.as_str().to_owned(),
+        _ => match origin.and_then(Origin::label) {
+            Some(label) => format!("{}, {label}", rec.kind.as_str()),
+            None => rec.kind.as_str().to_owned(),
+        },
     };
     let handle = format!("- {id} {kind}: {}{flag}", clip(&rec.summary, 70));
     let mut summary = format!("- {id} {kind}: {}{flag}", rec.summary);
@@ -803,14 +862,16 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     // The owner works through review findings first: pinned at full tier until resubmitted.
     let owner_at_work = matches!(task.status, TaskStatus::Open | TaskStatus::Conflicted);
     let now = Utc::now();
+    let mut origins = Origins::load(d.store, records.values()).await?;
     let mut facts: HashMap<String, RecordFacts> = HashMap::new();
     for rec in records.values() {
         if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {
             continue;
         }
         let (hops, stale, on_seed, changed) = anchors.standing(rec).await?;
-        let (id, texts) = record_texts(rec, stale, changed);
-        let factor = record_factor(rec, task, changed);
+        let origin = origins.of(rec, task.id);
+        let (id, texts) = record_texts(rec, stale, changed, origin.map(|s| s.origin));
+        let factor = record_factor(rec, task, changed, origin);
         if rec.kind == RecordKind::Intent && rec.task_id == task.id {
             items.push(rec_item(rec, id, Section::Task, 0.9, texts).because("task"));
         } else if rec.kind == RecordKind::Review && rec.task_id == task.id && owner_at_work {
@@ -837,7 +898,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             } else {
                 "anchored"
             };
-            facts.insert(id.clone(), RecordFacts::of(rec, task, changed));
+            facts.insert(id.clone(), RecordFacts::of(rec, task, changed, origin));
             items.push(
                 rec_item(
                     rec,
@@ -883,11 +944,16 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     }
     if !conflicts.is_empty() {
         let paths: Vec<String> = conflicts.iter().cloned().collect();
-        for rec in d.store.records_anchored_to(repo, &paths, &[]).await? {
+        let theirs = d.store.records_anchored_to(repo, &paths, &[]).await?;
+        origins
+            .extend(d.store, theirs.iter().map(|r| r.id).collect())
+            .await?;
+        for rec in theirs {
             if rec.task_id == task.id || records.contains_key(&rec.id.to_string()) {
                 continue;
             }
-            let (id, texts) = record_texts(&rec, false, false);
+            let origin = origins.of(&rec, task.id).map(|s| s.origin);
+            let (id, texts) = record_texts(&rec, false, false, origin);
             items.push(
                 rec_item(&rec, id, Section::Conflicts, 1.5, texts).because("conflict-record"),
             );
@@ -1043,6 +1109,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         located: located.into_iter().map(|l| l.sym).collect(),
         has_head,
         records: facts,
+        origins,
         similarity: HashMap::new(),
     })
 }
@@ -1083,6 +1150,10 @@ async fn apply_semantic(
                     .search_records_fts(&task.repo, q, score::SEMANTIC_LIMIT)
                     .await
             {
+                parts
+                    .origins
+                    .extend(d.store, recs.iter().map(|r| r.id).collect())
+                    .await?;
                 for rec in recs {
                     include_record(d, task, parts, &rec, 0.0, "fts").await?;
                 }
@@ -1174,6 +1245,10 @@ async fn merge_hits(
 
     // the task's own intent is asked for on top of these (`gather`), and does not count
     let record_cap = score::record_hit_limit(limit);
+    parts
+        .origins
+        .extend(d.store, hits.iter().filter_map(|h| h.record_id).collect())
+        .await?;
     let mut records = 0;
     for hit in &hits {
         if hit.superseded {
@@ -1291,8 +1366,10 @@ async fn include_record(
         return Ok(());
     }
     let id = short_id("rec", &rec.id.0);
+    let origin = parts.origins.of(rec, task.id);
     if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == id) {
-        item.score += score::W_SEM * score::clamp_sim(semantic) * record_factor(rec, task, false);
+        item.score +=
+            score::W_SEM * score::clamp_sim(semantic) * record_factor(rec, task, false, origin);
         return Ok(());
     }
     let (hops, stale, on_seed, changed) = if rec.anchors.is_empty() {
@@ -1312,8 +1389,8 @@ async fn include_record(
         .standing(rec)
         .await?
     };
-    let (id, texts) = record_texts(rec, stale, changed);
-    let factor = record_factor(rec, task, changed);
+    let (id, texts) = record_texts(rec, stale, changed, origin.map(|s| s.origin));
+    let factor = record_factor(rec, task, changed, origin);
     if rec.kind == RecordKind::Intent && rec.task_id == task.id {
         parts.gathered.items.push(
             rec_item(
@@ -1329,7 +1406,7 @@ async fn include_record(
         let age_days = (Utc::now() - rec.created_at).num_seconds() as f64 / 86_400.0;
         parts
             .records
-            .insert(id.clone(), RecordFacts::of(rec, task, changed));
+            .insert(id.clone(), RecordFacts::of(rec, task, changed, origin));
         parts.gathered.items.push(
             rec_item(
                 rec,
@@ -1523,14 +1600,19 @@ pub(crate) async fn anchor_hash(
     Some(format!("{:x}", Sha256::digest(&hashed)))
 }
 
-/// Multiplier on a History record's score: changed anchors and other tasks' intents rank lower.
-fn record_factor(rec: &Record, task: &Task, changed: bool) -> f32 {
+/// Multiplier on a History record's score: changed anchors, other tasks' intents, what was mined
+/// from git and claims of work that was reverted, abandoned or is not merged yet rank lower
+/// (`origin`, see `scholion_core::standing`).
+fn record_factor(rec: &Record, task: &Task, changed: bool, origin: Option<Standing>) -> f32 {
     let mut f = if changed { score::CHANGED_FACTOR } else { 1.0 };
     if rec.kind == RecordKind::Intent && rec.task_id != task.id {
         f *= score::FOREIGN_INTENT_FACTOR;
     }
     if history::is_mined(&rec.author_agent) {
         f *= score::MINED_FACTOR;
+    }
+    if let Some(origin) = origin {
+        f *= origin.factor;
     }
     f
 }
@@ -1655,17 +1737,17 @@ mod tests {
             lease_expires: None,
             pack_mode: PackMode::Full,
         };
-        let mined = super::record_factor(&rec(history::MINED_AUTHOR), &task, false);
-        let agent = super::record_factor(&rec("claude"), &task, false);
+        let mined = super::record_factor(&rec(history::MINED_AUTHOR), &task, false, None);
+        let agent = super::record_factor(&rec("claude"), &task, false, None);
         assert_eq!(agent, 1.0);
         assert_eq!(mined, crate::score::MINED_FACTOR);
-        let (_, texts) = super::record_texts(&rec(history::MINED_AUTHOR), false, false);
+        let (_, texts) = super::record_texts(&rec(history::MINED_AUTHOR), false, false, None);
         assert!(
             texts[1].starts_with("- rec:00000000 note (git 1a2b3c4): Parse config"),
             "{}",
             texts[1]
         );
-        let (_, texts) = super::record_texts(&rec("claude"), false, false);
+        let (_, texts) = super::record_texts(&rec("claude"), false, false, None);
         assert!(
             texts[1].starts_with("- rec:00000000 note: Parse"),
             "{}",

@@ -23,6 +23,13 @@ Agents without av hooks call `start_task` and the other tools themselves; give t
 `GEMINI.md`) so they keep taking work from the backlog. `generic/av-wrap.sh <command…>` writes the
 start pack to `$AV_CONTEXT_FILE` before the agent starts and checkpoints after it exits.
 
+## Dreaming
+
+[`dream/DREAM.md`](dream/DREAM.md) is what an agent started by `av dream` reads: how to check
+the records it was handed against the code, and the two files it may write. It is built into the
+CLI, which writes it beside the run's `bundle.json`; a change to it changes the
+`instructions_sha` stored on every later run ([reference](../docs/reference.md#a-second-look-at-records-dreams-and-verdicts)).
+
 ## GitHub
 
 | Folder | For | Set up with | What it gives |

@@ -568,8 +568,35 @@ Records pile up, and a wrong one is trusted by the agent that reads it. A **drea
 look at records: an agent, started by a client and never by the daemon, is handed a short list
 the daemon chose, checks each record against the code, and proposes a **verdict**. The daemon
 runs no model. It chooses the list, checks every quote a verdict cites, and applies the effect
-in packs. A verdict never edits a record, and it has no effect until a second look agrees. (The
-API is here; the `av dream` command that starts the agent is not built yet.)
+in packs. A verdict never edits a record, and it has no effect until a second look agrees.
+
+```bash
+av --agent claude dream --repo myrepo -- claude -p "Read DREAM.md and do what it says"
+av --agent grok dream --verify --repo myrepo -- grok -p "Read DREAM.md and do what it says"
+av verdict list --repo myrepo --state proposed   # or decide yourself:
+av verdict show vd:1a2b3c4d                      # the verdict, its quotes, the record it judges
+av verdict accept vd:1a2b3c4d                    # or reject; retract takes one back in any state
+av dream undo <run id>                           # retracts everything a review run wrote
+```
+
+`av dream` asks the daemon for a run, writes what the run is handed (`bundle.json`) and the
+instructions ([`integrations/dream/DREAM.md`](../integrations/dream/DREAM.md), built into the
+CLI; its SHA-256 is stored on the run as `instructions_sha`, and `av dream show <run id>` prints
+it) into `$AV_HOME/dreams/<run id>/`, and runs the command there with `AV_AGENT`, `AV_URL`,
+`AV_REPO`, `AV_DREAM`, `AV_DREAM_DIR`, `AV_DREAM_MODE` (`review` or `verify`) and
+`AV_DREAM_ROUND` set. The agent has no workspace; it reads more of `main` with `av show`,
+`av log`, `av why` and `av search` (`--repo $AV_REPO`). It writes one file: `verdicts.json`
+(`{"verdicts": [...]}`, the entries of the verdicts route below) in a review run, `reviews.json`
+(`{"reviews": [{verdict, agree, evidence}]}`) in a verify run. The CLI posts it and prints the
+daemon's answer per entry. What the daemon refused is written to `refused.json` and the agent
+is run once more to correct it (`--fix-rounds N`, default 1; `0` never). With nothing to look at
+no agent is started. A command that fails, runs past `--timeout` (seconds, default 1800; keep it
+under the run's lease) or writes no file ends the run as failed: nothing of that round is
+posted, `av dream` exits non-zero, and the area is free for the next run. `--area P` and
+`--limit N` are the route's; `--max-agents N` (or `AV_MAX_AGENTS`) waits for one of the host's
+agent slots, the ones `av watch` uses, so a dream never runs beside more agents than the host
+has room for. Scheduling is cron's: `av dream` runs once. `av verdict accept|reject` is a
+person's second look; the reviewer is `--agent` when one is named, else `user`.
 
 - `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?}` starts a run and answers what it
   is to look at. `mode` is `review` (the default) or `verify`; `area` is a path prefix (the whole
@@ -607,9 +634,13 @@ API is here; the `av dream` command that starts the agent is not built yet.)
   the verdict, whatever its state; `POST /v1/dreams/{id}/undo` `{by}` retracts everything a
   review run wrote. Packs are then what they were before, byte for byte.
 - `POST /v1/dreams/{id}/finish` ends a run (`{failed: true}` to say it failed);
-  `GET /v1/dreams/{id}` and `GET /v1/repos/{repo}/verdicts?state=&record=` read them. Search and
+  `GET /v1/dreams/{id}`, `GET /v1/repos/{repo}/verdicts?state=&record=` and
+  `GET /v1/verdicts/{id}` (one verdict with the record it judges) read them. Search and
   a task's records still list a hidden record, with `verdict: {kind, reason, handle}`. The feed
   gets `dream:started`, `dream:finished` and `verdict` (with its state).
+- An extension's `MergeGuard` is asked before a review is written (`Guarded::MemoryWrite` with
+  `MemoryAction::VerdictReview`, and with `Supersede` before a record supersedes another); its
+  refusal is `422` and the verdict stays proposed. Community's own guard allows both.
 - Verdicts apply to what other tasks' agents read. The reading task's own records and records
   mined from git are shown as before.
 

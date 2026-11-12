@@ -21,10 +21,11 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use margincode_core::routing::BacklogEntry;
-use margincode_core::{AvEvent, IntentStore, Task, Verdict};
+use margincode_core::{AvEvent, IntentStore, Record, Task, Verdict};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 
 /// Services of an extension, one per type.
 #[derive(Clone, Default)]
@@ -72,11 +73,39 @@ pub enum Guarded<'a> {
     /// item is known to be proposed and before anything is written, so a refusal leaves it
     /// proposed.
     AcceptBacklog { item: &'a BacklogEntry, by: &'a str },
+    /// `by` would change what other tasks' agents are shown of `repo`'s records
+    /// (`MemoryAction`). `dream` is the run the write comes from, when it comes from one. Asked
+    /// once the daemon's own rules allow the write and before anything is written, so a refusal
+    /// leaves the records and verdicts as they were.
+    MemoryWrite {
+        repo: &'a str,
+        action: MemoryAction<'a>,
+        by: &'a str,
+        dream: Option<Uuid>,
+    },
 }
 
-/// Asked before a submit, a review verdict, an approval, a merge and the acceptance of a proposed
-/// backlog item. `Err(reason)` refuses the request with HTTP 422 and the reason; the task (or
-/// item) stays as it was. A review verdict asks `Review` first and, for an approval, `Approve`
+/// A write to a repository's shared memory, as `Guarded::MemoryWrite` names it.
+#[derive(Debug, Clone, Copy)]
+pub enum MemoryAction<'a> {
+    /// A new record would supersede `record`, which packs then no longer show. `by` is the new
+    /// record's author.
+    Supersede { record: &'a Record },
+    /// The one review of a proposed verdict (`verdict` is its id, `kind` what it says of
+    /// `record`: `confirmed`, `disputed`, `duplicate` or `outdated`). With `agree` it takes
+    /// effect in packs; without, it never does. `by` is the reviewer.
+    VerdictReview {
+        verdict: Uuid,
+        kind: &'a str,
+        record: &'a Record,
+        agree: bool,
+    },
+}
+
+/// Asked before a submit, a review verdict, an approval, a merge, the acceptance of a proposed
+/// backlog item and a write to shared memory (a supersede, a verdict's review). `Err(reason)`
+/// refuses the request with HTTP 422 and the reason; the task (or item, record or verdict) stays
+/// as it was. A review verdict asks `Review` first and, for an approval, `Approve`
 /// after it.
 #[async_trait]
 pub trait MergeGuard: Send + Sync {

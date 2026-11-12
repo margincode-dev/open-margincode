@@ -433,6 +433,12 @@ async fn a_verdict_a_person_rejects_has_no_effect() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["verdict"]["state"], "rejected", "{body}");
     assert_eq!(pack(&e, &reader, "p1").await, before);
+    // one verdict is read with the record it judges
+    let (status, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{one}");
+    assert_eq!(one["verdict"]["state"], "rejected", "{one}");
+    assert_eq!(one["record"]["summary"], "hello never shouts", "{one}");
+    assert_eq!(one["repo"], "demo", "{one}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -756,5 +762,160 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
         kinds,
         ["dream:started", "verdict", "dream:started", "verdict"],
         "{feed}"
+    );
+}
+
+/// A guard with a policy for shared memory: only `vinh` reviews verdicts, and `grok` supersedes
+/// nothing. It remembers what it was asked.
+#[derive(Default)]
+struct MemoryPolicy(std::sync::Mutex<Vec<String>>);
+
+#[async_trait::async_trait]
+impl margincode_daemon::MergeGuard for MemoryPolicy {
+    async fn check(&self, action: margincode_daemon::Guarded<'_>) -> Result<(), String> {
+        use margincode_daemon::MemoryAction;
+        let margincode_daemon::Guarded::MemoryWrite {
+            repo,
+            action,
+            by,
+            dream,
+        } = action
+        else {
+            return Ok(());
+        };
+        let (what, refused) = match action {
+            MemoryAction::Supersede { record } => {
+                (format!("supersede {:?}", record.summary), by == "grok")
+            }
+            MemoryAction::VerdictReview {
+                kind,
+                record,
+                agree,
+                ..
+            } => (
+                format!("review {kind} of {:?} agree={agree}", record.summary),
+                by != "vinh",
+            ),
+        };
+        let from = if dream.is_some() { " from a run" } else { "" };
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("{repo}: {what} by {by}{from}"));
+        if refused {
+            Err(format!("{by} may not change shared memory"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_can_refuse_a_memory_write_and_nothing_is_written() {
+    let guard = std::sync::Arc::new(MemoryPolicy::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+
+    // a verdict's review: refused, the verdict stays proposed and may still be reviewed
+    let d = start_dream(&e, "review", "").await;
+    let proposed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&rec), "verdict": "outdated", "evidence": [code_quote()]}),
+    )
+    .await;
+    let vd = proposed["verdict"]["handle"].as_str().unwrap();
+    let v = start_dream(&e, "verify", "").await;
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "checker", "agree": true, "dream": dream_id(&v),
+               "evidence": [{"code": "app/greeter.py", "quote": "def hello(self, name):"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("checker may not change shared memory"),
+        "{body}"
+    );
+    let (_, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(one["verdict"]["state"], "proposed", "{one}");
+    // a review the daemon's own rules refuse never reaches the guard
+    let (status, _) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "checker", "agree": true, "dream": dream_id(&v)}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "vinh", "agree": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "effective", "{body}");
+    // reviewed once: the guard is not asked again
+    let (status, _) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "vinh", "agree": false}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // a supersede: refused, no record is written and the old one stays live
+    let other = record_on(
+        &e,
+        &earlier,
+        "note",
+        "the greeter is sync",
+        "app/greeter.py",
+    )
+    .await;
+    let path = format!("/v1/tasks/{}/records", id(&reader));
+    let correction = |agent: &str| {
+        json!({"kind": "note", "summary": "the greeter is async now", "agent": agent,
+               "supersedes": handle(&other)})
+    };
+    let (status, body) = post_json(&e, &path, correction("grok")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("cannot supersede rec:"),
+        "{body}"
+    );
+    let live = e
+        .store
+        .get_record(RecordId(other["id"].as_str().unwrap().parse().unwrap()))
+        .await
+        .unwrap();
+    assert!(live.superseded_by.is_none(), "{live:?}");
+    let (status, body) = post_json(&e, &path, correction("claude")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    assert_eq!(
+        *guard.0.lock().unwrap(),
+        [
+            "demo: review outdated of \"hello never shouts\" agree=true by checker from a run",
+            "demo: review outdated of \"hello never shouts\" agree=true by vinh",
+            "demo: supersede \"the greeter is sync\" by grok",
+            "demo: supersede \"the greeter is sync\" by claude",
+        ]
     );
 }

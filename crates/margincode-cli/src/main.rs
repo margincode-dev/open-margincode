@@ -4,6 +4,7 @@ mod client;
 mod containers;
 mod crates_scope;
 mod disk;
+mod dream;
 mod footprint;
 mod hook;
 mod local;
@@ -493,6 +494,83 @@ enum Cmd {
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
     },
+    /// A second look at records: start an agent that checks the records the daemon chose
+    /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated), each
+    /// with quotes the daemon checks word for word. Nothing changes in packs until a second
+    /// look agrees: `av dream --verify -- <agent command>`, or `av verdict accept`. E.g.
+    /// `av dream --repo demo -- claude -p "Read DREAM.md and do what it says"`.
+    #[command(args_conflicts_with_subcommands = true)]
+    Dream {
+        #[command(subcommand)]
+        sub: Option<DreamCmd>,
+        /// Review the verdicts another run proposed, instead of proposing.
+        #[arg(long)]
+        verify: bool,
+        /// Default: the repo of the task of this directory.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Only records anchored under this path.
+        #[arg(long)]
+        area: Option<String>,
+        /// Records (or verdicts) to look at; the daemon's default is 20, its most 50.
+        #[arg(long)]
+        limit: Option<u32>,
+        /// Times the agent is run again to correct what the daemon refused.
+        #[arg(long, default_value_t = 1)]
+        fix_rounds: u32,
+        /// Seconds after which the agent command is killed (keep it under the daemon's
+        /// AV_DREAM_LEASE_SECS, 3600 by default).
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
+        /// Wait for one of this many agent slots on this host (shared with `av watch`).
+        #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
+        max_agents: Option<u32>,
+        /// The agent command, after `--`. It runs in the run's directory, beside DREAM.md.
+        #[arg(last = true)]
+        cmd: Vec<String>,
+    },
+    /// Verdicts on records: what dreams proposed, and a person's second look.
+    Verdict {
+        #[command(subcommand)]
+        cmd: VerdictCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum DreamCmd {
+    /// Take back every verdict a review run wrote: packs are what they were before it.
+    Undo {
+        /// The run's id, as `av dream` printed it.
+        id: String,
+    },
+    /// A run and the verdicts it wrote.
+    Show { id: String },
+}
+
+#[derive(Subcommand)]
+enum VerdictCmd {
+    /// Verdicts on a repo's records, newest first.
+    List {
+        /// Default: the repo of the task of this directory.
+        #[arg(long)]
+        repo: Option<String>,
+        /// proposed, effective, rejected or retracted.
+        #[arg(long)]
+        state: Option<String>,
+        /// Only this record's (rec:…).
+        #[arg(long)]
+        record: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// One verdict with its evidence and the record it judges.
+    Show { id: String },
+    /// Agree with a proposed verdict: it takes effect in packs.
+    Accept { id: String },
+    /// Disagree with a proposed verdict: it never takes effect.
+    Reject { id: String },
+    /// Take a verdict back, whatever its state.
+    Retract { id: String },
 }
 
 #[derive(Subcommand)]
@@ -1147,6 +1225,16 @@ fn notes_task(
 }
 
 /// `--repo`, else the repo of the current task.
+/// Who decides at the terminal: `--agent` when one was named; the default agent name means
+/// nobody said who, a person.
+fn person(cli: &Cli) -> &str {
+    if cli.agent == local::DEFAULT_AGENT {
+        "user"
+    } else {
+        cli.agent.as_str()
+    }
+}
+
 fn repo_for(cli: &Cli, client: &Client, repo: &Option<String>) -> Result<String> {
     if let Some(r) = repo {
         return Ok(r.clone());
@@ -2539,12 +2627,7 @@ fn run(cli: Cli) -> Result<()> {
             cmd: Some(BacklogCmd::Accept { id }),
             ..
         } => {
-            // the default agent name means nobody said who: a person at the terminal
-            let by = if cli.agent == local::DEFAULT_AGENT {
-                "user"
-            } else {
-                cli.agent.as_str()
-            };
+            let by = person(&cli);
             let r = client.post(
                 &format!("/v1/backlog/{}/accept", urlencode(id)),
                 &json!({ "by": by }),
@@ -2647,6 +2730,127 @@ fn run(cli: Cli) -> Result<()> {
                 cmd,
             },
         )?,
+        Cmd::Dream {
+            sub: Some(DreamCmd::Undo { id }),
+            ..
+        } => {
+            let r = client.post(
+                &format!("/v1/dreams/{}/undo", urlencode(id)),
+                &json!({ "by": person(&cli) }),
+            )?;
+            println!("dream {id} undone: {} verdicts retracted", r["retracted"]);
+        }
+        Cmd::Dream {
+            sub: Some(DreamCmd::Show { id }),
+            ..
+        } => {
+            let r = client.get(&format!("/v1/dreams/{}", urlencode(id)), &[])?;
+            let d = &r["dream"];
+            println!(
+                "dream {} {} {} by {} · {} · area {}",
+                s(&d["id"]),
+                s(&d["mode"]),
+                s(&d["repo"]),
+                s(&d["agent"]),
+                s(&d["status"]),
+                Some(s(&d["area"]))
+                    .filter(|a| !a.is_empty())
+                    .unwrap_or("(whole repo)")
+            );
+            if let Some(sha) = d["instructions_sha"].as_str() {
+                println!("instructions {}", &sha[..sha.len().min(12)]);
+            }
+            for v in r["verdicts"].as_array().into_iter().flatten() {
+                println!("{}", dream::verdict_line(v));
+            }
+        }
+        Cmd::Dream {
+            sub: None,
+            verify,
+            repo,
+            area,
+            limit,
+            fix_rounds,
+            timeout,
+            max_agents,
+            cmd,
+        } => {
+            let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
+                CliError::NoTask => CliError::Local("dream needs --repo <name>".into()),
+                e => e,
+            })?;
+            let finished = dream::run(
+                &client,
+                &dream::Dream {
+                    agent: &cli.agent,
+                    url: &cli.url,
+                    repo: &repo,
+                    verify: *verify,
+                    area: area.as_deref(),
+                    limit: *limit,
+                    fix_rounds: *fix_rounds,
+                    timeout: std::time::Duration::from_secs((*timeout).max(1)),
+                    max_agents: *max_agents,
+                    slots_dir: Kind::Agents.host_dir(),
+                    dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
+                    cmd,
+                },
+            )?;
+            if !finished {
+                return Err(CliError::Local("the dream's agent command failed".into()));
+            }
+        }
+        Cmd::Verdict { cmd } => match cmd {
+            VerdictCmd::List {
+                repo,
+                state,
+                record,
+                json,
+            } => {
+                let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
+                    CliError::NoTask => CliError::Local("verdict list needs --repo <name>".into()),
+                    e => e,
+                })?;
+                let mut q = vec![];
+                if let Some(st) = state {
+                    q.push(("state", st.as_str()));
+                }
+                if let Some(rec) = record {
+                    q.push(("record", rec.as_str()));
+                }
+                let r = client.get(&format!("/v1/repos/{repo}/verdicts"), &q)?;
+                if *json {
+                    println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+                } else {
+                    let list = r["verdicts"].as_array().cloned().unwrap_or_default();
+                    if list.is_empty() {
+                        println!("no verdicts in {repo}");
+                    }
+                    for v in &list {
+                        println!("{}", dream::verdict_line(v));
+                    }
+                }
+            }
+            VerdictCmd::Show { id } => {
+                let r = client.get(&format!("/v1/verdicts/{}", urlencode(id)), &[])?;
+                print!("{}", dream::verdict_text(&r));
+            }
+            VerdictCmd::Accept { id } | VerdictCmd::Reject { id } => {
+                let agree = matches!(cmd, VerdictCmd::Accept { .. });
+                let r = client.post(
+                    &format!("/v1/verdicts/{}/review", urlencode(id)),
+                    &json!({"reviewer": person(&cli), "agree": agree}),
+                )?;
+                println!("{}", dream::verdict_line(&r["verdict"]));
+            }
+            VerdictCmd::Retract { id } => {
+                let r = client.post(
+                    &format!("/v1/verdicts/{}/retract", urlencode(id)),
+                    &json!({ "by": person(&cli) }),
+                )?;
+                println!("{}", dream::verdict_line(&r["verdict"]));
+            }
+        },
         Cmd::Next {
             repo,
             budget,

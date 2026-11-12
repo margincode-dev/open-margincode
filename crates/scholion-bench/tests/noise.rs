@@ -123,6 +123,7 @@ fn note(pair: &str, noise: bool) -> RelayNote {
         summary: format!("about {pair}"),
         body: String::new(),
         noise,
+        no_commit: false,
     }
 }
 

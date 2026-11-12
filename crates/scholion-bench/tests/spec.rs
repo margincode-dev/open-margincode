@@ -281,3 +281,44 @@ fn e4_scale_pool_has_ten_signal_notes_and_hundreds_of_noise() {
             && noise.iter().all(|n| n.summary.chars().count() <= 200)
     );
 }
+
+#[test]
+fn the_wrong_lesson_pool_swaps_the_five_dead_end_lessons_and_nothing_else() {
+    let bench = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench");
+    let right = load_spec(&bench.join("tasks-relay/quote-split.toml")).unwrap();
+    let pairs = [
+        "quote-split",
+        "store-count",
+        "line-taxes",
+        "coupon-remove",
+        "money-plain",
+    ];
+    for pair in pairs {
+        let wrong = load_spec(&bench.join(format!("tasks-relay-wrong/{pair}.toml"))).unwrap();
+        let task = load_spec(&bench.join(format!("tasks-relay/{pair}.toml"))).unwrap();
+        // the task is the relay task: only the pool differs
+        assert_eq!(wrong.goal, task.goal, "{pair}");
+        assert_eq!(wrong.relevant_files, task.relevant_files, "{pair}");
+        assert_eq!(wrong.verify_cmd, task.verify_cmd, "{pair}");
+        assert_eq!(wrong.relay_pair.as_deref(), Some(pair));
+        assert_eq!(wrong.relay_notes.len(), right.relay_notes.len());
+        for (w, r) in wrong.relay_notes.iter().zip(&right.relay_notes) {
+            // same place in the pool, same anchor: delivery is held constant
+            assert_eq!((&w.pair, &w.path, &w.symbol), (&r.pair, &r.path, &r.symbol));
+            if pairs.contains(&w.pair.as_str()) {
+                assert_eq!(r.kind, "attempt", "{}: a dead-end lesson", r.pair);
+                assert_eq!(w.kind, "decision", "{}: stated as a decision", w.pair);
+                assert_ne!(w.summary, r.summary, "{}", w.pair);
+                assert!(w.no_commit && !w.noise, "{}: memory channel only", w.pair);
+                assert!(w.summary.chars().count() <= 200, "{}", w.pair);
+            } else {
+                assert_eq!(
+                    (&w.kind, &w.summary, &w.body),
+                    (&r.kind, &r.summary, &r.body)
+                );
+                assert!(!w.no_commit && !w.noise, "{}: unchanged", w.pair);
+            }
+        }
+    }
+    assert!(right.relay_notes.iter().all(|n| !n.no_commit));
+}

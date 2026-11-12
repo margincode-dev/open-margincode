@@ -1,0 +1,21 @@
+name = "relay-tax-with-rate"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Shops want to try out a rate change before adopting it. Add `TaxTable.with_rate(region, percent)`: it returns a copy of the table in which `region` is taxed at `percent`; the table it is called on stays as it was."""
+relevant_files = ["tallyho/pricing/tax.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "../tasks-relay/pool/notes-silent.toml"
+relay_pair = "tax-with-rate"
+
+[[local_tests]]
+path = "tests/test_relay_tax_with_rate.py"
+source = "../tasks-relay/files/test_relay_tax_with_rate.py"
+
+[[dead_end]]
+description = "the approach this task's wrong note recommends"
+file_glob = "tallyho/pricing/tax.py"
+pattern = '''replace\(\s*self\s*\)'''

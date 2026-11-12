@@ -1,0 +1,205 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T17:03:11.742354+00:00",
+  "head_change": "d0b4c62828dce48bf0262725218f1027aba7fbbf",
+  "id": "rcp:6a324af2",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:329df61c",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 60
+    },
+    {
+      "id": "rec:3f628779",
+      "reason": "goal-lead",
+      "score": 2.0320019721984863,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:a227e068",
+      "reason": "semantic",
+      "score": 0.5857205390930176,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:8fac4e42",
+      "reason": "semantic",
+      "score": 0.5718705058097839,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:e83d32f2",
+      "reason": "semantic",
+      "score": 0.5717346668243408,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:4642861a",
+      "reason": "semantic",
+      "score": 0.5614487528800964,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "sym:42016",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:42019",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:42018",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:42017",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:42020",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:42095",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:42013",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:42031",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:42015",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:42115",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:6095d6ff decision: Count through the base class: len(self.list_page(collection, None, 10*…",
+    "- rec:38bd0c24 decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:b1fc359d decision: Every currency tallyho supports has two decimals. Plain amounts are mi…",
+    "- rec:fa954db8 decision: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable…",
+    "- rec:1109c298 intent: Earlier work on this code",
+    "- sym:41964 load_config (tallyho/config.py:23-47)",
+    "- sym:41975 EventBus.publish (tallyho/events.py:19-22)"
+  ],
+  "packer_version": 6,
+  "session": "1d8e4bc9-e701-4a6a-bd73-aa887c4c361b",
+  "task_id": "05e8daaf-5ce7-4bd7-96cc-8f39efd24d67",
+  "tokens": 696
+}

@@ -17,7 +17,10 @@ Every arm gets all ten lessons, so for each task one is the one B needs and nine
 lessons are in `pool/notes.toml`; `relay_pair` in each spec names its own.
 
 For the scale follow-up (hundreds of irrelevant notes so `NOTES.md` is expensive to read whole),
-see [`../tasks-relay-scale`](../tasks-relay-scale) and `pool/notes-scale.toml`.
+see [`../tasks-relay-scale`](../tasks-relay-scale) and `pool/notes-scale.toml`. For wrong lessons,
+see [`../tasks-relay-wrong`](../tasks-relay-wrong) (`pool/notes-wrong.toml`) and
+[`../tasks-relay-silent`](../tasks-relay-silent) (`pool/notes-silent.toml`), whose three pairs
+have their hidden tests and reference edits here.
 
 The measures are the usual ones (accepted = hidden test passes; cost and wall time per accepted
 task) plus **dead ends repeated**: the `[[dead_end]]` patterns match the obvious wrong edit in B's
@@ -40,7 +43,7 @@ pilot session's cost. Check the real spend against
 
 ```bash
 bench/tallyho/make-repo.sh                        # ~/bench-repos/tallyho
-~/bench-work/venv/bin/python bench/tasks-relay/reference/check.py   # all 10 pairs ok
+~/bench-work/venv/bin/python bench/tasks-relay/reference/check.py   # all 13 pairs ok: these ten and the three of ../tasks-relay-silent
 scholion-bench check bench/tasks-relay   # each task's path_prepend puts the venv's bin first on the agent's PATH
 
 unset ANTHROPIC_API_KEY

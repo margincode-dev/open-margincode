@@ -221,6 +221,7 @@ pub fn generate(anchors: &[Anchor], n: usize, seed: u64) -> Vec<RelayNote> {
                 summary,
                 body: tpl.body.to_owned(),
                 noise: true,
+                no_commit: false,
             }
         })
         .collect()

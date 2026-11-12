@@ -1,0 +1,21 @@
+name = "relay-bus-resubscribe"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Some handlers end up subscribed to the same event twice and then run twice every time it is published. Make `EventBus.subscribe` ignore a handler that is already subscribed to that event."""
+relevant_files = ["tallyho/events.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "../tasks-relay/pool/notes-silent.toml"
+relay_pair = "bus-resubscribe"
+
+[[local_tests]]
+path = "tests/test_relay_bus_resubscribe.py"
+source = "../tasks-relay/files/test_relay_bus_resubscribe.py"
+
+[[dead_end]]
+description = "the approach this task's wrong note recommends"
+file_glob = "tallyho/events.py"
+pattern = '''__qualname__|__name__'''

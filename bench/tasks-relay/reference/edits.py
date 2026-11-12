@@ -1,6 +1,7 @@
 """Reference fixes and dead ends for the relay pairs, as (path, old, new) text edits on tallyho
 `main`. `check.py` proves each pair's hidden test passes on `good` and fails on `dead`; `dead`
 is the obvious approach the pair's note warns about (traps) or the guess its decision rules out.
+For the pairs in `SILENT`, `dead` is the approach the pair's wrong note recommends.
 """
 
 PAIRS = {
@@ -214,4 +215,60 @@ PAIRS = {
              "    def save_order(self, o: Order) -> None:"),
         ],
     },
+    # The three pairs of `../../tasks-relay-silent` (see SILENT below).
+    "order-merge": {
+        "good": [
+            ("tallyho/models.py", "    def remove(self, sku: str) -> None:",
+             "    def merge(self, other: Order) -> None:\n"
+             "        for line in other.lines:\n"
+             "            self.add(line.product, line.quantity)\n\n"
+             "    def remove(self, sku: str) -> None:"),
+        ],
+        "dead": [
+            ("tallyho/models.py", "    def remove(self, sku: str) -> None:",
+             "    def merge(self, other: Order) -> None:\n"
+             "        if self.status is not OrderStatus.DRAFT:\n"
+             "            raise ValidationError(\"only draft orders can change\", field=\"status\")\n"
+             "        self.lines.extend(other.lines)\n\n"
+             "    def remove(self, sku: str) -> None:"),
+        ],
+    },
+    "bus-resubscribe": {
+        "good": [
+            ("tallyho/events.py", "        self._handlers[event].append(handler)\n",
+             "        if handler not in self._handlers[event]:\n"
+             "            self._handlers[event].append(handler)\n"),
+        ],
+        "dead": [
+            ("tallyho/events.py", "        self._handlers[event].append(handler)\n",
+             "        name = getattr(handler, \"__qualname__\", repr(handler))\n"
+             "        if any(getattr(h, \"__qualname__\", repr(h)) == name for h in self._handlers[event]):\n"
+             "            return\n"
+             "        self._handlers[event].append(handler)\n"),
+        ],
+    },
+    "tax-with-rate": {
+        "good": [
+            ("tallyho/pricing/tax.py", "    def tax(self, amount: Money, region: str) -> Money:",
+             "    def with_rate(self, region: str, percent: Decimal) -> TaxTable:\n"
+             "        rates = {**self.rates, region: Decimal(percent)}\n"
+             "        return TaxTable(rates, self.default, self.exempt_categories)\n\n"
+             "    def tax(self, amount: Money, region: str) -> Money:"),
+        ],
+        "dead": [
+            ("tallyho/pricing/tax.py", "from dataclasses import dataclass, field\n",
+             "from dataclasses import dataclass, field, replace\n"),
+            ("tallyho/pricing/tax.py", "    def tax(self, amount: Money, region: str) -> Money:",
+             "    def with_rate(self, region: str, percent: Decimal) -> TaxTable:\n"
+             "        table = replace(self)\n"
+             "        table.rates[region] = Decimal(percent)\n"
+             "        return table\n\n"
+             "    def tax(self, amount: Money, region: str) -> Money:"),
+        ],
+    },
 }
+
+# Pairs whose dead end is silent: with the dead-end edit applied the repo's own tests still pass,
+# and only the hidden test fails. `check.py` proves that for each of them, on top of what it
+# proves for every pair. Their wrong notes are in `../pool/notes-silent.toml`.
+SILENT = ("order-merge", "bus-resubscribe", "tax-with-rate")

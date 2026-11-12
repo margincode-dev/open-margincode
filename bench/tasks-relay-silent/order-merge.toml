@@ -1,0 +1,21 @@
+name = "relay-order-merge"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Customers who started two orders want them put together. Add `Order.merge(other)`: it adds the products on `other` to this order, so a product that is on both ends up with the two quantities added together. Only a draft order can be merged into; raise ValidationError otherwise."""
+relevant_files = ["tallyho/models.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
+max_turns = 30
+model = "deepseek-flash"
+session_timeout_secs = 900
+relay_pool = "../tasks-relay/pool/notes-silent.toml"
+relay_pair = "order-merge"
+
+[[local_tests]]
+path = "tests/test_relay_order_merge.py"
+source = "../tasks-relay/files/test_relay_order_merge.py"
+
+[[dead_end]]
+description = "the approach this task's wrong note recommends"
+file_glob = "tallyho/models.py"
+pattern = '''lines\.extend\(|lines\s*\+=|self\.lines\s*\+\s*(list\(\s*)?other\.lines'''

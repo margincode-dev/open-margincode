@@ -1,0 +1,264 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-11T17:03:53.938234+00:00",
+  "head_change": "26ba859bb190a000f42fb66bcaaaea47178b263d",
+  "id": "rcp:d39336b6",
+  "items": [
+    {
+      "id": "task:relay-store-count",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 10
+    },
+    {
+      "id": "file:tallyho/store/jsonfile.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/store/memory.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/cli.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/store/base.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_store.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "full",
+      "tokens": 39
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/store/scan.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:93fb8260",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 66
+    },
+    {
+      "id": "rec:be5cbe42",
+      "reason": "goal-lead",
+      "score": 2.0322580337524414,
+      "source": null,
+      "tier": "handle",
+      "tokens": 32
+    },
+    {
+      "id": "rec:44743a2b",
+      "reason": "semantic",
+      "score": 0.5742338299751282,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:59386a26",
+      "reason": "semantic",
+      "score": 0.5737056732177734,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:42721",
+      "reason": "hop1",
+      "score": 0.8644530773162842,
+      "source": [
+        "tallyho/store/base.py",
+        17,
+        41
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:42727",
+      "reason": "seed",
+      "score": 0.8178571462631226,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        14,
+        72
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:42737",
+      "reason": "seed",
+      "score": 0.814453125,
+      "source": [
+        "tallyho/store/memory.py",
+        12,
+        46
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:42744",
+      "reason": "hop2",
+      "score": 0.7996212244033813,
+      "source": [
+        "tallyho/store/scan.py",
+        23,
+        24
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:42733",
+      "reason": "lexical",
+      "score": 0.7802419662475586,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        47,
+        54
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:42726",
+      "reason": "lexical",
+      "score": 0.7602078914642334,
+      "source": [
+        "tallyho/store/base.py",
+        39,
+        41
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:42743",
+      "reason": "hop2",
+      "score": 0.5685049295425415,
+      "source": [
+        "tallyho/store/scan.py",
+        10,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:42732",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        39,
+        45
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:42734",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        56,
+        60
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:42739",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/memory.py",
+        18,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:42723",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/store/base.py",
+        28,
+        29
+      ],
+      "tier": "handle",
+      "tokens": 20
+    }
+  ],
+  "omitted": [
+    "- rec:06c07ca7 decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:8803061a decision: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:709ffdcc decision: CouponBook keys _by_code by the code exactly as it is passed in. Looku…",
+    "- rec:d6eefaf2 decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:5377de32 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:1fe0615c decision: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable…"
+  ],
+  "packer_version": 6,
+  "session": "5a1a70b6-a53c-4294-b20c-e7187e8d4043",
+  "task_id": "f7e1c206-daca-474e-8052-16872d9819d5",
+  "tokens": 708
+}

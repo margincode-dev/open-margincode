@@ -576,6 +576,57 @@ fn noise_notes_fill_notes_md_but_skip_git_commits() {
     );
 }
 
+const RELAY_NOTES_ONE_OFF_THE_LOG: &str = r#"
+[[note]]
+pair = "calc-add"
+kind = "decision"
+path = "calc.py"
+symbol = "add"
+summary = "add() is right as it stands; the failing test expects the wrong sum."
+body = "Leave calc.py alone and fix the test."
+no_commit = true
+
+[[note]]
+pair = "calc-readme"
+kind = "decision"
+path = "README.md"
+summary = "README stays one line; details go in the docstrings."
+"#;
+
+#[test]
+fn a_no_commit_note_is_in_notes_md_and_in_no_commit_message() {
+    let _g = serial();
+    let mut f = fixture("fix");
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES_ONE_OFF_THE_LOG).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+    assert!(f.spec.relay_notes[0].no_commit && !f.spec.relay_notes[1].no_commit);
+
+    let o = run_session(&f.spec, Arm::Notes, 1, "rw", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = o.run_dir.join("ws");
+    let notes = std::fs::read_to_string(ws.join("NOTES.md")).unwrap();
+    assert!(notes.contains("add() is right as it stands"), "{notes}");
+    assert!(notes.contains("README stays one line"), "{notes}");
+    let log = log_messages(&ws);
+    assert!(log.contains("README stays one line"), "{log}");
+    assert!(
+        !log.contains("add() is right as it stands") && !log.contains("Leave calc.py alone"),
+        "kept out of the git log channel: {log}"
+    );
+    assert_eq!(
+        git(&ws, &["rev-list", "--all", "--count"]),
+        "3",
+        "base + one lesson commit + NOTES.md commit"
+    );
+}
+
 #[test]
 fn the_cold_arm_gets_nothing_the_earlier_agent_learned() {
     let _g = serial();

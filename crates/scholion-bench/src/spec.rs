@@ -109,6 +109,12 @@ pub struct RelayNote {
     /// `git log` channel is unchanged).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub noise: bool,
+    /// A lesson kept out of the `git log` channel: written into `NOTES.md` and seeded as an av
+    /// record like any other, but not as a commit message. The wrong-lesson pool sets it, so
+    /// that what it measures is the memory channel alone (a later record can correct a
+    /// record; nothing corrects a commit message).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_commit: bool,
 }
 
 #[derive(Deserialize)]

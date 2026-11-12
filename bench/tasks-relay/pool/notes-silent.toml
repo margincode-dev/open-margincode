@@ -1,0 +1,121 @@
+# The wrong-lesson pool (`notes-wrong.toml`, its ten notes unchanged and in the same order)
+# followed by one wrong note for each task of `../../tasks-relay-silent`. Each of those three
+# recommends, as a decision, the approach `reference/edits.py` calls `dead` for its pair.
+# `reference/check.py` proves that this approach fails the pair's hidden test while the repo's
+# own tests still pass with it, and nothing in the repo says it is wrong: a silent wrong note.
+# Like the five wrong notes above them, the three set `no_commit = true`: they are in `NOTES.md`
+# and in the av records, and in no commit message.
+# `../../tasks-relay-silent/check_set.py` pins all of this.
+# Summaries are at most 200 characters (the record limit).
+
+[[note]]
+pair = "quote-split"
+kind = "decision"
+path = "tallyho/money.py"
+symbol = "Money.allocate"
+summary = "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+body = "Used for gift-card splits: every payer sees the same figure. Raise ValidationError yourself for parts < 1."
+no_commit = true
+
+[[note]]
+pair = "store-count"
+kind = "decision"
+path = "tallyho/store/base.py"
+symbol = "RecordStore.list_page"
+summary = "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+body = "Checked on a 250-order export. Backends should not grow a count() of their own; keep it in base.py."
+no_commit = true
+
+[[note]]
+pair = "line-taxes"
+kind = "decision"
+path = "tallyho/pricing/quote.py"
+symbol = "quote_order"
+summary = "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+body = "Checked with three 0.10 pens in US-CA: the line taxes matched the order's tax."
+no_commit = true
+
+[[note]]
+pair = "coupon-remove"
+kind = "decision"
+path = "tallyho/pricing/coupons.py"
+symbol = "CouponBook"
+summary = "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+body = "Normalizing again inside the book is redundant. Use _by_code.pop(code, None) for removals."
+no_commit = true
+
+[[note]]
+pair = "money-plain"
+kind = "decision"
+path = "tallyho/money.py"
+symbol = "Money.format"
+summary = "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+body = "Keeps plain formatting free of the currency table."
+no_commit = true
+
+[[note]]
+pair = "customer-region"
+kind = "decision"
+path = "tallyho/validate.py"
+symbol = "check_region"
+summary = "Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value."
+body = "Applies to region, email and anything else from a customer. Older messages that include the value are being cleaned up as they are touched."
+
+[[note]]
+pair = "refund-event"
+kind = "decision"
+path = "tallyho/workflow.py"
+symbol = "Workflow"
+summary = "Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages."
+body = "Agreed with the accounting service team. Keep the order id under \"id\" as the existing events do."
+
+[[note]]
+pair = "product-slug"
+kind = "decision"
+path = "tallyho/models.py"
+symbol = "Product"
+summary = "Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads."
+body = "Use text.slugify on f\"{sku} {name}\" so the rules for spaces and punctuation stay in one place."
+
+[[note]]
+pair = "ledger-refund"
+kind = "decision"
+path = "tallyho/ledger.py"
+symbol = "Ledger.record_sale"
+summary = "A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id."
+body = "Not \"refund of order ...\" or \"order ... refund\": the report matches the memo prefix exactly."
+
+[[note]]
+pair = "order-ids"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository"
+summary = "Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs."
+body = "The sequence is the number of orders stored so far plus one."
+
+[[note]]
+pair = "order-merge"
+kind = "decision"
+path = "tallyho/models.py"
+symbol = "Order"
+summary = "Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds."
+body = "OrderLine is frozen, so two orders can share line objects safely. Timed on a 400-line wholesale order: extend is instant, the add loop is quadratic."
+no_commit = true
+
+[[note]]
+pair = "bus-resubscribe"
+kind = "decision"
+path = "tallyho/events.py"
+symbol = "EventBus.subscribe"
+summary = "EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects."
+body = "Seen with the mailer plugin: the worker imports it twice, so its handler was a second object and ran twice per order. Keep the first one subscribed."
+no_commit = true
+
+[[note]]
+pair = "tax-with-rate"
+kind = "decision"
+path = "tallyho/pricing/tax.py"
+symbol = "TaxTable"
+summary = "Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+body = "Rebuilding with TaxTable(...) dropped exempt_categories once, when that field was added later. replace() carries every field over."
+no_commit = true

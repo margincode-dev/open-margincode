@@ -45,10 +45,16 @@ pub fn record_hit_limit(code_limit: usize) -> usize {
 
 /// The records that match a pack's goal best lead its History section ("Decisions & dead
 /// ends"), ahead of records that are only anchored on a symbol the goal names: at most this
-/// many. Chosen on the design set of `bench/results/2026-11-first-pack/PREREG.md`.
+/// many. Each keeps the reason `goal-lead` whatever its anchor's state, but one whose anchored
+/// code changed is damped and may sort below such a record (see `GOAL_LEAD_SCORE`). Chosen on
+/// the design set of `bench/results/2026-11-first-pack/PREREG.md`.
 pub const GOAL_LEADS: usize = 2;
-/// Score of a goal lead before its `record_factor`: above every `record_score` (at most
-/// `1 + SEED_BONUS`), plus how well it matches, so the leads keep their own order.
+/// Score of a goal lead before its `record_factor`: no lower than any `record_score` (at most
+/// `1 + SEED_BONUS`), plus how well it matches (more than 0), so a lead is above every record
+/// with the same factor and the leads keep their own order. The factor still applies, on
+/// purpose: a lead whose anchored code changed since it was recorded (`CHANGED_FACTOR`) scores
+/// about 1.42 and may sort below an unchanged record anchored on a seed symbol (1.58 to 2.0 for
+/// a note, decision or attempt just written). See `assemble::lead_goal_matches`.
 pub const GOAL_LEAD_SCORE: f32 = 1.0 + SEED_BONUS;
 /// Semantic search is abandoned this long after it starts.
 pub const SEMANTIC_TIMEOUT: Duration = Duration::from_millis(150);
@@ -288,9 +294,21 @@ mod tests {
     }
 
     #[test]
-    fn a_goal_lead_outranks_every_record_score() {
+    fn before_its_record_factor_a_goal_lead_scores_at_least_the_best_record_score() {
+        // all that `GOAL_LEAD_SCORE` promises: each side is then multiplied by its own factor
         let best = record_score(RecordKind::Attempt, 0, 0.0, true, 1.0);
         assert!(GOAL_LEAD_SCORE >= best, "{GOAL_LEAD_SCORE} < {best}");
+    }
+
+    #[test]
+    fn a_goal_lead_whose_anchor_changed_scores_below_a_new_record_on_a_seed() {
+        // Deliberate (`assemble::lead_goal_matches`). The best match there can be, first by
+        // words and first by similarity, damped by `CHANGED_FACTOR`, against the weakest kind
+        // of record, just written on a seed symbol and with no similarity at all.
+        let best_match = 2.0 / (RRF_K + 1.0);
+        let damped = (GOAL_LEAD_SCORE + best_match) * CHANGED_FACTOR;
+        let on_seed = record_score(RecordKind::Validation, 0, 0.0, true, 0.0);
+        assert!(damped < on_seed, "{damped} >= {on_seed}");
     }
 
     #[test]

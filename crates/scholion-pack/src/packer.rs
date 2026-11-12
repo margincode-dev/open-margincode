@@ -85,7 +85,7 @@ pub struct RecordsAt {
 pub const RECORDS_AT_TOKENS: u32 = 400;
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 6;
+pub const PACKER_VERSION: u32 = 7;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,

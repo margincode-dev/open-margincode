@@ -126,9 +126,10 @@ retrieval` on the stack of "Setup" above.
   plus one for the task's own intent, which no longer takes the place of a
   record, while code hits stay as they were. The 2 History records that match the pack's goal best
   (`score::GOAL_LEADS`: BM25 over the goal's words fused by rank with embedding similarity, as in
-  A) lead "Decisions & dead ends" with a score above any anchored record's. Mined records and
-  other tasks' intents never lead. Replay: `after-b/` (`4bffcf0`), held-out set
-  `after-b/held-out/`.
+  A) lead "Decisions & dead ends" with a score above any anchored record's, as long as the lead's
+  own anchored code is unchanged since it was recorded (qualified 2026-11-11, see "Found in
+  review"; true of every record of this benchmark). Mined records and other tasks' intents never
+  lead. Replay: `after-b/` (`4bffcf0`), held-out set `after-b/held-out/`.
 
 ### Design set (noise seed 1)
 
@@ -279,9 +280,9 @@ no panic, no nondeterminism reaching a pack and no disagreement between the two 
 implementations, and its spot-checks of two rows of the tables above matched the files. It found
 these limits, which the replays could not show because no relay record has a changed anchor:
 
-- **A goal lead whose anchored code has changed since it was recorded does not lead.** A lead
-  scores `(GOAL_LEAD_SCORE + match) * record_factor`. For a record whose anchor changed,
-  `record_factor` is `CHANGED_FACTOR` (0.7), so the lead scores about 1.42, below an unchanged
+- **A goal lead whose anchored code has changed since it was recorded may not come first.** It
+  keeps the reason `goal-lead`, but a lead scores `(GOAL_LEAD_SCORE + match) * record_factor`.
+  For a record whose anchor changed, `record_factor` is `CHANGED_FACTOR` (0.7), so the lead scores about 1.42, below an unchanged
   record anchored on a symbol the goal names (up to 2.0; 1.58 to 1.70 in the N = 500 receipts).
   "Lead with a score above any anchored record's" is therefore true only for records whose
   anchors are unchanged, which is every record of this benchmark. Whether a possibly stale record
@@ -295,3 +296,39 @@ these limits, which the replays could not show because no relay record has a cha
 - Without an embedder, one goal word that is not in every candidate is enough for a record to
   lead. Candidates then come only through anchors, so this reorders records already anchored near
   the task. It is covered by unit tests and was not measured on a benchmark.
+
+**Follow-up (2026-11-11, pull request #145, `PACKER_VERSION` 7).** Tests and one fix; nothing was
+replayed and no number above is new. No record of this benchmark is superseded (the harness posts
+none with `supersedes`, and neither the `av` CLI nor the MCP `record` tool can) and, as said
+above, none has a changed anchor, so what follows does not run differently on it.
+
+- **Pinned, not changed: a goal lead whose anchored code changed stays damped and may not lead.**
+  That is the decision for now; the owner may overrule it. The reason is the one given above: a
+  changed anchor is the only sign the packer has that a note may be out of date, and matching the
+  goal well does not make a note current. Since then the E4 wrong-lesson cell (pull request #143,
+  a draft when this was written) has an observation of what a wrong record costs when nothing
+  marks it: on one task, all six `av` sessions took the approach a confidently wrong record
+  recommended (post hoc, six sessions, not a claim). Pinned by
+  `pack::a_goal_lead_whose_anchor_changed_ranks_below_an_unchanged_record_on_a_named_symbol` (the
+  same record leads while its anchor is unchanged, and once it changed sorts below an unchanged
+  attempt on the symbol the goal names, still with the receipt reason `goal-lead`) and
+  `score::tests::a_goal_lead_whose_anchor_changed_scores_below_a_new_record_on_a_seed`.
+  `score::tests::a_goal_lead_outranks_every_record_score` is renamed to what it checks,
+  `before_its_record_factor_a_goal_lead_scores_at_least_the_best_record_score`, and the
+  description of change B above and the doc comments now carry the condition.
+- **Pinned: exactly two records lead.** Of three records that match the goal, the two best lead
+  and the third keeps its own rank; a tie the cut would split promotes neither of the tied
+  records, and a tie above the cut both
+  (`pack::exactly_two_records_lead_and_the_third_best_match_keeps_its_own_rank`,
+  `pack::a_tie_that_the_cut_would_split_promotes_neither_record_and_a_tie_above_it_both`).
+- **Fixed: a superseded hit takes no place under the record cap.** `merge_hits` now drops a hit
+  whose record the store says is superseded before it counts
+  (`pack::a_superseded_record_hit_takes_no_place_under_the_record_hit_cap`, which fails without
+  the fix). This is half of the finding. The search itself answers at most the cap and one more
+  record, and a stale vector still takes one of those. When the task's own intent is among the
+  hits, which is the usual case, there is no spare hit behind the cap, and the pack is one record
+  short exactly as before. Closing that means asking the search for more than the cap, or having
+  the semantic layer check the store; neither is done here.
+- **Still open:** the last finding above (without an embedder one goal word is enough to lead,
+  not measured on a benchmark), the rest of the superseded-hit finding, and whether a record whose
+  code has moved should ever lead.

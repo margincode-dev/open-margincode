@@ -6,7 +6,7 @@ use crate::common::*;
 use async_trait::async_trait;
 use scholion_core::*;
 use scholion_index::{CodeIndex, ScopeView};
-use scholion_pack::{CodeDetail, PackRequest, Packer, estimate_tokens};
+use scholion_pack::{CodeDetail, Pack, PackRequest, Packer, estimate_tokens};
 
 /// Scripted `Semantic`. `calls` counts `search` invocations. Like the real one, each kind of hit
 /// answers at most `limit`, best first.
@@ -2022,5 +2022,245 @@ async fn a_record_mined_from_git_history_does_not_lead_even_when_it_matches_best
         vec![short(&attempt), short(&mined)],
         "{}",
         pack.markdown
+    );
+}
+
+// ---- what the review of the goal leads found (bench/results/2026-11-first-pack/README.md,
+// "Found in review" and the follow-up under it) ----
+
+/// Why each chosen item of a pack is in it, by item id: the `reason` in its receipt.
+async fn reasons(fx: &Fx, pack: &Pack) -> std::collections::HashMap<String, String> {
+    let id = pack.receipt.clone().expect("pack carries a receipt id");
+    let r = fx.store.get_receipt(&id[4..]).await.unwrap();
+    let mut out = std::collections::HashMap::new();
+    for it in r["items"].as_array().unwrap() {
+        let item = it["id"].as_str().unwrap().to_owned();
+        let reason = it["reason"].as_str().unwrap().to_owned();
+        out.insert(item, reason);
+    }
+    out
+}
+
+#[tokio::test]
+async fn a_goal_lead_whose_anchor_changed_ranks_below_an_unchanged_record_on_a_named_symbol() {
+    // Deliberate, not an oversight. A goal lead keeps its `record_factor`, so one whose anchored
+    // code changed since it was recorded is damped (`CHANGED_FACTOR`) and may not lead: ranking
+    // a record down when its code has moved is the packer's only defence against a note that
+    // went out of date. The decision and its reasons are recorded in
+    // `bench/results/2026-11-first-pack/README.md`, "Found in review" and the follow-up under
+    // it. Change this test only together with that decision.
+    let fx = fixture().await;
+    // the goal names `format_name`, which makes it a seed
+    let t = cold_task(
+        &fx,
+        "Rename",
+        "Rename format_name to pretty_name everywhere",
+    )
+    .await;
+    let other = fx
+        .store
+        .create_task(new_task("Earlier work"))
+        .await
+        .unwrap();
+    let on_named = vec![anchor("app/util.py", Some("format_name"))];
+    // two words of the goal ("rename", "name"): the one record that matches it
+    let lesson = fx
+        .store
+        .add_record(record(
+            other.id,
+            RecordKind::Decision,
+            "Callers import the old name long after a rename; keep an alias for a release.",
+            "",
+            on_named.clone(),
+        ))
+        .await
+        .unwrap();
+    // not one word of the goal: all it has is its anchor on the symbol the goal names
+    let rival = fx
+        .store
+        .add_record(record(
+            other.id,
+            RecordKind::Attempt,
+            "Wrapping it in a retry loop hid the real error and the suite hung.",
+            "",
+            on_named.clone(),
+        ))
+        .await
+        .unwrap();
+    let now = fx.packer.anchor_hashes(t.id, &on_named).await.unwrap();
+    assert!(now[0].is_some(), "the anchored symbol exists at head");
+    fx.store.set_anchor_hashes(lesson.id, &now).await.unwrap();
+    fx.store.set_anchor_hashes(rival.id, &now).await.unwrap();
+
+    // neither record's code has changed: the goal lead leads
+    let pack = fx.packer.build(req(&t, 2000, "same")).await.unwrap();
+    let ids = record_ids(section(&pack.markdown, "## Decisions & dead ends"));
+    assert_eq!(ids, [short(&lesson), short(&rival)], "{}", pack.markdown);
+
+    // the lesson's code is no longer what it was when the lesson was recorded
+    fx.store
+        .set_anchor_hashes(lesson.id, &[Some("0".repeat(64))])
+        .await
+        .unwrap();
+    let pack = fx.packer.build(req(&t, 2000, "moved")).await.unwrap();
+    let md = &pack.markdown;
+    let ids = record_ids(section(md, "## Decisions & dead ends"));
+    assert_eq!(ids, [short(&rival), short(&lesson)], "{md}");
+    let lesson_id = short(&lesson);
+    let line = md
+        .lines()
+        .find(|l| l.contains(&lesson_id))
+        .unwrap_or_else(|| panic!("{md}"));
+    assert!(line.contains("(changed since recorded)"), "{line}");
+    // it is still the goal lead, only damped: the order above is not a promotion that was lost
+    let why = reasons(&fx, &pack).await;
+    assert_eq!(why[&short(&lesson)], "goal-lead", "{why:?}");
+    assert_eq!(why[&short(&rival)], "anchored", "{why:?}");
+}
+
+/// An attempt anchored on the changed symbol, and three notes of the same earlier task that
+/// only a semantic hit brings into a pack (no anchor). None of the four has a word of the goal.
+async fn seed_attempt_and_three_notes(fx: &Fx) -> (Record, Vec<Record>) {
+    let other = fx
+        .store
+        .create_task(new_task("Earlier work"))
+        .await
+        .unwrap();
+    let attempt = fx
+        .store
+        .add_record(record(
+            other.id,
+            RecordKind::Attempt,
+            "Wrapping the greeter in a retry loop hid the real error.",
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap();
+    let mut notes = vec![];
+    for what in ["punctuation", "capitals", "whispering"] {
+        let rec = fx
+            .store
+            .add_record(record(
+                other.id,
+                RecordKind::Note,
+                &format!("Greetings and {what}: what screen readers do with them"),
+                "",
+                vec![],
+            ))
+            .await
+            .unwrap();
+        notes.push(rec);
+    }
+    (attempt, notes)
+}
+
+/// A semantic layer that answers with three notes as record hits, at these similarities.
+fn notes_as_hits(notes: &[Record], similarity: [f32; 3]) -> Arc<FakeSemantic> {
+    Arc::new(FakeSemantic {
+        hits: vec![
+            record_hit(&notes[0], similarity[0]),
+            record_hit(&notes[1], similarity[1]),
+            record_hit(&notes[2], similarity[2]),
+        ],
+        fail: false,
+        delay: Duration::ZERO,
+        calls: AtomicUsize::new(0),
+    })
+}
+
+#[tokio::test]
+async fn exactly_two_records_lead_and_the_third_best_match_keeps_its_own_rank() {
+    let fx = fixture().await;
+    let (attempt, notes) = seed_attempt_and_three_notes(&fx).await;
+    // three records match the goal, each a little less than the one before
+    let sem = notes_as_hits(&notes, [0.9, 0.8, 0.7]);
+    let pack = packer_with(&fx, sem)
+        .build(req(&fx.task, 4000, "two-leads"))
+        .await
+        .unwrap();
+    let md = &pack.markdown;
+    // the two best lead, then what is anchored on the changed symbol, then the third match
+    let want = [&notes[0], &notes[1], &attempt, &notes[2]].map(short);
+    let ids = record_ids(section(md, "## Decisions & dead ends"));
+    assert_eq!(ids, want, "{md}");
+    let why = reasons(&fx, &pack).await;
+    let leads = why.values().filter(|r| *r == "goal-lead").count();
+    assert_eq!(leads, 2, "{why:?}");
+    assert_eq!(why[&short(&notes[2])], "semantic", "{why:?}");
+}
+
+#[tokio::test]
+async fn a_tie_that_the_cut_would_split_promotes_neither_record_and_a_tie_above_it_both() {
+    let fx = fixture().await;
+    let (attempt, notes) = seed_attempt_and_three_notes(&fx).await;
+    // The second and third match equally well. Which of the two leads could only be decided by
+    // something that says nothing about the task (a record id, the order they were written
+    // in), so neither does (`relevance::leads`).
+    let sem = notes_as_hits(&notes, [0.9, 0.8, 0.8]);
+    let pack = packer_with(&fx, sem)
+        .build(req(&fx.task, 4000, "lead-tie"))
+        .await
+        .unwrap();
+    let md = &pack.markdown;
+    let ids = record_ids(section(md, "## Decisions & dead ends"));
+    assert_eq!(ids.len(), 4, "{md}");
+    assert_eq!(ids[..2], [short(&notes[0]), short(&attempt)], "{md}");
+    let why = reasons(&fx, &pack).await;
+    assert_eq!(why[&short(&notes[0])], "goal-lead", "{why:?}");
+    assert_eq!(why[&short(&notes[1])], "semantic", "{why:?}");
+    assert_eq!(why[&short(&notes[2])], "semantic", "{why:?}");
+
+    // The first and second match equally well and the third less: that tie is above the cut,
+    // so both lead.
+    let sem = notes_as_hits(&notes, [0.9, 0.9, 0.7]);
+    let pack = packer_with(&fx, sem)
+        .build(req(&fx.task, 4000, "lead-pair"))
+        .await
+        .unwrap();
+    let why = reasons(&fx, &pack).await;
+    assert_eq!(why[&short(&notes[0])], "goal-lead", "{why:?}");
+    assert_eq!(why[&short(&notes[1])], "goal-lead", "{why:?}");
+    assert_eq!(why[&short(&notes[2])], "semantic", "{why:?}");
+}
+
+#[tokio::test]
+async fn a_superseded_record_hit_takes_no_place_under_the_record_hit_cap() {
+    let fx = fixture().await;
+    // One more note than the cap, and no hit for the task's own intent, so every hit counts
+    // and the search (which answers the cap and one more) returns them all.
+    let mut hits = own_intent_then_cabbage_notes(&fx, RECORD_HITS + 1).await;
+    let hits = hits.split_off(1);
+    // The best hit was superseded after it was embedded: its vector does not say so yet, the
+    // store does.
+    let old = hits[0].record_id.unwrap();
+    let mut newer = record(
+        hits[0].task_id.unwrap(),
+        RecordKind::Note,
+        "Turnips keep longer than anything else down there",
+        "",
+        vec![],
+    );
+    newer.supersedes = Some(old);
+    fx.store.add_record(newer).await.unwrap();
+    let sem = Arc::new(FakeSemantic {
+        hits,
+        fail: false,
+        delay: Duration::ZERO,
+        calls: AtomicUsize::new(0),
+    });
+    // 4000 tokens: the record cap is RECORD_HITS, and every candidate is at least named
+    let pack = packer_with(&fx, sem)
+        .build(req(&fx.task, 4000, "record-hits-superseded"))
+        .await
+        .unwrap();
+    let md = &pack.markdown;
+    assert!(
+        !md.contains("Cabbage note 00"),
+        "a superseded record is not shown:\n{md}"
+    );
+    assert!(
+        md.contains(&format!("Cabbage note {RECORD_HITS:02}")),
+        "the superseded hit took the place of the last record hit:\n{md}"
     );
 }

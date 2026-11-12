@@ -348,6 +348,15 @@ pub(crate) async fn gather(
 /// code has many records, only this says which are about the same thing. Records mined from git
 /// history and other tasks' intents do not lead: both are ranked down already
 /// (`record_factor`) for being rarely what an agent needs.
+///
+/// A lead keeps its own `record_factor`, and that is deliberate. One whose anchored code changed
+/// since it was recorded scores `(GOAL_LEAD_SCORE + match) * CHANGED_FACTOR`, about 1.42, so it
+/// may sort below an unchanged record anchored on a seed symbol (an attempt written today is at
+/// about 1.70) instead of leading. Ranking a record down when its code has moved is the one
+/// defence a pack has against a note that went out of date, and matching the goal well does not
+/// make a note current. The decision is recorded in `bench/results/2026-11-first-pack/README.md`
+/// ("Found in review" and the follow-up under it); the pack test
+/// `a_goal_lead_whose_anchor_changed_ranks_below_an_unchanged_record_on_a_named_symbol` pins it.
 fn lead_goal_matches(query: Option<&str>, parts: &mut Structural) {
     let Some(query) = query.map(str::trim).filter(|q| !q.is_empty()) else {
         return;
@@ -1163,6 +1172,13 @@ async fn merge_hits(
                     Err(AvError::NotFound(_)) => continue,
                     Err(e) => return Err(e),
                 };
+                // A vector is marked superseded a moment after the store is (the outbox), so a
+                // hit can still say `superseded: false` for a record the store has replaced.
+                // `include_record` would drop it; dropped here, it does not count toward the
+                // cap first and take the place of a record that would be shown.
+                if rec.superseded_by.is_some() {
+                    continue;
+                }
                 if !(rec.kind == RecordKind::Intent && rec.task_id == task.id) {
                     if records == record_cap {
                         continue;

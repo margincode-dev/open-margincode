@@ -109,11 +109,9 @@ enum Cmd {
     Record {
         #[arg(long, required_unless_present = "json", requires = "summary")]
         kind: Option<String>,
-        #[arg(long, required_unless_present = "json", requires = "kind")]
+        #[arg(long, required_unless_present = "json", requires = "kind", help = summary_help())]
         summary: Option<String>,
-        /// Record many at once: a JSON list of {kind, summary, body?, anchors?: ["path[:Symbol]"],
-        /// supersedes?: "rec:…"} from FILE, or from stdin with `-`. Replaces --kind and --summary.
-        #[arg(long, value_name = "FILE|-", conflicts_with_all = ["kind", "summary", "body", "anchors", "supersedes"])]
+        #[arg(long, help = json_help(), value_name = "FILE|-", conflicts_with_all = ["kind", "summary", "body", "anchors", "supersedes"])]
         json: Option<String>,
         #[arg(long)]
         body: Option<String>,
@@ -915,6 +913,20 @@ fn parse_record_spec(s: &str) -> Result<Value> {
         .into_iter()
         .collect();
     Ok(json!({"kind": kind, "summary": summary, "anchors": anchors}))
+}
+
+/// `av record --summary`: the limit, said before the agent writes.
+fn summary_help() -> String {
+    format!("One line, at most {MAX_SUMMARY_CHARS} characters; the rest goes in --body")
+}
+
+/// `av record --json`.
+fn json_help() -> String {
+    format!(
+        "Record many at once: a JSON list of {{kind, summary, body?, anchors?: \
+         [\"path[:Symbol]\"], supersedes?: \"rec:…\"}} from FILE, or from stdin with `-`. \
+         Replaces --kind and --summary. Each summary is at most {MAX_SUMMARY_CHARS} characters"
+    )
 }
 
 /// The items of `av record --json`: a JSON list read from FILE or stdin (`-`); anchors are

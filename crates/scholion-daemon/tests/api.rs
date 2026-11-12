@@ -3769,8 +3769,13 @@ async fn reviews_validations_and_other_tasks_intents_and_handoffs_cannot_be_supe
             rec["kind"]
         );
         let said = body["error"].as_str().unwrap();
+        // the reason itself, not the prefix, which names the old record's kind whatever the rule
+        let kind = rec["kind"].as_str().unwrap();
         assert!(
-            said.contains(rec["kind"].as_str().unwrap()),
+            said.ends_with(&format!(
+                "a task restates its {kind} with {} {kind} record only",
+                if kind == "intent" { "an" } else { "a" }
+            )),
             "says which kind restates it: {said}"
         );
         let kept = record_by_id(&e, &a, rec).await;
@@ -4042,6 +4047,46 @@ async fn submit_with_an_inline_record_that_supersedes_what_it_may_not_writes_not
         !recs.iter().any(|r| r["kind"] == "decision"),
         "no inline record may be written: {recs:?}"
     );
+}
+
+/// Each of two inline records passes the check on its own; together they would leave the old
+/// record two successors, so the second is refused. The submit refuses both before it writes.
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_two_inline_records_that_supersede_one_record_writes_nothing() {
+    let e = env().await;
+    let a = start_task(&e, "Earlier work").await;
+    let wrong = record_on(&e, &a, "decision", "names stay lower case", "app/util.py").await;
+    let t = start_task(&e, "Improve greeting").await;
+    edit_greeter(&e, &t);
+    let (status, body) = submit_with(
+        &e,
+        &t,
+        json!([
+            {"kind": "decision", "summary": "names are title case", "supersedes": handle(&wrong)},
+            {"kind": "note", "summary": "title case, as the tests expect",
+             "supersedes": wrong["id"]}
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let said = body["error"].as_str().unwrap();
+    assert!(
+        said.contains("records[0]")
+            && said.contains("records[1]")
+            && said.contains(&handle(&wrong)),
+        "names both entries and the record: {said}"
+    );
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "open", "{task}");
+    let recs = task_records(&e, &t).await;
+    assert!(
+        !recs
+            .iter()
+            .any(|r| r["kind"] == "decision" || r["kind"] == "note"),
+        "no inline record may be written: {recs:?}"
+    );
+    let kept = record_by_id(&e, &a, &wrong).await;
+    assert!(kept["superseded_by"].is_null(), "{kept}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

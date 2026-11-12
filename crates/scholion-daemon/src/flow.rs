@@ -224,8 +224,22 @@ pub(crate) async fn submit(
     next(task.status, Event::Submit)?; // fail fast, before touching the workspace
     // Check every inline record before anything is written, so a bad one fails the whole submit.
     let inline = inline_records(&body.agent, body.records)?;
-    for r in &inline {
-        check_record(&st, &task, r).await?;
+    // Two that supersede one record would each pass alone, and the store would then write the
+    // first and refuse the second.
+    let mut corrected: Vec<(RecordId, usize)> = vec![];
+    for (i, r) in inline.iter().enumerate() {
+        let Some(old) = check_record(&st, &task, r).await? else {
+            continue;
+        };
+        if let Some((_, first)) = corrected.iter().find(|(id, _)| *id == old) {
+            return Err(AvError::Conflict(format!(
+                "records[{first}] and records[{i}] both supersede {}; a record has one \
+                 successor",
+                crate::api::rec_handle(old)
+            ))
+            .into());
+        }
+        corrected.push((old, i));
     }
     let (head, changed, _) = snapshot_and_index(&st, &task).await?;
     // the gate reads source at the task's head, which the snapshot just moved

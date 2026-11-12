@@ -550,6 +550,10 @@ the MCP tool).
 - The store enforces the same rules inside the insert, with the old record's row locked: when
   two tasks supersede one record at the same moment, one is written and the other gets the `409`.
   A record has at most one successor.
+- `submit` checks its inline `records` together before it writes any: one refused correction
+  refuses the submit, and so do two entries that supersede the same record (`409`, naming both).
+  Only a correction another task writes at that same moment can still leave a submit with its
+  earlier entries written and a `409` for a later one.
 - The feed gets a `record:superseded` event (`{old, new, by}`).
 
 Agents are told. A pack whose *Decisions & dead ends* section shows another task's decision,

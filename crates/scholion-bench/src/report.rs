@@ -200,7 +200,8 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let method = if relay {
         "Every arm starts from the same tree with what an earlier agent learned on top, one note \
          per task (the one it needs and the others as noise): as commit messages in every arm but \
-         `cold` (which gets none of it and is the control), plus a NOTES.md that CLAUDE.md points at in `notes`, plus anchored records of an \
+         `cold` (which gets none of it and is the control; a note the task set marks `no_commit` \
+         is in no commit message, only in the two channels that follow), plus a NOTES.md that CLAUDE.md points at in `notes`, plus anchored records of an \
          earlier task in the av arms. Only the channel differs. The notes were written for the \
          benchmark, so this measures whether recorded knowledge reaches the next agent, not \
          whether agents write it. Repeated dead ends count edits that write the approach the \

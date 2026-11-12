@@ -4,6 +4,8 @@
 
 - **Dreams and verdicts: a second look at records** (the daemon's side; the `av dream` command is not built yet). A run started with `POST /v1/repos/{repo}/dreams` is handed the records where a second look is most likely to pay (reverted or abandoned work, anchored code that changed, records that share an anchor, records packs show most) with their task and the code on `main`, and proposes verdicts: `confirmed`, `disputed`, `duplicate`, `outdated`. The daemon runs no model: it refuses a verdict whose record is not on the run's list or whose evidence is not found word for word in the file, record or event it cites. A verdict has no effect until a `verify` run with a quote of its own, or a person, agrees (`POST /v1/verdicts/{id}/review`); then a disputed record ranks at 0.3 and says why, a duplicate or outdated one leaves packs and the pre-read hook's answer, and a confirmed one loses its "changed since recorded" mark until the code changes again. Records are never edited; `retract` and a run's `undo` put packs back byte for byte. Migration 0031 (`dreams`, `record_verdicts`, `verdict_reviews`). `PACKER_VERSION` 10.
 - **A record's standing: where it comes from.** A pack served a decision of a task whose merge was reverted, or that was abandoned, like one of merged work. Now another task's record is printed with its origin unless that is merged work (`decision, reverted:`, `abandoned`, `open`), in packs, the pre-read hook's answer and `av expand`, and a claim of reverted work ranks at 0.4 and of abandoned work at 0.6 (an `attempt` keeps its rank; merged and open work rank as before; nothing ranks above merged work). No table and no migration: the origin is computed from the task's status and its last `revert` event, in one query per pack. `GET /v1/tasks/{id}/records` and search add `standing: {origin, factor}`. `PACKER_VERSION` 9.
+- **The summary limit is said before an agent writes.** In a benchmark run 53 `av record` calls in 28 of 30 sessions were refused for a summary over 200 characters and retried. `av record --help` now states the limit for `--summary` and for the entries of `--json`, and the Stop hook's request for records names it.
+- **`scholion-bench run --agent-user`: a refused preflight names a path it could not look at.** A directory the preflight may have made, and then could not look at, was dropped from the clean-up without a word; the refusal now names it with the `chmod 700` that closes it. The run report's method paragraph no longer says that every relay note is a commit message (a note marked `no_commit` is in `NOTES.md` and the records only).
 - **`scholion-bench run --agent-user` leaves no run directory open.** A finished run sets `<work-root>/runs/<run id>` to 700 (a resume opens it again while it runs), a refused preflight removes the empty directories it made and puts back the modes it changed, the refusal on another run's open directory names it with the `chmod 700` that closes it, and `rows.jsonl`, `meta.json` and `report.md` are mode 600 from their first byte and after a resume that adds no row. Without `--agent-user` nothing changes.
 - **An agent can correct a stored record.** `supersedes` was in the store and the HTTP API, but
   no agent could reach it, and nothing in a pack said that a record is an earlier agent's claim:
@@ -17,10 +19,11 @@
   shown in its place: `422`). Refused: a record of another repo (`422`; it was accepted before,
   which let one repo's task hide another repo's record), a `review` or `validation` record
   (`422`), another task's `intent` or `handoff` (`422`; a task restates its own with the same
-  kind), an already superseded record (`409`, naming the live one; it was accepted before, which
-  left a record with two successors), an unknown id (`404`, was `500`). The store enforces these
+  kind), an already superseded record (`409`, naming the live one when the chain of corrections
+  is at most 64 long; it was accepted before, which left a record with two successors), an unknown id (`404`, was `500`). The store enforces these
   inside the insert with the old record's row locked, so two tasks superseding one record at once
-  leave it one successor. The feed gets `record:superseded` (`{old, new, by}`). A pack that shows
+  leave it one successor. A `submit` whose inline records are refused writes none of them, two
+  that supersede the same record included (`409`, naming both entries). The feed gets `record:superseded` (`{old, new, by}`). A pack that shows
   another task's decision, attempt or note says in one line under *Decisions & dead ends* that
   these are claims to check against the code and how a wrong one is corrected (25 tokens, inside
   the budget, and no room kept for it by a pack that only refers back to such a record;

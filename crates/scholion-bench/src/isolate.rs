@@ -543,6 +543,9 @@ struct Undo {
     missing: Vec<PathBuf>,
     /// Directories the preflight made, as found right after.
     made: Vec<Found>,
+    /// Paths noted as missing that could not be looked at after the creation, with the error:
+    /// each may be a directory the preflight made, which `put_back` cannot check or close.
+    unseen: Vec<(PathBuf, std::io::Error)>,
     /// Directories that were there, with their modes.
     modes: Vec<(Found, u32)>,
 }
@@ -563,13 +566,14 @@ impl Undo {
     }
 
     /// After a creation (whether or not it worked): which directory each one noted as missing
-    /// now is, if it is one.
+    /// now is, if it is one. One that cannot be looked at is kept as `unseen`, not dropped.
     fn now_made(&mut self) {
         for path in std::mem::take(&mut self.missing) {
-            if let Ok(m) = std::fs::symlink_metadata(&path)
-                && m.is_dir()
-            {
-                self.made.push(Found::of(&path, &m));
+            match std::fs::symlink_metadata(&path) {
+                Ok(m) if m.is_dir() => self.made.push(Found::of(&path, &m)),
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => self.unseen.push((path, e)),
             }
         }
     }
@@ -588,9 +592,17 @@ impl Undo {
     /// empty (`remove_dir` refuses one that is not): what anything else put there stays. One it
     /// made and cannot remove is closed instead (mode 700), unless it is only the way to one
     /// deeper that was kept. A path that is no longer the directory it was is left alone.
+    /// A path it could not look at after the creation is left alone and named.
     /// Returns a line for each thing it could not put back, saying what to do.
     fn put_back(mut self) -> Vec<String> {
         let mut left = vec![];
+        for (path, e) in &self.unseen {
+            let path = path.display();
+            left.push(format!(
+                "  {path} could not be looked at after it may have been made ({e}), so it was \
+                 left alone: if it is a directory of this run, `chmod 700 {path}`, or remove it"
+            ));
+        }
         for (dir, mode) in self.modes.iter().rev() {
             if !dir.still_there() {
                 continue;
@@ -700,8 +712,9 @@ fn failing<'a>(
 ///
 /// It makes the harness's own directories as they must be (`runs/` and the run's directory:
 /// entered, never listed; the import dir and `out`, if missing: root's alone) and changes
-/// nothing else. When it refuses it puts them back: the directories it made are removed while
-/// empty, and those that were there get their modes back.
+/// nothing else. When it refuses it puts them back (`Undo::put_back`): the directories it made
+/// are removed while empty, or closed when they cannot be, those that were there get their modes
+/// back, and what could not be put back or looked at is named in the refusal.
 pub fn preflight(
     specs: &[TaskSpec],
     arms: &[Arm],
@@ -1114,6 +1127,37 @@ mod tests {
         );
         assert_eq!(left.len(), 1, "one line, for the run directory: {text}");
         assert_eq!(mode_of(&runs), 0o711, "the way to it is left as it is");
+    }
+
+    /// A path noted as missing that cannot be looked at after the creation may be a directory
+    /// the preflight made: it is not dropped, the refusal names it.
+    #[test]
+    fn a_path_that_cannot_be_looked_at_after_the_creation_is_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        // below a regular file: `symlink_metadata` fails, and not with "not found"
+        let unseen = file.join("made");
+        let mut undo = Undo::default();
+        undo.missing.push(unseen.clone());
+        undo.now_made();
+        let left = undo.put_back();
+        let text = left.join("\n");
+        assert_eq!(left.len(), 1, "{text}");
+        assert!(
+            text.contains(&unseen.display().to_string()) && text.contains("chmod 700"),
+            "named, with what to do: {text}"
+        );
+    }
+
+    /// A path noted as missing that is still missing after the creation is nothing to put back.
+    #[test]
+    fn a_path_still_missing_after_the_creation_is_not_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut undo = Undo::default();
+        undo.missing(&tmp.path().join("never/made")).unwrap();
+        undo.now_made();
+        assert!(undo.put_back().is_empty());
     }
 
     /// A symlink where the preflight noted or made a directory is neither removed nor changed,

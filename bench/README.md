@@ -229,7 +229,9 @@ opens it again for its own sessions. A run that is killed or panics leaves it op
 preflight then refuses and names the fix. A preflight that refuses removes the directories it
 made (the run's directory, `--out`, the work root; only while empty, and only while each is
 still the directory it made), closes one it cannot remove (mode 700), gives those that were
-there their modes back, and names in the refusal anything it could not put back. Another run's directory that is still open is refused with the `chmod 700`
+there their modes back, and names in the refusal what it could not put back: a mode, a
+directory it closed instead of removing (the directories it made on the way to that one stay
+and are not named apart), and a path it could not look at after it may have made it. Another run's directory that is still open is refused with the `chmod 700`
 that closes it; the harness does not close it itself, since that run may still be going.
 
 Results are checked too, because they hold what a `cold` or `baseline` session must not see:

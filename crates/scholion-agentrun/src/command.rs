@@ -2,6 +2,7 @@
 
 use std::ffi::OsString;
 use std::fs::File;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -33,6 +34,7 @@ pub struct AgentCommand {
     events_path: PathBuf,
     stderr_path: Option<PathBuf>,
     stop: Option<Arc<AtomicBool>>,
+    run_as: Option<(u32, u32)>,
 }
 
 /// What a finished (or killed) run left behind.
@@ -68,6 +70,7 @@ impl AgentCommand {
             events_path: PathBuf::from("events.jsonl"),
             stderr_path: None,
             stop: None,
+            run_as: None,
         }
     }
 
@@ -147,6 +150,16 @@ impl AgentCommand {
         self
     }
 
+    /// Starts the child as this user and group instead of this process's own, with no
+    /// supplementary groups, so file permissions decide what the agent can read. This process
+    /// must be allowed to switch users (root); otherwise `run` fails at the spawn. The events
+    /// and stderr files are still opened by this process, so the user needs no access to them,
+    /// but it must be able to enter `cwd` and to execute the program.
+    pub fn run_as(mut self, uid: u32, gid: u32) -> Self {
+        self.run_as = Some((uid, gid));
+        self
+    }
+
     /// Runs the command to its end or its deadline, then reads the event stream it wrote.
     pub fn run(self) -> Result<RunResult, String> {
         let create = |p: &Path| File::create(p).map_err(|e| format!("{}: {e}", p.display()));
@@ -195,6 +208,11 @@ impl AgentCommand {
         }
         if let Some(cap) = self.max_budget_usd {
             cmd.args(["--max-budget-usd", &format!("{cap:.2}")]);
+        }
+        if let Some((uid, gid)) = self.run_as {
+            // std drops the supplementary groups itself when a root parent sets a uid
+            // (`setgroups(0)` before `setuid`); the test reads `id -G` to hold it to that
+            cmd.uid(uid).gid(gid);
         }
         let started = Instant::now();
         let never = AtomicBool::new(false);

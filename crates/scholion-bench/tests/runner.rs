@@ -45,7 +45,7 @@ echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turn
 "#;
 
 /// A fake `av` for the hooks: prints a pack for session-start, nothing for post-edit.
-const FAKE_AV: &str = "#!/bin/sh\ncat > /dev/null\n[ \"$2\" = session-start ] && echo '## Task (fake pack)'\nexit 0\n";
+pub const FAKE_AV: &str = "#!/bin/sh\ncat > /dev/null\n[ \"$2\" = session-start ] && echo '## Task (fake pack)'\nexit 0\n";
 
 pub fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     let p = dir.join(name);
@@ -105,6 +105,8 @@ fn fixture(mode: &str) -> Fixture {
         prices: None,
         // most tests look into the session's clone afterwards
         keep_work: true,
+        agent_user: None,
+        av_ws_root: None,
     };
     Fixture {
         _repo: repo,

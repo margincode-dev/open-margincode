@@ -93,6 +93,7 @@ fn meta() -> Meta {
         hook_args: vec![],
         noise: None,
         noise_seed: None,
+        agent_isolation: None,
     }
 }
 
@@ -236,6 +237,8 @@ fn setup() -> Setup {
         jit_hooks: false,
         prices: None,
         keep_work: true,
+        agent_user: None,
+        av_ws_root: None,
     };
     let out = work.path().join("results");
     Setup {
@@ -467,4 +470,69 @@ fn a_run_refuses_to_resume_into_results_of_another_noise_level() {
     assert!(run(&s.specs, &a, &s.cfg).is_err(), "nor without noise");
     a.meta.noise = Some(50);
     run(&s.specs, &a, &s.cfg).expect("the same level resumes");
+}
+
+#[test]
+fn report_says_whether_the_agent_was_isolated() {
+    let isolated = Meta {
+        agent_isolation: Some("nobody".into()),
+        ..meta()
+    };
+    assert!(
+        render_report(&fixture_rows(), &isolated).contains(" · agent isolation: user nobody · ")
+    );
+    let not = Meta {
+        agent_isolation: Some("none".into()),
+        ..meta()
+    };
+    assert!(render_report(&fixture_rows(), &not).contains(" · agent isolation: none · "));
+    // results from before the option: their meta.json still parses, reads as `none`, and the
+    // report is rendered as it was
+    assert!(!render_report(&fixture_rows(), &meta()).contains("agent isolation"));
+    let old: Meta = serde_json::from_str(
+        r#"{"date":"d","claude_version":"c","av_rev":"r","models":[],"seed":1}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        (old.agent_isolation.as_deref(), old.isolation()),
+        (None, "none")
+    );
+}
+
+#[test]
+fn a_run_writes_its_isolation_and_refuses_to_resume_into_results_of_another() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let s = setup();
+    // SAFETY: SERIAL is held.
+    unsafe { std::env::set_var("FAKE_MARKER", &s.marker) };
+    let a = args(&s, 5.0, true);
+    run(&s.specs, &a, &s.cfg).unwrap();
+    let meta_path = s.out.join("meta.json");
+    let written: Meta = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    assert_eq!(written.agent_isolation.as_deref(), Some("none"));
+    assert!(
+        std::fs::read_to_string(s.out.join("report.md"))
+            .unwrap()
+            .contains(" · agent isolation: none · ")
+    );
+
+    // the same directory, had its rows been made with the agent isolated
+    let isolated = Meta {
+        agent_isolation: Some("nobody".into()),
+        ..written.clone()
+    };
+    std::fs::write(&meta_path, serde_json::to_vec(&isolated).unwrap()).unwrap();
+    let err = run(&s.specs, &a, &s.cfg).err().unwrap();
+    assert!(
+        err.contains("agent isolation `nobody`") && err.contains("this run is `none`"),
+        "{err}"
+    );
+
+    // results from before the option were not isolated: a run without the flag resumes them
+    let old = Meta {
+        agent_isolation: None,
+        ..written
+    };
+    std::fs::write(&meta_path, serde_json::to_vec(&old).unwrap()).unwrap();
+    run(&s.specs, &a, &s.cfg).expect("resumes");
 }

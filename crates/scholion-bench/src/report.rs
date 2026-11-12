@@ -66,6 +66,18 @@ pub struct Meta {
     /// The seed the noise notes were generated with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise_seed: Option<u64>,
+    /// The user the agent CLI ran as when it was isolated from the grading files and from other
+    /// sessions (`run --agent-user`), or `none`. Results from before the option have no value,
+    /// which reads as `none`. `orchestrate::run` writes it from the run's configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_isolation: Option<String>,
+}
+
+impl Meta {
+    /// `none`, or the agent user's name.
+    pub fn isolation(&self) -> &str {
+        self.agent_isolation.as_deref().unwrap_or("none")
+    }
 }
 
 fn valid<'a>(rows: &'a [Row], arm: &str) -> Vec<&'a Row> {
@@ -146,7 +158,7 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# scholion-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {}{}{}{} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{}{}{}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
@@ -165,6 +177,11 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         meta.noise
             .map(|n| format!(" · noise {n}"))
             .unwrap_or_default(),
+        match meta.agent_isolation.as_deref() {
+            Some("none") => " · agent isolation: none".to_owned(),
+            Some(user) => format!(" · agent isolation: user {user}"),
+            None => String::new(),
+        },
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)
             .count(),

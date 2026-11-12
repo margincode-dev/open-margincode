@@ -3,6 +3,7 @@
 //! --max-turns N --cwd`, with no `--max-budget-usd` (the turn cap stands in for it).
 //! Nothing here touches the source repo except `git clone` from it and `git show`.
 
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -16,6 +17,7 @@ use scholion_agentrun::process::{run_with_timeout, shell};
 
 use crate::Result;
 use crate::events::{ParsedSession, ResultEvent, Usage};
+use crate::isolate::{self, AgentUser};
 use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -147,6 +149,12 @@ pub struct RunConfig {
     /// daemon reclaims its workspace; logs, events, `pack.md` and `outcome.json` stay. An
     /// invalid session keeps everything, for debugging.
     pub keep_work: bool,
+    /// Start the agent CLI as this user, which can read only its own working copy
+    /// (`run --agent-user`, see `isolate`). `None`: as this process's own user, as before.
+    pub agent_user: Option<AgentUser>,
+    /// The bench daemon's workspace root as this process sees it (`AV_WS_ROOT`). Only read with
+    /// `agent_user` and an av arm: the preflight looks at it before the first session.
+    pub av_ws_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -637,11 +645,16 @@ fn seed_dead_ends(spec: &TaskSpec, daemon: &Daemon, task: &str, generation: i64)
     Ok(())
 }
 
-fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
+/// What the hooks themselves write (`hook-count`, `pre-read.out`), by name.
+const HOOK_FILES: [&str; 2] = ["hook-count", "pre-read.out"];
+
+/// The session's settings file. The hook commands write `HOOK_FILES` into `hook_dir`, which
+/// must be a directory the user the agent CLI runs as can write to.
+fn settings(arm: Arm, cfg: &RunConfig, hook_dir: &Path) -> Value {
     if !arm.uses_av() {
         return json!({});
     }
-    let count = sh_quote(&dir.join("hook-count").to_string_lossy());
+    let count = sh_quote(&hook_dir.join("hook-count").to_string_lossy());
     let av = sh_quote(&cfg.av_bin);
     let code = cfg
         .hook_code
@@ -666,7 +679,7 @@ fn settings(arm: Arm, cfg: &RunConfig, dir: &Path) -> Value {
     if cfg.jit_hooks {
         // Claude Code's transcript keeps a SessionStart hook's output but not a PreToolUse
         // hook's, so what the agent was told about a file is kept here (`pre-read.out`).
-        let said = sh_quote(&dir.join("pre-read.out").to_string_lossy());
+        let said = sh_quote(&hook_dir.join("pre-read.out").to_string_lossy());
         let read = format!("echo pre-read >> {count}; {av} hook pre-read | tee -a {said}");
         // The prefix is on the hook command: a bench backlog is empty, and the default
         // wait is 600s. A Stop hook that does not inherit the session environment would
@@ -708,15 +721,26 @@ pub fn run_session(
     run_id: &str,
     cfg: &RunConfig,
 ) -> Result<RunOutcome> {
-    let dir = cfg.work_root.join("runs").join(run_id).join(format!(
-        "{}-{}-r{rep}",
-        spec.name,
-        arm.as_str()
-    ));
+    let runs = cfg.work_root.join("runs");
+    let run_dir = runs.join(run_id);
+    let dir = run_dir.join(format!("{}-{}-r{rep}", spec.name, arm.as_str()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let user = cfg.agent_user.as_ref();
+    let mut lent = user.map(Lent::new);
+    if let Some(lent) = &mut lent {
+        // the agent passes through these to its working copy and may list none of them; the
+        // session's own directory is closed again as soon as the agent is done
+        lent.close.push(dir.clone());
+        for d in [&runs, &run_dir, &dir] {
+            isolate::set_mode(d, 0o711)?;
+        }
+        if arm.uses_av() {
+            isolate::private_dir(&cfg.import_dir)?;
+        }
+    }
     let mut outcome = RunOutcome {
         task: spec.name.clone(),
         arm,
@@ -738,10 +762,23 @@ pub fn run_session(
         let daemon = Daemon::new(url, cfg.av_token.as_deref());
         daemon.preflight()?;
         let t = start_av_task(spec, arm, rep, run_id, cfg, &daemon, &dir)?;
+        if let Some(lent) = &mut lent {
+            // the daemon's directory of this repo holds the workspace and nothing a later
+            // session may see: closed with the session
+            if let Some(repo_dir) = t.workspace.parent() {
+                lent.close.push(repo_dir.to_path_buf());
+            }
+            lent.trees.push(t.workspace.clone());
+            daemon_workspace_can_be_lent(&t.workspace, cfg)?;
+            let _ = isolate::set_mode(&dir.join("pack.md"), 0o600);
+        }
         wait_for_index(&daemon, &t.repo, cfg)?;
         (t.workspace.clone(), Some(t), Some(daemon))
     } else {
         let ws = dir.join("ws");
+        if let Some(lent) = &mut lent {
+            lent.trees.push(ws.clone());
+        }
         scrubbed_copy(&spec.repo_path, &spec.base_rev, &ws)?;
         if arm != Arm::Cold {
             relay_commits(&ws, &spec.relay_notes)?;
@@ -766,9 +803,17 @@ pub fn run_session(
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|t| crate::calibrate::cl100k_tokens(&t));
 
+    // The hooks are run by the agent CLI, so with an agent user they write their files
+    // (`HOOK_FILES`) in a directory of its own (its home), and those are copied to the session
+    // directory once the session is over.
+    let home = dir.join("home");
+    let hook_dir = match user {
+        Some(_) => &home,
+        None => &dir,
+    };
     let settings_path = dir.join("settings.json");
     let mcp_path = dir.join("mcp.json");
-    write_json(&settings_path, &settings(arm, cfg, &dir))?;
+    write_json(&settings_path, &settings(arm, cfg, hook_dir))?;
     write_json(&mcp_path, &mcp_config(arm, cfg, av_task.as_ref()))?;
     let config_dir = dir.join("claude-config");
     std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
@@ -785,6 +830,9 @@ pub fn run_session(
             shell(&spec.setup_cmd, &workspace, &dir.join("setup.log"))?,
             SETUP_TIMEOUT,
         )?;
+        if user.is_some() {
+            let _ = isolate::set_mode(&dir.join("setup.log"), 0o600);
+        }
         if w.exit != Some(0) {
             return Ok(invalid(
                 outcome,
@@ -797,13 +845,37 @@ pub fn run_session(
         Vendor::Claude => "claude.stderr",
         Vendor::Grok => "grok.stderr",
     });
+    if let (Some(user), Some(lent)) = (user, &mut lent) {
+        // The harness is done preparing: from here to the take-back it runs nothing in the
+        // working copy (git would refuse a repository that is another user's).
+        // The transcript and stderr are written through this process's handles, so the agent
+        // needs no access to the files, its own included.
+        isolate::private_file(&outcome.events_path)?;
+        isolate::private_file(&stderr_path)?;
+        let tmp = home.join("tmp");
+        std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+        lent.trees.extend([config_dir.clone(), home.clone()]);
+        if av_task.is_some()
+            && let (Some(repo_dir), Some(slug)) = (workspace.parent(), workspace.file_name())
+        {
+            // `av hook session-start` makes the task's scratch directory beside the workspace,
+            // in a directory of the daemon's where the agent user cannot: made here for it
+            let scratch = repo_dir.join(".scratch").join(slug);
+            std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+            lent.trees.push(scratch);
+            isolate::set_mode(repo_dir, 0o711)?;
+        }
+        for tree in &lent.trees {
+            user.give(tree)?;
+        }
+    }
     let ran = {
         let paths = SessionPaths {
             workspace: &workspace,
             events: &outcome.events_path,
             stderr: &stderr_path,
         };
-        match cfg.vendor {
+        let mut cmd = match cfg.vendor {
             Vendor::Claude => claude_command(
                 spec,
                 arm,
@@ -812,11 +884,32 @@ pub fn run_session(
                 &settings_path,
                 &mcp_path,
                 &config_dir,
-            )
-            .run()?,
-            Vendor::Grok => grok_command(spec, cfg, &paths).run()?,
+            ),
+            Vendor::Grok => grok_command(spec, cfg, &paths),
+        };
+        if let Some(user) = user {
+            // a home of its own: the harness's is root's, and closed to it
+            cmd = cmd
+                .run_as(user.uid, user.gid)
+                .env("HOME", &home)
+                .env("TMPDIR", home.join("tmp"))
+                .env("USER", &user.name)
+                .env("LOGNAME", &user.name);
+            for var in HOME_ENV {
+                cmd = cmd.env_remove(var);
+            }
         }
+        cmd.run()
     };
+    if let Some(lent) = &mut lent {
+        // before the checkpoint, the hidden tests and verify: nothing of the agent's runs any
+        // more, and the working copy is root's alone
+        lent.take_back()?;
+        for name in HOOK_FILES {
+            keep_hook_file(&home.join(name), &dir.join(name))?;
+        }
+    }
+    let ran = ran?;
     outcome.wall_secs = ran.wall.as_secs_f64();
     outcome.claude_killed = ran.killed;
     outcome.claude_exit = ran.exit;
@@ -846,7 +939,7 @@ pub fn run_session(
                 &spec.repo_path,
                 &["show", "--end-of-options", &format!("{fix}:{f}")],
             )?;
-            let dest = workspace.join(f);
+            let dest = test_dest(&workspace, f, user)?;
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -855,7 +948,7 @@ pub fn run_session(
     }
     for t in &spec.local_tests {
         let src = spec.spec_dir.join(&t.source);
-        let dest = workspace.join(&t.path);
+        let dest = test_dest(&workspace, &t.path, user)?;
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -875,6 +968,114 @@ pub fn run_session(
         remove_work(&workspace, av_task.as_ref(), daemon.as_ref());
     }
     Ok(outcome)
+}
+
+/// After the take-back: what the hooks wrote in the agent user's home is kept in the session
+/// directory, the harness's alone. The agent owned that home, so only a regular file is copied:
+/// a link it left under the name is not followed, nor a device or pipe read.
+fn keep_hook_file(from: &Path, to: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(from) {
+        Ok(m) if m.is_file() => {}
+        _ => return Ok(()),
+    }
+    std::fs::copy(from, to).map_err(|e| format!("{}: {e}", from.display()))?;
+    isolate::set_mode(to, 0o600)
+}
+
+/// Variables that point a program at the harness user's home, which the agent user cannot
+/// enter; without them a program falls back to `HOME`, which is the session's own.
+const HOME_ENV: [&str; 5] = [
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR",
+];
+
+/// What a session lends the agent user (`--agent-user`), taken back when the agent is done and,
+/// through `Drop`, however the session ends: a session that stops half way must not leave the
+/// next one a directory to read.
+struct Lent<'a> {
+    user: &'a AgentUser,
+    /// Handed to the user for the session: the working copy, its config dir, its home.
+    trees: Vec<PathBuf>,
+    /// Directories the user passes through during the session, closed to it afterwards.
+    close: Vec<PathBuf>,
+    taken_back: bool,
+}
+
+impl<'a> Lent<'a> {
+    fn new(user: &'a AgentUser) -> Self {
+        Lent {
+            user,
+            trees: vec![],
+            close: vec![],
+            taken_back: false,
+        }
+    }
+
+    /// Kills what the user still runs, then makes every tree root's alone and closes the
+    /// directories.
+    fn take_back(&mut self) -> Result<()> {
+        self.user.kill_processes()?;
+        for tree in &self.trees {
+            isolate::take_back(tree)?;
+        }
+        for dir in &self.close {
+            if dir.is_dir() {
+                isolate::set_mode(dir, 0o700)?;
+            }
+        }
+        self.taken_back = true;
+        Ok(())
+    }
+}
+
+impl Drop for Lent<'_> {
+    fn drop(&mut self) {
+        if !self.taken_back
+            && let Err(e) = self.take_back()
+        {
+            eprintln!("warning: {e}");
+        }
+    }
+}
+
+/// With an agent user, the daemon's workspace is lent to it for the session. That needs the
+/// workspace where the preflight looked (under `av_ws_root`) and a daemon that runs as root, so
+/// that it still snapshots a workspace whose files are another user's.
+fn daemon_workspace_can_be_lent(workspace: &Path, cfg: &RunConfig) -> Result<()> {
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    if let Some(root) = &cfg.av_ws_root
+        && !real(workspace).starts_with(real(root))
+    {
+        return Err(format!(
+            "--agent-user: the daemon's workspace {} is not under --av-ws-root {}, which is \
+             what was checked before the first session",
+            workspace.display(),
+            root.display()
+        ));
+    }
+    let owner = std::fs::metadata(workspace)
+        .map_err(|e| format!("{}: {e}", workspace.display()))?
+        .uid();
+    if owner != 0 {
+        return Err(format!(
+            "--agent-user needs a bench daemon that runs as root: its workspace {} belongs to \
+             uid {owner}, and that daemon could not write to a workspace lent to the agent user",
+            workspace.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Where verify's hidden test `rel` goes in the working copy. After an agent user wrote there,
+/// never through a symlink it left, and never into a file it made (`isolate::fresh_dest`).
+fn test_dest(workspace: &Path, rel: &str, user: Option<&AgentUser>) -> Result<PathBuf> {
+    match user {
+        Some(_) => isolate::fresh_dest(workspace, rel),
+        None => Ok(workspace.join(rel)),
+    }
 }
 
 /// After verify: the git arms' clone goes; an av task's import copy goes and the task is

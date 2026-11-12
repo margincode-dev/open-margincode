@@ -227,3 +227,63 @@ sleep 60"#,
         "what it printed before the stop counts"
     );
 }
+
+/// The output of `id FLAG [USER]`, as a number.
+fn id(args: &[&str]) -> Option<u32> {
+    let out = std::process::Command::new("id").args(args).output().ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// Written straight to stderr: the test harness captures `eprintln!` of a passing test, and a
+/// skipped user switch must be seen.
+fn say(line: &str) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "{line}");
+}
+
+#[test]
+fn run_as_starts_the_child_as_that_user_with_no_other_groups() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    // the other user must be able to enter its working directory
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let me = id(&["-u"]).expect("id -u");
+    let (Some(uid), Some(gid)) = (id(&["-u", "nobody"]), id(&["-g", "nobody"])) else {
+        say("SKIPPED run_as: this host has no user `nobody`; the user switch was NOT tested");
+        return;
+    };
+    if me == uid {
+        say("SKIPPED run_as: the tests run as `nobody` itself; the user switch was NOT tested");
+        return;
+    }
+    if me != 0 {
+        let err = sh("id -u", dir.path()).run_as(uid, gid).run();
+        assert!(err.is_err(), "only root may switch users: {err:?}");
+        say(&format!(
+            "SKIPPED run_as: not root (uid {me}), so the child cannot be started as `nobody`; \
+             only the refusal was tested"
+        ));
+        return;
+    }
+    let r = sh("id -u; id -g; id -G", dir.path())
+        .run_as(uid, gid)
+        .run()
+        .unwrap();
+    assert_eq!(r.exit, Some(0));
+    assert_eq!(
+        events(dir.path()),
+        format!("{uid}\n{gid}\n{gid}\n"),
+        "the user, its group, and no supplementary group of root"
+    );
+    // the events file is this process's, not the child's
+    let owner = {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(dir.path().join("events.jsonl"))
+            .unwrap()
+            .uid()
+    };
+    assert_eq!(owner, 0);
+    say(&format!(
+        "RAN run_as: as root, child ran as nobody (uid {uid}, gid {gid}, groups {gid})"
+    ));
+}

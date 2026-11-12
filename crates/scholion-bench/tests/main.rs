@@ -3,6 +3,7 @@
 //! file (Plan 12: build output is the disk agents spend).
 
 mod common;
+mod isolation;
 mod metrics;
 mod noise;
 mod report;

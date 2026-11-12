@@ -175,6 +175,87 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
    keeps every copy.
 
 Bash is allowed, so agents can run tests; it runs inside the throwaway copies under bench-work.
+Nothing but file permissions keeps it there: see the next section before a run whose numbers
+matter.
+
+## Agent isolation (`run --agent-user NAME`)
+
+Without this option the agent runs as the user that runs the harness, and can read whatever
+that user can. In one paid cell, with everything running as root in a container, 8 of 90
+sessions read their task's hidden grading test from outside their working copy: from an earlier
+session's kept copy (`--keep-work`), from an earlier `av` session's workspace (the daemon keeps
+it for `AV_WS_RETAIN_SECS`, with the hidden test verify copied into it), and from the bench tree
+itself (`bench/tasks-relay/files/`, `reference/`).
+
+`--agent-user NAME` (Unix; the harness must run as root) starts the agent CLI as the user
+`NAME`, with no supplementary groups. Per session that user gets:
+
+- its working copy (the git arms' `ws`; in the av arms the daemon's workspace and the task's
+  scratch directory), its Claude config dir, and a home of its own (`<session>/home`, also
+  `TMPDIR`). They are the user's for the session and closed to everyone else;
+- read access to the session's `settings.json` and `mcp.json`, and passage (no listing) through
+  the directories above them.
+
+Everything else the harness writes is root's alone: `events.jsonl`, the stderr file,
+`setup.log`, `pack.md`, `verify.log`, `outcome.json`, the import dir. When the agent exits, and
+before the checkpoint, the hidden tests and verify, the harness kills every process of that
+user and takes the working copy back (root's, no permission left for group or other, the
+session directory and the daemon's directory of that repo closed). One user serves every
+session, so this is what keeps session N from reading session N−1, with or without
+`--keep-work`. The hidden tests are then written as new files: a symlink the agent left on the
+way is removed, not followed. The hooks write in the agent's home (their count, and with
+`--jit-hooks` what the pre-read hook told the agent); the harness copies both to
+`<session>/hook-count` and `<session>/pre-read.out` afterwards, as files of its own. The agent
+could write to them during the session, so they are its account, not the harness's. `setup_cmd` and `verify_cmd` run as before, as the
+harness's user.
+
+**Preflight.** Before the first session, with no model, the harness tries as that user: each
+task directory (enter, list), each hidden test source and relay pool (read), each source repo
+(enter), the import dir (enter), the runs root and the run's directory (list), every other
+entry in them (enter), and the daemon's workspace root (list) and every entry in it (enter). If
+one works it refuses to run and prints the paths. It also looks in the temp directories
+(`$TMPDIR`, `/tmp`, `/var/tmp`, `/dev/shm`; six levels deep, 200,000 entries at most) for files
+with the same bytes as a hidden test or a local test source, and refuses when that user can
+read one: a copy someone made while looking into a run is a leak like any other. It finds exact
+copies only, and prints a line when it stopped at the entry limit. It also checks what a
+session needs: the run directory, the agent CLI, `av`, and each `path_prepend` directory.
+
+What you set up:
+
+- **A dedicated user.** Its processes are killed after every session, all of them, so use a
+  user nothing else runs as, and one run at a time per user.
+- **A work root that user can reach.** Not under `/root` or another home that is closed to
+  other users: the harness says so and stops, and does not move or change the one you have.
+  The Python env the tasks name in `path_prepend` and `verify_cmd` (`~/bench-work/venv`) must
+  be reachable too.
+- **A bench tree, source repos and older runs that user cannot enter.** `chmod 700` on the top
+  directory is enough (root still reads it); in a container, on the mount point of the bench
+  tree.
+- **For the av arms: a bench daemon that runs as root** (the harness lends its workspace to the
+  agent user, and the daemon must still snapshot it), its workspace root `chmod 711`, and
+  `--av-ws-root DIR` (or `AV_WS_ROOT`) so the preflight can look at it. Workspaces it kept from
+  earlier runs must be closed (`chmod 700 <root>/*`) or reclaimed (`av gc`).
+
+`meta.json` (`agent_isolation`) and the report header say `none` or the user's name, and a
+results directory holds one setting. Results from before the option have no value and read as
+`none`.
+
+**What stays open.** The option closes file-system routes only. Name these with any result:
+
+- **The daemon.** One process with at most one shared token: any session can ask it about any
+  repository, an earlier session's included (its records, its diff). Closing it takes a daemon
+  or a token per session.
+- **The network.** The repository the tasks come from may be public, and nothing limits the
+  container's egress to the model's API.
+- **Directories every user can write** (`/tmp`, `/dev/shm`, a shared `CARGO_HOME`). One user
+  serves all sessions, so a session can leave its own work there for a later one. The harness
+  puts no grading file there, and the preflight refuses an exact copy it finds in the temp
+  directories; an edited copy, or one somewhere else, it does not find.
+- **Vendors other than Claude Code.** `--vendor grok` keeps its login in the harness user's
+  home, which the agent user cannot read; the option is untested with it.
+- **`verify_cmd` runs what the agent wrote, as the harness's user.** A session that plants code
+  the tests import runs it as root at verify time.
+- The agent inherits the harness's environment (API keys, `AV_TOKEN`), as before.
 
 ## The ten tasks
 

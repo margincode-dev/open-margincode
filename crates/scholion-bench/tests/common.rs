@@ -84,6 +84,8 @@ pattern = 'return b - a'
 /// A real daemon on an ephemeral port.
 pub struct TestDaemon {
     pub url: String,
+    /// Where the daemon keeps its task workspaces.
+    pub ws_root: std::path::PathBuf,
     shutdown: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -128,7 +130,10 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
             .with_token(token);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             ready_tx
-                .send(format!("http://{}", listener.local_addr().unwrap()))
+                .send((
+                    format!("http://{}", listener.local_addr().unwrap()),
+                    ws.path().to_path_buf(),
+                ))
                 .unwrap();
             axum::serve(listener, router(state))
                 .with_graceful_shutdown(async {
@@ -139,9 +144,10 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
             drop((db, store_dir, ws));
         });
     });
-    let url = ready_rx.recv().expect("daemon failed to start");
+    let (url, ws_root) = ready_rx.recv().expect("daemon failed to start");
     TestDaemon {
         url,
+        ws_root,
         shutdown: Some(shutdown_tx),
         thread: Some(thread),
     }

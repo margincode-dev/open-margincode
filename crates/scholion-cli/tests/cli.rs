@@ -3048,7 +3048,9 @@ fn record_help_states_the_summary_limit() {
     let help = out(&o);
     let limit = format!("at most {} characters", scholion_core::MAX_SUMMARY_CHARS);
     let line_of = |flag: &str| {
-        let at = help.find(flag).unwrap_or_else(|| panic!("no {flag}: {help}"));
+        let at = help
+            .find(flag)
+            .unwrap_or_else(|| panic!("no {flag}: {help}"));
         let rest = &help[at..];
         let end = rest[2..].find("\n      --").map_or(rest.len(), |e| e + 2);
         rest[..end].to_owned()
@@ -3075,10 +3077,10 @@ fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
     );
     // the limit is said before the agent writes, not by a refusal after
     assert!(
-        v["reason"]
-            .as_str()
-            .unwrap()
-            .contains(&format!("summary ≤ {} chars", scholion_core::MAX_SUMMARY_CHARS)),
+        v["reason"].as_str().unwrap().contains(&format!(
+            "summary ≤ {} chars",
+            scholion_core::MAX_SUMMARY_CHARS
+        )),
         "{v}"
     );
     // a single block per stop: the next Stop is the one that sees the waiting work

@@ -4045,14 +4045,18 @@ async fn submit_with_two_inline_records_that_supersede_one_record_writes_nothing
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     let said = body["error"].as_str().unwrap();
     assert!(
-        said.contains("records[0]") && said.contains("records[1]") && said.contains(&handle(&wrong)),
+        said.contains("records[0]")
+            && said.contains("records[1]")
+            && said.contains(&handle(&wrong)),
         "names both entries and the record: {said}"
     );
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(task["task"]["status"], "open", "{task}");
     let recs = task_records(&e, &t).await;
     assert!(
-        !recs.iter().any(|r| r["kind"] == "decision" || r["kind"] == "note"),
+        !recs
+            .iter()
+            .any(|r| r["kind"] == "decision" || r["kind"] == "note"),
         "no inline record may be written: {recs:?}"
     );
     let kept = record_by_id(&e, &a, &wrong).await;

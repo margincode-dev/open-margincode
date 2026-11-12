@@ -750,7 +750,12 @@ pub(crate) struct RecordBody {
 
 /// Everything `write_record` could refuse on that does not depend on the write itself, so a batch
 /// (inline records on `submit`) can be checked whole before any of it is written.
-pub(crate) async fn check_record(st: &AppState, task: &Task, b: &RecordBody) -> Result<()> {
+/// Answers the record `b` supersedes, when it names one.
+pub(crate) async fn check_record(
+    st: &AppState,
+    task: &Task,
+    b: &RecordBody,
+) -> Result<Option<RecordId>> {
     let n = b.summary.chars().count();
     if n > MAX_SUMMARY_CHARS {
         return Err(AvError::SummaryTooLong(n));
@@ -758,14 +763,14 @@ pub(crate) async fn check_record(st: &AppState, task: &Task, b: &RecordBody) -> 
     if let Some(rc) = &b.receipt {
         st.store.get_receipt(rc).await?;
     }
-    if let Some(s) = &b.supersedes {
-        superseded_by_task(st, task, s, b.kind).await?;
+    match &b.supersedes {
+        Some(s) => Ok(Some(superseded_by_task(st, task, s, b.kind).await?.id)),
+        None => Ok(None),
     }
-    Ok(())
 }
 
 /// `rec:<8 hex>`, as packs print a record.
-fn rec_handle(id: RecordId) -> String {
+pub(crate) fn rec_handle(id: RecordId) -> String {
     format!("rec:{}", &id.0.simple().to_string()[..8])
 }
 

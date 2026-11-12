@@ -663,9 +663,15 @@ fn a_no_commit_note_is_a_record_in_the_av_arm_and_in_no_commit_message() {
         .filter(|r| r["kind"] != "intent")
         .map(|r| r["summary"].as_str().unwrap())
         .collect();
-    assert_eq!(seeded.len(), 2, "both notes, the one off the log too: {recs}");
+    assert_eq!(
+        seeded.len(),
+        2,
+        "both notes, the one off the log too: {recs}"
+    );
     assert!(
-        seeded.iter().any(|s| s.contains("add() is right as it stands")),
+        seeded
+            .iter()
+            .any(|s| s.contains("add() is right as it stands")),
         "{recs}"
     );
     // the history the daemon imported: the other note's commit, and not this one's

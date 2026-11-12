@@ -6,6 +6,7 @@ use std::io::{IsTerminal, Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use scholion_core::MAX_SUMMARY_CHARS;
 use serde_json::{Value, json};
 
 use crate::client::Client;
@@ -766,7 +767,7 @@ fn nudge_to_record(
     let reason = format!(
         "av: no record explains your changes to {names}. Record why in one call so the next \
          agent does not redo or undo it: `av record --json -` with a list of {{kind, summary, \
-         anchors}}, or `av submit --record \"decision: ... @ path:Symbol\"` if you are done. \
+         anchors}} (summary ≤ {MAX_SUMMARY_CHARS} chars; the rest goes in body), or `av submit --record \"decision: ... @ path:Symbol\"` if you are done. \
          Use kind attempt for anything you tried that failed. If nothing is worth recording, \
          say so and stop."
     );

@@ -1,8 +1,10 @@
 name: site
 
-# Deploys site/ (open.margincode.dev) to Cloudflare Workers static assets (wrangler.jsonc). Needs the repository secrets
-# CLOUDFLARE_API_TOKEN (Account > Cloudflare Pages > Edit) and CLOUDFLARE_ACCOUNT_ID;
-# without them the deploy step is skipped. See site/README.md.
+# Deploys site/ (open.margincode.dev) to Cloudflare Workers static assets (wrangler.jsonc). Needs the
+# repository secrets CLOUDFLARE_ACCOUNT_ID and an API token, as CLOUDFLARE_API_TOKEN or under the
+# name CLOUDFLARE_API_KEY. It must be a scoped API token (Account > Workers Scripts > Edit, and
+# Zone > Workers Routes > Edit on margincode.dev for the custom domain), not the account's
+# Global API Key. Without them the deploy step is skipped. See site/README.md.
 
 on:
   push:
@@ -22,17 +24,17 @@ jobs:
       contents: read
       deployments: write
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Workers
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
       - name: Skipped
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
-        run: echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set; site not deployed."
+        run: echo "::notice::CLOUDFLARE_API_TOKEN (or CLOUDFLARE_API_KEY) / CLOUDFLARE_ACCOUNT_ID not set; site not deployed."

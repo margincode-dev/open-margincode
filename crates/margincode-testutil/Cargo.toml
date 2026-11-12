@@ -1,0 +1,12 @@
+[package]
+name = "margincode-testutil"
+version = "0.0.3"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+postgresql_embedded = { version = "0.21", default-features = false, features = ["theseus", "tls-rustls-ring"] }
+sqlx.workspace = true
+tempfile = "3"
+tokio.workspace = true
+uuid.workspace = true

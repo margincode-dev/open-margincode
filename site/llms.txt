@@ -1,8 +1,8 @@
-# Scholion
+# Margincode
 
 Your next Claude Code session starts knowing last session's dead ends.
 
-> Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `scholion`, alias `av` (same program).
+> Open-source, context-first version control for coding agents. Each task is an isolated jj workspace; decisions, attempts (dead ends) and notes are stored as records anchored to code; a deterministic context pack gives any agent the context that matters without blowing up its context window or token budget. MIT licensed. The CLI is `margincode`, alias `av` (same program).
 
 Mission: agents shouldn't start from zero, not in your next session and not when another agent takes over. Start with one agent on one repo: what it learned today is still there tomorrow, pinned to the code. Add agents from other vendors and the same memory carries over, with parallel workspaces and handoffs that just work. Contributors welcome.
 
@@ -14,8 +14,8 @@ Status: an experiment, written almost entirely by coding agents with one human s
 - Each new agent session spends tokens re-orienting: reading the tree, rediscovering what was tried, decided and rejected.
 - Git keeps snapshots and drops intent, decisions and dead ends. A diff shows what changed, never why.
 - Pasting more of the repo into the prompt doesn't help: the context window fills before the agent knows what matters.
-- Scholion stores the "why" next to the code and hands any agent a context pack built from it: more relevant context, never more than the budget allows.
-- You may pay for several agent subscriptions, each better at something different. Scholion gives them one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
+- Margincode stores the "why" next to the code and hands any agent a context pack built from it: more relevant context, never more than the budget allows.
+- You may pay for several agent subscriptions, each better at something different. Margincode gives them one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
 
 ## Concepts
 
@@ -30,11 +30,11 @@ Status: an experiment, written almost entirely by coding agents with one human s
 
 ## Run it
 
-Easiest, with Claude Code: add the plugin, then in your repository ask Claude to "set up Scholion for this repo" (or run `/scholion:setup`). It installs Scholion, connects your agents and checks the setup. `/scholion:team` sets up several agents on one backlog; `/scholion:doctor` fixes a setup that isn't working.
+Easiest, with Claude Code: add the plugin, then in your repository ask Claude to "set up Margincode for this repo" (or run `/margincode:setup`). It installs Margincode, connects your agents and checks the setup. `/margincode:team` sets up several agents on one backlog; `/margincode:doctor` fixes a setup that isn't working.
 
 ```bash
 claude plugin marketplace add vinhqbui/scholion
-claude plugin install scholion@scholion
+claude plugin install margincode@margincode
 ```
 
 By hand:
@@ -84,7 +84,7 @@ av submit --record "decision: honour Retry-After @ shared/text.py:embed"   # rec
 ## Editions
 
 - Community (this repository): free, MIT. Connect any number of agents — Claude Code, Codex, Grok, Gemini, Cursor, or any MCP client with `av --agent NAME init --for mcp-json --path FILE`. They share records and context packs, a review loop (another agent reviews, and the reviewer merges), and routing by strength (`av agent set NAME --best …`, then cost). No seat cap. `--max-open` is an optional limit on one profile, not a license. The daemon does not launch agents and holds no keys for the agents' own models. Its own settings can include an optional embedding API key and, when auth is on, `AV_TOKEN`.
-- Commercial (Scholion Cloud, hosted): not available yet. The plan is a service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. No prices, because there is nothing to buy.
+- Commercial (Margincode Cloud, hosted): not available yet. The plan is a service that runs agents for you: personas, a managed model or your own key and endpoint, budgets in subscription credits, and approval gates. No prices, because there is nothing to buy.
 
 ## Contribute
 
@@ -92,20 +92,20 @@ Rust 2024, Cargo workspace. TDD: failing test first, then `cargo fmt --all --che
 
 Open problems:
 - Run the medium benchmark (`bench/tasks-scholion`, ~1 GB disk per session).
-- Add tree-sitter languages to `crates/scholion-index` (Rust, TypeScript, Python today).
+- Add tree-sitter languages to `crates/margincode-index` (Rust, TypeScript, Python today).
 - Hooks for more agents (Codex, Gemini CLI, Cursor, Aider) in `integrations/`.
-- Fit more relevant context into the same budget in `crates/scholion-pack`.
+- Fit more relevant context into the same budget in `crates/margincode-pack`.
 - Real agent identity (agent names are self-asserted today).
 - Use it on a real repo and file issues: https://github.com/vinhqbui/scholion/issues
 
 ## Optional
 
-- Guide, handing a task between agents: https://scholion.openevaluations.si/guides/handoff-between-ai-coding-agents
-- Guide, persistent memory for coding agents over MCP: https://scholion.openevaluations.si/guides/memory-for-coding-agents
-- Replay of a real run (handoff, claim, context pack, review, merge), raw JSON: https://scholion.openevaluations.si/demo-replay.json
+- Guide, handing a task between agents: https://open.margincode.dev/guides/handoff-between-ai-coding-agents
+- Guide, persistent memory for coding agents over MCP: https://open.margincode.dev/guides/memory-for-coding-agents
+- Replay of a real run (handoff, claim, context pack, review, merge), raw JSON: https://open.margincode.dev/demo-replay.json
 - README: https://github.com/vinhqbui/scholion/blob/main/README.md
 - Reference (commands, configuration, design): https://github.com/vinhqbui/scholion/blob/main/docs/reference.md
 - Design spec: https://github.com/vinhqbui/scholion/tree/main/docs/superpowers/specs
 - Benchmarks: https://github.com/vinhqbui/scholion/tree/main/bench
 
-Scholion is independent and not affiliated with or endorsed by Anthropic.
+Margincode is independent and not affiliated with or endorsed by Anthropic.

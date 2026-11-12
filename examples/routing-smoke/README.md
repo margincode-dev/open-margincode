@@ -5,7 +5,7 @@ CLI that tracks kitchen items and expiry dates. It has a planted bug, an unstyle
 typos and no icon. Its tests run with `python3 -m unittest`, and it needs nothing but Python.
 
 ```bash
-cargo build --release -p scholion-cli -p scholion-daemon
+cargo build --release -p margincode-cli -p margincode-daemon
 examples/routing-smoke/setup.sh        # SRC=… REPO=… AV_URL=… to change the defaults
 ```
 
@@ -58,7 +58,7 @@ Run these yourself. Both commands change your user-level config, and each keeps 
 claude mcp add --transport http --scope user av http://127.0.0.1:7420/mcp --header "X-Av-Agent: claude"
 
 # Grok Build. Writes [mcp_servers.av] with X-Av-Agent = "grok" into ~/.grok/config.toml (keeps .bak).
-cd ~/projects/pantry && <scholion>/target/release/av init --for grok --no-claude
+cd ~/projects/pantry && <margincode>/target/release/av init --for grok --no-claude
 grok mcp doctor av      # should list the av tools
 ```
 
@@ -111,7 +111,7 @@ files. Its `--sandbox workspace` does not confine writes, so watch which paths i
 `deepseek-demo.sh` runs the loop with no subscription: two Claude Code agents pointed at
 DeepSeek's Anthropic-compatible API, `coder` (best `code,tests`) and `writer` (best `docs,ui`,
 cheaper), each with `--max-open 1`. They take five tasks, review each other's work and merge it.
-It uses its own daemon on :7441 with data in `~/scholion-demo`, so an `av up` daemon on :7420 is
+It uses its own daemon on :7441 with data in `~/margincode-demo`, so an `av up` daemon on :7420 is
 left alone.
 
 ```bash
@@ -131,10 +131,10 @@ command when you change them.
 ## Reset
 
 ```bash
-av down                 # stop the daemon. Data stays in ~/.scholion; workspaces are in ~/ws
-rm -rf ~/.scholion ~/ws # only if you want a clean slate (deletes all av data on this machine)
+av down                 # stop the daemon. Data stays in ~/.margincode; workspaces are in ~/ws
+rm -rf ~/.margincode ~/ws # only if you want a clean slate (deletes all av data on this machine)
 ```
 
 `~/projects/pantry` itself is never changed: av imports it, and merges land on av's own copy
-(`~/.scholion/store`). To see the merged result, open the workspace of a task started after the
+(`~/.margincode/store`). To see the merged result, open the workspace of a task started after the
 merge, or use `av log` and `av show`.

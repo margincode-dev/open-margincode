@@ -11,7 +11,7 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
   offers reviews and merges first; `av watch`): `docs/superpowers/plans/2026-10-31-scholion-plan-8-routing.md`,
   `docs/superpowers/plans/2026-10-31-scholion-plan-9-review-loop.md`.
 - **Plan 10 A1-A4** (the Community side of the editions plan: ordering with `after`, `max_open`,
-  targets, office and timelines, `checkpoint` events, `scholion-agentrun`, the redesigned
+  targets, office and timelines, `checkpoint` events, `margincode-agentrun`, the redesigned
   dashboard): `CHANGELOG.md`. The plan itself is in the agentvcs repo
   (`docs/superpowers/plans/2026-10-31-agentvcs-plan-10-editions-mvp.md`).
 - **Plan 11**, lean disk (workspaces reclaimed, one cargo cache per repo, `av disk`/`av gc`, the
@@ -20,8 +20,8 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
 - **Plan 12** so far (#71–#83): one `target/` per task workspace with a lean profile (about 20 GB
   per Rust task down to 1.2 GB while open, 0 B once merged), build output removed at merge,
   dependencies built once per repo, one test binary per crate, `next --wait` woken by events,
-  and per-host caps `av watch --max-agents` / `av validate --max-builds` (`scholion-agentrun::slots`).
-- **Release 0.0.2** (tag `release/0.0.2`), the first to ship `scholion-daemon` with bundled Postgres.
+  and per-host caps `av watch --max-agents` / `av validate --max-builds` (`margincode-agentrun::slots`).
+- **Release 0.0.2** (tag `release/0.0.2`), the first to ship `margincode-daemon` with bundled Postgres.
 - **Release 0.0.3** (tag `release/0.0.3`, 2026-11-06): proposals, `av attention`, `av repo advance`, `av notes`, cold start
   from git history, `embeddinggemma-2` as the default embedder, one approval per head and the redesigned dashboard.
 
@@ -60,4 +60,4 @@ Each item names what it waits on.
 - Branch off `main`, one PR per change; fmt, clippy `-D warnings` and `cargo test --workspace`
   green first (`CLAUDE.md`).
 - A merged migration is never edited; check `main`'s highest number before adding one.
-- Code flows scholion to agentvcs, never back.
+- Code flows margincode to agentvcs, never back.

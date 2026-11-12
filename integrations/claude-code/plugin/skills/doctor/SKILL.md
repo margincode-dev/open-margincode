@@ -1,12 +1,12 @@
 ---
 name: doctor
-description: Find and fix what is wrong with a Scholion setup, such as `av` not found, the daemon not answering, the `av` MCP server not connected in Claude Code, hooks that seem silent, 401 errors or a repository import that hangs. Use when Scholion or `av` commands fail, or when the user says Scholion isn't working.
+description: Find and fix what is wrong with a Margincode setup, such as `av` not found, the daemon not answering, the `av` MCP server not connected in Claude Code, hooks that seem silent, 401 errors or a repository import that hangs. Use when Margincode or `av` commands fail, or when the user says Margincode isn't working.
 ---
 
-# Fix a Scholion setup
+# Fix a Margincode setup
 
 Go through the checks in order and stop at the first one that fails. Fix it, explain the cause
-in one sentence, then run the remaining checks. Never delete `~/.scholion` (the daemon's data:
+in one sentence, then run the remaining checks. Never delete `~/.margincode` (the daemon's data:
 its Postgres database and its copies of the repositories) or anything under `~/ws` (task
 workspaces that may hold unsubmitted work) unless the user asks you to.
 
@@ -15,17 +15,17 @@ workspaces that may hold unsubmitted work) unless the user asks you to.
 `av --version`. If it is not found, look for `~/.local/bin/av`. If that file exists, the
 directory is missing from `PATH`: run `export PATH="$HOME/.local/bin:$PATH"`, and offer to add the
 line to the user's shell profile (ask first). If the file is missing, use the `setup` skill
-(`/scholion:setup`).
+(`/margincode:setup`).
 
 ## 2. Does the daemon answer?
 
 `curl -sf http://localhost:7420/healthz` (or the address in `AV_URL`, if it is set).
 
-If it does not answer, run `av up` and read the end of the log, `tail -50 ~/.scholion/daemon.log`
+If it does not answer, run `av up` and read the end of the log, `tail -50 ~/.margincode/daemon.log`
 (or `$AV_HOME/daemon.log`, if `AV_HOME` is set):
 
 - **Running as root** (`id -u` prints `0`): the daemon's Postgres refuses to start as root. Run
-  Scholion as a normal user.
+  Margincode as a normal user.
 - **The port is already in use**: find out what holds it (`ss -ltnp | grep 7420` or
   `lsof -i :7420`). If it is an old daemon, `av down`, then `av up`. To use another port, set
   `AV_URL=http://localhost:7421` for the daemon and for every client, and run `av init` again so
@@ -52,7 +52,7 @@ before you do anything else.
 ## 5. Are the hooks doing nothing?
 
 `grep -c "av hook" ~/.claude/settings.json` should print 4 or more. If it prints less, run
-`av init` again (it replaces earlier Scholion hooks and keeps `settings.json.bak`).
+`av init` again (it replaces earlier Margincode hooks and keeps `settings.json.bak`).
 
 The hooks are **silent outside a task**, by design. They only act when Claude Code runs inside a
 task workspace (`~/ws/<repo>/<task>`, the directory with an `.av-task` file). Start a task first

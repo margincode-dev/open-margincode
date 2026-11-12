@@ -50,6 +50,6 @@ container, without a Gemini key, with a logging stub MCP server at the URL above
 - Not checked: a model session (tool calls, `GEMINI.md`, hooks), which needs a key. The rest is
   from the CLI's `docs/reference/configuration.md` and `docs/cli/trusted-folders.md` at v0.66.0.
 
-The writer and its tests are in `crates/scholion-cli/src/agents.rs`; the contract test
-`agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/scholion-cli/tests/cli.rs`)
+The writer and its tests are in `crates/margincode-cli/src/agents.rs`; the contract test
+`agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/margincode-cli/tests/cli.rs`)
 reads the file as Gemini does and works a task through the real daemon.

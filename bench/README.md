@@ -1,8 +1,8 @@
-# scholion-bench: running the benchmark
+# margincode-bench: running the benchmark
 
 > **The task set is not included.** The ten tasks this guide was written for come from a private
 > repository, so `bench/tasks/` is left out of the public repo. The harness works with any task
-> specs in the same format (see `crates/scholion-bench/src/spec.rs`); a minimal one:
+> specs in the same format (see `crates/margincode-bench/src/spec.rs`); a minimal one:
 >
 > ```toml
 > name = "my-task"
@@ -35,7 +35,7 @@ The report leads with **cost and wall time per accepted task** (accepted = the t
 pass after the session), and splits the change into engine (`baseline → av_no_packs`) and
 context compiler (`av_no_packs → av`).
 
-**Only `scholion-bench run --confirm` spends money.** Without `--confirm` it prints the plan and exits.
+**Only `margincode-bench run --confirm` spends money.** Without `--confirm` it prints the plan and exits.
 `--budget-usd` is required, and sessions stop launching once the money spent so far plus one
 session's cap (`--session-cap-usd`, default $2.00, enforced by `claude --max-budget-usd`) would
 exceed it.
@@ -45,14 +45,14 @@ exceed it.
 ### 0. Build
 
 ```bash
-cd scholion && git pull
-cargo build --release -p scholion-bench -p scholion-cli
-export PATH=$PWD/target/release:$PATH        # scholion-bench and av (the hooks run `av`)
+cd margincode && git pull
+cargo build --release -p margincode-bench -p margincode-cli
+export PATH=$PWD/target/release:$PATH        # margincode-bench and av (the hooks run `av`)
 ```
 
 ### 1. A Python env for the bench repo's tests
 
-`setup_cmd` and `verify_cmd` run with the PATH you start `scholion-bench` with. The agent (`claude`)
+`setup_cmd` and `verify_cmd` run with the PATH you start `margincode-bench` with. The agent (`claude`)
 gets the same PATH plus any directories a task lists in `path_prepend` (put first, `~/` expanded;
 `check` warns about one that is missing); `path_prepend` does not apply to `setup_cmd` or
 `verify_cmd`. The tallyho and relay tasks use `~/bench-work/venv/bin` there so the agent can run
@@ -75,7 +75,7 @@ export UID GID=$(id -g)
 export AV_DAEMON_PORT=7430 AV_PG_PORT=5433 AV_QDRANT_PORT=6343 AV_QDRANT_GRPC_PORT=6344 AV_TEI_PORT=8081
 export AV_WS_ROOT=~/bench-work/ws AV_IMPORT_ROOT=~/bench-work/src
 mkdir -p ~/bench-work/ws ~/bench-work/src
-docker compose -p scholion-bench -f deploy/docker-compose.yml up -d --build
+docker compose -p margincode-bench -f deploy/docker-compose.yml up -d --build
 curl -s http://127.0.0.1:7430/healthz        # ok
 ```
 
@@ -90,12 +90,12 @@ export AV_IMPORT_ROOT=/mnt/c/Users/<you>/bench-work/src AV_IMPORT_MOUNT='C:\User
 BENCH="--work-root /mnt/c/Users/<you>/bench-work --import-dir /mnt/c/Users/<you>/bench-work/src"
 ```
 
-If the stack has `AV_TOKEN` set, export the same `AV_TOKEN` for scholion-bench.
+If the stack has `AV_TOKEN` set, export the same `AV_TOKEN` for margincode-bench.
 
 ### 3. Check the tasks
 
 ```bash
-scholion-bench check bench/tasks                  # every task: ok
+margincode-bench check bench/tasks                  # every task: ok
 ```
 
 Each task file's `repo_path` names the bench repo's checkout; `--repos DIR` (or `AV_BENCH_REPOS`)
@@ -105,9 +105,9 @@ replaces its parent, so a spec with `repo_path = "~/projects/<name>"` uses `DIR/
 
 ```bash
 COMMON="--av-url http://127.0.0.1:7430 --session-cap-usd 2 $BENCH"
-scholion-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
+margincode-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
   --budget-usd 5 --out bench/results/pilot $COMMON              # prints the plan, spends nothing
-scholion-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
+margincode-bench run bench/tasks --only TASK_A,TASK_B --reps 1 \
   --budget-usd 5 --out bench/results/pilot $COMMON --confirm
 ```
 
@@ -118,16 +118,16 @@ Look at `bench/results/pilot/report.md` and at one session directory per arm und
 ### 5. The full run
 
 ```bash
-scholion-bench run bench/tasks --reps 3 --budget-usd 100 --out bench/results/$(date +%F) \
+margincode-bench run bench/tasks --reps 3 --budget-usd 100 --out bench/results/$(date +%F) \
   --pilot bench/results/pilot $COMMON            # plan + estimate from the pilot's medians
-scholion-bench run bench/tasks --reps 3 --budget-usd 100 --out bench/results/$(date +%F) \
+margincode-bench run bench/tasks --reps 3 --budget-usd 100 --out bench/results/$(date +%F) \
   --pilot bench/results/pilot $COMMON --confirm
 ```
 
 10 tasks × 3 arms × 3 reps = 90 sessions; the report says no significance is claimed below 30
 valid sessions per arm. The order is rep by rep, task by task, with the arms shuffled per task
 (`--seed`). Interrupted? Run the same command again: finished sessions in `rows.jsonl` are kept
-and count toward the budget, sessions skipped for budget are retried. `scholion-bench report DIR`
+and count toward the budget, sessions skipped for budget are retried. `margincode-bench report DIR`
 re-renders `report.md`.
 
 Commit `bench/results/<date>/` (`rows.jsonl`, `meta.json`, `report.md`); the transcripts stay in
@@ -136,8 +136,8 @@ Commit `bench/results/<date>/` (`rows.jsonl`, `meta.json`, `report.md`); the tra
 ### 6. Token-factor calibration (optional, cents)
 
 ```bash
-scholion-bench calibrate --packs ~/bench-work/runs --budget-usd 1 $BENCH              # plan
-scholion-bench calibrate --packs ~/bench-work/runs --budget-usd 1 $BENCH --confirm    # one probe per pack
+margincode-bench calibrate --packs ~/bench-work/runs --budget-usd 1 $BENCH              # plan
+margincode-bench calibrate --packs ~/bench-work/runs --budget-usd 1 $BENCH --confirm    # one probe per pack
 ```
 
 It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon and restart it.
@@ -351,18 +351,18 @@ removed):
 | `bench/tasks-relay-scale` | tallyho | E4 at scale: same ten tasks, pool is 10 real lessons + 290 noise notes (arms `notes`, `av`); see its README | `bench/tallyho/make-repo.sh` |
 
 Each script writes the repo where the task files expect it (`~/bench-repos/…`). The tallyho
-tasks need a Python with pytest at `~/bench-work/venv`. The scholion tasks build Rust in every
+tasks need a Python with pytest at `~/bench-work/venv`. The margincode tasks build Rust in every
 session: export `AV_TEST_DATABASE_URL`, and `CARGO_TARGET_DIR` only when sessions run one at a
 time (two checkouts of one repo sharing a target dir run each other's test binaries; inside an av
 task, `av validate` and the hooks use the workspace's own `target/` anyway). Each
 session's copy is removed after verify unless you pass `--keep-work`, so disk use stays at
-about the sessions running at once (a scholion copy is about 1 GB). The tallyho and scholion tasks use `claude-haiku-5-5`; the relay
+about the sessions running at once (a margincode copy is about 1 GB). The tallyho and margincode tasks use `claude-haiku-5-5`; the relay
 tasks use DeepSeek (`bench/tasks-relay/README.md`).
 
 ```bash
 bench/tallyho/make-repo.sh && python3 -m venv ~/bench-work/venv && ~/bench-work/venv/bin/pip install pytest
-scholion-bench check bench/tasks-tallyho
-scholion-bench run bench/tasks-tallyho --reps 10 --arms baseline,av --budget-usd 5 \
+margincode-bench check bench/tasks-tallyho
+margincode-bench run bench/tasks-tallyho --reps 10 --arms baseline,av --budget-usd 5 \
   --out bench/results/$(date +%F)-tallyho $COMMON --confirm
 ```
 

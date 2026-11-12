@@ -1,7 +1,7 @@
 # Retrieval task set (Plan 6, E1)
 
 `public.jsonl` holds 42 retrieval tasks mined from six public repositories by
-`scholion-bench mine`:
+`margincode-bench mine`:
 - one to three non-test source files changed;
 - at most 150 changed lines;
 - committed since 2025-01-01.
@@ -28,10 +28,10 @@ done
 cd -   # back to this repo
 
 # baselines only, no daemon (seconds)
-scholion-bench retrieval bench/retrieval/public.jsonl --no-pack --out /tmp/e1
+margincode-bench retrieval bench/retrieval/public.jsonl --no-pack --out /tmp/e1
 
 # with packs, from a bench daemon (see bench/README.md for the bench stack)
-scholion-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:7430 \
+margincode-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:7430 \
   --import-dir ~/bench-work/src --out bench/results/retrieval-$(date +%F)
 ```
 
@@ -59,13 +59,13 @@ Reruns differ by about ±0.02 between themselves (semantic search sometimes time
 
 ## CI regression gate
 
-`cargo test -p scholion-bench --test retrieval_gate` (part of `cargo test --workspace`, about 5 s)
+`cargo test -p margincode-bench --test retrieval_gate` (part of `cargo test --workspace`, about 5 s)
 runs the same pipeline on a fixture in `bench/retrieval/ci/`: a 12-file repo in Python, Rust and
 TypeScript (`repo/`), nine tasks (`tasks.jsonl`: a goal each) and one patch per task (`fixes/`) that
 is the fix. It starts a real daemon with no semantic layer, so it guards the lexical, structural
 and budgeting parts of the packer, not the embedding model, and it needs no network, Ollama or
 clones. The pack's mean `files_named`, `files_code` and `symbols_sig` at 300, 450 and 600 tokens
-may not fall below `FLOORS` in `crates/scholion-bench/tests/retrieval_gate.rs`. The budgets are
+may not fall below `FLOORS` in `crates/margincode-bench/tests/retrieval_gate.rs`. The budgets are
 small because the fixture is: past about 1000 tokens everything fits and any ranking scores 1.0.
 
 To change a floor on purpose, run the test with `-- --nocapture`, which prints the measured mean for
@@ -73,7 +73,7 @@ every metric and budget, set each floor to that value minus 0.03 (rounded down),
 measured values in the comment above `FLOORS`, and say in the commit message why retrieval
 dropped. The nightly workflow (`.github/workflows/nightly-scale.yml`, job `retrieval`) checks the
 same floors through the release binaries (`E1_FLOORS`); change them there too. It builds the
-fixture with `ci/make-repo.sh DEST > tasks.jsonl`, which `scholion-bench retrieval` can also run
+fixture with `ci/make-repo.sh DEST > tasks.jsonl`, which `margincode-bench retrieval` can also run
 by hand. Do not lower a floor to make an unexplained failure pass. To add a task, add a line to
 `tasks.jsonl` and a `fixes/NAME.patch` (the diff of the fix against `repo/`), then re-measure.
 

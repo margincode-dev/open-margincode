@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs any agent command inside Scholion: writes the task's context pack to $AV_CONTEXT_FILE
+# Runs any agent command inside Margincode: writes the task's context pack to $AV_CONTEXT_FILE
 # (default: a file in $TMPDIR, outside the workspace so it is never snapshotted), runs the command
 # with AV_CONTEXT_FILE exported (the command reads the pack from there), then checkpoints. Exits
 # with the command's status. Example: av-wrap.sh sh -c 'my-agent --prompt-file "$AV_CONTEXT_FILE"'

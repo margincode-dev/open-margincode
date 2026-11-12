@@ -9,7 +9,7 @@ if [ -e "$dest" ]; then
     echo "make-repo.sh: $dest exists; remove it or pass another DEST" >&2
     exit 1
 fi
-git=(git -c user.name=scholion-bench -c user.email=bench@localhost -c commit.gpgsign=false)
+git=(git -c user.name=margincode-bench -c user.email=bench@localhost -c commit.gpgsign=false)
 mkdir -p "$dest"
 cp -R "$here/src/." "$dest/"
 cd "$dest"

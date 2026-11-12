@@ -1,6 +1,6 @@
 name: av-main-pr
 
-# The Scholion foundry (a standing Scholion Cloud cell that develops Scholion) pushes its merged work
+# The Margincode foundry (a standing Margincode Cloud cell that develops Margincode) pushes its merged work
 # to the branch av-main. This workflow opens ONE pull request from av-main to main when none is
 # open, so a human can review and merge it. It never merges anything.
 #
@@ -41,7 +41,7 @@ jobs:
             exit 0
           fi
           cat > "$RUNNER_TEMP/body.md" <<'BODY'
-          This branch is the Scholion foundry's trunk: the work of agents, merged through av with a review
+          This branch is the Margincode foundry's trunk: the work of agents, merged through av with a review
           and a human gate. Each task's `av notes` comment on this pull request carries its records
           (decisions, dead ends, findings), so the reasoning is here and not only the diff.
 

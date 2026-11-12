@@ -1,8 +1,8 @@
 name: release
 
-# Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`scholion` and its alias `av`) and
-# `scholion-daemon` for Linux and macOS and publish them, with SHA-256 sums, as a GitHub release.
-# Windows gets the CLI only (`scholion.exe`, `av.exe` in a zip), to talk to a daemon elsewhere
+# Push a tag like v0.1.0 (or release/0.1.0) to build the CLI (`margincode` and its alias `av`) and
+# `margincode-daemon` for Linux and macOS and publish them, with SHA-256 sums, as a GitHub release.
+# Windows gets the CLI only (`margincode.exe`, `av.exe` in a zip), to talk to a daemon elsewhere
 # (Docker, WSL, another machine): the daemon stays Linux and macOS.
 # The daemon carries its own Postgres (lite mode, `av up`); deploy/docker-compose.yml still works.
 
@@ -21,8 +21,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   TAG: ${{ inputs.tag || github.ref_name }}
-  # Lite mode's Postgres is compiled into scholion-daemon (feature bundled-postgres); keep the
-  # major in step with crates/scholion-daemon/src/embedded_pg.rs.
+  # Lite mode's Postgres is compiled into margincode-daemon (feature bundled-postgres); keep the
+  # major in step with crates/margincode-daemon/src/embedded_pg.rs.
   POSTGRESQL_VERSION: "^16"
   # the bundling build script lists the Postgres releases through the GitHub API
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,20 +52,20 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.cli_only }}" = true ]; then
-            cargo build --release --locked --target ${{ matrix.target }} -p scholion-cli
+            cargo build --release --locked --target ${{ matrix.target }} -p margincode-cli
           else
             cargo build --release --locked --target ${{ matrix.target }} \
-              -p scholion-cli -p scholion-daemon --features scholion-daemon/bundled-postgres
+              -p margincode-cli -p margincode-daemon --features margincode-daemon/bundled-postgres
           fi
       - name: Package
         shell: bash
         run: |
           # release/0.1.0 -> v0.1.0: a tag may contain a slash, a file name may not
           ver="${TAG#release/}"; ver="v${ver#v}"
-          name="scholion-${ver}-${{ matrix.target }}"
+          name="margincode-${ver}-${{ matrix.target }}"
           mkdir "$name"
-          bins="scholion av"
-          [ "${{ matrix.cli_only }}" = true ] || bins="$bins scholion-daemon"
+          bins="margincode av"
+          [ "${{ matrix.cli_only }}" = true ] || bins="$bins margincode-daemon"
           exe=""
           [ "${{ runner.os }}" = Windows ] && exe=".exe"
           for bin in $bins; do
@@ -89,8 +89,8 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: |
-            scholion-*.tar.gz*
-            scholion-*.zip*
+            margincode-*.tar.gz*
+            margincode-*.zip*
 
   publish:
     needs: build
@@ -106,7 +106,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" scholion-*.tar.gz* scholion-*.zip* --clobber
+            gh release upload "$TAG" margincode-*.tar.gz* margincode-*.zip* --clobber
           else
-            gh release create "$TAG" scholion-*.tar.gz* scholion-*.zip* --generate-notes --title "Scholion ${TAG#release/}"
+            gh release create "$TAG" margincode-*.tar.gz* margincode-*.zip* --generate-notes --title "Margincode ${TAG#release/}"
           fi

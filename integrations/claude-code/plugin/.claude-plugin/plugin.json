@@ -1,6 +1,6 @@
 {
-  "name": "scholion",
-  "description": "Ask Claude to install Scholion, connect your agents to it and fix a broken setup",
+  "name": "margincode",
+  "description": "Ask Claude to install Margincode, connect your agents to it and fix a broken setup",
   "version": "0.1.0",
   "author": {
     "name": "VINH BUI",

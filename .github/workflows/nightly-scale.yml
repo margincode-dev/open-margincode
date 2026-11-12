@@ -3,7 +3,7 @@ name: nightly-scale
 # Plan 15 Phase 3, "Schedule what exists": the E2 scale bench and the E1 retrieval bench, every
 # night, against a release-built daemon, with floors. A floor miss fails this run; it never blocks
 # a pull request (no push or pull_request trigger). The E1 gate in `ci.yml`
-# (crates/scholion-bench/tests/retrieval_gate.rs) is separate and unchanged.
+# (crates/margincode-bench/tests/retrieval_gate.rs) is separate and unchanged.
 #
 # Both jobs run the daemon with no semantic layer (no embedder, no Qdrant), as the committed
 # results the floors come from did. Results (scale.json, rows.jsonl, report.md, the daemon log) are
@@ -46,7 +46,7 @@ jobs:
       # 2026-10-30 (890 / 814), whose commit it did not record; this tag is the nearest release.
       TOKIO_TAG: tokio-1.54.1
       # Floors. Source for every number: bench/results/2026-10-30-e2-overlay/tokio/report.md (and
-      # scale.json next to it), the latest committed scale run: `scholion-bench scale` on tokio,
+      # scale.json next to it), the latest committed scale run: `margincode-bench scale` on tokio,
       # 4-core / 15 GB machine (a hosted runner has 4 vCPUs / 16 GB), release build, Postgres 16,
       # no semantic layer, AV_MAX_CONCURRENT_STARTS=4, --agents 1,8,32,100 --samples 20.
       # Hosted runners are noisier and their disks slower, so each floor leaves 3-5x headroom; each
@@ -74,7 +74,7 @@ jobs:
         with:
           shared-key: nightly-bench-release
       - name: Build (release, as the committed runs)
-        run: cargo build --release --locked -p scholion-daemon -p scholion-bench
+        run: cargo build --release --locked -p margincode-daemon -p margincode-bench
       - name: Clone tokio
         # A branch, not a detached tag: the import reads the clone's HEAD as the trunk. Shallow
         # (one commit), as the committed django run was: the daemon's blame walks at most 2000
@@ -93,7 +93,7 @@ jobs:
           AV_MAX_CONCURRENT_STARTS: "4"
         run: |
           mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME"
-          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          nohup target/release/margincode-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
           echo "DAEMON_PID=$!" >> "$GITHUB_ENV"
           for _ in $(seq 1 60); do
             curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
@@ -104,7 +104,7 @@ jobs:
           exit 1
       - name: Scale bench
         run: |
-          target/release/scholion-bench scale "$RUNNER_TEMP/tokio" --name tokio \
+          target/release/margincode-bench scale "$RUNNER_TEMP/tokio" --name tokio \
             --out "$RUNNER_TEMP/scale" --agents 1,8,32,100 --samples 20 \
             --daemon-pid "$DAEMON_PID" --database-url "$AV_DATABASE_URL"
       - name: Check the floors
@@ -168,7 +168,7 @@ jobs:
           - 5432:5432
     env:
       AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
-      # Floors: the E1 CI gate's own, `FLOORS` in crates/scholion-bench/tests/retrieval_gate.rs
+      # Floors: the E1 CI gate's own, `FLOORS` in crates/margincode-bench/tests/retrieval_gate.rs
       # (the fixture's means when the gate was added, minus 0.03, rounded down; measured
       # 300 -> 1.000 / 0.444 / 0.333, 450 -> 1.000 / 0.833 / 0.556, 600 -> 1.000 / 1.000 / 0.833).
       # Same fixture, budgets, scorer and no semantic layer, but through the shipped binaries
@@ -184,7 +184,7 @@ jobs:
         with:
           shared-key: nightly-bench-release
       - name: Build (release)
-        run: cargo build --release --locked -p scholion-daemon -p scholion-bench
+        run: cargo build --release --locked -p margincode-daemon -p margincode-bench
       - name: Build the E1 CI fixture repo
         run: |
           mkdir -p "$RUNNER_TEMP/e1"
@@ -198,7 +198,7 @@ jobs:
           AV_LISTEN: 127.0.0.1:7431
         run: |
           mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME"
-          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          nohup target/release/margincode-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
           for _ in $(seq 1 60); do
             curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
             sleep 1
@@ -210,7 +210,7 @@ jobs:
         # The daemon runs on this host, so the import folder has the same path on both sides.
         run: |
           mkdir -p "$RUNNER_TEMP/e1/import"
-          target/release/scholion-bench retrieval "$RUNNER_TEMP/e1/tasks.jsonl" \
+          target/release/margincode-bench retrieval "$RUNNER_TEMP/e1/tasks.jsonl" \
             --budgets 300,450,600 --allow-no-semantic --index-wait-secs 30 \
             --import-dir "$RUNNER_TEMP/e1/import" --import-mount "$RUNNER_TEMP/e1/import" \
             --out "$RUNNER_TEMP/retrieval"

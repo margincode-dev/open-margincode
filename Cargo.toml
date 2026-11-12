@@ -20,4 +20,4 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-scholion-core = { path = "crates/scholion-core" }
+margincode-core = { path = "crates/margincode-core" }

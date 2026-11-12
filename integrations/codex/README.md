@@ -45,6 +45,6 @@ Against Codex CLI 0.166.0 (`npm install -g @openai/codex@0.166.0`, release `rust
   `instructions`, it had none.
 - `notify` ran after the turn; the untrusted `hooks.json` did not.
 
-The writer and its tests are in `crates/scholion-cli/src/agents.rs`; the contract test
-`agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/scholion-cli/tests/cli.rs`)
+The writer and its tests are in `crates/margincode-cli/src/agents.rs`; the contract test
+`agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/margincode-cli/tests/cli.rs`)
 reads the file as Codex does and works a task through the real daemon.

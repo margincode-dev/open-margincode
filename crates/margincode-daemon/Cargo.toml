@@ -1,0 +1,69 @@
+[package]
+name = "margincode-daemon"
+autotests = false
+version = "0.0.3"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "margincode_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "margincode-daemon"
+path = "src/main.rs"
+
+[features]
+# Release builds: the Postgres archive is compiled into the daemon, so lite mode never downloads it.
+bundled-postgres = ["postgresql_embedded/bundled"]
+
+[dependencies]
+margincode-core.workspace = true
+margincode-index = { path = "../margincode-index" }
+margincode-pack = { path = "../margincode-pack" }
+margincode-semantic = { path = "../margincode-semantic" }
+margincode-store = { path = "../margincode-store" }
+margincode-vcs = { path = "../margincode-vcs" }
+axum.workspace = true
+chrono.workspace = true
+futures.workspace = true
+filetime = "0.2"
+globset = "0.4"
+postgresql_embedded = { version = "0.21", default-features = false, features = ["theseus", "tls-rustls-ring"] }
+serde.workspace = true
+serde_json.workspace = true
+similar = "2"
+sha2 = "0.10"
+subtle = "2.6"
+tower = { version = "0.5", features = ["util"] }
+sqlx = { workspace = true, features = ["migrate"] }
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+# `statvfs` for the free-space floor (`disk::fs_space`); already in the lock through filetime and tokio.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+chrono.workspace = true
+margincode-testutil = { path = "../margincode-testutil" }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+
+[[test]]
+name = "it"
+path = "tests/main.rs"
+
+# cargo-binstall: fetch the release archive instead of compiling (names as release.yml builds them).
+# The tag is `release/<version>`; the archive holds one directory `margincode-v<version>-<target>/`
+# with margincode, av and margincode-daemon. Windows ships a zip with the CLI only.
+[package.metadata.binstall]
+pkg-url = "https://github.com/vinhqbui/scholion/releases/download/release/{ version }/margincode-v{ version }-{ target }.{ archive-format }"
+bin-dir = "margincode-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

@@ -1,6 +1,6 @@
 # E4 at scale: hundreds of notes, most irrelevant
 
-> **Superseded for the Plan 13 sweep** by `scholion-bench run bench/tasks-relay --noise N`
+> **Superseded for the Plan 13 sweep** by `margincode-bench run bench/tasks-relay --noise N`
 > (`bench/results/2026-11-e4-scale/DESIGN.md`): any N, generated from the repo's own files, and
 > anchored on the lessons' files too. This pool keeps its noise off those files, which spares av
 > the choice the run is meant to test. It stays for the record.
@@ -33,7 +33,7 @@ because `NOTES.md` is large and av seeds 300 records.
 
 ```bash
 bench/tallyho/make-repo.sh
-scholion-bench check bench/tasks-relay-scale
+margincode-bench check bench/tasks-relay-scale
 
 unset ANTHROPIC_API_KEY
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
@@ -47,13 +47,13 @@ export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
 #     --work-root ~/bench-work --import-dir ~/bench-work/src --import-mount ~/bench-work/src"
 
 # Pilot one memory-critical pair (cold fails these) before a full run:
-scholion-bench run bench/tasks-relay-scale --only relay-customer-region \
+margincode-bench run bench/tasks-relay-scale --only relay-customer-region \
   --arms notes,av --jit-hooks --reps 1 \
   --price-per-mtok 0.30,0.30,0.006,1.20 --session-cap-usd 0.50 --budget-usd 1 \
   --out bench/results/$(date +%F)-relay-scale-pilot $COMMON --confirm
 
 # Full set (10 tasks × 2 arms × 3 reps ≈ 60 sessions; raise --budget-usd after the pilot):
-scholion-bench run bench/tasks-relay-scale --arms notes,av --jit-hooks --reps 3 \
+margincode-bench run bench/tasks-relay-scale --arms notes,av --jit-hooks --reps 3 \
   --price-per-mtok 0.30,0.30,0.006,1.20 --session-cap-usd 0.50 --budget-usd 8 \
   --out bench/results/$(date +%F)-relay-scale $COMMON --confirm
 ```

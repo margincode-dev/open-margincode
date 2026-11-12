@@ -212,7 +212,7 @@ def git(dest, *args):
         "-C",
         str(dest),
         "-c",
-        "user.name=scholion-bench",
+        "user.name=margincode-bench",
         "-c",
         "user.email=bench@localhost",
         "-c",

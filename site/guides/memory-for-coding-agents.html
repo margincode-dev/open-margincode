@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Persistent memory for AI coding agents, anchored to code (MCP) · Scholion</title>
+<title>Persistent memory for AI coding agents, anchored to code (MCP) · Margincode</title>
 <meta name="description" content="Give Claude Code, Codex, Gemini or any MCP client a shared, persistent memory of decisions and dead ends, attached to the functions they are about and delivered within a token budget.">
-<link rel="canonical" href="https://scholion.openevaluations.si/guides/memory-for-coding-agents">
+<link rel="canonical" href="https://open.margincode.dev/guides/memory-for-coding-agents">
 <meta property="og:type" content="article">
-<meta property="og:url" content="https://scholion.openevaluations.si/guides/memory-for-coding-agents">
+<meta property="og:url" content="https://open.margincode.dev/guides/memory-for-coding-agents">
 <meta property="og:title" content="Persistent memory for AI coding agents, anchored to code">
 <meta property="og:description" content="Decisions and dead ends that resurface whenever any agent touches the same code, without blowing the context window.">
-<meta property="og:image" content="https://scholion.openevaluations.si/og.png">
+<meta property="og:image" content="https://open.margincode.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,17 +22,17 @@
 {"@context": "https://schema.org", "@type": "TechArticle",
  "headline": "Persistent memory for AI coding agents, anchored to code",
  "about": ["AI coding agents", "agent memory", "Model Context Protocol", "context engineering"],
- "url": "https://scholion.openevaluations.si/guides/memory-for-coding-agents",
- "author": {"@type": "Organization", "name": "Scholion", "url": "https://github.com/vinhqbui/scholion"},
- "publisher": {"@type": "Organization", "name": "Scholion", "url": "https://github.com/vinhqbui/scholion", "logo": {"@type": "ImageObject", "url": "https://scholion.openevaluations.si/favicon.svg"}},
- "image": "https://scholion.openevaluations.si/og.png",
+ "url": "https://open.margincode.dev/guides/memory-for-coding-agents",
+ "author": {"@type": "Organization", "name": "Margincode", "url": "https://github.com/vinhqbui/scholion"},
+ "publisher": {"@type": "Organization", "name": "Margincode", "url": "https://github.com/vinhqbui/scholion", "logo": {"@type": "ImageObject", "url": "https://open.margincode.dev/favicon.svg"}},
+ "image": "https://open.margincode.dev/og.png",
  "datePublished": "2026-10-28", "dateModified": "2026-11-04",
- "isPartOf": {"@type": "WebSite", "name": "Scholion", "url": "https://scholion.openevaluations.si/"}}
+ "isPartOf": {"@type": "WebSite", "name": "Margincode", "url": "https://open.margincode.dev/"}}
 </script>
 </head>
 <body>
 <nav><div class="in">
-  <a class="brand" href="/"><i>σ</i>Scholion</a><span class="sp"></span>
+  <a class="brand" href="/"><i>σ</i>Margincode</a><span class="sp"></span>
   <a class="l hide" href="/demo">Demo</a>
   <a class="l" href="/guides/handoff-between-ai-coding-agents">Handoffs</a>
   <a class="l" href="https://github.com/vinhqbui/scholion">GitHub</a>
@@ -44,7 +44,7 @@
   <p class="lede">Every new agent session starts with amnesia. Notes files like <code>CLAUDE.md</code> help with conventions, but they do not scale to <strong>hundreds of small decisions</strong>, they are loaded whole whatever the task, and nothing tells you when a note has gone stale.</p>
 
   <h2>Memory that lives next to the code</h2>
-  <p>Scholion stores short, typed records (<strong>decision</strong>, <strong>attempt</strong> for a dead end, <strong>note</strong>, <strong>handoff</strong>), each anchored to a file or a function such as <code>shop/pricing.py:line_total</code>. Records are append-only: a newer one supersedes an older one instead of rewriting history.</p>
+  <p>Margincode stores short, typed records (<strong>decision</strong>, <strong>attempt</strong> for a dead end, <strong>note</strong>, <strong>handoff</strong>), each anchored to a file or a function such as <code>shop/pricing.py:line_total</code>. Records are append-only: a newer one supersedes an older one instead of rewriting history.</p>
   <ul>
     <li><strong>They come back on their own.</strong> When any later task touches that function, or code up to two hops away in the reference graph, the record is part of its context pack.</li>
     <li><strong>They say when they may be wrong.</strong> The anchored code's hash is kept, so a record whose code has since changed is marked "changed since recorded".</li>
@@ -79,6 +79,6 @@ av init --for codex --for cursor --for grok --for gemini</code></pre>
     <a class="btn" href="https://github.com/vinhqbui/scholion">GitHub</a>
   </div>
 </main>
-<footer>Scholion is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google.</footer>
+<footer>Margincode is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google.</footer>
 </body>
 </html>

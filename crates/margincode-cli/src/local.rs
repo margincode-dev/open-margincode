@@ -1,0 +1,891 @@
+//! `av up`, `av down` and `av init`: a daemon on this machine (lite mode: it runs its own
+//! Postgres unless `AV_DATABASE_URL` is set) and a repository wired to it in one command.
+
+use std::fs::OpenOptions;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+
+use crate::agents::{self, Agent};
+use crate::client::{CliError, Client, Result};
+
+/// First start may unpack Postgres and run initdb.
+const UP_TIMEOUT: Duration = Duration::from_secs(180);
+/// The daemon stops its Postgres before it exits.
+const DOWN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// `$AV_HOME`, else `~/.margincode` (the daemon uses the same default).
+pub fn av_home() -> PathBuf {
+    margincode_agentrun::slots::av_home()
+}
+
+fn home() -> PathBuf {
+    home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The user's home: `$HOME`, else `%USERPROFILE%` (Windows sets no `HOME` outside Git Bash).
+pub fn home_dir() -> Option<PathBuf> {
+    margincode_agentrun::slots::home_dir()
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+fn local(m: impl Into<String>) -> CliError {
+    CliError::Local(m.into())
+}
+
+fn healthy(client: &Client) -> bool {
+    client.get_text("/healthz").is_ok()
+}
+
+/// Port of a daemon URL on this machine; `None` for any other host.
+fn local_port(url: &str) -> Option<u16> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) => (h, p.parse().ok()?),
+        None => (authority, 80),
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]").then_some(port)
+}
+
+/// `margincode-daemon`: `$AV_DAEMON_BIN`, else next to this executable, else on `PATH`.
+fn daemon_bin() -> Result<PathBuf> {
+    if let Some(bin) = env_path("AV_DAEMON_BIN") {
+        return Ok(bin);
+    }
+    let name = format!("margincode-daemon{}", std::env::consts::EXE_SUFFIX);
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join(&name)));
+    let on_path = std::env::var_os("PATH")
+        .map(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join(&name))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    sibling
+        .into_iter()
+        .chain(on_path)
+        .find(|p| p.is_file())
+        .ok_or_else(|| {
+            local(format!(
+                "cannot find {name} next to this program or on PATH (set AV_DAEMON_BIN)"
+            ))
+        })
+}
+
+/// Starts a daemon for `url` in the background unless one already answers there.
+pub fn up(client: &Client, url: &str) -> Result<()> {
+    if healthy(client) {
+        println!("daemon already running at {url} (dashboard: {url}/ui)");
+        return Ok(());
+    }
+    let port = local_port(url).ok_or_else(|| {
+        local(format!(
+            "av up starts a daemon on this machine, but AV_URL is {url}; unset it or use localhost"
+        ))
+    })?;
+    let bin = daemon_bin()?;
+    let home_dir = av_home();
+    std::fs::create_dir_all(&home_dir)
+        .map_err(|e| local(format!("cannot create {}: {e}", home_dir.display())))?;
+    let log_path = home_dir.join("daemon.log");
+    if let Err(e) = rotate_log(&log_path, LOG_MAX_BYTES) {
+        eprintln!("av: could not rotate {}: {e}", log_path.display());
+    }
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| local(format!("cannot open {}: {e}", log_path.display())))?;
+    let log_offset = log.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut cmd = Command::new(&bin);
+    cmd.env("AV_HOME", &home_dir)
+        .env("AV_LISTEN", format!("127.0.0.1:{port}"))
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().map_err(|e| local(e.to_string()))?)
+        .stderr(log);
+    if env_path("AV_STORE_ROOT").is_none() {
+        cmd.env("AV_STORE_ROOT", home_dir.join("store"));
+    }
+    if env_path("AV_WS_ROOT").is_none() {
+        cmd.env("AV_WS_ROOT", home().join("ws"));
+    }
+    #[cfg(unix)]
+    {
+        // its own process group: Ctrl-C in this terminal must not stop it
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| local(format!("cannot start {}: {e}", bin.display())))?;
+    let pid_path = home_dir.join("daemon.pid");
+    std::fs::write(&pid_path, child.id().to_string())
+        .map_err(|e| local(format!("cannot write {}: {e}", pid_path.display())))?;
+    let since = Instant::now();
+    loop {
+        if healthy(client) {
+            break;
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            let _ = std::fs::remove_file(&pid_path);
+            return Err(local(format!(
+                "the daemon exited ({status}) before it was ready; {}:\n{}",
+                log_path.display(),
+                log_tail(&log_path, log_offset)
+            )));
+        }
+        if since.elapsed() > UP_TIMEOUT {
+            return Err(local(format!(
+                "the daemon (pid {}) is not answering at {url} after {}s; see {}",
+                child.id(),
+                UP_TIMEOUT.as_secs(),
+                log_path.display()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    println!(
+        "daemon running at {url} (pid {}; dashboard: {url}/ui; log: {})",
+        child.id(),
+        log_path.display()
+    );
+    Ok(())
+}
+
+/// `daemon.log` larger than this moves to `daemon.log.1` when `av up` starts a daemon.
+const LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Moves `path` to `<path>.1` (replacing an older one) when it is larger than `max` bytes; says
+/// whether it did. A missing log is not an error.
+fn rotate_log(path: &Path, max: u64) -> std::io::Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(m) if m.len() > max => {
+            let mut old = path.as_os_str().to_owned();
+            old.push(".1");
+            let old = PathBuf::from(old);
+            if old.exists() {
+                std::fs::remove_file(&old)?;
+            }
+            std::fs::rename(path, &old)?;
+            Ok(true)
+        }
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// The last 20 lines written to the log since `offset`.
+fn log_tail(path: &Path, offset: u64) -> String {
+    let text = std::fs::read(path).unwrap_or_default();
+    let new = String::from_utf8_lossy(text.get(offset as usize..).unwrap_or_default()).into_owned();
+    let lines: Vec<&str> = new.lines().collect();
+    lines[lines.len().saturating_sub(20)..].join("\n")
+}
+
+/// Stops the daemon `av up` started.
+pub fn down(client: &Client, url: &str) -> Result<()> {
+    let pid_path = av_home().join("daemon.pid");
+    let Ok(text) = std::fs::read_to_string(&pid_path) else {
+        if healthy(client) {
+            return Err(local(format!(
+                "a daemon answers at {url}, but `av up` did not start it (no {}); stop it where it was started",
+                pid_path.display()
+            )));
+        }
+        println!("no daemon running");
+        return Ok(());
+    };
+    let pid = text.trim().to_owned();
+    if !alive(&pid) {
+        let _ = std::fs::remove_file(&pid_path);
+        println!("no daemon running (removed a stale {})", pid_path.display());
+        return Ok(());
+    }
+    signal(&pid, "-TERM")?;
+    let since = Instant::now();
+    while alive(&pid) {
+        if since.elapsed() > DOWN_TIMEOUT {
+            return Err(local(format!(
+                "daemon (pid {pid}) still running {}s after SIGTERM",
+                DOWN_TIMEOUT.as_secs()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = std::fs::remove_file(&pid_path);
+    println!("daemon stopped (pid {pid})");
+    Ok(())
+}
+
+#[cfg(unix)]
+fn alive(pid: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", pid])
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(unix)]
+fn signal(pid: &str, sig: &str) -> Result<()> {
+    let status = Command::new("kill")
+        .args([sig, pid])
+        .status()
+        .map_err(|e| local(format!("kill {sig} {pid}: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(local(format!("kill {sig} {pid} failed")))
+    }
+}
+
+#[cfg(not(unix))]
+fn alive(_pid: &str) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn signal(pid: &str, _sig: &str) -> Result<()> {
+    Err(local(format!(
+        "av down is not supported on this platform; stop process {pid} yourself"
+    )))
+}
+
+/// A repo name from a directory name: one path component of letters, digits, `.`, `_`, `-`.
+pub fn repo_name(dir: &Path) -> String {
+    let raw = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_start_matches(['.', '-']).to_owned();
+    if trimmed.is_empty() {
+        "repo".to_owned()
+    } else {
+        trimmed
+    }
+}
+
+/// `av init`: daemon up (when it is local), this git repository added, `agents` wired.
+/// `mcp_json` is the file for [`Agent::McpJson`]; `agent_name` is written as `X-Av-Agent`.
+pub fn init(
+    client: &Client,
+    url: &str,
+    token: Option<&str>,
+    name: Option<&str>,
+    agents: &[Agent],
+    mcp_json: Option<&Path>,
+    agent_name: &str,
+) -> Result<String> {
+    let root = git_root()?;
+    if !healthy(client) {
+        if local_port(url).is_none() {
+            return Err(CliError::Unreachable {
+                url: url.to_owned(),
+                detail: "no answer on /healthz".into(),
+            });
+        }
+        up(client, url)?;
+    }
+    let name = name.map(str::to_owned).unwrap_or_else(|| repo_name(&root));
+    let exists = client
+        .get(&format!("/v1/repos/{name}/log"), &[("limit", "1")])
+        .is_ok();
+    if exists {
+        println!("repo {name} already added");
+    } else {
+        client.post(
+            "/v1/repos",
+            &json!({"name": name, "git_source": root.to_string_lossy(), "wait": false}),
+        )?;
+        let r = crate::wait_import(client, &name)?;
+        println!(
+            "repo {name} added from {} (main {}, {} files indexed)",
+            root.display(),
+            r["main_change"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(12)
+                .collect::<String>(),
+            r["indexed_files"]
+        );
+    }
+    let mcp_url = format!("{}/mcp", url.trim_end_matches('/'));
+    let codex_home = env_path("CODEX_HOME");
+    for &agent in agents {
+        let path = match agent {
+            Agent::McpJson => mcp_json
+                .ok_or_else(|| local("--for mcp-json needs --path FILE"))?
+                .to_path_buf(),
+            other => other
+                .config_path(&home(), codex_home.clone())
+                .expect("every agent but mcp-json has a home config"),
+        };
+        match agent {
+            Agent::Claude => {
+                install_claude_hooks(&path)?;
+                println!("Claude Code hooks: {}", path.display());
+                // the default name is no one's: MCP then names the session after the client
+                let named = (agent_name != DEFAULT_AGENT).then_some(agent_name);
+                claude_mcp(&mcp_url, token, named);
+            }
+            Agent::Codex => agents::install_codex(&path, &mcp_url, token.is_some())?,
+            Agent::Grok => {
+                agents::install_grok(&path, &mcp_url, token.is_some())?;
+                let home_dir = home();
+                let hooks_path = home_dir.join(".grok/hooks/av.json");
+                if install_grok_hooks(&home_dir, agents.contains(&Agent::Claude))? {
+                    println!("Grok Build hooks: {}", hooks_path.display());
+                } else {
+                    println!(
+                        "Grok Build hooks: skipped, already reachable from {}",
+                        home_dir.join(".claude/settings.json").display()
+                    );
+                }
+            }
+            Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
+            Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
+            Agent::McpJson => {
+                agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
+            }
+        }
+        if agent != Agent::Claude {
+            println!(
+                "{} MCP server `{}`: {}{}",
+                agent.name(),
+                agents::SERVER,
+                path.display(),
+                if token.is_some() {
+                    " (reads the token from AV_TOKEN when it starts)"
+                } else {
+                    ""
+                }
+            );
+        }
+    }
+    println!(
+        "Other MCP clients: streamable HTTP at {mcp_url}, or\n  \
+         av --agent NAME init --for mcp-json --path FILE\n\
+         \n\
+         Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
+         av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \
+         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent)\n\
+         Dashboard: {}/ui",
+        url.trim_end_matches('/')
+    );
+    Ok(name)
+}
+
+fn git_root() -> Result<PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|e| local(format!("cannot run git: {e}")))?;
+    if !out.status.success() {
+        return Err(local("av init runs inside a git repository"));
+    }
+    Ok(PathBuf::from(
+        String::from_utf8_lossy(&out.stdout).trim().to_owned(),
+    ))
+}
+
+/// Our hooks (`av hook …`), or ones `integrations/claude-code/install.sh` installed.
+fn ours(entry: &Value) -> bool {
+    entry["hooks"].as_array().is_some_and(|hooks| {
+        hooks.iter().any(|h| {
+            h["command"]
+                .as_str()
+                .is_some_and(|c| c.contains("av hook ") || c.contains("/av-hooks/"))
+        })
+    })
+}
+
+/// Hook commands never fail the agent and do nothing where `av` is not installed.
+fn hook(sub: &str) -> Value {
+    json!({ "type": "command", "command": format!("command -v av >/dev/null 2>&1 && av hook {sub}; exit 0") })
+}
+
+/// The Stop hook waits for work (`AV_HOOK_WAIT_SECS`), so its timeout must exceed the wait: Claude
+/// Code discards the output of a hook it cancels, and its default timeout is 600 s.
+fn stop_hook() -> Value {
+    let mut h = hook("stop");
+    h["timeout"] = json!(crate::hook::stop_timeout_secs());
+    h
+}
+
+/// Merges the `SessionStart`, `PreToolUse`, `PostToolUse` and `Stop` hooks into Claude Code's settings,
+/// replacing earlier Margincode hooks; the previous file is kept as `settings.json.bak`.
+pub fn install_claude_hooks(path: &Path) -> Result<()> {
+    let mut settings: Value = match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            local(format!(
+                "{} is not valid JSON ({e}); nothing changed",
+                path.display()
+            ))
+        })?,
+        Err(_) => json!({}),
+    };
+    if !settings.is_object() {
+        return Err(local(format!(
+            "{} is not a JSON object; nothing changed",
+            path.display()
+        )));
+    }
+    let add = [
+        ("SessionStart", json!({ "hooks": [hook("session-start")] })),
+        (
+            "PostToolUse",
+            json!({ "matcher": "Edit|Write|MultiEdit", "hooks": [hook("post-edit")] }),
+        ),
+        (
+            "PreToolUse",
+            json!({ "matcher": "Read|Edit|MultiEdit", "hooks": [hook("pre-read")] }),
+        ),
+        ("Stop", json!({ "hooks": [stop_hook()] })),
+    ];
+    let hooks = settings
+        .as_object_mut()
+        .expect("checked above")
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    if !hooks.is_object() {
+        *hooks = json!({});
+    }
+    for (event, entry) in add {
+        let list = hooks
+            .as_object_mut()
+            .expect("an object")
+            .entry(event)
+            .or_insert_with(|| json!([]));
+        let mut kept: Vec<Value> = list
+            .as_array()
+            .map(|a| a.iter().filter(|e| !ours(e)).cloned().collect())
+            .unwrap_or_default();
+        kept.push(entry);
+        *list = Value::Array(kept);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| local(format!("cannot create {}: {e}", dir.display())))?;
+    }
+    if path.exists() {
+        std::fs::copy(path, path.with_extension("json.bak"))
+            .map_err(|e| local(format!("cannot back up {}: {e}", path.display())))?;
+    }
+    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
+    std::fs::write(path, text)
+        .map_err(|e| local(format!("cannot write {}: {e}", path.display())))?;
+    // Grok reads this file and ~/.grok/hooks/*.json. Drop the copy `av init --for grok` wrote
+    // so the same hook does not fire twice.
+    if let Some(home_dir) = claude_config_home(path) {
+        strip_our_hooks_file(&home_dir.join(".grok/hooks/av.json"))?;
+    }
+    Ok(())
+}
+
+/// `path` is `~/.claude/settings.json`: the home directory, when the parent is `.claude`.
+fn claude_config_home(path: &Path) -> Option<PathBuf> {
+    let dir = path.parent()?;
+    if dir.file_name().and_then(|s| s.to_str()) != Some(".claude") {
+        return None;
+    }
+    dir.parent().map(PathBuf::from)
+}
+
+/// Whether `~/.claude/settings.json` already loads an av hook. Grok reads that file, so a second
+/// copy in `~/.grok/hooks` would fire twice.
+fn claude_settings_have_ours(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(settings) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    settings
+        .get("hooks")
+        .and_then(Value::as_object)
+        .is_some_and(|events| {
+            events.values().any(|list| {
+                list.as_array()
+                    .is_some_and(|entries| entries.iter().any(ours))
+            })
+        })
+}
+
+/// Writes SessionStart (the pack) and Stop into `~/.grok/hooks/av.json`. Returns false, and
+/// removes a previous copy of that file, when Claude's settings already load the av hooks or
+/// this `av init` is about to install them (`claude_in_this_run`).
+pub fn install_grok_hooks(home_dir: &Path, claude_in_this_run: bool) -> Result<bool> {
+    let path = home_dir.join(".grok/hooks/av.json");
+    let settings = home_dir.join(".claude/settings.json");
+    if claude_in_this_run || claude_settings_have_ours(&settings) {
+        strip_our_hooks_file(&path)?;
+        return Ok(false);
+    }
+    let add = [
+        ("SessionStart", json!({ "hooks": [hook("session-start")] })),
+        ("Stop", json!({ "hooks": [stop_hook()] })),
+    ];
+    merge_hook_entries(&path, &add)?;
+    Ok(true)
+}
+
+/// Merges `add` into a hooks JSON file, replacing earlier Margincode entries for those events.
+fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
+    let mut settings: Value = match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            local(format!(
+                "{} is not valid JSON ({e}); nothing changed",
+                path.display()
+            ))
+        })?,
+        Err(_) => json!({}),
+    };
+    if !settings.is_object() {
+        return Err(local(format!(
+            "{} is not a JSON object; nothing changed",
+            path.display()
+        )));
+    }
+    let hooks = settings
+        .as_object_mut()
+        .expect("checked above")
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    if !hooks.is_object() {
+        *hooks = json!({});
+    }
+    for (event, entry) in add {
+        let list = hooks
+            .as_object_mut()
+            .expect("an object")
+            .entry(*event)
+            .or_insert_with(|| json!([]));
+        let mut kept: Vec<Value> = list
+            .as_array()
+            .map(|a| a.iter().filter(|e| !ours(e)).cloned().collect())
+            .unwrap_or_default();
+        kept.push(entry.clone());
+        *list = Value::Array(kept);
+    }
+    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
+    agents::write_with_backup(path, &text)
+}
+
+/// Removes our hook entries from `path`. Deletes the file when that leaves nothing else.
+/// A missing file is fine. A file that is not JSON is left as it is.
+fn strip_our_hooks_file(path: &Path) -> Result<()> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(local(format!("cannot read {}: {e}", path.display()))),
+    };
+    let mut settings: Value = match serde_json::from_str::<Value>(&text) {
+        Ok(v) if v.is_object() => v,
+        _ => return Ok(()),
+    };
+    let empty = {
+        let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
+            return Ok(());
+        };
+        let mut changed = false;
+        for list in hooks.values_mut() {
+            let Some(entries) = list.as_array_mut() else {
+                continue;
+            };
+            let before = entries.len();
+            entries.retain(|e| !ours(e));
+            changed |= entries.len() != before;
+        }
+        if !changed {
+            return Ok(());
+        }
+        hooks.retain(|_, list| list.as_array().is_none_or(|entries| !entries.is_empty()));
+        hooks.is_empty()
+    };
+    let only_hooks = settings
+        .as_object()
+        .is_some_and(|obj| obj.len() == 1 && obj.contains_key("hooks"));
+    if empty && only_hooks {
+        return std::fs::remove_file(path)
+            .map_err(|e| local(format!("cannot remove {}: {e}", path.display())));
+    }
+    if empty {
+        settings.as_object_mut().expect("object").remove("hooks");
+    }
+    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
+    std::fs::write(path, text).map_err(|e| local(format!("cannot write {}: {e}", path.display())))
+}
+
+/// The global `--agent` when neither it nor `AV_AGENT` is given.
+pub const DEFAULT_AGENT: &str = "agent";
+
+/// Registers the MCP server with Claude Code (user scope) when its CLI is installed; otherwise
+/// prints the command. `agent` is sent as `X-Av-Agent`, so MCP calls are made under the name
+/// `av next` and the hooks use, not under Claude Code's client name.
+fn claude_mcp(mcp_url: &str, token: Option<&str>, agent: Option<&str>) {
+    let mut args = vec![
+        "mcp".to_owned(),
+        "add".into(),
+        "--transport".into(),
+        "http".into(),
+        "--scope".into(),
+        "user".into(),
+        "av".into(),
+        mcp_url.to_owned(),
+    ];
+    if let Some(t) = token {
+        args.push("--header".into());
+        args.push(format!("Authorization: Bearer {t}"));
+    }
+    if let Some(a) = agent {
+        args.push("--header".into());
+        args.push(format!("X-Av-Agent: {a}"));
+    }
+    let quiet = |a: &[&str]| {
+        Command::new("claude")
+            .args(a)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+    };
+    match quiet(&["mcp", "get", "av"]) {
+        Err(_) => {
+            let shown: Vec<String> = args
+                .iter()
+                .map(|a| {
+                    if a.contains(' ') {
+                        format!("\"{a}\"")
+                    } else {
+                        a.clone()
+                    }
+                })
+                .collect();
+            println!(
+                "Claude Code CLI not found; to add the MCP server later: claude {}",
+                shown.join(" ")
+            );
+        }
+        Ok(s) if s.success() => match agent {
+            None => println!("Claude Code MCP server `av`: already configured"),
+            Some(a) => println!(
+                "Claude Code MCP server `av`: already configured, left as it is; for it to send \
+                 X-Av-Agent: {a}, run `claude mcp remove --scope user av` and this again"
+            ),
+        },
+        Ok(_) => {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            match quiet(&refs) {
+                Ok(s) if s.success() => {
+                    println!("Claude Code MCP server `av`: added (user scope, {mcp_url})")
+                }
+                _ => println!(
+                    "Claude Code MCP server: `claude mcp add` failed; run it yourself: claude {}",
+                    args.join(" ")
+                ),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_daemon_log_over_the_limit_moves_to_dot_one() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log = dir.path().join("daemon.log");
+        let old = dir.path().join("daemon.log.1");
+        // no log yet: nothing to do
+        assert!(!rotate_log(&log, 10).unwrap());
+
+        std::fs::write(&log, "small").unwrap();
+        assert!(!rotate_log(&log, 10).unwrap());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "small");
+
+        std::fs::write(&old, "older").unwrap();
+        std::fs::write(&log, "more than ten bytes").unwrap();
+        assert!(rotate_log(&log, 10).unwrap());
+        assert!(!log.exists());
+        assert_eq!(
+            std::fs::read_to_string(&old).unwrap(),
+            "more than ten bytes"
+        );
+    }
+
+    #[test]
+    fn local_port_only_for_this_machine() {
+        assert_eq!(local_port("http://localhost:7420"), Some(7420));
+        assert_eq!(local_port("http://127.0.0.1:9000/"), Some(9000));
+        assert_eq!(local_port("http://localhost"), Some(80));
+        assert_eq!(local_port("http://av.example.com:7420"), None);
+    }
+
+    #[test]
+    fn repo_name_is_one_safe_path_component() {
+        assert_eq!(repo_name(Path::new("/home/me/my-app")), "my-app");
+        assert_eq!(repo_name(Path::new("/x/My App (2)")), "My-App--2-");
+        assert_eq!(repo_name(Path::new("/x/.hidden")), "hidden");
+        assert_eq!(repo_name(Path::new("/")), "repo");
+    }
+
+    #[test]
+    fn hooks_merge_keeps_other_hooks_and_replaces_ours() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"model":"x","hooks":{"Stop":[
+                {"hooks":[{"type":"command","command":"say done"}]},
+                {"hooks":[{"type":"command","command":"/home/me/.claude/av-hooks/stop.sh"}]}
+            ]}}"#,
+        )
+        .unwrap();
+        install_claude_hooks(&path).unwrap();
+        install_claude_hooks(&path).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["model"], "x");
+        let stop = v["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 2, "{stop:?}");
+        assert_eq!(stop[0]["hooks"][0]["command"], "say done");
+        assert!(
+            stop[1]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("av hook stop")
+        );
+        // The Stop hook waits up to AV_HOOK_WAIT_SECS; its timeout must be above that, and av init
+        // must not drop the one install.sh set.
+        let timeout = stop[1]["hooks"][0]["timeout"].as_u64().unwrap();
+        assert_eq!(timeout, crate::hook::stop_timeout_secs());
+        assert_eq!(crate::hook::stop_timeout_for(600), 660);
+        assert!(timeout > 60);
+        let pre = &v["hooks"]["PreToolUse"][0];
+        assert_eq!(pre["matcher"], "Read|Edit|MultiEdit");
+        assert_eq!(v["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            v["hooks"]["PostToolUse"][0]["matcher"],
+            "Edit|Write|MultiEdit"
+        );
+        assert!(path.with_extension("json.bak").exists());
+    }
+
+    #[test]
+    fn invalid_settings_are_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        assert!(install_claude_hooks(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    fn grok_hooks(home: &Path) -> Value {
+        let path = home.join(".grok/hooks/av.json");
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn grok_hooks_file_is_session_start_and_stop_and_a_second_write_does_not_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let v = grok_hooks(dir.path());
+        let start = v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(start.contains("av hook session-start"), "{start}");
+        let stop = &v["hooks"]["Stop"][0]["hooks"][0];
+        assert!(
+            stop["command"].as_str().unwrap().contains("av hook stop"),
+            "{stop}"
+        );
+        assert_eq!(stop["timeout"], json!(crate::hook::stop_timeout_secs()));
+        assert_eq!(crate::hook::stop_timeout_for(600), 660);
+        assert!(v["hooks"].get("PreToolUse").is_none(), "{v}");
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
+        // a hook the user added in the same file stays
+        let path = dir.path().join(".grok/hooks/av.json");
+        let mut edited = v.clone();
+        edited["hooks"]["Notification"] =
+            json!([{ "hooks": [{ "type": "command", "command": "say hi" }] }]);
+        std::fs::write(&path, serde_json::to_string(&edited).unwrap()).unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let v = grok_hooks(dir.path());
+        assert_eq!(
+            v["hooks"]["Notification"][0]["hooks"][0]["command"],
+            "say hi"
+        );
+        assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn grok_hooks_are_left_out_when_claude_settings_already_load_them() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let settings = dir.path().join(".claude/settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(
+            &settings,
+            r#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"av hook stop"}]}]}}"#,
+        )
+        .unwrap();
+        assert!(!install_grok_hooks(dir.path(), false).unwrap());
+        assert!(
+            !dir.path().join(".grok/hooks/av.json").exists(),
+            "a second copy would fire twice"
+        );
+        assert!(
+            std::fs::read_to_string(&settings)
+                .unwrap()
+                .contains("\"model\"")
+        );
+        // this init is about to install Claude's hooks, so it does not write the grok file
+        let bare = tempfile::tempdir().unwrap();
+        assert!(!install_grok_hooks(bare.path(), true).unwrap());
+        assert!(!bare.path().join(".grok/hooks/av.json").exists());
+    }
+
+    #[test]
+    fn installing_claude_hooks_removes_the_grok_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(install_grok_hooks(dir.path(), false).unwrap());
+        let settings = dir.path().join(".claude/settings.json");
+        install_claude_hooks(&settings).unwrap();
+        assert!(!dir.path().join(".grok/hooks/av.json").exists());
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert!(
+            v["hooks"]["Stop"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("av hook stop")
+        );
+        assert!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("av hook session-start")
+        );
+    }
+}

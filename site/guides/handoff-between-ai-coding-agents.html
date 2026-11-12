@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hand off a coding task between AI agents without losing context · Scholion</title>
+<title>Hand off a coding task between AI agents without losing context · Margincode</title>
 <meta name="description" content="How to pass a half-finished task from Claude Code to Codex (or any coding agent) with its decisions, dead ends and open questions, so the next agent does not re-read the repo or repeat a failed approach.">
-<link rel="canonical" href="https://scholion.openevaluations.si/guides/handoff-between-ai-coding-agents">
+<link rel="canonical" href="https://open.margincode.dev/guides/handoff-between-ai-coding-agents">
 <meta property="og:type" content="article">
-<meta property="og:url" content="https://scholion.openevaluations.si/guides/handoff-between-ai-coding-agents">
+<meta property="og:url" content="https://open.margincode.dev/guides/handoff-between-ai-coding-agents">
 <meta property="og:title" content="Hand off a coding task between AI agents without losing context">
 <meta property="og:description" content="Claude Code runs out of context; Codex picks up from a 544-token handoff bundle instead of re-reading the repo.">
-<meta property="og:image" content="https://scholion.openevaluations.si/og.png">
+<meta property="og:image" content="https://open.margincode.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,17 +22,17 @@
 {"@context": "https://schema.org", "@type": "TechArticle",
  "headline": "Hand off a coding task between AI agents without losing context",
  "about": ["AI coding agents", "Claude Code", "Codex", "agent handoff", "context window"],
- "url": "https://scholion.openevaluations.si/guides/handoff-between-ai-coding-agents",
- "author": {"@type": "Organization", "name": "Scholion", "url": "https://github.com/vinhqbui/scholion"},
- "publisher": {"@type": "Organization", "name": "Scholion", "url": "https://github.com/vinhqbui/scholion", "logo": {"@type": "ImageObject", "url": "https://scholion.openevaluations.si/favicon.svg"}},
- "image": "https://scholion.openevaluations.si/og.png",
+ "url": "https://open.margincode.dev/guides/handoff-between-ai-coding-agents",
+ "author": {"@type": "Organization", "name": "Margincode", "url": "https://github.com/vinhqbui/scholion"},
+ "publisher": {"@type": "Organization", "name": "Margincode", "url": "https://github.com/vinhqbui/scholion", "logo": {"@type": "ImageObject", "url": "https://open.margincode.dev/favicon.svg"}},
+ "image": "https://open.margincode.dev/og.png",
  "datePublished": "2026-10-28", "dateModified": "2026-11-04",
- "isPartOf": {"@type": "WebSite", "name": "Scholion", "url": "https://scholion.openevaluations.si/"}}
+ "isPartOf": {"@type": "WebSite", "name": "Margincode", "url": "https://open.margincode.dev/"}}
 </script>
 </head>
 <body>
 <nav><div class="in">
-  <a class="brand" href="/"><i>σ</i>Scholion</a><span class="sp"></span>
+  <a class="brand" href="/"><i>σ</i>Margincode</a><span class="sp"></span>
   <a class="l hide" href="/demo">Demo</a>
   <a class="l" href="/guides/memory-for-coding-agents">Agent memory</a>
   <a class="l" href="https://github.com/vinhqbui/scholion">GitHub</a>
@@ -51,7 +51,7 @@
     <li><strong>What is broken</strong> right now and <strong>open questions</strong>.</li>
     <li>The changes themselves, <strong>small enough to fit</strong> in the next agent's first prompt.</li>
   </ul>
-  <p>Writing that by hand at the end of every session is the step everyone skips. Scholion has the agents record it as they go and assembles it for them.</p>
+  <p>Writing that by hand at the end of every session is the step everyone skips. Margincode has the agents record it as they go and assembles it for them.</p>
 
   <h2>Set up (once)</h2>
 <pre><code><span class="c"># install, then in your repository: the daemon with its own Postgres on 127.0.0.1:7420</span>
@@ -100,9 +100,9 @@ av context --budget 2000</code></pre>
 
   <div class="cta">
     <a class="btn p" href="/demo">Watch the full run</a>
-    <a class="btn" href="https://github.com/vinhqbui/scholion">Get Scholion on GitHub</a>
+    <a class="btn" href="https://github.com/vinhqbui/scholion">Get Margincode on GitHub</a>
   </div>
 </main>
-<footer>Scholion is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google. Commands and output on this page come from <code>scripts/demo-replay.py</code> in the repository.</footer>
+<footer>Margincode is open source (MIT) and independent; it is not affiliated with Anthropic, OpenAI or Google. Commands and output on this page come from <code>scripts/demo-replay.py</code> in the repository.</footer>
 </body>
 </html>

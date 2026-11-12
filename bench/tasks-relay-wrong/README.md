@@ -28,7 +28,7 @@ The question, the design and the reason these five tasks were chosen are in
 The free replay comes before any paid session:
 
 ```bash
-scholion-bench first-packs bench/tasks-relay-wrong --out <dir> <the stack's options>
+margincode-bench first-packs bench/tasks-relay-wrong --out <dir> <the stack's options>
 ```
 
 It reports, per task, whether the wrong note is in the session-start pack and in the pre-read

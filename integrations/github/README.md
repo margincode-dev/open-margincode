@@ -41,22 +41,22 @@ av notes --pr               # gh finds the pull request of the current branch
 How a task's change reaches a pull request is up to you: push the task's work as a branch, or
 let the daemon push main to its own branch and open the pull request from that
 (`av repo backup NAME --remote URL --branch av-main`). For the workflow below, name the branch
-after the task's slug or put `Scholion-Task: <id or repo/slug>` lines in the description (one
+after the task's slug or put `Margincode-Task: <id or repo/slug>` lines in the description (one
 per task, when a pull request carries several merges).
 
 **From CI on a self-hosted runner** that can reach the daemon and has `av` and `gh` installed:
-copy [`scholion-notes.yml`](scholion-notes.yml) to `.github/workflows/`, label the runner
-`scholion`, and set the repository variable `AV_URL` (and the secret `AV_TOKEN` when the daemon
+copy [`margincode-notes.yml`](margincode-notes.yml) to `.github/workflows/`, label the runner
+`margincode`, and set the repository variable `AV_URL` (and the secret `AV_TOKEN` when the daemon
 requires one). It runs on every push to the pull request and on description edits, posts or
 updates one comment per task, and skips pull requests from forks: never run a fork's code on a
-self-hosted runner. A branch that names no task (and no `Scholion-Task:` line) gives a notice,
+self-hosted runner. A branch that names no task (and no `Margincode-Task:` line) gives a notice,
 not a failure.
 
 ## The block's format
 
 ```markdown
-<!-- scholion:notes v1 task=3f0c2b1a-0000-4000-8000-000000000001 -->
-### Scholion: why this change
+<!-- margincode:notes v1 task=3f0c2b1a-0000-4000-8000-000000000001 -->
+### Margincode: why this change
 
 **Atomic save** (`pantry/atomic-save`, in review; approved by codex, owner claude)
 
@@ -74,11 +74,11 @@ not a failure.
 </details>
 
 <sub>Written by `av notes` from the task's records. Records: rec:b2000000 rec:c3000000. ...</sub>
-<!-- /scholion:notes -->
+<!-- /margincode:notes -->
 ```
 
-- The block starts with `<!-- scholion:notes v1 task=<task uuid> -->` and ends with
-  `<!-- /scholion:notes -->`. One block per task: a comment is found by its task's start marker,
+- The block starts with `<!-- margincode:notes v1 task=<task uuid> -->` and ends with
+  `<!-- /margincode:notes -->`. One block per task: a comment is found by its task's start marker,
   and only the text between the markers is replaced, so text around it and other tasks' blocks
   stay. `v1` changes only if the markers do.
 - Sections, each only when it has records: Decisions, Dead ends (`attempt`), Notes, Review
@@ -91,7 +91,7 @@ not a failure.
 - The footer lists the record ids shown.
 - Record text cannot close the markers (`<!--` and `-->` are escaped) and a `@name` in it does
   not notify anyone (a word joiner follows the `@`).
-- The full example is `crates/scholion-cli/tests/golden/notes.md`.
+- The full example is `crates/margincode-cli/tests/golden/notes.md`.
 
 ## `av why` and pull requests
 

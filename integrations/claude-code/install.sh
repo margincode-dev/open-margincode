@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Installs the Scholion hooks for Claude Code: copies them to ~/.claude/av-hooks and merges
+# Installs the Margincode hooks for Claude Code: copies them to ~/.claude/av-hooks and merges
 # settings.snippet.json into ~/.claude/settings.json (the previous file is kept as settings.json.bak).
-# Running it again replaces the Scholion hooks instead of adding them twice.
+# Running it again replaces the Margincode hooks instead of adding them twice.
 set -euo pipefail
 if ! command -v jq >/dev/null 2>&1; then
     echo "install.sh: jq is required (https://jqlang.github.io/jq/)" >&2
@@ -33,4 +33,4 @@ jq --argjson add "$snippet" '
       .hooks[$e.key] = (((.hooks[$e.key] // []) | map(select(ours | not))) + $e.value))
 ' "$settings.bak" >"$settings.tmp"
 mv "$settings.tmp" "$settings"
-echo "Scholion hooks installed: $dest (settings: $settings, previous: $settings.bak)"
+echo "Margincode hooks installed: $dest (settings: $settings, previous: $settings.bak)"

@@ -8,7 +8,7 @@ loop, put this in the instructions file it reads (`AGENTS.md` for Codex, Grok Bu
 Agent, `GEMINI.md` for Gemini CLI), or say it in the prompt:
 
 ```markdown
-## Scholion (`av` MCP server)
+## Margincode (`av` MCP server)
 
 - Call start_task with no title or goal and do what it returns (review, merge, handoff or new task).
   When it returns no task, call it again with wait set; stop after three empty waits.

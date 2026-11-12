@@ -32,8 +32,8 @@ jobs:
       - name: Toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy (scholion-cli on Windows)
-        run: cargo clippy --locked -p scholion-cli --bins -- -D warnings
+      - name: Clippy (margincode-cli on Windows)
+        run: cargo clippy --locked -p margincode-cli --bins -- -D warnings
 
   check:
     runs-on: ubuntu-latest

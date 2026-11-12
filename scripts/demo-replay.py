@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Records the website's replay demo (site/demo.html) from a real daemon.
 
-Drives a fresh scholion daemon through a small multi-agent story on a toy `shop` repo, then writes
+Drives a fresh margincode daemon through a small multi-agent story on a toy `shop` repo, then writes
 every command, caption and (trimmed) daemon response to site/demo-replay.json. The page only plays
 that file back, so what it shows is what the daemon returned.
 
     # a daemon on an empty database, with its workspaces visible to this script:
-    AV_DATABASE_URL=... AV_WS_ROOT=/tmp/avdemo/ws AV_STORE_ROOT=/tmp/avdemo/store scholion-daemon &
+    AV_DATABASE_URL=... AV_WS_ROOT=/tmp/avdemo/ws AV_STORE_ROOT=/tmp/avdemo/store margincode-daemon &
     scripts/demo-replay.py                    # AV_URL defaults to http://127.0.0.1:7420
 
 Standard library only. Re-run it after a change to packs or the API, and check the captions still
@@ -204,7 +204,7 @@ def set_status(task, status, owner=None):
 
 def main():
     src = fixture_repo()
-    step("human", "Import a repository. Scholion indexes it with tree-sitter: symbols, references, skeletons.",
+    step("human", "Import a repository. Margincode indexes it with tree-sitter: symbols, references, skeletons.",
          "av repo add shop ./shop", "POST", "/v1/repos", {"name": "shop", "git_source": src},
          show=lambda r: f"repo: {r['name']}\nindexed files: {r['indexed_files']}\nmain: {r['main_change'][:8]}")
 
@@ -230,7 +230,7 @@ def main():
            "Tried rounding every line to the cent before summing: totals drift 1-2 cents from invoices",
            "test_total_rounds_once fails: 3 x 0.333 gives 0.99 instead of 1.00. Round only the discount "
            "amount, and the total once.", [{"path": "shop/pricing.py", "symbol": "total"}],
-           note="Git would keep the code and lose this. Scholion keeps both, anchored to pricing.py:total.")
+           note="Git would keep the code and lose this. Margincode keeps both, anchored to pricing.py:total.")
     remaining = "Tests for the 10-unit threshold; show the discount on receipts (separate task)."
 
     def handed(r):
@@ -284,7 +284,7 @@ def main():
             return f"status: {r['status']}\nhead: {r['head'][:8]}\nchanged: {', '.join(r['changed'])}"
         return show
 
-    step("codex", "Submit for review. Scholion refuses a task that has no recorded why.", "av submit", "POST",
+    step("codex", "Submit for review. Margincode refuses a task that has no recorded why.", "av submit", "POST",
          f"/v1/tasks/{t1['id']}/submit", {"agent": "codex"}, gen=g2, task=t1["id"], show=submitted(t1),
          expect=("status: in_review",))
 

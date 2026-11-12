@@ -50,7 +50,7 @@ of [`../tasks-relay-wrong/quote-split.toml`](../tasks-relay-wrong/quote-split.to
 bench/tallyho/make-repo.sh                                          # ~/bench-repos/tallyho
 ~/bench-work/venv/bin/python bench/tasks-relay/reference/check.py   # all 13 pairs ok (3 of them silent)
 python3 bench/tasks-relay-silent/check_set.py ~/bench-repos/tallyho # silent set ok
-scholion-bench check bench/tasks-relay-silent
+margincode-bench check bench/tasks-relay-silent
 ```
 
 - `reference/check.py` runs the repo's own tests and the hidden test apart, for each of the three
@@ -84,7 +84,7 @@ payloads, product slugs, refund memos, order ids) say nothing about any of the t
 - **That `cold` solves them.** Only paid sessions can show it, and a task that `cold` fails says
   nothing about the note. Run `--arms cold` on this directory first.
 - **That the note reaches the agent.** Run the free replay before any paid session, as for the
-  wrong-lesson set: `scholion-bench first-packs bench/tasks-relay-silent --out <dir> <the stack's
+  wrong-lesson set: `margincode-bench first-packs bench/tasks-relay-silent --out <dir> <the stack's
   options>`.
 - **That an agent which reasons about the note cannot see through it.** The notes are wrong for
   reasons a careful reader can work out (what `list.extend` does, that lambdas share a name, that

@@ -75,7 +75,7 @@ jobs:
         with:
           shared-key: e4-smoke-release
       - name: Build (release)
-        run: cargo build --release --locked -p scholion-daemon -p scholion-bench -p scholion-cli
+        run: cargo build --release --locked -p margincode-daemon -p margincode-bench -p margincode-cli
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -89,7 +89,7 @@ jobs:
           python3 -m venv "$HOME/bench-work/venv"
           "$HOME/bench-work/venv/bin/pip" install --quiet pytest==9.2.0
           "$HOME/bench-work/venv/bin/python" bench/tasks-relay/reference/check.py
-          target/release/scholion-bench check bench/tasks-relay
+          target/release/margincode-bench check bench/tasks-relay
       - name: Start the daemon
         env:
           AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
@@ -99,7 +99,7 @@ jobs:
         run: |
           export AV_WS_ROOT="$HOME/bench-work/ws"
           mkdir -p "$AV_STORE_ROOT" "$AV_WS_ROOT" "$AV_HOME" "$HOME/bench-work/src"
-          nohup target/release/scholion-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
+          nohup target/release/margincode-daemon > "$RUNNER_TEMP/daemon.log" 2>&1 &
           for _ in $(seq 1 60); do
             curl -fsS "$AV_BENCH_URL/healthz" > /dev/null && exit 0
             sleep 1
@@ -122,7 +122,7 @@ jobs:
           unset LLM_API_KEY
           export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash ANTHROPIC_SMALL_FAST_MODEL=deepseek-flash
           export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
-          target/release/scholion-bench run bench/tasks-relay --only relay-customer-region \
+          target/release/margincode-bench run bench/tasks-relay --only relay-customer-region \
             --arms av --noise 50 --jit-hooks --reps 1 --allow-no-semantic \
             --price-per-mtok 0.30,0.30,0.006,1.20 --session-cap-usd 0.02 --budget-usd 0.02 \
             --av-url "$AV_BENCH_URL" --av-bin "$PWD/target/release/av" \

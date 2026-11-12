@@ -1,8 +1,8 @@
 # Integrations
 
-How each agent CLI, and GitHub, connects to a Scholion daemon, and against which release of each
+How each agent CLI, and GitHub, connects to a Margincode daemon, and against which release of each
 agent CLI the wiring was last checked. `av init --for <agent>` writes an agent's config
-(`crates/scholion-cli/src/agents.rs`); the details of every command are in
+(`crates/margincode-cli/src/agents.rs`); the details of every command are in
 [docs/reference.md](../docs/reference.md#agent-integrations), and what was and was not checked is in
 each folder's README.
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the E1 CI fixture as a git repo and prints its tasks as JSON lines (name, repo_path,
-# base_rev, fix_rev, goal) for `scholion-bench retrieval`, which needs the revisions that
+# base_rev, fix_rev, goal) for `margincode-bench retrieval`, which needs the revisions that
 # tasks.jsonl leaves out. The repo is the one `tasks()` in
-# crates/scholion-bench/tests/retrieval_gate.rs builds: `main` is repo/ in one commit, and each
+# crates/margincode-bench/tests/retrieval_gate.rs builds: `main` is repo/ in one commit, and each
 # task's fix (fixes/NAME.patch) is one commit on its own branch NAME off `main`.
 # Usage: make-repo.sh DEST > tasks.jsonl   (the nightly workflow runs it; needs git and python3)
 set -euo pipefail
@@ -12,7 +12,7 @@ if [ -e "$dest" ]; then
     echo "make-repo.sh: $dest exists; remove it or pass another DEST" >&2
     exit 1
 fi
-git=(git -c user.name=scholion-bench -c user.email=bench@localhost -c commit.gpgsign=false
+git=(git -c user.name=margincode-bench -c user.email=bench@localhost -c commit.gpgsign=false
      -c core.autocrlf=false)
 mkdir -p "$dest"
 cp -R "$here/repo/." "$dest/"

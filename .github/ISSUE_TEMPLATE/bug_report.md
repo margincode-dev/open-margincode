@@ -4,7 +4,7 @@ about: Something does not work as described
 labels: bug
 ---
 
-Scholion is an experiment, so rough edges are expected. Say what you hit and we will look.
+Margincode is an experiment, so rough edges are expected. Say what you hit and we will look.
 
 **`av --version`**
 
@@ -16,4 +16,4 @@ Scholion is an experiment, so rough edges are expected. Say what you hit and we 
 
 **What you expected**
 
-**Daemon log line, if any** (`~/.scholion/daemon.log`)
+**Daemon log line, if any** (`~/.margincode/daemon.log`)

@@ -2684,6 +2684,210 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
+name = "margincode-agentrun"
+version = "0.0.3"
+dependencies = [
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "margincode-bench"
+version = "0.0.3"
+dependencies = [
+ "axum 0.8.9",
+ "clap",
+ "globset",
+ "margincode-agentrun",
+ "margincode-core",
+ "margincode-daemon",
+ "margincode-index",
+ "margincode-store",
+ "margincode-testutil",
+ "margincode-vcs",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tiktoken-rs",
+ "tokio",
+ "toml",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-cli"
+version = "0.0.3"
+dependencies = [
+ "axum 0.8.9",
+ "chrono",
+ "clap",
+ "margincode-agentrun",
+ "margincode-core",
+ "margincode-daemon",
+ "margincode-index",
+ "margincode-store",
+ "margincode-testutil",
+ "margincode-vcs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml_edit 0.22.27",
+ "ureq",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-core"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-daemon"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "axum 0.8.9",
+ "chrono",
+ "filetime",
+ "futures",
+ "globset",
+ "libc",
+ "margincode-core",
+ "margincode-index",
+ "margincode-pack",
+ "margincode-semantic",
+ "margincode-store",
+ "margincode-testutil",
+ "margincode-vcs",
+ "postgresql_embedded",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "similar",
+ "sqlx 0.8.6",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-index"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "margincode-core",
+ "margincode-store",
+ "margincode-testutil",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx 0.8.6",
+ "tokio",
+ "tree-sitter",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-pack"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "margincode-core",
+ "margincode-index",
+ "margincode-store",
+ "margincode-testutil",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "similar",
+ "sqlx 0.8.6",
+ "tiktoken-rs",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-semantic"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "axum 0.8.9",
+ "margincode-core",
+ "qdrant-client",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-store"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "globset",
+ "margincode-core",
+ "margincode-testutil",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx 0.8.6",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-testutil"
+version = "0.0.3"
+dependencies = [
+ "postgresql_embedded",
+ "sqlx 0.8.6",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "margincode-vcs"
+version = "0.0.3"
+dependencies = [
+ "async-trait",
+ "flate2",
+ "futures",
+ "jj-lib",
+ "margincode-core",
+ "pollster 0.4.0",
+ "proptest",
+ "sha1",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3777,210 +3981,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "scholion-agentrun"
-version = "0.0.3"
-dependencies = [
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "scholion-bench"
-version = "0.0.3"
-dependencies = [
- "axum 0.8.9",
- "clap",
- "globset",
- "regex",
- "scholion-agentrun",
- "scholion-core",
- "scholion-daemon",
- "scholion-index",
- "scholion-store",
- "scholion-testutil",
- "scholion-vcs",
- "serde",
- "serde_json",
- "tempfile",
- "tiktoken-rs",
- "tokio",
- "toml",
- "ureq",
- "uuid",
-]
-
-[[package]]
-name = "scholion-cli"
-version = "0.0.3"
-dependencies = [
- "axum 0.8.9",
- "chrono",
- "clap",
- "scholion-agentrun",
- "scholion-core",
- "scholion-daemon",
- "scholion-index",
- "scholion-store",
- "scholion-testutil",
- "scholion-vcs",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml_edit 0.22.27",
- "ureq",
- "uuid",
-]
-
-[[package]]
-name = "scholion-core"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "chrono",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "uuid",
-]
-
-[[package]]
-name = "scholion-daemon"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "axum 0.8.9",
- "chrono",
- "filetime",
- "futures",
- "globset",
- "libc",
- "postgresql_embedded",
- "scholion-core",
- "scholion-index",
- "scholion-pack",
- "scholion-semantic",
- "scholion-store",
- "scholion-testutil",
- "scholion-vcs",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "similar",
- "sqlx 0.8.6",
- "subtle",
- "tempfile",
- "tokio",
- "tower 0.5.3",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "scholion-index"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "proptest",
- "scholion-core",
- "scholion-store",
- "scholion-testutil",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx 0.8.6",
- "tokio",
- "tree-sitter",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "uuid",
-]
-
-[[package]]
-name = "scholion-pack"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "scholion-core",
- "scholion-index",
- "scholion-store",
- "scholion-testutil",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "similar",
- "sqlx 0.8.6",
- "tiktoken-rs",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "scholion-semantic"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "axum 0.8.9",
- "qdrant-client",
- "reqwest 0.12.28",
- "scholion-core",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "scholion-store"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "globset",
- "scholion-core",
- "scholion-testutil",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx 0.8.6",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "scholion-testutil"
-version = "0.0.3"
-dependencies = [
- "postgresql_embedded",
- "sqlx 0.8.6",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "scholion-vcs"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "flate2",
- "futures",
- "jj-lib",
- "pollster 0.4.0",
- "proptest",
- "scholion-core",
- "sha1",
- "tempfile",
- "tokio",
 ]
 
 [[package]]

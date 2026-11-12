@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Posts the first backlog for the Scholion foundry (a standing Scholion Cloud cell that develops
-# Scholion): the loop's own noise, taken from the first dogfood run (2026-11-03). Each item is one
+# Posts the first backlog for the Margincode foundry (a standing Margincode Cloud cell that develops
+# Margincode): the loop's own noise, taken from the first dogfood run (2026-11-03). Each item is one
 # `av post` with a goal written for an agent that has not seen that run.
 #
 #   AV_URL=http://127.0.0.1:7420 AV_TOKEN=... scripts/foundry-backlog.sh
@@ -9,7 +9,7 @@
 #   AV_URL, AV_TOKEN   the daemon and its token, read by `av` itself (no flags needed)
 #   AV_AGENT           who the items are posted by (default: av's own default)
 #   AV                 the av binary (default: av)
-#   REPO               the repository name in the daemon (default: scholion)
+#   REPO               the repository name in the daemon (default: margincode)
 #   DRY_RUN=1          print what would be posted and post nothing
 #
 # Idempotent-ish: it prints each item it posts, and skips an item whose title is already on the
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 AV="${AV:-av}"
-REPO="${REPO:-scholion}"
+REPO="${REPO:-margincode}"
 TARGET_TITLE="Loop noise"
 TARGET_SLUG="loop-noise"
 DRY_RUN="${DRY_RUN:-0}"

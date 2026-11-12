@@ -1,0 +1,46 @@
+[package]
+name = "margincode-cli"
+version = "0.0.3"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "margincode"
+path = "src/main.rs"
+
+# Short alias: same program. Hooks, agent prompts and pack text use `av`.
+[[bin]]
+name = "av"
+path = "src/alias.rs"
+
+[dependencies]
+margincode-agentrun = { path = "../margincode-agentrun" }
+margincode-core = { path = "../margincode-core" }
+chrono.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+serde.workspace = true
+serde_json.workspace = true
+ureq = { version = "2", features = ["json"] }
+uuid.workspace = true
+toml_edit = "0.22"
+
+[dev-dependencies]
+margincode-daemon = { path = "../margincode-daemon" }
+margincode-index = { path = "../margincode-index" }
+margincode-store = { path = "../margincode-store" }
+margincode-testutil = { path = "../margincode-testutil" }
+margincode-vcs = { path = "../margincode-vcs" }
+axum.workspace = true
+tempfile = "3"
+tokio.workspace = true
+
+# cargo-binstall: fetch the release archive instead of compiling (names as release.yml builds them).
+# The tag is `release/<version>`; the archive holds one directory `margincode-v<version>-<target>/`
+# with margincode, av and margincode-daemon. Windows ships a zip with the CLI only.
+[package.metadata.binstall]
+pkg-url = "https://github.com/vinhqbui/scholion/releases/download/release/{ version }/margincode-v{ version }-{ target }.{ archive-format }"
+bin-dir = "margincode-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

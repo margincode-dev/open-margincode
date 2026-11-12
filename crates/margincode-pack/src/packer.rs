@@ -1,0 +1,673 @@
+use std::sync::Arc;
+
+use margincode_core::{
+    AgentFamily, AvError, IntentStore, NewReceipt, PackMode, ReceiptItem, Result, Semantic, TaskId,
+    Tier, Vcs, history,
+};
+use margincode_index::{CodeIndex, ScopeView};
+use serde::{Deserialize, Serialize};
+
+use crate::assemble::{Deps, code_block, excerpt, gather, record_texts, short_id};
+use crate::budget::{Section, allocate};
+use crate::bundle::{Bundle, BundleInputs, BundleRequest, ReviewInputs};
+use crate::ledger::{collapse_sent, delivered};
+use crate::render::{claim_shown, fit, render, skeleton_text};
+use crate::tokens::estimate_tokens;
+
+/// Longest code excerpt returned by `expand`.
+const MAX_EXPAND_LINES: usize = 400;
+
+#[derive(Debug, Clone)]
+pub struct PackRequest {
+    pub task_id: TaskId,
+    pub budget_tokens: u32,
+    pub focus: Option<String>,
+    /// The ledger to dedup against and extend. `None`: every item is sent as if for the first
+    /// time and nothing is remembered (no shared default ledger between unrelated agents).
+    pub session: Option<String>,
+    pub family: AgentFamily,
+    pub code: CodeDetail,
+    /// Include the Map section (file skeletons and the repo layout). An agent that lists files
+    /// itself, or finds them from the code items' paths, can do without it.
+    pub map: bool,
+    /// At most this many code items, the best scored. Every item a pack names is a file an agent
+    /// may open, so a long list of weak candidates costs reads, not just pack tokens.
+    pub max_code: Option<usize>,
+}
+
+/// How much of each code item a pack may show.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodeDetail {
+    /// Up to the source excerpt.
+    #[default]
+    Full,
+    /// Up to path, lines and signature. For agents that must read a file before editing it
+    /// (Claude Code), a body in the pack is only sent a second time when they do.
+    Signatures,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pack {
+    pub markdown: String,
+    /// Estimated tokens of `markdown`; never above the requested budget.
+    pub tokens: u32,
+    /// Handles of items that did not fit (at most 20).
+    pub omitted: Vec<String>,
+    /// Non-fatal problems (unreadable files, unavailable data).
+    pub degraded: Vec<String>,
+    /// `rcp:<8 hex>`: the stored manifest of this pack. `None` when it could not be written.
+    #[serde(default)]
+    pub receipt: Option<String>,
+    /// Tokens this session has pulled through `expand` so far (Plan 2b: expand is not free).
+    #[serde(default)]
+    pub session_expand_tokens: u64,
+}
+
+/// One charged expansion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Expanded {
+    pub full: String,
+    pub tokens: u32,
+    pub session_expand_tokens: u64,
+}
+
+/// What others recorded about one file, for an agent about to open it (`records_at`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RecordsAt {
+    /// Empty when there is nothing new to say.
+    pub markdown: String,
+    /// `rec:` ids of the records in `markdown`.
+    pub records: Vec<String>,
+}
+
+/// Most tokens `records_at` returns: it rides along with a file read, so it stays a few lines.
+pub const RECORDS_AT_TOKENS: u32 = 400;
+
+/// The last line of a `records_at` answer, once per session: the records are other agents'
+/// claims, and a wrong one is corrected, not followed (`render::CORRECT_HINT` says why).
+const RECORDS_AT_HINT: &str =
+    "Check them against the code; correct wrong ones with `av record --supersedes <id>`.";
+/// The session ledger's entry for `RECORDS_AT_HINT` having been sent.
+const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
+
+/// Bumped by any change to ranking or rendering; recorded in every receipt.
+pub const PACKER_VERSION: u32 = 10;
+
+pub struct Packer {
+    vcs: Arc<dyn Vcs>,
+    store: Arc<dyn IntentStore>,
+    index: Arc<dyn CodeIndex>,
+    semantic: Option<Arc<dyn Semantic>>,
+}
+
+impl Packer {
+    pub fn new(vcs: Arc<dyn Vcs>, store: Arc<dyn IntentStore>, index: Arc<dyn CodeIndex>) -> Self {
+        Self::with_semantic(vcs, store, index, None)
+    }
+
+    pub fn with_semantic(
+        vcs: Arc<dyn Vcs>,
+        store: Arc<dyn IntentStore>,
+        index: Arc<dyn CodeIndex>,
+        semantic: Option<Arc<dyn Semantic>>,
+    ) -> Self {
+        Self {
+            vcs,
+            store,
+            index,
+            semantic,
+        }
+    }
+
+    fn deps(&self) -> Deps<'_> {
+        Deps {
+            vcs: self.vcs.as_ref(),
+            store: self.store.as_ref(),
+            index: self.index.as_ref(),
+            semantic: self.semantic.clone(),
+        }
+    }
+
+    pub async fn build(&self, req: PackRequest) -> Result<Pack> {
+        let empty = |degraded| Pack {
+            markdown: String::new(),
+            tokens: 0,
+            omitted: vec![],
+            degraded,
+            receipt: None,
+            session_expand_tokens: 0,
+        };
+        if req.budget_tokens == 0 {
+            return Ok(empty(vec![]));
+        }
+        let task = self.store.get_task(req.task_id).await?;
+        let mut gathered =
+            gather(&self.deps(), &task, req.focus.as_deref(), req.budget_tokens).await?;
+        if task.pack_mode == PackMode::TaskOnly {
+            gathered.items.retain(|i| i.section == Section::Task);
+        }
+        if !req.map {
+            gathered.items.retain(|i| i.section != Section::Map);
+        }
+        if let Some(max) = req.max_code {
+            cap_code(&mut gathered.items, max);
+        }
+        if req.code == CodeDetail::Signatures {
+            for i in gathered
+                .items
+                .iter_mut()
+                .filter(|i| i.section == Section::Code)
+            {
+                i.tiers[Tier::Full as usize] = i.tiers[Tier::Summary as usize].clone();
+            }
+        }
+        if let Some(session) = &req.session {
+            let sent = self.store.ledger_get(session).await?;
+            collapse_sent(&mut gathered.items, &sent);
+        }
+
+        let foreign = std::mem::take(&mut gathered.foreign);
+        // The line about correcting records is paid for only by a pack that may print it, by
+        // `render`'s own condition: another task's record shown as more than a back-reference.
+        // A record this session was sent in full can only be referred back to, so it keeps no
+        // room for the line. Which candidates are chosen, and at which tier, is not known yet:
+        // a record that is then left out, or shown as a back-reference though a fuller tier was
+        // left, has still kept the room (about 25 tokens that go unused). That is accepted: the
+        // cost of the line has to be known before items are allocated.
+        let claims = gathered
+            .items
+            .iter()
+            .any(|i| i.section == Section::History && claim_shown(i, &foreign, None));
+        let skeleton = estimate_tokens(&skeleton_text(claims), req.family);
+        let alloc = allocate(
+            gathered.items,
+            req.budget_tokens.saturating_sub(skeleton),
+            req.family,
+        );
+        let mut chosen = alloc.chosen;
+        let mut omitted_total = alloc.omitted_total;
+
+        // The allocator budgets item text; headings and footer are budgeted via `skeleton`, and the
+        // whole is re-measured here. If it is still over (tiny budgets), drop the lowest-ranked items.
+        let (markdown, tokens) = fit(
+            &mut chosen,
+            &mut omitted_total,
+            req.budget_tokens,
+            req.family,
+            |c, total, n| {
+                render(
+                    c,
+                    &foreign,
+                    &alloc.omitted,
+                    total,
+                    n,
+                    req.budget_tokens,
+                    req.map && task.pack_mode == PackMode::Full,
+                )
+            },
+        );
+
+        if let Some(session) = &req.session {
+            self.store.ledger_put(session, &delivered(&chosen)).await?;
+        }
+        let mut pack = empty(gathered.degraded);
+        let receipt = NewReceipt {
+            task_id: task.id,
+            session: req.session.clone().unwrap_or_default(),
+            head_change: task.head_change.clone(),
+            packer_version: PACKER_VERSION,
+            budget: req.budget_tokens,
+            tokens,
+            items: chosen
+                .iter()
+                .map(|(item, tier)| ReceiptItem {
+                    id: item.id.clone(),
+                    tier: *tier,
+                    score: item.score,
+                    reason: item.reason.to_owned(),
+                    source: item.source.clone(),
+                    tokens: estimate_tokens(item.text(*tier), req.family),
+                })
+                .collect(),
+            omitted: alloc.omitted.clone(),
+        };
+        // A pack without its receipt is still a good pack: report, do not fail.
+        match self.store.add_receipt(receipt).await {
+            Ok(id) => pack.receipt = Some(id),
+            Err(_) => pack.degraded.push("receipt".to_owned()),
+        }
+        if let Some(session) = &req.session {
+            pack.session_expand_tokens = self.store.expand_tokens(session).await.unwrap_or(0);
+        }
+        pack.markdown = markdown;
+        pack.tokens = tokens;
+        pack.omitted = alloc.omitted;
+        Ok(pack)
+    }
+
+    /// The handoff bundle of a task: goal, the latest handoff state, records (decisions and dead
+    /// ends first), changes (hunks while the budget allows) and open questions.
+    pub async fn handoff_bundle(&self, req: BundleRequest) -> Result<Bundle> {
+        self.bundle(req, false).await
+    }
+
+    /// The review (PR) bundle: the handoff bundle's content plus test status at the current head,
+    /// risk areas and a checklist of the conventions in scope of the changed paths.
+    pub async fn pr_bundle(&self, req: BundleRequest) -> Result<Bundle> {
+        self.bundle(req, true).await
+    }
+
+    async fn bundle(&self, req: BundleRequest, review: bool) -> Result<Bundle> {
+        let task = self.store.get_task(req.task_id).await?;
+        let records = self.store.task_records(task.id).await?;
+        let changed = if task.base_change.0.is_empty() || task.head_change.0.is_empty() {
+            vec![]
+        } else {
+            self.vcs
+                .changed_paths(&task.repo, &task.base_change, &task.head_change)
+                .await?
+        };
+        let symbols = crate::assemble::changed_symbols(&self.deps(), &task, &changed).await?;
+        let review = if review {
+            let ids: Vec<margincode_core::SymbolId> = symbols.iter().map(|s| s.id).collect();
+            Some(ReviewInputs {
+                conventions: self.store.conventions_for(&task.repo, &changed).await?,
+                in_degree: self
+                    .index
+                    .in_degree(&ScopeView::new(&task.repo, &task.slug), &ids)
+                    .await?,
+            })
+        } else {
+            None
+        };
+        crate::bundle::build(
+            self.vcs.as_ref(),
+            BundleInputs {
+                task: &task,
+                records: &records,
+                changed: &changed,
+                symbols: &symbols,
+                review,
+            },
+            &req,
+        )
+        .await
+    }
+
+    /// Symbols whose lines this task changed (base → head), in the task's own index scope.
+    pub async fn changed_symbols(
+        &self,
+        task_id: TaskId,
+    ) -> Result<Vec<margincode_index::IndexedSymbol>> {
+        let task = self.store.get_task(task_id).await?;
+        if task.base_change.0.is_empty() || task.head_change.0.is_empty() {
+            return Ok(vec![]);
+        }
+        let changed = self
+            .vcs
+            .changed_paths(&task.repo, &task.base_change, &task.head_change)
+            .await?;
+        crate::assemble::changed_symbols(&self.deps(), &task, &changed).await
+    }
+
+    /// `expand`, charged to `session`. With `cap`, a call that would take the session's total above
+    /// it is refused (and nothing is charged).
+    pub async fn expand_charged(
+        &self,
+        task_id: TaskId,
+        item_id: &str,
+        session: &str,
+        cap: Option<u64>,
+    ) -> Result<Expanded> {
+        let full = self.expand(task_id, item_id).await?;
+        let tokens = estimate_tokens(&full, AgentFamily::default());
+        let Some(session_expand_tokens) = self
+            .store
+            .charge_expand(session, u64::from(tokens), cap)
+            .await?
+        else {
+            let so_far = self.store.expand_tokens(session).await?;
+            return Err(AvError::Invalid(format!(
+                "expand cap reached: this session used {so_far} of {} tokens and {item_id} \
+                 needs {tokens}; start a fresh session (av context --fresh) or raise \
+                 AV_EXPAND_CAP_TOKENS",
+                cap.unwrap_or_default()
+            )));
+        };
+        Ok(Expanded {
+            full,
+            tokens,
+            session_expand_tokens,
+        })
+    }
+
+    /// Per anchor, the hash of the anchored code at the task's current head (base before the first
+    /// checkpoint). Stored with a new record so later packs can tell when that code changed.
+    pub async fn anchor_hashes(
+        &self,
+        task_id: TaskId,
+        anchors: &[margincode_core::Anchor],
+    ) -> Result<Vec<Option<String>>> {
+        let task = self.store.get_task(task_id).await?;
+        let change = if task.head_change.0.is_empty() {
+            &task.base_change
+        } else {
+            &task.head_change
+        };
+        let mut out = Vec::with_capacity(anchors.len());
+        for a in anchors {
+            out.push(
+                crate::assemble::anchor_hash(
+                    self.vcs.as_ref(),
+                    self.index.as_ref(),
+                    &task.repo,
+                    &task.slug,
+                    change,
+                    a,
+                )
+                .await,
+            );
+        }
+        Ok(out)
+    }
+
+    /// Per anchor, the hash of the anchored code on `main` at `trunk`: what a dream compares a
+    /// record's stored hashes with, and what a `confirmed` verdict keeps.
+    pub async fn anchor_hashes_on_main(
+        &self,
+        repo: &str,
+        trunk: &margincode_core::ChangeId,
+        anchors: &[margincode_core::Anchor],
+    ) -> Vec<Option<String>> {
+        let mut out = Vec::with_capacity(anchors.len());
+        for a in anchors {
+            out.push(
+                crate::assemble::anchor_hash(
+                    self.vcs.as_ref(),
+                    self.index.as_ref(),
+                    repo,
+                    "main",
+                    trunk,
+                    a,
+                )
+                .await,
+            );
+        }
+        out
+    }
+
+    /// The source `a` points at on `main` at `trunk` (a symbol's lines, or the file), if it is
+    /// there: what a dream is handed to check a record against.
+    pub async fn anchored_code_on_main(
+        &self,
+        repo: &str,
+        trunk: &margincode_core::ChangeId,
+        a: &margincode_core::Anchor,
+    ) -> Option<String> {
+        crate::assemble::anchored_text(
+            self.vcs.as_ref(),
+            self.index.as_ref(),
+            repo,
+            "main",
+            trunk,
+            a,
+        )
+        .await
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+    }
+
+    /// The decisions, dead ends and notes other tasks anchored to `path`, newest kind-first, at
+    /// summary tier and at most `RECORDS_AT_TOKENS`. With `session`, records that session was
+    /// already sent (by a pack or an earlier call) are left out, and these are noted as sent.
+    pub async fn records_at(
+        &self,
+        task_id: TaskId,
+        path: &str,
+        session: Option<&str>,
+    ) -> Result<RecordsAt> {
+        let task = self.store.get_task(task_id).await?;
+        let mut recs = self
+            .store
+            .records_anchored_to(&task.repo, &[path.to_owned()], &[])
+            .await?;
+        recs.retain(|r| {
+            r.task_id != task.id
+                && !matches!(
+                    r.kind,
+                    margincode_core::RecordKind::Intent | margincode_core::RecordKind::Validation
+                )
+        });
+        // a duplicate of a record that is shown, or one the code has outgrown, is left out
+        let origins = crate::assemble::Origins::load(&*self.store, recs.iter()).await?;
+        recs.retain(|r| !origins.hidden(r, task.id));
+        // agents' records first, then what was mined from git history; within each, what matches
+        // the reading task's goal best, then the stronger kind, then the newer record
+        let relevance = self.goal_relevance(&task, &recs).await;
+        let mut order: Vec<usize> = (0..recs.len()).collect();
+        order.sort_by(|&i, &j| {
+            let (a, b) = (&recs[i], &recs[j]);
+            history::is_mined(&a.author_agent)
+                .cmp(&history::is_mined(&b.author_agent))
+                .then_with(|| relevance[j].total_cmp(&relevance[i]))
+                .then_with(|| {
+                    crate::score::kind_priority(b.kind)
+                        .total_cmp(&crate::score::kind_priority(a.kind))
+                        .then_with(|| b.created_at.cmp(&a.created_at))
+                        .then_with(|| a.id.0.cmp(&b.id.0))
+                })
+        });
+        let recs: Vec<&margincode_core::Record> = order.into_iter().map(|i| &recs[i]).collect();
+        let sent = match session {
+            Some(s) => self.store.ledger_get(s).await?,
+            None => Default::default(),
+        };
+        let head = format!("**av: recorded about `{path}`** (by other tasks)");
+        let foot = "Full text: `av expand <id>`.";
+        let answer = |lines: &[String], hint: bool| {
+            let mut md = format!("{head}\n{}\n{foot}", lines.join("\n"));
+            if hint {
+                md.push('\n');
+                md.push_str(RECORDS_AT_HINT);
+            }
+            md
+        };
+        // a handle (a clipped summary) does not count as sent
+        let is_sent = |id: &str| {
+            sent.get(id)
+                .is_some_and(|t| *t as usize >= Tier::Summary as usize)
+        };
+        let correctable = |rec: &margincode_core::Record| {
+            margincode_core::supersede_refusal(rec.kind, margincode_core::RecordKind::Note, false)
+                .is_none()
+        };
+        // Once per session, and counted while the records are chosen, so the answer stays
+        // within its cap. Room is kept only when a record that may be shown can be superseded: a
+        // file with nothing but review findings and handoffs gives all its room to them. When
+        // the records that can be superseded are then the ones that do not fit, the room was
+        // kept for nothing (about 20 tokens of records fewer in this answer, never over the cap).
+        let hint_due = !sent.contains_key(RECORDS_AT_HINT_ID)
+            && recs
+                .iter()
+                .any(|&r| correctable(r) && !is_sent(&short_id("rec", &r.id.0)));
+        let (mut lines, mut ids) = (vec![], vec![]);
+        // whether a record shown is one the reader may supersede (not a review or a handoff)
+        let mut shows_correctable = false;
+        for rec in recs {
+            let (id, texts) = record_texts(rec, false, false, origins.whence(rec, task.id));
+            if is_sent(&id) {
+                continue;
+            }
+            // The answer is measured whole: rows joined cost more than the sum of each alone
+            // (their line breaks), which over twenty short rows is more than a row.
+            lines.push(texts[Tier::Summary as usize].clone());
+            if estimate_tokens(&answer(&lines, hint_due), AgentFamily::default())
+                > RECORDS_AT_TOKENS
+            {
+                lines.pop();
+                break;
+            }
+            ids.push(id);
+            shows_correctable |= correctable(rec);
+        }
+        if ids.is_empty() {
+            return Ok(RecordsAt::default());
+        }
+        let hint = hint_due && shows_correctable;
+        if let Some(s) = session {
+            let mut note: Vec<(String, Tier)> =
+                ids.iter().map(|i| (i.clone(), Tier::Summary)).collect();
+            if hint {
+                note.push((RECORDS_AT_HINT_ID.to_owned(), Tier::Summary));
+            }
+            self.store.ledger_put(s, &note).await?;
+        }
+        Ok(RecordsAt {
+            markdown: answer(&lines, hint),
+            records: ids,
+        })
+    }
+
+    /// How well each of `recs` matches the goal of `task`, for ordering them: its words, and
+    /// embedding similarity when the semantic layer answers in time (it is not waited for, and
+    /// its failure only leaves the words). All 0.0 for a task without a goal.
+    async fn goal_relevance(
+        &self,
+        task: &margincode_core::Task,
+        recs: &[margincode_core::Record],
+    ) -> Vec<f32> {
+        let goal = task.goal.trim();
+        if goal.is_empty() || recs.len() < 2 {
+            return vec![0.0; recs.len()];
+        }
+        let texts: Vec<String> = recs
+            .iter()
+            .map(|r| format!("{} {}", r.summary, r.body))
+            .collect();
+        let words = crate::relevance::word_scores(goal, &texts);
+        let mut similarity = vec![None; recs.len()];
+        if let Some(sem) = &self.semantic {
+            let search = sem.search_with(&task.repo, goal, 0, crate::score::RECORD_HITS);
+            if let Ok(Ok(hits)) = tokio::time::timeout(crate::score::SEMANTIC_TIMEOUT, search).await
+            {
+                for hit in hits.iter().filter(|h| !h.superseded) {
+                    if let Some(i) = recs.iter().position(|r| Some(r.id) == hit.record_id) {
+                        similarity[i] = Some(hit.score);
+                    }
+                }
+            }
+        }
+        crate::relevance::fuse(&words, &similarity)
+    }
+
+    /// Full text of one item id shown in a pack: `rec:<hex>` or `sym:<n>`.
+    pub async fn expand(&self, task_id: TaskId, item_id: &str) -> Result<String> {
+        let task = self.store.get_task(task_id).await?;
+        let elsewhere = || AvError::NotFound(format!("{item_id} is not in repo {}", task.repo));
+        if let Some(prefix) = item_id.strip_prefix("rec:") {
+            let rec = self.store.find_record(prefix).await?;
+            if self.store.get_task(rec.task_id).await?.repo != task.repo {
+                return Err(elsewhere());
+            }
+            let origins = crate::assemble::Origins::load(&*self.store, [&rec]).await?;
+            let whence = origins.whence(&rec, task.id);
+            return Ok(record_texts(&rec, false, false, whence).1[Tier::Full as usize].clone());
+        }
+        if let Some(n) = item_id.strip_prefix("sym:") {
+            let id: i64 = n
+                .parse()
+                .map_err(|_| AvError::Invalid(format!("bad symbol id {item_id}")))?;
+            match self
+                .index
+                .symbol_scope(margincode_core::SymbolId(id))
+                .await?
+            {
+                Some((repo, _)) if repo == task.repo => {}
+                _ => return Err(elsewhere()),
+            }
+            let sym = self
+                .index
+                .get_symbols(&[margincode_core::SymbolId(id)])
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| AvError::NotFound(item_id.to_owned()))?;
+            let s = &sym.symbol;
+            let head = format!(
+                "- sym:{id} {} ({}:{}-{})",
+                s.qname, s.path, s.start_line, s.end_line
+            );
+            if task.head_change.0.is_empty() {
+                return Ok(format!("{head}\n  {}", s.signature));
+            }
+            let bytes = self
+                .vcs
+                .read_file(&task.repo, &task.head_change, &s.path)
+                .await?;
+            let src = String::from_utf8_lossy(&bytes);
+            return Ok(format!(
+                "{head}\n{}",
+                code_block(
+                    &s.path,
+                    &excerpt(&src, s.start_line, s.end_line, MAX_EXPAND_LINES)
+                )
+            ));
+        }
+        if let Some(n) = item_id.strip_prefix("conv:") {
+            let id: i64 = n
+                .parse()
+                .map_err(|_| AvError::Invalid(format!("bad convention id {item_id}")))?;
+            let c = self
+                .store
+                .conventions(&task.repo)
+                .await?
+                .into_iter()
+                .find(|c| c.id.0 == id)
+                .ok_or_else(elsewhere)?;
+            let required = if c.required { " (required)" } else { "" };
+            return Ok(format!(
+                "- conv:{id} ({}){required} {}",
+                c.scope_glob, c.text
+            ));
+        }
+        if let Some(slug) = item_id.strip_prefix("task:") {
+            let t = self.store.task_by_slug(&task.repo, slug).await?;
+            let mut out = format!(
+                "# {} · {} · {}\nOwner: {}\nGoal: {}",
+                t.title,
+                t.slug,
+                t.status.as_str(),
+                t.owner_agent,
+                t.goal
+            );
+            for rec in self.store.task_records(t.id).await? {
+                if rec.kind != margincode_core::RecordKind::Intent {
+                    out.push('\n');
+                    out.push_str(
+                        &record_texts(&rec, false, false, Default::default()).1
+                            [Tier::Summary as usize],
+                    );
+                }
+            }
+            return Ok(out);
+        }
+        Err(AvError::Invalid(format!(
+            "cannot expand {item_id:?}; expected rec:<id>, sym:<n>, conv:<n> or task:<slug>"
+        )))
+    }
+}
+
+/// Keep the `max` best-scored code items (ties: lower id first, for determinism).
+fn cap_code(items: &mut Vec<crate::budget::Item>, max: usize) {
+    let mut code: Vec<(f32, String)> = items
+        .iter()
+        .filter(|i| i.section == Section::Code)
+        .map(|i| (i.score, i.id.clone()))
+        .collect();
+    if code.len() <= max {
+        return;
+    }
+    code.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let keep: std::collections::HashSet<String> = code.into_iter().take(max).map(|c| c.1).collect();
+    items.retain(|i| i.section != Section::Code || keep.contains(&i.id));
+}

@@ -2,7 +2,7 @@
 # Two Claude Code agents on DeepSeek Flash share one backlog: they take the work that fits them,
 # review each other's submissions and merge what they approve. The run checked for v0.0.2.
 #
-#   deepseek-demo.sh up                 # a separate daemon on :7441 (data in ~/scholion-demo)
+#   deepseek-demo.sh up                 # a separate daemon on :7441 (data in ~/margincode-demo)
 #   deepseek-demo.sh setup [pilot]      # repo copy, two profiles, the backlog (pilot: one task)
 #   deepseek-demo.sh agent NAME         # run one agent through `av watch` (coder or writer)
 #   deepseek-demo.sh down
@@ -15,7 +15,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 AV=${AV:-$root/target/release/av}
-DEMO=${DEMO:-$HOME/scholion-demo}
+DEMO=${DEMO:-$HOME/margincode-demo}
 export AV_URL=${AV_URL:-http://127.0.0.1:7441}
 export AV_HOME=$DEMO/home AV_WS_ROOT=$DEMO/ws
 SRC=$DEMO/pantry

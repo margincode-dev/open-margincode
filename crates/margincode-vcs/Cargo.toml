@@ -1,0 +1,24 @@
+[package]
+name = "margincode-vcs"
+autotests = false
+version = "0.0.3"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+margincode-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+futures.workspace = true
+pollster = "0.4"
+jj-lib = "=0.46.0"
+flate2 = "1"
+sha1 = "0.10"
+
+[dev-dependencies]
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+tempfile = "3"
+
+[[test]]
+name = "it"
+path = "tests/main.rs"

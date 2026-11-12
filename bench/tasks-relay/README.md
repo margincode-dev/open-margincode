@@ -44,7 +44,7 @@ pilot session's cost. Check the real spend against
 ```bash
 bench/tallyho/make-repo.sh                        # ~/bench-repos/tallyho
 ~/bench-work/venv/bin/python bench/tasks-relay/reference/check.py   # all 13 pairs ok: these ten and the three of ../tasks-relay-silent
-scholion-bench check bench/tasks-relay   # each task's path_prepend puts the venv's bin first on the agent's PATH
+margincode-bench check bench/tasks-relay   # each task's path_prepend puts the venv's bin first on the agent's PATH
 
 unset ANTHROPIC_API_KEY
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
@@ -52,7 +52,7 @@ export ANTHROPIC_AUTH_TOKEN="$(cat ~/.config/deepseek/key)"   # the key alone, c
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash ANTHROPIC_SMALL_FAST_MODEL=deepseek-flash
 export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash
 
-scholion-bench run bench/tasks-relay --arms cold,baseline,notes,av --jit-hooks --reps 2 \
+margincode-bench run bench/tasks-relay --arms cold,baseline,notes,av --jit-hooks --reps 2 \
   --price-per-mtok 0.30,0.30,0.006,1.20 --session-cap-usd 0.30 --budget-usd 4 \
   --out bench/results/$(date +%F)-relay $COMMON --confirm
 ```

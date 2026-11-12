@@ -1,13 +1,13 @@
-# Scholion: Funding Proposal
+# Margincode: Funding Proposal
 
 2026-11-09 · Vinh Bui, Tri V Holdings Texas
 
-Working copy: [Scholion — Funding Proposal](https://claude.ai/artifact/6j9zZLsGc67gx1bcyEePAC)
+Working copy: [Margincode — Funding Proposal](https://claude.ai/artifact/6j9zZLsGc67gx1bcyEePAC)
 (the editable doc this file was exported from).
 
 ## The ask
 
-Tri V Holdings Texas asks for compute and cloud credits, plus a benchmark grant, to move Scholion from
+Tri V Holdings Texas asks for compute and cloud credits, plus a benchmark grant, to move Margincode from
 one founder's machine to a hosted rollout over 12 months. Every result it pays for is published on
 an open schema.
 
@@ -22,7 +22,7 @@ models as tracker arms has no budget today.
 | Cross-vendor handoff (Claude Sonnet ↔ DeepSeek) on a harder task set | under $20 Claude + $1 DeepSeek per run | openevaluations #14 (first attempt $1.15) |
 | E5-lite: paired eval against plain git + NOTES.md | about $25 (budget) | Plan 15 |
 | Handoff benchmark at n ≥ 30 per cell, several models | not yet costed | |
-| Hosted Scholion Cloud cell (daemon, runner, 2× Postgres, Qdrant, embedder) | not yet costed | runs locally today |
+| Hosted Margincode Cloud cell (daemon, runner, 2× Postgres, Qdrant, embedder) | not yet costed | runs locally today |
 | GPU for the embedder and for open-weight tracker arms | not yet costed | |
 | CI minutes for the private repo | not yet costed | Actions off since 2026-11-06 |
 
@@ -35,13 +35,13 @@ measured, and costs almost nothing per unit of work. What it lacks is hosting.
 
 - **Measured, not claimed.** In a pre-registered run of 210 sessions (30 per cell), handing one
   agent's lessons to the next took acceptance from 18/30 to 30/30 and cut cost per accepted task
-  from $0.0216 to $0.0125. With 500 unrelated records in memory, Scholion's cost per accepted task
-  rose 14 % while a plain notes file's rose 88 %: Scholion was 40 % cheaper.
-- **The neutral layer under every agent.** Scholion sits beneath Claude Code, Codex, Gemini and
+  from $0.0216 to $0.0125. With 500 unrelated records in memory, Margincode's cost per accepted task
+  rose 14 % while a plain notes file's rose 88 %: Margincode was 40 % cheaper.
+- **The neutral layer under every agent.** Margincode sits beneath Claude Code, Codex, Gemini and
   Grok at once, through MCP and hooks, without forking any of them. No single vendor will build a
   memory its competitors' agents can read.
 - **Capital efficient by construction.** One founder shipped three releases in under two weeks.
-  The product now builds itself: agents work the backlog through Scholion at $0.0122 per merged
+  The product now builds itself: agents work the backlog through Margincode at $0.0122 per merged
   feature, with a human approving each merge.
 - **Open by rule.** The evaluation code is Apache-2.0 and the data CC BY 4.0, with a
   pre-registration before every paid comparison. Funders can check every number in this proposal
@@ -65,17 +65,17 @@ reasoning.
 
 ## The product
 
-Scholion is version control for coding agents: one memory per repository that every agent reads
+Margincode is version control for coding agents: one memory per repository that every agent reads
 and writes. It ships as a free open-source core, a paid hosted edition, and an open evaluation that
 measures both against other tools.
 
-| | Scholion (Community) | Scholion Cloud (Commercial) | openevaluations |
+| | Margincode (Community) | Margincode Cloud (Commercial) | openevaluations |
 | --- | --- | --- | --- |
 | What it is | Version control for coding agents, local daemon + CLI | The same daemon, hosted for a team, plus controls | Open, vendor-neutral evaluation of agent CLIs |
 | Licence | MIT, [public repo](https://github.com/vinhqbui/scholion) | Proprietary | Apache-2.0 code, CC BY 4.0 data, [public repo](https://github.com/vinhqbui/openevaluations) |
 | State | Release 0.0.3 (2026-11-06) | Teams v0 run end to end once; no customer yet | Tracker built, run locally; handoff benchmark built |
 
-**How Scholion works.**
+**How Margincode works.**
 
 1. Each task runs in its own isolated workspace.
 2. Agents leave short typed records (intent, decision, dead end and why, note, handoff, review),
@@ -89,7 +89,7 @@ measures both against other tools.
 It runs on the developer's machine, needs no account and never sees model keys. Install channels:
 Claude Code plugin, shell script, cargo, Homebrew and a container image.
 
-**What Scholion Cloud adds.** Personas (model, CLI, instructions, path scope, budget, review
+**What Margincode Cloud adds.** Personas (model, CLI, instructions, path scope, budget, review
 policy), provider keys sealed with AES-GCM, budgets with alerts at 50/80/100 % and a hard hold, a
 sandboxed runner, human gates with an audit trail, and reports such as cost per merged feature.
 Stemma, an agent-native storage engine, is in build inside Cloud.
@@ -100,24 +100,24 @@ made worse to sell Cloud: no agent caps, seat checks or cost tracking in the fre
 ## Evidence so far
 
 The strongest result: when one agent's lessons are handed to the next, every task is accepted, and
-as memory grows Scholion's cost stays nearly flat while a notes file's almost doubles. Each number
+as memory grows Margincode's cost stays nearly flat while a notes file's almost doubles. Each number
 below carries its sample size; nothing below 30 sessions per cell is called significant.
 
 | Run (date) | Sample | Result | Source |
 | --- | --- | --- | --- |
-| E4 at scale (2026-11-10) | 210 sessions, DeepSeek Flash, 30 per cell, pre-registered | No handoff 18/30 at $0.0216 per accepted task; Scholion 30/30 at $0.0125. From 0 to 500 unrelated records, a notes file's cost per accepted task rose 87.7 % (the one significant difference), Scholion's 14.0 %; at 500 records Scholion is 39.9 % cheaper. $3.09 | scholion #140 |
+| E4 at scale (2026-11-10) | 210 sessions, DeepSeek Flash, 30 per cell, pre-registered | No handoff 18/30 at $0.0216 per accepted task; Margincode 30/30 at $0.0125. From 0 to 500 unrelated records, a notes file's cost per accepted task rose 87.7 % (the one significant difference), Margincode's 14.0 %; at 500 records Margincode is 39.9 % cheaper. $3.09 | margincode #140 |
 | Model tiers, pilot (2026-11-10) | 40 trials, Claude Code on DeepSeek Flash vs Pro | Hard tier: Flash 12/12 at $0.017 per solved task, Pro 8/8 at $0.100; easy: Flash 13/14, Pro 4/6. Pro solved no more at 6–9× the cost; the hard tier needs harder tasks | openevaluations #13 |
-| E4 relay, lessons handed on (2026-10-31) | 90 sessions, DeepSeek Flash, pre-registered | Cost per accepted task $0.012 cold → $0.006 with Scholion; accepted 16/30 → 30/30. Ties a hand-written NOTES.md (−2.5 %). Descriptive at this n. | [report](../bench/results/2026-10-31-relay-image) |
+| E4 relay, lessons handed on (2026-10-31) | 90 sessions, DeepSeek Flash, pre-registered | Cost per accepted task $0.012 cold → $0.006 with Margincode; accepted 16/30 → 30/30. Ties a hand-written NOTES.md (−2.5 %). Descriptive at this n. | [report](../bench/results/2026-10-31-relay-image) |
 | E3, solo agent (2026-10-27) | 160 sessions, Claude Haiku | 12.9 % fewer turns, 95 % CI [−18.3, −7.0]; about 14 % less wall time | [report](../bench/results/2026-10-27-haiku) |
 | E1, retrieval (2026-11-04/05) | 42 tasks on 6 repos | A 271M embedder (EmbeddingGemma 2) scores level with a 7.6B one, so it became the default | [results](../bench/retrieval/results) |
 | E2, scale (2026-10-30) | tokio (814 files), django (2,939 files), 4-core machine | Context p50 94 ms and 268 ms. 8/8 agents merged on one repo; 32 agents 16/32; 100 agents 17/100 | [report](../bench/results/2026-10-30-e2-scale) |
 | Tracker, 4 agent CLIs (2026-11-04) | 12 trials per CLI | 12/12 solved on every CLI, $0.57 total. The task set is too easy to separate them; a harder set is next | openevaluations #8 |
-| Remote workspaces (2026-11-04) | measured median | Checkpoint from another host 31.5 ms vs 21 ms local (1.5×, under the 2× target) | scholion #101 |
+| Remote workspaces (2026-11-04) | measured median | Checkpoint from another host 31.5 ms vs 21 ms local (1.5×, under the 2× target) | margincode #101 |
 | Dogfood: the product builds itself (2026-11-03) | 5 backlog items | 5/5 merged in 2 h, 0 reverts, 0 merge conflicts. Cross-vendor review caught 2 real defects | internal report |
 | Teams v0, first hosted-style run (2026-11-04) | 2 features | $0.0122 per merged feature, backlog-to-merge median 496 s, human gate on each | internal note |
 
-**What the numbers do not show yet.** In E4 at scale both the notes file and Scholion solved every
-task, so it separates them on cost, not on solving; the task's own lesson reached Scholion's first
+**What the numbers do not show yet.** In E4 at scale both the notes file and Margincode solved every
+task, so it separates them on cost, not on solving; the task's own lesson reached Margincode's first
 pack in only 6–12 of 30 sessions, a retrieval gap to close. The first cross-vendor handoff run
 (Sonnet ↔ DeepSeek, openevaluations #14) produced no valid mid-task handoff: the tasks were solved
 inside the cut, so it needs the harder task set. E2 shows the system breaks beyond 8 agents per
@@ -125,12 +125,12 @@ repo. Stemma's metrics are fixture tests, not production data. There are no exte
 
 ## Business model
 
-Open core: the Community edition is free and stays complete; teams pay for Scholion Cloud. No
+Open core: the Community edition is free and stays complete; teams pay for Margincode Cloud. No
 prices are set yet, and the company is pre-revenue.
 
-- **Free: Scholion Community.** The full local product under MIT. It drives adoption and is the
+- **Free: Margincode Community.** The full local product under MIT. It drives adoption and is the
   layer every agent CLI plugs into.
-- **First paid product: Scholion Cloud Teams.** A hosted board, roles, audit, reports and usage for
+- **First paid product: Margincode Cloud Teams.** A hosted board, roles, audit, reports and usage for
   teams that drive their own agents. Customers bring their own model keys, so Teams is priced per
   seat, not on tokens.
 - **Later add-on: Autopilot.** The runner that launches agents for a customer, on the customer's
@@ -143,7 +143,7 @@ Open: seat price and the first three design partners.
 ## Rollout plan and use of funds
 
 The rollout follows six phases, and each one exits on a measured number. Two are done. The two
-that turn Scholion into a hosted product with public proof wait on compute.
+that turn Margincode into a hosted product with public proof wait on compute.
 
 | Phase | What | Exit | Status |
 | --- | --- | --- | --- |
@@ -158,7 +158,7 @@ Phases 1 and 2 run side by side; phase 4 needs phase 3's remote workspaces for a
 
 **What the funding unlocks.**
 
-1. **Phase 1, first.** E4 at scale is done (scholion #140, $3.09). Next: a harder task set, then the
+1. **Phase 1, first.** E4 at scale is done (margincode #140, $3.09). Next: a harder task set, then the
    model tiers at n = 30 per cell (about $5.90), the cross-vendor handoff on it, and the weekly
    tracker in CI. That gives the public cost-per-solved-task number across vendors and open models.
 2. **Phase 4, next.** Move the hosted cell (now on one local machine, with Stemma about to start a
@@ -175,7 +175,7 @@ One founder, Vinh Bui ([vinhqbui](https://github.com/vinhqbui)), builds and runs
 under Tri V Holdings Texas. The company is bootstrapped, with no outside investment.
 
 Most of the code is written by coding agents (Claude Code, Grok and others) with the founder
-steering, reviewing and approving every merge. That work runs through Scholion itself, so the
+steering, reviewing and approving every merge. That work runs through Margincode itself, so the
 product's own history is its longest test. The first commit was 2026-10-25; three releases
 followed in under two weeks.
 

@@ -1,5 +1,7 @@
-# Scholion stack: daemon + Postgres + Qdrant, all in containers.
+# Margincode stack: daemon + Postgres + Qdrant, all in containers.
 # Requires UID and GID in the environment: `export UID GID=$(id -g)` (bash does not export UID).
+# The project keeps its earlier name: Compose names the volumes after it, and a new name would
+# start an existing stack on empty volumes.
 name: scholion
 
 services:
@@ -64,7 +66,7 @@ services:
 
   daemon:
     # Tagged so a prebuilt image is reused: `docker compose up` without --build skips the Rust build.
-    image: scholion-daemon:dev
+    image: margincode-daemon:dev
     build:
       context: ..
       dockerfile: deploy/Dockerfile

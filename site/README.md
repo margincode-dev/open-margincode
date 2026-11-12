@@ -1,4 +1,4 @@
-# scholion.openevaluations.si
+# open.margincode.dev
 
 The project website: a static page, no build step. Everything is in this folder.
 
@@ -65,13 +65,30 @@ Cloudflare builds the production branch (`main`), so merge the site there first.
 **GitHub Actions.** `.github/workflows/site.yml` runs `wrangler deploy` on pushes to `main` that
 touch `site/`, if the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` exist.
 
-**Custom domain.** Worker → Settings → Domains & Routes → add `scholion.openevaluations.si` (the zone must
+**Custom domain.** Worker → Settings → Domains & Routes → add `open.margincode.dev` (the zone must
 be on Cloudflare; otherwise move the `.si` nameservers there). `wrangler.jsonc` also declares it as
 a `custom_domain` route, so `wrangler deploy` attaches it.
 
-## Cutover (root to subdomain)
+## The move to open.margincode.dev (2026-11-12)
 
-Decision of 2026-11-04: the Scholion site moves from `openevaluations.si` to
+The project is now Margincode and its site is `open.margincode.dev` (the commercial edition's
+is `cloud.margincode.dev`, from its own repository). The pages, the sitemap and
+`wrangler.jsonc` name the new host. The Worker keeps its name, `scholion-deploy`: a new name
+would be a new Worker without this one's domains and secrets. Owner steps, in order, **before
+this change is merged** (a deploy that declares a custom domain of a zone Cloudflare does not
+have fails):
+
+1. Add the zone `margincode.dev` to the Cloudflare account that holds the Worker.
+2. Merge. The deploy attaches `open.margincode.dev`; check that
+   `https://open.margincode.dev/demo` loads.
+3. Keep the old address alive: links to `scholion.openevaluations.si` are in earlier releases
+   and posts. In the zone `openevaluations.si`, add a Single Redirect rule from
+   `scholion.openevaluations.si/*` to the same path on `open.margincode.dev` (301), and leave
+   the old custom domain on the Worker until the rule answers.
+
+## Earlier: the cutover from the root to a subdomain (2026-11-04)
+
+Decision of 2026-11-04: the Margincode site moves from `openevaluations.si` to
 `scholion.openevaluations.si`; the root then serves only the openevaluations tracker and handoff
 benchmark (repo `vinhqbui/openevaluations`, Worker `openevaluations`). Merging this change does
 not touch the root. Three owner steps, in order:
@@ -98,8 +115,8 @@ placeholder records: a custom domain cannot attach over an existing record, and 
 hide the new site.
 
 Redirect for a while: add a rule on the `openevaluations.si` zone (Rules -> Redirect Rules, or a
-small Worker route) that sends the old Scholion paths, `/demo`, `/demo-replay.json`, `/guides/*`
+small Worker route) that sends the old Margincode paths, `/demo`, `/demo-replay.json`, `/guides/*`
 and `/llms.txt` of the old site, to the same path on `scholion.openevaluations.si` with a 301.
 Do not redirect `/`, `/tracker/`, `/handoff/` and the other openevaluations pages. Note that
-openevaluations has its own `/llms.txt` and `/scholion/`; redirect `/llms.txt` only if you want
+openevaluations has its own `/llms.txt` and `/margincode/`; redirect `/llms.txt` only if you want
 the old one gone, and drop all of these rules after a few months.

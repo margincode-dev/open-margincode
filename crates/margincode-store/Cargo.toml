@@ -1,0 +1,29 @@
+[package]
+name = "margincode-store"
+autotests = false
+version = "0.0.3"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+margincode-core.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+globset = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["chrono", "uuid", "migrate", "macros", "json"] }
+uuid.workspace = true
+
+[dev-dependencies]
+sha2 = "0.10"
+futures.workspace = true
+serde_json.workspace = true
+margincode-testutil = { path = "../margincode-testutil" }
+tokio.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"

@@ -12,7 +12,7 @@ REPO=${REPO:-pantry}
 SRC=${SRC:-$HOME/projects/pantry}
 export AV_URL=${AV_URL:-http://127.0.0.1:7420}
 
-[ -x "$AV" ] || { echo "no $AV: cargo build --release -p scholion-cli -p scholion-daemon" >&2; exit 1; }
+[ -x "$AV" ] || { echo "no $AV: cargo build --release -p margincode-cli -p margincode-daemon" >&2; exit 1; }
 
 if [ ! -d "$SRC/.git" ]; then
     mkdir -p "$SRC"

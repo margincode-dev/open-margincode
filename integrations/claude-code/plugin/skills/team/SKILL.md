@@ -1,18 +1,18 @@
 ---
 name: team
-description: Set up several coding agents (Claude Code, Codex, Gemini CLI, Grok Build, Cursor Agent or any MCP client) to share one Scholion backlog. Connects each agent, records what each is good at and what it costs, posts the first work and starts each agent when work fits it. Use when the user wants agents to split work, review each other or work through a backlog without supervision.
+description: Set up several coding agents (Claude Code, Codex, Gemini CLI, Grok Build, Cursor Agent or any MCP client) to share one Margincode backlog. Connects each agent, records what each is good at and what it costs, posts the first work and starts each agent when work fits it. Use when the user wants agents to split work, review each other or work through a backlog without supervision.
 ---
 
-# Set up a team of agents on Scholion
+# Set up a team of agents on Margincode
 
-Scholion treats each agent CLI as a team. You post work to one backlog. Each agent takes the
+Margincode treats each agent CLI as a team. You post work to one backlog. Each agent takes the
 items that fit it best, another agent reviews the result, and the reviewer merges it. All of them
 share the same notes, so a dead end one agent found is in the next agent's brief.
 
-## 1. Make sure Scholion is running
+## 1. Make sure Margincode is running
 
 Run `curl -sf http://localhost:7420/healthz` and `av repo list`. If the first fails or the
-repository is not listed, follow the `setup` skill (`/scholion:setup`) first.
+repository is not listed, follow the `setup` skill (`/margincode:setup`) first.
 
 ## 2. Connect the agents
 
@@ -74,7 +74,7 @@ av backlog
 
 ## 6. Start the agents
 
-`av watch` starts an agent only when work fits it. Scholion never launches agents by itself.
+`av watch` starts an agent only when work fits it. Margincode never launches agents by itself.
 Each agent needs its own long-running terminal, so give the user these commands to run rather
 than starting them in the background yourself:
 
@@ -96,5 +96,5 @@ A session that takes one av task at a time, carried by the hooks, does the task 
 thread between tasks. Tell the user to ask each agent CLI to run the backlog as a lead instead:
 *"take the av backlog: start a subagent per task, monitor them, review what comes back and keep
 going"*. The session and its subagents count as one agent (the same `--agent` name on every
-call), so it never reviews its own work; another agent does. This is how Scholion itself is
+call), so it never reviews its own work; another agent does. This is how Margincode itself is
 developed; it is not benchmarked.

@@ -4,7 +4,7 @@
  "steps": [
   {
    "actor": "human",
-   "say": "Import a repository. Scholion indexes it with tree-sitter: symbols, references, skeletons.",
+   "say": "Import a repository. Margincode indexes it with tree-sitter: symbols, references, skeletons.",
    "cli": "av repo add shop ./shop",
    "note": null,
    "task": null,
@@ -108,7 +108,7 @@
    "actor": "claude",
    "say": "A dead end goes on the record too, so no agent tries it again.",
    "cli": "av record --kind attempt --anchor shop/pricing.py:total --summary \"Tried rounding every line to the cent before …\"",
-   "note": "Git would keep the code and lose this. Scholion keeps both, anchored to pricing.py:total.",
+   "note": "Git would keep the code and lose this. Margincode keeps both, anchored to pricing.py:total.",
    "task": "c499a5a8",
    "out": "rec:3e5e25f5 attempt → shop/pricing.py:total\nTried rounding every line to the cent before summing: totals drift 1-2 cents from invoices\n\ntest_total_rounds_once fails: 3 x 0.333 gives 0.99 instead of 1.00. Round only the discount amount, and the total once.",
    "board": [
@@ -474,7 +474,7 @@
   },
   {
    "actor": "codex",
-   "say": "Submit for review. Scholion refuses a task that has no recorded why.",
+   "say": "Submit for review. Margincode refuses a task that has no recorded why.",
    "cli": "av submit",
    "note": null,
    "task": "c499a5a8",

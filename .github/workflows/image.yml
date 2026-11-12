@@ -49,7 +49,7 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
             ${{ env.IMAGE }}:latest
           build-args: |
-            FEATURES=scholion-daemon/bundled-postgres
+            FEATURES=margincode-daemon/bundled-postgres
           # the bundling build script lists Postgres releases through the GitHub API
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}

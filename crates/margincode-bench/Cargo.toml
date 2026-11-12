@@ -1,0 +1,34 @@
+[package]
+name = "margincode-bench"
+autotests = false
+version = "0.0.3"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+globset = "0.4"
+regex = "1"
+margincode-agentrun = { path = "../margincode-agentrun" }
+margincode-core.workspace = true
+margincode-index = { path = "../margincode-index" }
+serde.workspace = true
+serde_json.workspace = true
+tiktoken-rs = "0.9"
+toml = "0.8"
+ureq = { version = "2", features = ["json"] }
+uuid.workspace = true
+
+[dev-dependencies]
+margincode-daemon = { path = "../margincode-daemon" }
+margincode-store = { path = "../margincode-store" }
+margincode-testutil = { path = "../margincode-testutil" }
+margincode-vcs = { path = "../margincode-vcs" }
+axum.workspace = true
+tempfile = "3"
+tokio.workspace = true
+
+[[test]]
+name = "it"
+path = "tests/main.rs"

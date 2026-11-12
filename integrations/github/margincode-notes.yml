@@ -1,0 +1,47 @@
+# Sample workflow: post each av task's records on its pull request.
+#
+# Copy it to .github/workflows/margincode-notes.yml. It only works on a self-hosted runner that can
+# reach your Margincode daemon (the daemon runs on a developer's machine, out of reach of
+# GitHub-hosted runners) and has `av` and `gh` on its PATH. Without such a runner, run
+# `av notes --pr` by hand instead (integrations/github/README.md).
+#
+# Which tasks: every `Margincode-Task: <id or repo/slug>` line in the pull request's description;
+# without one, the head branch's name is tried as a task slug, and a branch that names no task
+# is skipped with a notice rather than failing the check.
+name: margincode-notes
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  notes:
+    # never run a fork's pull request on a self-hosted runner
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, margincode]
+    timeout-minutes: 5
+    steps:
+      - name: Post or update the notes comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AV_URL: ${{ vars.AV_URL || 'http://127.0.0.1:7420' }}
+          AV_TOKEN: ${{ secrets.AV_TOKEN }}
+          # untrusted text goes through the environment, never into the script itself
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          tasks=$(printf '%s\n' "$PR_BODY" | tr -d '\r' | sed -n 's/^Margincode-Task:[[:space:]]*\([^[:space:]]*\).*/\1/p')
+          if [ -n "$tasks" ]; then
+            for t in $tasks; do
+              av notes "$t" --pr "$PR_NUMBER" --gh-repo "$REPO"
+            done
+          elif ! av notes "$PR_BRANCH" --pr "$PR_NUMBER" --gh-repo "$REPO"; then
+            echo "::notice::no av task named $PR_BRANCH; add a 'Margincode-Task: <id>' line to the description"
+          fi

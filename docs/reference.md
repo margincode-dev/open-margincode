@@ -1,21 +1,21 @@
-# Scholion reference
+# Margincode reference
 
 The full reference: install options, commands, configuration, design, architecture and
 measurements. For the short version, see the [README](../README.md).
 
-*σχόλιον (scholion): a note written in the margin of a manuscript. Scholion keeps notes in the
+*σχόλιον (margincode): a note written in the margin of a manuscript. Margincode keeps notes in the
 margins of your code.*
 
 Context-first version control for coding agents: tasks in isolated jj workspaces, decisions and
 dead ends recorded next to the code, and a token-budgeted context pack for any agent that picks the
 work up.
 
-**[Watch a recorded run](https://scholion.openevaluations.si/demo)**: Claude records a decision and a dead
+**[Watch a recorded run](https://open.margincode.dev/demo)**: Claude records a decision and a dead
 end, hands off; Codex picks the task up from a context pack instead of re-reading the repo; Gemini
 reviews. On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same
 cost** ([benchmark](../bench/results/2026-10-27-haiku/), including where it did not help).
 
-[![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://scholion.openevaluations.si/demo)
+[![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://open.margincode.dev/demo)
 
 **New in 0.0.3:** agents can propose backlog items for a person to accept, `av attention` lists
 what needs a person or an agent, `av repo advance` takes main back from the remote, `av notes`
@@ -28,8 +28,8 @@ Flash for about $0.03; it shows the loop working, not token savings. What change
 [CHANGELOG.md](../CHANGELOG.md).
 
 **Ask Claude to set it up**: `claude plugin marketplace add vinhqbui/scholion`, then `claude plugin
-install scholion@scholion`, then say *"set up Scholion for this repo"* (`/scholion:setup`; `/scholion:team`
-for several agents, `/scholion:doctor` when something is broken). The skills are in
+install margincode@margincode`, then say *"set up Margincode for this repo"* (`/margincode:setup`; `/margincode:team`
+for several agents, `/margincode:doctor` when something is broken). The skills are in
 `integrations/claude-code/plugin/`.
 
 **Try it by hand** (no Docker: the daemon runs its own Postgres; Linux and macOS):
@@ -40,8 +40,8 @@ cd your-repo && av init                          # daemon up, this repo added, C
 av init --for codex --for gemini --for grok --for cursor   # the same MCP server for other agents
 ```
 
-Then watch your agents at `http://localhost:7420/ui`. The installer puts `scholion`, `av` and
-`scholion-daemon` into `~/.local/bin` from the
+Then watch your agents at `http://localhost:7420/ui`. The installer puts `margincode`, `av` and
+`margincode-daemon` into `~/.local/bin` from the
 [releases page](https://github.com/vinhqbui/scholion/releases). The full stack with semantic search
 (Docker; the first build compiles the daemon, so give it a few minutes):
 
@@ -71,13 +71,13 @@ The daemon does not launch agents and holds no keys for the agents' own models. 
 can include an optional embedding API key and, when auth is on, `AV_TOKEN`. Details:
 [Many agents at once](#many-agents-at-once).
 
-**Commercial** (Scholion Cloud, hosted; its private repository was called `agentvcs`) is not available yet. The plan, and only the plan, is a service that
+**Commercial** (Margincode Cloud, hosted; its private repository was called `agentvcs`) is not available yet. The plan, and only the plan, is a service that
 runs agents for you: personas, a model connection that is managed or your own key and endpoint,
 budgets in subscription credits, and approval gates. There is nothing to buy.
 
 ## How this was built
 
-Scholion is **vibe-coded**: AI coding agents (mostly Claude Code, with some help from other
+Margincode is **vibe-coded**: AI coding agents (mostly Claude Code, with some help from other
 agents) wrote almost all of the code, tests and docs, with one human steering, choosing the
 direction and reviewing. Treat it as an experiment, not as audited infrastructure. The plans the
 agents worked from are in `docs/superpowers/plans/`, and the design spec is in
@@ -85,11 +85,11 @@ agents worked from are in `docs/superpowers/plans/`, and the design spec is in
 
 Part of the design (Plan 5) is inspired by Anthropic's article
 [Redesigning source control](https://www.anthropic.com/research/redesigning-source-control),
-which describes Scion and its review tool Antique. **Scholion is an independent project. It is
+which describes Scion and its review tool Antique. **Margincode is an independent project. It is
 not affiliated with, endorsed by or derived from code by Anthropic**; it only borrows ideas from
 the public article. See [Ideas borrowed from Scion](#ideas-borrowed-from-scion).
 
-The CLI installs as `scholion` with the short alias `av` (the same program). Hooks, agent prompts
+The CLI installs as `margincode` with the short alias `av` (the same program). Hooks, agent prompts
 and the text inside context packs say `av`, since agents type it often; environment variables keep
 the `AV_` prefix.
 
@@ -100,14 +100,14 @@ the `AV_` prefix.
 Several coding agents working on one repository with git hit two walls. Each new session spends
 tokens re-orienting: reading the tree, rediscovering what was tried, decided and rejected. And a
 handoff or pull request shows *what* changed, never *why*. Git keeps snapshots and throws away
-intent, decisions and dead ends, so every agent re-derives them. Scholion stores the "why" next to
+intent, decisions and dead ends, so every agent re-derives them. Margincode stores the "why" next to
 the code and hands any agent a deterministic, token-budgeted context pack built from it.
 
 ### Concepts
 
 - **Task**: one unit of agent work, replacing branch + pull request. Each task gets its own jj
   workspace on disk (`~/ws/<repo>/<task>/`), branched from trunk. The agent edits files there with
-  its usual tools; `scholion checkpoint` snapshots them.
+  its usual tools; `margincode checkpoint` snapshots them.
 - **Record**: a short, typed note attached to a task: `intent` (the goal), `decision`, `attempt`
   (a dead end and why), `note`, `handoff`, `review`. Summaries are ≤ 200 characters, and records
   are append-only: a newer record *supersedes* an older one instead of editing it. That is also
@@ -133,7 +133,7 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
   neighbours, records anchored up to two hops away, semantic hits, other tasks touching the same files), which are
   scored and fitted into per-section shares (map 10 % · task 10 % · history 20 % · code 50 % ·
   conventions + live work 10 %, with unused share spilling over). Each item is shown at the
-  richest tier that fits (handle → summary → full); `scholion expand <id>` pulls the rest.
+  richest tier that fits (handle → summary → full); `margincode expand <id>` pulls the rest.
 - **Session ledger**: remembers what each agent session was already sent, so later packs refer
   back instead of resending. A session with no id gets no deduplication.
 - **Receipt**: every pack is stored as a manifest (`rcp:<8 hex>`): what was sent, at what tier and
@@ -153,7 +153,7 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
 | `merged` | undo | `in_review` |
 | `open`, `handed_off`, `in_review`, `conflicted` | abandon | `abandoned` (final) |
 
-This table is `scholion-core/src/lifecycle.rs`; any other transition is refused with HTTP 422.
+This table is `margincode-core/src/lifecycle.rs`; any other transition is refused with HTTP 422.
 `submit` is refused unless the task has changes, and both `submit` and `handoff` unless it has at
 least one decision, attempt, note or handoff record. The refusal lists changed symbols that no
 record covers. An approve needs a passing validation at the head and is refused when the head is
@@ -171,7 +171,7 @@ lost". Writes under the current generation renew the lease.
 
 ### Invariants
 
-- Postgres is the source of truth. Qdrant is derived and can always be rebuilt (`scholion reindex`).
+- Postgres is the source of truth. Qdrant is derived and can always be rebuilt (`margincode reindex`).
 - `main` advances only through `merge`; agents never write trunk directly.
 - Packs are deterministic: the same state gives the same pack, independent of the database's
   locale (every text ordering in SQL uses `COLLATE "C"`).
@@ -187,7 +187,7 @@ verdicts, merge with conflicts (a Conflicts pack section, crash-safe retry), syn
 handoff and claim with leases and fencing, review bundles and pinned review findings, git backup
 push, Claude Code hooks and a generic wrapper, the `AV_TOKEN` auth token, scope and session
 cleanup, an MCP server with twenty-four agent tools, and a lifecycle event feed
-(`GET /v1/events`). Plan 4 added the `scholion-bench` benchmark harness (`bench/README.md`); the
+(`GET /v1/events`). Plan 4 added the `margincode-bench` benchmark harness (`bench/README.md`); the
 task set it was built for comes from a private repository and is not included. Plan 5 added the
 Scion-inspired features below: a workspace-free read API, carried approvals, enforced conventions,
 post-merge checks, revert of any merge, bisect and `why` blame. Plan 6 added the offline retrieval
@@ -209,21 +209,21 @@ measured: larger repositories, and whether records carry knowledge to the next a
 DeepSeek flash), the earlier agent's lessons cut cost per solved task by about 42 % (30/30 solved
 against 18/30 without them), and av delivered them at the same cost as a plain `NOTES.md`. Two
 eight-agent stress runs (cheap models, a small Python web app) merged every feature through
-Scholion with main green after every merge, which shows the workflow holds up, not that it is
+Margincode with main green after every merge, which shows the workflow holds up, not that it is
 cheaper.
 
 ## Ideas borrowed from Scion
 
 What we took from Anthropic's description of Scion and Antique, and where it landed:
 
-| Idea from the article | In Scholion |
+| Idea from the article | In Margincode |
 |---|---|
 | A thin client; the server owns history, merges and rebases | The daemon owns all state; the CLI and MCP tools are thin HTTP clients |
-| An API complete enough that jobs need no checkout | `GET /v1/repos/{r}/files`, `/tree`, `/diff`, `/log` and the MCP tools `read_file`, `list_files`, `diff`, `log` (`scholion show`, `scholion diff`) |
-| Derived data computed per change from its parent's value | `blame_v1`, cached by immutable commit id; `scholion why path:line` names the task, goal and decisions behind a line |
-| No global merge queue: merge, test after, and rely on bisect and revert | `scholion runner` checks every new main, `scholion health` names the merge that broke it, `scholion bisect` finds it, `scholion revert` takes any merge out |
+| An API complete enough that jobs need no checkout | `GET /v1/repos/{r}/files`, `/tree`, `/diff`, `/log` and the MCP tools `read_file`, `list_files`, `diff`, `log` (`margincode show`, `margincode diff`) |
+| Derived data computed per change from its parent's value | `blame_v1`, cached by immutable commit id; `margincode why path:line` names the task, goal and decisions behind a line |
+| No global merge queue: merge, test after, and rely on bisect and revert | `margincode runner` checks every new main, `margincode health` names the merge that broke it, `margincode bisect` finds it, `margincode revert` takes any merge out |
 | Approvals with constraints, so a mechanical rebase does not need a fresh review | An approval carries over a rebase when the task's own patch is unchanged, or the only overlap is in files matching `carry_globs` (Markdown by default) |
-| Push instead of polling | `GET /v1/events` long-poll and `scholion events --follow` |
+| Push instead of polling | `GET /v1/events` long-poll and `margincode events --follow` |
 
 The required conventions with check commands, and the refusal to submit leftover conflict markers,
 came from our own stress runs rather than from the article.
@@ -234,15 +234,15 @@ came from our own stress runs rather than from the article.
 flowchart LR
     subgraph host["Host"]
         agents["Agents (Claude Code, Codex, …)<br/>edit files in ~/ws/{repo}/{task}/"]
-        cli["scholion / av CLI and MCP tools<br/>find their task through .av-task"]
+        cli["margincode / av CLI and MCP tools<br/>find their task through .av-task"]
     end
     subgraph docker["Docker: deploy/docker-compose.yml, all on 127.0.0.1"]
-        subgraph daemon["scholion-daemon :7420 (axum, owns all state)"]
+        subgraph daemon["margincode-daemon :7420 (axum, owns all state)"]
             api["api.rs / flow.rs<br/>routes, lifecycle ops"]
-            vcs["scholion-vcs (jj-lib)"]
-            store["scholion-store (sqlx)"]
-            index["scholion-index (tree-sitter)"]
-            pack["scholion-pack (context packer)"]
+            vcs["margincode-vcs (jj-lib)"]
+            store["margincode-store (sqlx)"]
+            index["margincode-index (tree-sitter)"]
+            pack["margincode-pack (context packer)"]
             outbox["outbox worker"]
         end
         avstore[("volume av-store")]
@@ -259,21 +259,21 @@ flowchart LR
     outbox --> qdrant
 ```
 
-The daemon can also run on the host (`cargo run -p scholion-daemon`) against the same containers.
+The daemon can also run on the host (`cargo run -p margincode-daemon`) against the same containers.
 
 ### Crates
 
 | Crate | Role |
 |---|---|
-| `scholion-core` | Shared types, `AvError`, the `Vcs` / `IntentStore` / `Semantic` traits every unit talks through, and the lifecycle state machine. |
-| `scholion-vcs` | The only crate that touches jj-lib (pinned `=0.46.0`). Imports a git repo, creates a jj workspace per task, snapshots, diffs and reads files by commit id. |
-| `scholion-store` | Postgres `IntentStore`: tasks, records, anchors, conventions, ledger, receipts, outbox. Migrations in `crates/scholion-store/migrations/`. |
-| `scholion-index` | Tree-sitter extraction (Rust, TypeScript, Python): symbols (functions, methods, types, and module constants: `UPPER_CASE` in Python/TypeScript, `const`/`static` in Rust), reference graph, skeletons, code chunks, stored per *scope* (`main` or a task) and updated incrementally by content hash. |
-| `scholion-semantic` | `Embedder` (TEI, Ollama, a scripted fake) and `VectorIndex` (Qdrant, an in-memory fake). |
-| `scholion-pack` | The context packer: seeds → candidates → scoring → budget → tiers → ledger and receipt. Golden-file tests. |
-| `scholion-daemon` | Wiring from environment variables, HTTP routes under `/v1`, lifecycle operations (`flow.rs`), indexing glue, the outbox worker. |
-| `scholion-cli` | The `scholion` binary and its `av` alias: clap subcommands that mirror the API. |
-| `scholion-testutil` | `TestDb`: a throwaway Postgres database per test. |
+| `margincode-core` | Shared types, `AvError`, the `Vcs` / `IntentStore` / `Semantic` traits every unit talks through, and the lifecycle state machine. |
+| `margincode-vcs` | The only crate that touches jj-lib (pinned `=0.46.0`). Imports a git repo, creates a jj workspace per task, snapshots, diffs and reads files by commit id. |
+| `margincode-store` | Postgres `IntentStore`: tasks, records, anchors, conventions, ledger, receipts, outbox. Migrations in `crates/margincode-store/migrations/`. |
+| `margincode-index` | Tree-sitter extraction (Rust, TypeScript, Python): symbols (functions, methods, types, and module constants: `UPPER_CASE` in Python/TypeScript, `const`/`static` in Rust), reference graph, skeletons, code chunks, stored per *scope* (`main` or a task) and updated incrementally by content hash. |
+| `margincode-semantic` | `Embedder` (TEI, Ollama, a scripted fake) and `VectorIndex` (Qdrant, an in-memory fake). |
+| `margincode-pack` | The context packer: seeds → candidates → scoring → budget → tiers → ledger and receipt. Golden-file tests. |
+| `margincode-daemon` | Wiring from environment variables, HTTP routes under `/v1`, lifecycle operations (`flow.rs`), indexing glue, the outbox worker. |
+| `margincode-cli` | The `margincode` binary and its `av` alias: clap subcommands that mirror the API. |
+| `margincode-testutil` | `TestDb`: a throwaway Postgres database per test. |
 
 ### Where state lives
 
@@ -320,7 +320,7 @@ Several agents work against one daemon at once:
 - **In Postgres**: status changes are conditional updates (of two racing `submit` calls exactly
   one wins); the expand budget is checked and charged in one statement; outbox rows are claimed
   with `SKIP LOCKED`.
-- `crates/scholion-daemon/tests/swarm.rs` runs several agents through start → edit → record →
+- `crates/margincode-daemon/tests/swarm.rs` runs several agents through start → edit → record →
   checkpoint → context → submit at once. Its ignored `bench_swarm_on_a_300_file_repo` prints
   timings.
 
@@ -331,9 +331,9 @@ Several agents work against one daemon at once:
 - An index write and its outbox row commit together, so Qdrant can lag but never miss an entity.
 - Backup remote down or rejecting the push: the merge still succeeds. The push runs in the
   background (60 s timeout, no credential prompts, never forced); a failure is stored and retried
-  after 1 s, 2 s, 4 s … up to 5 min, and `scholion status` / `scholion repo backup` show it. Credentials are the
+  after 1 s, 2 s, 4 s … up to 5 min, and `margincode status` / `margincode repo backup` show it. Credentials are the
   daemon's own (for SSH, a read-only mounted key and `AV_BACKUP_SSH_COMMAND` in compose).
-  By default main is pushed to a branch of the same name; `scholion repo backup NAME --remote URL
+  By default main is pushed to a branch of the same name; `margincode repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.
 - Main coming back from the remote (Plan 15). When main is pushed to a branch such as `av-main`
@@ -365,7 +365,7 @@ database's locale.
 
 ### Lite mode
 
-`av up` starts `scholion-daemon` in the background on `127.0.0.1` (port from `AV_URL`, default
+`av up` starts `margincode-daemon` in the background on `127.0.0.1` (port from `AV_URL`, default
 7420) and waits until it answers; `av down` stops it; `av init` calls `av up` when no daemon
 answers. With no `AV_DATABASE_URL`, the daemon runs its own user-space Postgres 16: release
 builds carry it inside the binary (feature `bundled-postgres`), source builds download it on first
@@ -374,7 +374,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AV_HOME` | `~/.scholion` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log` (moved to `daemon.log.1` by `av up` once over 50 MB), `daemon.pid` |
+| `AV_HOME` | `~/.margincode` | daemon data: `pg/` (Postgres), `store/` (jj repositories), `daemon.log` (moved to `daemon.log.1` by `av up` once over 50 MB), `daemon.pid` |
 | `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it (see [Disk](#disk-what-agents-create-and-what-av-reclaims)) |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it av reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off |
@@ -384,7 +384,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
-| `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `scholion-daemon` that `av up` starts |
+| `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `margincode-daemon` that `av up` starts |
 
 `av init [--name NAME] [--for claude|codex|grok|gemini|cursor|mcp-json]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
@@ -393,12 +393,12 @@ directory (as an import job it polls, so size is no problem) and wires the named
 
 ### Full stack (Docker)
 
-Prerequisites: Docker with Compose, and a Rust toolchain (for the host-side `scholion` binary).
+Prerequisites: Docker with Compose, and a Rust toolchain (for the host-side `margincode` binary).
 
 ```bash
 export UID GID=$(id -g)          # bash does not export UID; compose needs both
 docker compose -f deploy/docker-compose.yml up -d --build
-cargo build --release -p scholion-cli  # -> target/release/scholion and target/release/av
+cargo build --release -p margincode-cli  # -> target/release/margincode and target/release/av
 ```
 
 The stack runs Postgres 16, Qdrant, text-embeddings-inference (TEI, `BAAI/bge-small-en-v1.5` on
@@ -411,8 +411,8 @@ outbox drained every second, and context packs then also rank by semantic simila
 embeddinggemma-2`), otherwise `AV_EMBED_URL` (TEI in compose). The
 container has no `ollama` CLI, so in compose it uses TEI. If Qdrant or the embedder is unreachable,
 packs still return and carry the note `semantic`: they used Postgres full-text instead. After
-changing the embedding model, run `scholion reindex` with no `--repo` (it recreates the collections at
-the new dimension); `scholion reindex --repo NAME` rebuilds one repo. Reindex also brings `main`'s
+changing the embedding model, run `margincode reindex` with no `--repo` (it recreates the collections at
+the new dimension); `margincode reindex --repo NAME` rebuilds one repo. Reindex also brings `main`'s
 code index up to date (unchanged files are skipped by content hash); after upgrading past migration
 `0020` (constants became symbols), run it once so existing repos are extracted again. TEI downloads its model on first
 start, which can take minutes; `scripts/smoke.sh` does not wait for it.
@@ -422,7 +422,7 @@ Defaults (override with environment variables before `up`):
 | Variable | Default | Meaning |
 |---|---|---|
 | `AV_WS_ROOT` | `~/ws` | host directory where task workspaces appear (agents edit files here) |
-| `AV_IMPORT_ROOT` | `~/projects` | host directory mounted read-only at `/import` for `scholion repo add` |
+| `AV_IMPORT_ROOT` | `~/projects` | host directory mounted read-only at `/import` for `margincode repo add` |
 | `AV_PG_PORT` | `5432` | localhost port of the Postgres container |
 | `AV_QDRANT_PORT` / `AV_QDRANT_GRPC_PORT` | `6333` / `6334` | localhost ports of the Qdrant container |
 | `AV_TEI_PORT` | `8080` | localhost port of the embedding server |
@@ -432,12 +432,12 @@ Defaults (override with environment variables before `up`):
 | `AV_EMBED_URL` | empty | embedding API base URL. Required when there is no Ollama. |
 | `AV_EMBED_PROVIDER` | auto | `ollama` or `api`. Auto uses Ollama when the CLI has an `embeddinggemma-2` or `qwen3-embedding` model. `ollama` with no CLI on `PATH` uses the Ollama server at `AV_OLLAMA_URL` (another container or host) and needs `AV_OLLAMA_EMBED_MODEL`. |
 | `AV_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server. With the CLI, the model tag comes from `ollama list`; without it (`AV_EMBED_PROVIDER=ollama`), the model is `AV_OLLAMA_EMBED_MODEL` as written. |
-| `AV_OLLAMA_EMBED_MODEL` | `embeddinggemma-2`, else `qwen3-embedding` | the one Ollama model to embed with (a name as `ollama list` shows it, with or without the tag). Required with `AV_EMBED_PROVIDER=ollama` and no CLI: then it is sent to the server as written (`embeddinggemma-2` means `embeddinggemma-2:latest`), and a server that is down or lacks the model shows up in the daemon's log at the first embedding, not at start. Run `scholion reindex` after changing it. |
+| `AV_OLLAMA_EMBED_MODEL` | `embeddinggemma-2`, else `qwen3-embedding` | the one Ollama model to embed with (a name as `ollama list` shows it, with or without the tag). Required with `AV_EMBED_PROVIDER=ollama` and no CLI: then it is sent to the server as written (`embeddinggemma-2` means `embeddinggemma-2:latest`), and a server that is down or lacks the model shows up in the daemon's log at the first embedding, not at start. Run `margincode reindex` after changing it. |
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
-| `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `scholion claim` it. |
+| `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `margincode claim` it. |
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
-| `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`scholion repo backup` sets one at runtime). |
+| `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`margincode repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it the daemon reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off. |
 | `AV_BUILD_CACHE_MAX_GB` | `0` | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it the daemon removes finished tasks' `target/`, then idle ones, then the deps cache; `0` turns it off. |
@@ -485,28 +485,28 @@ daemon included. To return the cache once, now, without a restart:
 docker run --rm --privileged rust:1.97.1 sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'
 ```
 
-One cold `cargo test --workspace --no-run` of scholion needs about 1.6 GB of process memory; how
+One cold `cargo test --workspace --no-run` of margincode needs about 1.6 GB of process memory; how
 many agents fit on one host is worked out in Plan 12 ("Memory").
 
 ## Use
 
 ```bash
-scholion repo add pantry /import/pantry            # path as seen inside the container
-scholion repo list                                 # every imported repo, its main and source
-scholion task start --repo pantry --title "Atomic save" --goal "write pantry.json atomically so a crash cannot truncate it"
+margincode repo add pantry /import/pantry            # path as seen inside the container
+margincode repo list                                 # every imported repo, its main and source
+margincode task start --repo pantry --title "Atomic save" --goal "write pantry.json atomically so a crash cannot truncate it"
 cd ~/ws/pantry/atomic-save                   # printed as `workspace:`
-scholion checkpoint                                # snapshot + refresh the index
-scholion record --kind attempt --summary "tried os.rename; fails on Windows if the file exists" --anchor pantry/store.py
-scholion record --kind note --summary "os.replace overwrites on Windows too" --supersedes rec:1a2b3c4d   # correct a stored record
-scholion context                                   # 800 tokens of what an agent needs; --budget N for more
-scholion context --fresh                           # resend everything (e.g. after context compaction)
-scholion submit                                    # to review (needs a decision, attempt or note)
-scholion handoff --done "atomic save added" --remaining "tests for the crash path"   # prints the bundle
-AV_AGENT=codex scholion claim <task-id>            # another agent takes over; rewrites .av-task
-scholion bundle --pr                               # review bundle: tests at head, risks, checklist
-scholion search "atomic"                           # full-text over the repo's records
-scholion log                                       # main's history, newest first
-scholion abandon                                   # end a task for good (owner only)
+margincode checkpoint                                # snapshot + refresh the index
+margincode record --kind attempt --summary "tried os.rename; fails on Windows if the file exists" --anchor pantry/store.py
+margincode record --kind note --summary "os.replace overwrites on Windows too" --supersedes rec:1a2b3c4d   # correct a stored record
+margincode context                                   # 800 tokens of what an agent needs; --budget N for more
+margincode context --fresh                           # resend everything (e.g. after context compaction)
+margincode submit                                    # to review (needs a decision, attempt or note)
+margincode handoff --done "atomic save added" --remaining "tests for the crash path"   # prints the bundle
+AV_AGENT=codex margincode claim <task-id>            # another agent takes over; rewrites .av-task
+margincode bundle --pr                               # review bundle: tests at head, risks, checklist
+margincode search "atomic"                           # full-text over the repo's records
+margincode log                                       # main's history, newest first
+margincode abandon                                   # end a task for good (owner only)
 ```
 
 The path given to `repo add` is read by the daemon, not the client: the daemon clones it where it runs. With
@@ -634,7 +634,7 @@ the subject is its summary, the rest of the message its body (with `Mined from g
 one task per repo, `<repo>/git-history`, owned by `git` and merged from the start (it has no
 workspace and is never offered as work). A commit mined before is skipped, so mining again only
 adds what is new; `N` counts records written, not commits looked at. The rules are
-`scholion_core::history`, which `scholion-bench mine` shares. `git` is reserved for these records:
+`margincode_core::history`, which `margincode-bench mine` shares. `git` is reserved for these records:
 an agent using that name would have its records ranked as mined ones.
 
 Mined records rank below what agents wrote (`MINED_FACTOR` 0.5 in packs; after agents' records in
@@ -715,7 +715,7 @@ av handoff --done … --remaining … --needs image   # hand off to an agent tha
 av --agent grok watch -- grok -p "take your next av job"   # start grok only when work fits it
 ```
 
-An agent's own CLI runs the work on its own subscription; Scholion holds no keys for the agents'
+An agent's own CLI runs the work on its own subscription; Margincode holds no keys for the agents'
 own models. Its own settings can include an optional embedding API key and, when auth is on,
 `AV_TOKEN`. The daemon does not launch agents (`av watch` does, on your machine). Agents pull: MCP agents call `start_task` with no arguments, the others
 `av next`. Rules (no model involved): an agent can take an item when every tag it needs is in the
@@ -724,7 +724,7 @@ cheapest) has it to itself for `--reserve` seconds (default 600), after which an
 it may take it, so work moves on when an agent runs out of quota. Untagged work goes to the
 cheapest agent.
 
-Each agent CLI is treated as an engineering team: Scholion gives it work, has another team review
+Each agent CLI is treated as an engineering team: Margincode gives it work, has another team review
 it and keeps the shared memory, while the CLI splits the work among its own subagents. Those
 subagents carry the team's name (the `X-Av-Agent` header is in the CLI's config), so a team never
 reviews its own work. Post items the size of a team's job, a goal with a definition of done, not
@@ -846,7 +846,7 @@ requested, conflicts, undos, reverts) and per agent what it started, merged and 
 agent's timeline (its newest 500 rows, read at most once a minute; "≥" marks a count cut off there).
 Click a desk (or a task's owner) for that agent's
 timeline: the records it wrote, the tasks it started and claimed, its review verdicts, its submits
-and its merges, newest first. It is built from what Scholion already keeps; nothing extra is
+and its merges, newest first. It is built from what Margincode already keeps; nothing extra is
 recorded, and no cost is tracked. "Build context pack" shows exactly what the next agent would
 receive at a given budget.
 Under the board, a Main panel lists main's last commits with their post-merge check and the task
@@ -932,7 +932,7 @@ scratch files. Nothing used to own their lifetime. One machine filled 333 GB thi
 |---|---|---|
 | A cargo `target/` wherever it built: one per task workspace, plus `/tmp` and ad-hoc dirs | about 24 GB per build of this workspace | every task is a full checkout with its own target dir, and no workspace was ever removed |
 | Task workspaces | a few GB | never removed on merge, abandon, undo or revert |
-| Bench clones and venvs | about 1 GB per session | `scholion-bench` kept every clone |
+| Bench clones and venvs | about 1 GB per session | `margincode-bench` kept every clone |
 | Ad-hoc dirs outside any workspace (`~/dogfood`, `~/.grok/worktrees`, …) | tens of GB | no hook looked at them and nobody asked about them |
 
 ```bash
@@ -1000,7 +1000,7 @@ each repo. A repo still over after all that (only recent builds are left) is lis
 
 **Lean builds, one target dir per task.** Build output is where the disk goes: in the first
 dogfood run, a Rust task's `cargo test` left about 20 GB (14 GB of test binaries that were 73%
-debug info, 4 GB of incremental cache, 3 GB of dependencies), against about 3 MB of Scholion's
+debug info, 4 GB of incremental cache, 3 GB of dependencies), against about 3 MB of Margincode's
 own state per task. When a repo with a `Cargo.toml` at its root is imported (and for every repo at
 start-up), the daemon writes `<ws_root>/<repo>/.cargo/config.toml`:
 
@@ -1020,7 +1020,7 @@ debug = false
 
 Cargo reads `.cargo/config.toml` in the current directory and every parent, so this one file
 covers every task workspace of the repo without touching the repo or any snapshot. Measured on
-scholion's own workspace, a full `cargo test` build is 4.3 GB with it against 21 GB without
+margincode's own workspace, a full `cargo test` build is 4.3 GB with it against 21 GB without
 (6.7 GB with line tables for dependencies too): line tables keep file:line in panics and
 backtraces of the repo's own code at a fraction of full debug info, a panic inside a dependency
 still names the dependency's frames, and the incremental cache only pays off for an editor's
@@ -1073,7 +1073,7 @@ Code's PowerShell tool gets none of its variables (`AV_SCRATCH` included). An ex
 outside the workspace is not reclaimed (the footprint reports it).
 
 To spend less per task still: scope a required convention's check by its glob, so a change to
-`docs/` does not pay for the full workspace build. `av convention add --repo scholion --scope
+`docs/` does not pay for the full workspace build. `av convention add --repo margincode --scope
 'crates/**' --required --check 'cargo test --workspace' 'Tests pass'` runs only when a changed
 path matches `crates/**`. `av convention add` says so when a required check's scope matches every path.
 
@@ -1083,8 +1083,8 @@ every member depending on one of them through a path dependency of any kind (nor
 build), read from `cargo metadata --no-deps --offline` in the workspace. When it cannot place a
 change (a path outside every member, such as the root `Cargo.toml`, `Cargo.lock`,
 `rust-toolchain.toml`, `.cargo/` or a fixture dir a test reads through `../..`), or cargo is
-missing, it is `--workspace`. The check line prints the command as it ran (for a change in `scholion-pack`: `cargo test
--p scholion-bench -p scholion-cli -p scholion-daemon -p scholion-pack`) and the validation record
+missing, it is `--workspace`. The check line prints the command as it ran (for a change in `margincode-pack`: `cargo test
+-p margincode-bench -p margincode-cli -p margincode-daemon -p margincode-pack`) and the validation record
 keeps it, so a reviewer sees what a green check covered. Approval counts a result for such a check only
 when its `command` was expanded (run as written, `cargo test {crates}` filters every test out
 and passes), so an older `av` cannot pass it. A package at the workspace root owns only its
@@ -1145,7 +1145,7 @@ of the session has it. The pack ends with `Temporary files: $AV_SCRATCH (removed
 It is removed with the workspace.
 
 **What av does not touch.** Claude Code's own data (`~/.claude`) is swept by Claude Code itself
-(`cleanupPeriodDays`, default 30 days). `scholion-bench run` removes each session's copy after verify unless
+(`cleanupPeriodDays`, default 30 days). `margincode-bench run` removes each session's copy after verify unless
 `--keep-work` is given (see [bench/README.md](../bench/README.md)). The jj store and
 Postgres are not garbage-collected. `av up` moves a `daemon.log` over 50 MB to `daemon.log.1`.
 
@@ -1166,7 +1166,7 @@ the `av` CLI and its hooks send `$AV_TOKEN`. Without it the daemon is open, whic
 (and Postgres, Qdrant) on `127.0.0.1` only; do not expose these ports either way. Agent names (`--agent`, `AV_AGENT`)
 are self-asserted: "the reviewer is not the owner", "only the owner hands off" and claim fencing prevent accidents
 between cooperating agents, not impersonation. Repository names are restricted to a single path component,
-`scholion repo add` only accepts an existing local directory, and backup remotes that look like git options are refused.
+`margincode repo add` only accepts an existing local directory, and backup remotes that look like git options are refused.
 Postgres credentials in the compose file are development-only.
 
 ## Post-merge checks
@@ -1175,19 +1175,19 @@ There is no merge queue (the Scion model): main is checked after each merge, not
 repo's check, then run a runner on the machine where the code should be tested:
 
 ```bash
-scholion repo settings myrepo --check "python -m pytest -q"
-scholion runner --repo myrepo --trust        # checks main, then every merge as it lands
-scholion health --repo myrepo                # green, or red since which merge and its task
-scholion log --repo myrepo                   # ✓ passed · ✗ failed · · unchecked
-scholion bisect --repo myrepo --trust        # which merge broke main, and its task
-scholion revert <task> --reason "..."        # take one merge out of main, even an older one
-scholion why app/util.py:42 --repo myrepo    # the task, goal and decisions behind a line
+margincode repo settings myrepo --check "python -m pytest -q"
+margincode runner --repo myrepo --trust        # checks main, then every merge as it lands
+margincode health --repo myrepo                # green, or red since which merge and its task
+margincode log --repo myrepo                   # ✓ passed · ✗ failed · · unchecked
+margincode bisect --repo myrepo --trust        # which merge broke main, and its task
+margincode revert <task> --reason "..."        # take one merge out of main, even an older one
+margincode why app/util.py:42 --repo myrepo    # the task, goal and decisions behind a line
 ```
 
-For a line of imported history, `scholion why` prints the record mined from the commit it blames,
+For a line of imported history, `margincode why` prints the record mined from the commit it blames,
 if the repo's history was mined (see [Cold start from git history](#cold-start-from-git-history)).
 
-`scholion why` reads derived data in the Scion style: per path, a blame computed from each commit's
+`margincode why` reads derived data in the Scion style: per path, a blame computed from each commit's
 parent blame and cached by commit id, so it is computed once and never needs invalidating.
 
 ### Records on the pull request
@@ -1200,8 +1200,8 @@ av notes demo/atomic-save --pr 123 --gh-repo owner/name
 
 `av notes [TASK]` renders a task's decisions, dead ends, notes, review findings, handoffs and
 checks, and what other tasks recorded about the files it changes (`records/at` for the first 20,
-with no session, so nothing counts as sent), between `<!-- scholion:notes v1 task=<id> -->` and
-`<!-- /scholion:notes -->`. It only reads `/v1`. `TASK` is an id, a slug (`--repo` when two repos
+with no session, so nothing counts as sent), between `<!-- margincode:notes v1 task=<id> -->` and
+`<!-- /margincode:notes -->`. It only reads `/v1`. `TASK` is an id, a slug (`--repo` when two repos
 share one) or `repo/slug`; without it, `--task` or the nearest `.av-task`. `--format json` adds the
 task id, record ids and files. `--pr [N]` posts the block as a comment through `gh` (`AV_GH` names
 another program), or edits the comment that already holds this task's block; an unchanged block is
@@ -1211,7 +1211,7 @@ daemon runs on the developer's machine, out of a GitHub-hosted runner's reach, s
 reach the daemon. Before a merge `av why` has nothing to blame on main, so the block's records on
 the changed files are the pre-merge answer.
 
-The daemon never runs commands. `scholion runner` fetches each new main through the read API (no
+The daemon never runs commands. `margincode runner` fetches each new main through the read API (no
 checkout), runs the command, and posts the result. Because that command comes from the daemon's
 database, the runner refuses to start without `--trust`. While main is red, every context pack
 opens with a warning naming the culprit merge.
@@ -1243,7 +1243,7 @@ opens with a warning naming the culprit merge.
   every 2 s. `Stop` checkpoints and, when changed symbols have no record of the task anchored to them (what
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
   decisions and dead ends behind them. All four are silent outside a task and never fail the agent
-  (`scholion hook session-start`, `scholion hook pre-read`, `scholion hook post-edit`, `scholion hook stop`).
+  (`margincode hook session-start`, `margincode hook pre-read`, `margincode hook post-edit`, `margincode hook stop`).
 
   **Disk.** In a task, `SessionStart` also creates a scratch dir and exports it to the session's Bash
   commands as `$AV_SCRATCH` (through `$CLAUDE_ENV_FILE`); it is removed with the task. Task or not, it
@@ -1288,7 +1288,7 @@ opens with a warning naming the culprit merge.
   Code tries the obvious fix on a small repo, records why it failed and hands off; Codex claims the
   task, and its first pack leads with that dead end (`--first`/`--second` pick other agents;
   `--scripted` runs it with `av` commands in place of the agents, for free). The contract test
-  `agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/scholion-cli/tests/cli.rs`)
+  `agents_wired_by_init_can_start_record_checkpoint_and_submit` (`crates/margincode-cli/tests/cli.rs`)
   reads each config `av init --for` wrote, the way that CLI does, and drives the MCP server through
   it with the token taken from the environment.
 - **Any other agent**: `integrations/generic/av-wrap.sh <command…>` writes the pack to `$AV_CONTEXT_FILE`, runs the
@@ -1303,5 +1303,5 @@ opens with a warning naming the culprit merge.
 
 Named volumes `av-store` (jj repositories), `av-pg` (Postgres), `av-qdrant`, `av-tei` (model cache). `docker compose -f
 deploy/docker-compose.yml down` stops the stack; `scripts/smoke.sh --down` also deletes the volumes.
-The compose project is called `scholion`. A stack started before the rename ran as project
+The compose project is called `margincode`. A stack started before the rename ran as project
 `agentvcs`, so its volumes are `agentvcs_*`: pass `-p agentvcs` to keep using them.

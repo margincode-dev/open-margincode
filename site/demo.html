@@ -3,27 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scholion replay · three agents, one task</title>
-<meta name="description" content="A replay of a real Scholion run: Claude starts a task and hands it off, Codex picks it up from the context pack without re-reading the repo, Gemini reviews. Every command output is what the daemon returned.">
-<link rel="canonical" href="https://scholion.openevaluations.si/demo">
+<title>Margincode replay · three agents, one task</title>
+<meta name="description" content="A replay of a real Margincode run: Claude starts a task and hands it off, Codex picks it up from the context pack without re-reading the repo, Gemini reviews. Every command output is what the daemon returned.">
+<link rel="canonical" href="https://open.margincode.dev/demo">
 <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://scholion.openevaluations.si/demo">
-<meta property="og:title" content="Scholion replay: three agents, one task, nobody starts from zero">
+<meta property="og:url" content="https://open.margincode.dev/demo">
+<meta property="og:title" content="Margincode replay: three agents, one task, nobody starts from zero">
 <meta property="og:description" content="Watch a real run: a handoff, a claim, a context pack that leads with the dead end, a review and a merge.">
-<meta property="og:image" content="https://scholion.openevaluations.si/og.png">
+<meta property="og:image" content="https://open.margincode.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script type="application/ld+json">
 {"@context": "https://schema.org", "@type": "WebPage",
- "name": "Scholion replay: three agents, one task",
- "description": "A replay of a real Scholion run: Claude starts a task and hands it off, Codex picks it up from the context pack without re-reading the repo, Gemini reviews. Every command output is what the daemon returned.",
- "url": "https://scholion.openevaluations.si/demo",
- "image": "https://scholion.openevaluations.si/img/demo-replay.png",
+ "name": "Margincode replay: three agents, one task",
+ "description": "A replay of a real Margincode run: Claude starts a task and hands it off, Codex picks it up from the context pack without re-reading the repo, Gemini reviews. Every command output is what the daemon returned.",
+ "url": "https://open.margincode.dev/demo",
+ "image": "https://open.margincode.dev/img/demo-replay.png",
  "datePublished": "2026-10-28", "dateModified": "2026-11-04",
- "about": {"@type": "SoftwareApplication", "name": "Scholion", "url": "https://scholion.openevaluations.si/"},
- "isPartOf": {"@type": "WebSite", "name": "Scholion", "url": "https://scholion.openevaluations.si/"}}
+ "about": {"@type": "SoftwareApplication", "name": "Margincode", "url": "https://open.margincode.dev/"},
+ "isPartOf": {"@type": "WebSite", "name": "Margincode", "url": "https://open.margincode.dev/"}}
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,7 +188,7 @@ section.after h2 em { color: var(--rubric); }
 <body>
 <nav class="nav" aria-label="Primary">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="Scholion home"><span class="brand-mark" aria-hidden="true">σ</span>Scholion</a>
+    <a class="brand" href="/" aria-label="Margincode home"><span class="brand-mark" aria-hidden="true">σ</span>Margincode</a>
     <a class="back" href="/">← back to the site</a>
     <span class="spacer"></span>
     <button class="btn icon-btn" id="themeToggle" aria-label="Toggle light and dark theme" title="Toggle theme">
@@ -202,7 +202,7 @@ section.after h2 em { color: var(--rubric); }
 <main>
 <header class="hero">
   <div class="wrap">
-    <span class="eyebrow"><b>replay</b> · recorded from a real Scholion daemon</span>
+    <span class="eyebrow"><b>replay</b> · recorded from a real Margincode daemon</span>
     <h1>Three agents, one codebase. <em>Nobody starts from zero.</em></h1>
     <p class="lede">Claude starts a task, records a decision and a dead end, then runs out of context. <strong>Codex picks it up from a <span id="packTokens">small</span> context pack</strong> instead of re-reading the repo, finishes it, and Gemini reviews. Every command output below is what the daemon returned.</p>
     <div class="cast" aria-label="Cast">

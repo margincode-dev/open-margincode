@@ -23,9 +23,9 @@ fail() {
 }
 
 AV=target/release/av
-[[ -x $AV ]] || cargo build --release -p scholion-cli
+[[ -x $AV ]] || cargo build --release -p margincode-cli
 
-# SMOKE_BUILD=0 reuses a prebuilt scholion-daemon:dev image (e.g. when the build context is unreachable).
+# SMOKE_BUILD=0 reuses a prebuilt margincode-daemon:dev image (e.g. when the build context is unreachable).
 if [[ "${SMOKE_BUILD:-1}" == 1 ]]; then
   "${COMPOSE[@]}" up -d --build
 else

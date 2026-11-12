@@ -45,8 +45,8 @@ pub use disk::RECLAIM_TICK;
 pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
 pub use ext::{
-    AllowAll, CheckpointHook, ExtTool, Guarded, MergeGuard, NoCheckpointHook, NoUsage, ToolHandler,
-    UsageReport, UsageSink,
+    AllowAll, CheckpointHook, ExtTool, Guarded, MemoryAction, MergeGuard, NoCheckpointHook,
+    NoUsage, ToolHandler, UsageReport, UsageSink,
 };
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use remote::MAX_PATCH_BYTES;

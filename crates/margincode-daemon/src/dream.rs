@@ -53,6 +53,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/dreams/{id}/verdicts", post(propose))
         .route("/v1/dreams/{id}/finish", post(finish))
         .route("/v1/dreams/{id}/undo", post(undo))
+        .route("/v1/verdicts/{id}", get(show_verdict))
         .route("/v1/verdicts/{id}/review", post(review))
         .route("/v1/verdicts/{id}/retract", post(retract))
 }
@@ -683,6 +684,30 @@ async fn review(
     check_all(&st, &repo, &commit, &b.evidence)
         .await
         .map_err(AvError::Invalid)?;
+    if v.state != "proposed" {
+        return Err(AvError::Conflict(format!(
+            "{} is {}: a verdict is reviewed once, while it is proposed",
+            vd_handle(v.id),
+            v.state
+        ))
+        .into());
+    }
+    let action = crate::Guarded::MemoryWrite {
+        repo: &repo,
+        action: crate::MemoryAction::VerdictReview {
+            verdict: v.id,
+            kind: &v.verdict,
+            record: &rec,
+            agree: b.agree,
+        },
+        by: b.reviewer.trim(),
+        dream: b.dream,
+    };
+    if let Err(reason) = st.guard.check(action).await {
+        return Err(
+            AvError::IllegalState(format!("cannot review {}: {reason}", vd_handle(v.id))).into(),
+        );
+    }
     let v = st
         .pg
         .add_verdict_review(
@@ -850,6 +875,20 @@ async fn show(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Val
         .map(verdict_json)
         .collect();
     Ok(Json(json!({"dream": d, "verdicts": verdicts})))
+}
+
+/// One verdict (`id`: the full id or `vd:…`) with the record it judges, so a person can read
+/// both before agreeing.
+async fn show_verdict(State(st): State<AppState>, Path(id): Path<String>) -> ApiResult<Value> {
+    let v = st.pg.find_verdict(&id).await?;
+    let rec = st.store.get_record(v.record_id).await?;
+    let repo = repo_of(&st, &rec).await?;
+    Ok(Json(json!({
+        "verdict": verdict_json(&v),
+        "repo": repo,
+        "record": {"id": rec_handle(rec.id), "kind": rec.kind, "summary": rec.summary,
+                   "body": rec.body, "anchors": rec.anchors, "author": rec.author_agent},
+    })))
 }
 
 #[derive(Deserialize)]

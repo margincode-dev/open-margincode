@@ -791,9 +791,27 @@ pub(crate) async fn check_record(
         st.store.get_receipt(rc).await?;
     }
     match &b.supersedes {
-        Some(s) => Ok(Some(superseded_by_task(st, task, s, b.kind).await?.id)),
+        Some(s) => {
+            let old = superseded_by_task(st, task, s, b.kind).await?;
+            guard_supersede(st, task, &old, &b.agent).await?;
+            Ok(Some(old.id))
+        }
         None => Ok(None),
     }
+}
+
+/// Asks the `MergeGuard` whether `agent`'s new record may supersede `old`
+/// (`Guarded::MemoryWrite`), once the daemon's own rules allow it.
+async fn guard_supersede(st: &AppState, task: &Task, old: &Record, agent: &str) -> Result<()> {
+    let action = crate::Guarded::MemoryWrite {
+        repo: &task.repo,
+        action: crate::MemoryAction::Supersede { record: old },
+        by: agent,
+        dream: None,
+    };
+    st.guard.check(action).await.map_err(|reason| {
+        AvError::IllegalState(format!("cannot supersede {}: {reason}", rec_handle(old.id)))
+    })
 }
 
 /// `rec:<8 hex>`, as packs print a record.
@@ -922,6 +940,10 @@ async fn add_record(
         snapshot_and_index(&st, &task).await?;
     }
     let receipt_arg = b.receipt.clone();
+    if let Some(named) = b.supersedes.as_deref() {
+        let old = superseded_by_task(&st, &task, named, b.kind).await?;
+        guard_supersede(&st, &task, &old, &b.agent).await?;
+    }
     let record = write_record(&st, &task, b).await?;
     let receipt = match &receipt_arg {
         Some(r) => st.store.get_receipt(r).await?["id"].clone(),

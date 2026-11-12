@@ -4473,7 +4473,8 @@ impl margincode_daemon::MergeGuard for Refuse {
             // this guard is about approvals and merges only
             margincode_daemon::Guarded::Submit { .. }
             | margincode_daemon::Guarded::Review { .. }
-            | margincode_daemon::Guarded::AcceptBacklog { .. } => {
+            | margincode_daemon::Guarded::AcceptBacklog { .. }
+            | margincode_daemon::Guarded::MemoryWrite { .. } => {
                 return Ok(());
             }
         };

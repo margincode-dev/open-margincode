@@ -15,8 +15,8 @@ Landed on `main` with the move (detail in `CHANGELOG.md`, `Unreleased`):
   before an agent writes;
 - tests use an installed PostgreSQL before downloading one;
 - a record's standing: its origin in ranking and in its line (`margincode_core::standing`);
-- dreams and verdicts, the daemon's side (`dream.rs`, migration 0031; `docs/reference.md`, "A
-  second look at records");
+- dreams and verdicts (`dream.rs` in the daemon and in the CLI, migration 0031;
+  `docs/reference.md`, "A second look at records");
 - the wrong-lesson benchmark, three runs (`bench/results/2026-11-wrong-lesson*`): with a wrong
   note as a record an agent was accepted 12 of 30 times once it could correct records (2 of 30
   before), against 28 of 30 with the same note in a notes file.
@@ -26,15 +26,19 @@ gate was green on it (fmt, clippy, 1160 tests) before the rename's last commit.
 
 Next:
 
-1. **The agent side of dreaming**: `av dream [--verify] [--area P] [--limit N] -- <agent
-   command>`, `av dream undo`, `av verdict list|show|accept|reject|retract`, and the
-   instructions file the dreaming agent reads (`integrations/dream/DREAM.md`; its hash goes in
-   `instructions_sha`). Tests with a fake agent script, as `av watch` has. Until it exists the
-   verdict routes cannot be tried with a real model.
-2. **A guard for memory writes** in `ext.rs` (`Guarded::MemoryWrite`), asked before a verdict
-   takes effect, with a dummy-guard test.
-3. **Measurements, prepared and not run**: seed a wrong note as the record of a reverted task
+1. **Try a dream with a real model.** `av dream` and `av verdict` are built and tested with
+   agent scripts that run no model (`docs/reference.md`, "A second look at records";
+   `integrations/dream/DREAM.md` is what the agent reads). Nobody has yet read what a model does
+   with those instructions: run `av dream --repo R -- <agent>` on a repository with records,
+   read the refusals, and revise `DREAM.md` (its hash is on each run).
+2. **Measurements, prepared and not run**: seed a wrong note as the record of a reverted task
    (the free replay for standing), and pre-register raw memory against dreamed memory.
+3. Not built from Plan 16's list for `av dream`: `--every` (cron does it), `--budget-usd` (pass
+   the agent CLI's own flag in the command) and `--also-read DIR`.
+
+Done since: the guard for memory writes (`Guarded::MemoryWrite` in `ext.rs`, asked before a
+verdict's review and before a supersede; the commercial edition's guard needs the new arm at
+its next sync).
 
 Left open on purpose:
 

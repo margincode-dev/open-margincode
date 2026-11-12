@@ -5497,3 +5497,320 @@ fn task_start_with_checkout_makes_the_checkout_instead_of_using_the_workspace() 
     ok(av(&d, &dir, &["checkpoint"]));
     assert!(d.ws.join("demo/far-away/app/far.py").exists());
 }
+
+// ---- hivemind Phase 2: av dream, av verdict ----
+
+/// `av` as `agent` with its own `$AV_HOME`, so a run's directory is the test's.
+fn av_home(d: &Daemon, home: &Path, agent: &str, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", agent)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+/// A daemon whose repo has one decision about the greeter, written on a task.
+fn decision_recorded() -> (Daemon, TempDir) {
+    let (d, ws, _scratch) = started();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "hello never shouts",
+            "--body",
+            "Decided with the team.",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    (d, TempDir::new().unwrap())
+}
+
+/// A dreaming agent without a model: it disputes the first record of its bundle. Its first
+/// quote is not in the file; told what was refused, it quotes the file.
+const FAKE_DREAMER: &str = r#"
+test -f DREAM.md || exit 9
+echo "$AV_DREAM_MODE $AV_REPO $AV_DREAM_ROUND $AV_AGENT" >> rounds
+rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
+if [ -f refused.json ]; then quote='def hello(self, name):'; else quote='this line is nowhere in the file'; fi
+printf '{"verdicts": [{"record": "%s", "verdict": "disputed", "reason": "hello returns the name as given", "evidence": [{"code": "app/greeter.py", "quote": "%s"}]}]}' "$rec" "$quote" > verdicts.json
+"#;
+
+/// A verifying agent without a model: it agrees with the first verdict, with its own quote.
+const FAKE_VERIFIER: &str = r#"
+vd=$(grep -o 'vd:[0-9a-f]*' bundle.json | head -1)
+printf '{"reviews": [{"verdict": "%s", "agree": true, "evidence": [{"code": "app/greeter.py", "quote": "class Greeter:"}]}]}' "$vd" > reviews.json
+"#;
+
+/// The one run directory under `home/dreams` that `keep` accepts: (the run's id, its path).
+fn run_dir(home: &Path, keep: impl Fn(&Path) -> bool) -> (String, PathBuf) {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(home.join("dreams"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| keep(p))
+        .collect();
+    assert_eq!(dirs.len(), 1, "{dirs:?}");
+    let dir = dirs.pop().unwrap();
+    (dir.file_name().unwrap().to_str().unwrap().to_owned(), dir)
+}
+
+fn word_after<'a>(text: &'a str, start: &str) -> &'a str {
+    let at = text
+        .find(start)
+        .unwrap_or_else(|| panic!("no {start:?} in {text}"));
+    text[at..].split_whitespace().next().unwrap()
+}
+
+#[test]
+fn dream_with_nothing_to_look_at_starts_no_agent() {
+    let (d, _ws, _scratch) = started();
+    let home = TempDir::new().unwrap();
+    let got = ok(av_home(
+        &d,
+        home.path(),
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", "touch ran"],
+    ));
+    assert!(got.contains("nothing to review in demo"), "{got}");
+    assert!(!home.path().join("dreams").exists());
+    let o = av_home(&d, home.path(), "dreamer", &["dream", "--repo", "demo"]);
+    assert!(
+        !o.status.success() && err(&o).contains("after --"),
+        "{}",
+        err(&o)
+    );
+}
+
+#[test]
+fn dream_posts_what_its_agent_wrote_and_a_verify_run_makes_it_effective() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", FAKE_DREAMER],
+    ));
+    // the first quote was refused, and the agent was run once more to correct it
+    assert!(got.contains("refused: evidence[0]"), "{got}");
+    assert!(got.contains("disputed -> vd:"), "{got}");
+    assert!(got.contains("done: 1 proposed, 0 refused"), "{got}");
+    let (id, dir) = run_dir(home, |_| true);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("rounds")).unwrap(),
+        "review demo 1 dreamer\nreview demo 2 dreamer\n"
+    );
+    let bundle = std::fs::read_to_string(dir.join("bundle.json")).unwrap();
+    assert!(bundle.contains("hello never shouts"), "{bundle}");
+    let shown = ok(av_home(&d, home, "dreamer", &["dream", "show", &id]));
+    assert!(shown.contains("review demo by dreamer · done"), "{shown}");
+    assert!(shown.contains("instructions "), "{shown}");
+
+    let vd = word_after(&got, "vd:");
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo", "--state", "proposed"],
+    ));
+    assert!(
+        listed.contains(&format!("{vd}  proposed  disputed  rec:")),
+        "{listed}"
+    );
+    let one = ok(av_home(&d, home, "agent", &["verdict", "show", vd]));
+    assert!(
+        one.contains("decision by agent: hello never shouts"),
+        "{one}"
+    );
+    assert!(
+        one.contains("evidence: app/greeter.py: def hello(self, name):"),
+        "{one}"
+    );
+
+    // the second look, by another agent's run
+    let got = ok(av_home(
+        &d,
+        home,
+        "checker",
+        &[
+            "dream",
+            "--verify",
+            "--repo",
+            "demo",
+            "--",
+            "sh",
+            "-c",
+            FAKE_VERIFIER,
+        ],
+    ));
+    assert!(got.contains(&format!("{vd} agreed -> effective")), "{got}");
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo"],
+    ));
+    assert!(listed.contains(&format!("{vd}  effective")), "{listed}");
+    // nothing is left to verify
+    let got = ok(av_home(
+        &d,
+        home,
+        "checker",
+        &["dream", "--verify", "--repo", "demo", "--", "false"],
+    ));
+    assert!(got.contains("nothing to verify in demo"), "{got}");
+}
+
+#[test]
+fn a_dream_whose_agent_fails_posts_nothing_and_frees_its_area() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let script = format!("{FAKE_DREAMER}\nexit 3");
+    let o = av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", &script],
+    );
+    assert!(!o.status.success(), "{}", out(&o));
+    assert!(out(&o).contains("failed; nothing"), "{}", out(&o));
+    let (id, _) = run_dir(home, |_| true);
+    let shown = ok(av_home(&d, home, "dreamer", &["dream", "show", &id]));
+    assert!(shown.contains("· failed"), "{shown}");
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo"],
+    ));
+    assert!(listed.contains("no verdicts in demo"), "{listed}");
+
+    // an agent that writes no file fails its run too
+    let o = av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "true"],
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("wrote no"),
+        "{}",
+        err(&o)
+    );
+    // neither run holds the repository: the next one starts
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", FAKE_DREAMER],
+    ));
+    assert!(got.contains("done: 1 proposed"), "{got}");
+}
+
+#[test]
+fn a_person_accepts_rejects_and_retracts_verdicts_and_undoes_a_run() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let dream = |home: &Path| {
+        ok(av_home(
+            &d,
+            home,
+            "dreamer",
+            &[
+                "dream",
+                "--repo",
+                "demo",
+                "--fix-rounds",
+                "1",
+                "--",
+                "sh",
+                "-c",
+                FAKE_DREAMER,
+            ],
+        ))
+    };
+    let got = dream(home);
+    let vd = word_after(&got, "vd:").to_owned();
+    // without --agent the reviewer is a person
+    let line = ok(av(&d, home, &["verdict", "reject", &vd]));
+    assert!(line.contains(&format!("{vd}  rejected")), "{line}");
+    let again = av(&d, home, &["verdict", "accept", &vd]);
+    assert!(!again.status.success(), "a verdict is reviewed once");
+
+    let got = dream(home);
+    let vd = word_after(&got, "vd:").to_owned();
+    let line = ok(av(&d, home, &["verdict", "accept", &vd]));
+    assert!(line.contains(&format!("{vd}  effective")), "{line}");
+    let line = ok(av(&d, home, &["verdict", "retract", &vd]));
+    assert!(line.contains(&format!("{vd}  retracted")), "{line}");
+
+    let got = dream(home);
+    let vd = word_after(&got, "vd:").to_owned();
+    let id = got
+        .split("`av dream undo ")
+        .nth(1)
+        .and_then(|rest| rest.split('`').next())
+        .unwrap_or_else(|| panic!("{got}"))
+        .to_owned();
+    let undone = ok(av(&d, home, &["dream", "undo", &id]));
+    assert!(undone.contains("1 verdicts retracted"), "{undone}");
+    let listed = ok(av(
+        &d,
+        home,
+        &["verdict", "list", "--repo", "demo", "--state", "retracted"],
+    ));
+    assert!(listed.contains(&vd), "{listed}");
+}
+
+#[test]
+fn a_review_that_names_no_verdict_is_refused_and_touches_nothing_else() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", FAKE_DREAMER],
+    ));
+    let vd = word_after(&got, "vd:").to_owned();
+    // the agent's text is a path segment and nothing more
+    let script = r#"printf '{"reviews": [{"verdict": "../../repos/demo/dreams", "agree": true, "evidence": [{"code": "app/greeter.py", "quote": "class Greeter:"}]}, {"agree": true}]}' > reviews.json"#;
+    let got = ok(av_home(
+        &d,
+        home,
+        "checker",
+        &[
+            "dream",
+            "--verify",
+            "--repo",
+            "demo",
+            "--fix-rounds",
+            "0",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ],
+    ));
+    assert!(got.contains("is not a verdict id"), "{got}");
+    assert!(got.contains("a review needs `verdict`"), "{got}");
+    assert!(got.contains("done: 2 refused"), "{got}");
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo", "--state", "proposed"],
+    ));
+    assert!(listed.contains(&vd), "{listed}");
+}

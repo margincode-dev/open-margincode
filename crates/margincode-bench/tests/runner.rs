@@ -3,6 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
+use margincode_bench::dreamed;
 use margincode_bench::runner::{
     Arm, RunConfig, first_pack, first_pack_dir, first_packs_report, run_session,
 };
@@ -108,6 +109,7 @@ fn fixture(mode: &str) -> Fixture {
         agent_user: None,
         av_ws_root: None,
         wrong_reverted: false,
+        dreamed: None,
     };
     Fixture {
         _repo: repo,
@@ -730,6 +732,205 @@ fn a_wrong_note_can_be_seeded_as_the_record_of_a_reverted_task() {
     };
     assert_eq!(standing("stands"), "reverted");
     assert_eq!(standing("README"), "open");
+}
+
+/// A dream agent that runs no model (`sh` and `jq`): the review pass disputes the wrong note,
+/// quoting code at the run's commit, the merge event of its reverted task and the note itself,
+/// and confirms the other; the verify pass agrees with the dispute and not with the rest.
+const FAKE_DREAMER: &str = r#"set -e
+if [ "$AV_DREAM_MODE" = review ]; then
+  jq '.dream.worklist.commit as $c | {verdicts: [.items[] |
+    if (.record.summary | startswith("add() is right")) then
+      {record: .record.id, verdict: "disputed", reason: "add() subtracts; the note defends the bug",
+       evidence: ([{code: "calc.py", commit: $c, quote: "def add(a, b):"}]
+         + ([.task.events[] | select(.kind == "merged") | {event: .id}][:1])
+         + [{record: .record.id, quote: "add() is right as it stands"}])}
+    else
+      {record: .record.id, verdict: "confirmed",
+       evidence: [{code: "calc.py", quote: "def add(a, b):"}]}
+    end]}' bundle.json > verdicts.json
+else
+  jq '{reviews: [.items[] | {verdict: .verdict.handle, agree: (.verdict.verdict == "disputed"),
+       evidence: [{code: "calc.py", quote: "def add(a, b):"}]}]}' bundle.json > reviews.json
+fi
+"#;
+
+/// Plan 16 M2 stage B: `dream-freeze` runs the real `av dream` twice on a seeded store and
+/// keeps what the passes ended with; a session of the dreamed arm gets the same verdicts and
+/// reviews in its own, freshly seeded store, with every quote checked again.
+#[test]
+fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
+    let _g = serial();
+    let Some(av) = real_av() else {
+        println!("skip: no av binary beside the test binary (cargo build -p margincode-cli)");
+        return;
+    };
+    if std::process::Command::new("jq")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        println!("skip: jq not installed");
+        return;
+    }
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.wrong_reverted = true;
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES_ONE_OFF_THE_LOG).unwrap();
+    std::fs::write(dir.path().join("dreamer.sh"), FAKE_DREAMER).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+
+    // freeze: the real av runs the two passes
+    let agent = format!("sh {}", dir.path().join("dreamer.sh").display());
+    let args = dreamed::FreezeArgs {
+        dreamer: "dreamer".into(),
+        dream_cmd: agent.clone(),
+        verifier: "verifier".into(),
+        verify_cmd: agent,
+        limit: None,
+        timeout: std::time::Duration::from_secs(60),
+        fix_rounds: 0,
+        home: dir.path().join("home"),
+    };
+    let freeze_cfg = RunConfig {
+        av_bin: av.to_string_lossy().into(),
+        ..f.cfg.clone()
+    };
+    let daemon = margincode_bench::runner::Daemon::new(&d.url, None);
+    let t = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc", &args).unwrap();
+    // the two notes, and the note the revert wrote on the reverted task (it names commits,
+    // which differ in every seed: it is found again by its task, kind and place)
+    assert_eq!(t.verdicts.len(), 3, "{t:#?}");
+    let revert_note = t.verdicts.iter().find(|v| v.note.is_none()).unwrap();
+    assert_eq!(
+        (
+            revert_note.record.task.as_str(),
+            revert_note.record.kind.as_str()
+        ),
+        ("reverted", "note")
+    );
+    assert!(
+        revert_note.record.summary.contains("reverted by"),
+        "{revert_note:#?}"
+    );
+    let wrong = t
+        .verdicts
+        .iter()
+        .find(|v| v.wrong)
+        .expect("the wrong note's");
+    assert_eq!(
+        (wrong.verdict.as_str(), wrong.state.as_str()),
+        ("disputed", "effective")
+    );
+    assert_eq!(wrong.record.task, margincode_bench::runner::REVERTED_TASK);
+    // named so another seed finds them: the run's commit dropped, record and event by key
+    assert_eq!(
+        wrong.evidence[0],
+        serde_json::json!({"code": "calc.py", "quote": "def add(a, b):"})
+    );
+    assert_eq!(
+        wrong.evidence[1]["event_key"]["kind"], "merged",
+        "{wrong:#?}"
+    );
+    assert_eq!(wrong.evidence[1]["event_key"]["task"], "reverted");
+    assert_eq!(
+        wrong.evidence[2]["record_key"],
+        serde_json::json!(wrong.record)
+    );
+    let review = wrong.review.as_ref().expect("the verify run's review");
+    assert_eq!((review.reviewer.as_str(), review.agree), ("verifier", true));
+    let right = t
+        .verdicts
+        .iter()
+        .find(|v| !v.wrong && v.note.is_some())
+        .unwrap();
+    assert_eq!(
+        (right.verdict.as_str(), right.state.as_str()),
+        ("confirmed", "rejected")
+    );
+    assert_eq!(
+        t.tally,
+        dreamed::Tally {
+            verdicts: 3,
+            effective: 1,
+            wrong_notes: 1,
+            wrong_disputed: 1,
+            true_notes: 1,
+            true_hit: 0,
+        }
+    );
+    let file = dir.path().join("dreamed.json");
+    let frozen = dreamed::Frozen {
+        version: dreamed::VERSION,
+        tasks: [(f.spec.name.clone(), t)].into_iter().collect(),
+    };
+    std::fs::write(&file, serde_json::to_string_pretty(&frozen).unwrap()).unwrap();
+
+    // a session of the dreamed arm: its own store, with the same verdicts in the same states
+    f.cfg.dreamed = Some(file.clone());
+    let o = run_session(&f.spec, Arm::Av, 1, "dr", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    let task = task_of(&ws);
+    let repo = get(&format!("{}/v1/tasks/{task}", d.url))["task"]["repo"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(repo, "frozen-calc");
+    let list = get(&format!("{}/v1/repos/{repo}/verdicts", d.url));
+    let mut got: Vec<(String, String)> = list["verdicts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (
+                v["verdict"].as_str().unwrap().to_owned(),
+                v["state"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    got.sort();
+    assert_eq!(
+        got,
+        vec![
+            ("confirmed".to_owned(), "rejected".to_owned()),
+            ("confirmed".to_owned(), "rejected".to_owned()),
+            ("disputed".to_owned(), "effective".to_owned())
+        ]
+    );
+    // the wrong note is read with its dispute
+    let search = get(&format!("{}/v1/repos/{repo}/search?q=stands", d.url));
+    let rec = search["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "decision")
+        .cloned()
+        .unwrap();
+    assert_eq!(rec["verdict"]["kind"], "disputed", "{rec}");
+
+    // another pool is refused, not replayed onto the wrong notes
+    let mut other = f.spec.clone();
+    other.relay_notes[0].summary.push_str(" (edited)");
+    let err = frozen.task(&other, true).unwrap_err();
+    assert!(err.contains("another pool"), "{err}");
+    // and so is a run without the reverted task the file's records belong to
+    let err = frozen.task(&f.spec, false).unwrap_err();
+    assert!(err.contains("frozen with --wrong-reverted"), "{err}");
+    // and the run's meta says which memory it started from
+    let memory = dreamed::memory_of(&f.cfg).unwrap();
+    assert!(
+        memory.starts_with("wrong-reverted, dreamed sha256:"),
+        "{memory}"
+    );
 }
 
 #[test]

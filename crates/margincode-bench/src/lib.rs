@@ -8,6 +8,7 @@
 //! --max-turns N --cwd`) as well as Claude Code; Grok is not passed `--max-budget-usd`.
 
 pub mod calibrate;
+pub mod dreamed;
 pub mod isolate;
 pub mod metrics;
 pub mod mine;

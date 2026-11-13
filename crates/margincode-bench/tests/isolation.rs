@@ -263,6 +263,7 @@ fn gate(agent: Option<AgentUser>, av_bin: Option<&Path>) -> Gate {
         agent_user: agent,
         av_ws_root: Some(daemon.ws_root.clone()),
         wrong_reverted: false,
+        dreamed: None,
     };
 
     let mut g = Gate {
@@ -707,13 +708,6 @@ fn a_session_cannot_read_the_grading_files_or_an_earlier_session() {
         r.rows.iter().filter(|row| row.success).count(),
         r.rows.len()
     ));
-}
-
-/// The `av` binary cargo built beside this test binary (`<target>/<profile>/av`), if it did.
-fn real_av() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let av = exe.parent()?.parent()?.join("av");
-    av.is_file().then_some(av)
 }
 
 /// The gate's av sessions use the fake `av` every other bench test uses, so they hold wherever

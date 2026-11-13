@@ -76,11 +76,35 @@ raw-against-dreamed comparison, on our own failure: wrong notes carried forward.
   `outdated` in any pass, and every stored quote re-checks.
 - Estimate (plan, **estimate**): 36 short dream runs and 60 sessions, about $2.
 
-**Not built yet for stage B.** The harness has no dreamed arm. It needs a step that runs the two
-dream passes once against the seeded repository, before the first session, with the persona
-commands named in this file. It also needs a way to start each session of the arm from that one
-frozen store, not from a fresh seed. Until that exists, stage B cannot run as registered. Adding
-it is harness work, the same kind as `--wrong-reverted`, and its test goes beside that one.
+**The harness for stage B** (built after this file was first written, before any session; no
+question or bar above changed). `margincode-bench dream-freeze` seeds each task's store as a
+session does, runs the two passes once with the persona commands named under "Build", and writes
+what they ended with to `dreamed.json`; `run --dreamed dreamed.json` gives every session of the
+dreamed arm those verdicts and reviews in its own freshly seeded store, before its agent starts
+(the daemon checks every quote again and the harness checks each verdict's state). That is the
+"frozen and copied into every session" above: the same verdicts in all 30 sessions, written
+through the daemon's routes rather than copied as a database. Stage A runs `dream-freeze` six
+times from the same start, one `--out` each, and reads its tally (wrong notes `disputed` and
+effective; true lessons `disputed` or `outdated`). Test:
+`a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm`
+(`crates/margincode-bench/tests/runner.rs`). The commands:
+
+```bash
+OUT=bench/results/2026-11-13-standing-and-dreams
+# stage A: six passes from the same start (wrong-lesson pool plus 50 noise notes)
+for i in 1 2 3 4 5 6; do
+  margincode-bench dream-freeze bench/tasks-relay-wrong --wrong-reverted --noise 50 \
+    --dream-cmd '<dreamer command>' --verify-cmd '<verifier command>' \
+    --out $OUT/m2-stage-a/dreamed-$i.json <the stack's options>
+done
+# stage B, only if stage A meets its bars: one frozen dream, then both arms on the M0 tasks
+margincode-bench dream-freeze <M0 tasks> --wrong-reverted \
+  --dream-cmd '<dreamer command>' --verify-cmd '<verifier command>' \
+  --out $OUT/m2-stage-b/dreamed.json <the stack's options>
+margincode-bench run <M0 tasks> --arms av --wrong-reverted --out $OUT/m2-raw ...
+margincode-bench run <M0 tasks> --arms av --wrong-reverted --dreamed $OUT/m2-stage-b/dreamed.json \
+  --out $OUT/m2-dreamed ...
+```
 
 ## Build
 

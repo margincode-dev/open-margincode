@@ -160,6 +160,10 @@ pub struct RunConfig {
     /// standing is `reverted`; the other notes stay the records of an open earlier task.
     /// Off: every note is the open task's, as before.
     pub wrong_reverted: bool,
+    /// Plan 16 M2 stage B: a file `margincode-bench dream-freeze` wrote. Each av session's store
+    /// gets that file's verdicts and reviews for its task once it is seeded, before the agent's
+    /// task starts ([`crate::dreamed::replay`]). `None`: the raw store, as before.
+    pub dreamed: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -356,7 +360,7 @@ fn seed_relay_records(
     daemon: &Daemon,
     repo: &str,
     wrong_reverted: bool,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Seeded> {
     let (task, generation) = earlier_task(daemon, repo, "agent-a", "earlier work")?;
     let reverted = if wrong_reverted && spec.relay_notes.iter().any(|n| n.no_commit) {
         Some(earlier_task(
@@ -392,7 +396,53 @@ fn seed_relay_records(
     if let Some((t, g)) = &reverted {
         reverted_task(daemon, t, *g)?;
     }
-    Ok(seeded)
+    let mut tasks = vec![(OPEN_TASK.to_owned(), task)];
+    if let Some((t, _)) = reverted {
+        tasks.push((REVERTED_TASK.to_owned(), t));
+    }
+    Ok(Seeded {
+        notes: seeded,
+        tasks,
+    })
+}
+
+/// What [`seed_relay_records`] made: the notes' records and the earlier tasks that hold them.
+#[derive(Debug, Clone, Default)]
+pub struct Seeded {
+    /// `(pair, record id)` of every relay note, in pool order.
+    pub notes: Vec<(String, String)>,
+    /// `(role, task id)` of each earlier task: [`OPEN_TASK`], and [`REVERTED_TASK`] with
+    /// `wrong_reverted` when the pool has a `no_commit` note.
+    pub tasks: Vec<(String, String)>,
+}
+
+/// The role of the earlier task whose records are the pool's notes.
+pub const OPEN_TASK: &str = "open";
+/// The role of the earlier task whose merge was reverted (`wrong_reverted`).
+pub const REVERTED_TASK: &str = "reverted";
+
+/// A task's store as every av session (and `dream-freeze`) starts it: the scrubbed copy of the
+/// base revision with the relay commits, imported as `name`, and the relay notes seeded as
+/// earlier tasks' records. Returns the copy's directory and what was seeded.
+pub fn seed_store(
+    spec: &TaskSpec,
+    cfg: &RunConfig,
+    daemon: &Daemon,
+    name: &str,
+) -> Result<(PathBuf, Seeded)> {
+    let src = cfg.import_dir.join(name);
+    scrubbed_copy(&spec.repo_path, &spec.base_rev, &src)?;
+    relay_commits(&src, &spec.relay_notes)?;
+    daemon.add_repo(
+        name,
+        &format!("{}/{name}", cfg.import_mount.trim_end_matches('/')),
+    )?;
+    let seeded = if spec.relay_notes.is_empty() {
+        Seeded::default()
+    } else {
+        seed_relay_records(spec, daemon, name, cfg.wrong_reverted)?
+    };
+    Ok((src, seeded))
 }
 
 /// Starts an earlier task as `agent`: (id, generation).
@@ -604,18 +654,17 @@ fn start_av_task(
     dir: &Path,
 ) -> Result<AvTask> {
     let name = format!("b{run_id}-{}-{}-{rep}", spec.name, arm.short());
-    let src = cfg.import_dir.join(&name);
-    scrubbed_copy(&spec.repo_path, &spec.base_rev, &src)?;
-    relay_commits(&src, &spec.relay_notes)?;
-    daemon.add_repo(
-        &name,
-        &format!("{}/{name}", cfg.import_mount.trim_end_matches('/')),
-    )?;
-    let seeded = if spec.relay_notes.is_empty() {
-        vec![]
-    } else {
-        seed_relay_records(spec, daemon, &name, cfg.wrong_reverted)?
-    };
+    let (src, seeded) = seed_store(spec, cfg, daemon, &name)?;
+    if let Some(file) = &cfg.dreamed {
+        let frozen = crate::dreamed::Frozen::load(file)?;
+        crate::dreamed::replay(
+            frozen.task(spec, cfg.wrong_reverted)?,
+            spec,
+            daemon,
+            &name,
+            &seeded,
+        )?;
+    }
     // The start pack is only kept for calibration (`pack.md`), so it goes to a session of its
     // own: under the agent's session the ledger would mark everything as sent, and the agent's
     // first pack would be nothing but back-references.
@@ -657,7 +706,7 @@ fn start_av_task(
         generation,
         workspace,
         source: src,
-        seeded,
+        seeded: seeded.notes,
         start_pack: started["pack"].clone(),
     })
 }

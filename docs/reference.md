@@ -437,6 +437,8 @@ Defaults (override with environment variables before `up`):
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `margincode claim` it. |
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
+| `AV_LISTEN` | `127.0.0.1:7420` | the daemon's address. A non-loopback host needs `AV_TOKEN` or `AV_LISTEN_OPEN=1`, else the daemon refuses to start. |
+| `AV_LISTEN_OPEN` | off | `1`: allow a non-loopback `AV_LISTEN` without a token, when something else (a port published on `127.0.0.1`) limits who reaches it. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`margincode repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it the daemon reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off. |

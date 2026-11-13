@@ -4,7 +4,7 @@
 #
 # Two ways to run the image:
 #   * compose (deploy/docker-compose.yml): Postgres is a separate container, `AV_DATABASE_URL` is set.
-#   * alone, lite mode: `docker run -p 127.0.0.1:7420:7420 -v margincode:/data ghcr.io/vinhqbui/scholion`
+#   * alone, lite mode: `docker run -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/vinhqbui/scholion`
 #     with no `AV_DATABASE_URL`, so the daemon runs its own Postgres under $AV_HOME/pg (/data/pg).
 FROM rust:1.97.1-bookworm AS build
 WORKDIR /src
@@ -34,9 +34,13 @@ RUN apt-get update \
     && mkdir -p /data && chown margincode:margincode /data
 COPY --from=build /usr/local/bin/margincode /usr/local/bin/av /usr/local/bin/margincode-daemon /usr/local/bin/
 # Defaults for a plain `docker run`; compose sets its own store, workspace root and user.
+# AV_LISTEN: a published port reaches only a non-loopback address in the container. The daemon
+# then refuses to start without AV_TOKEN or AV_LISTEN_OPEN=1 (the port is published on the
+# host's 127.0.0.1 only); the image sets neither, so whoever publishes the port decides.
 ENV AV_HOME=/data \
     AV_STORE_ROOT=/data/store \
-    AV_WS_ROOT=/data/ws
+    AV_WS_ROOT=/data/ws \
+    AV_LISTEN=0.0.0.0:7420
 VOLUME /data
 EXPOSE 7420
 # Compose runs it as the host user (`user:`), so it needs no root and writes host-owned files.

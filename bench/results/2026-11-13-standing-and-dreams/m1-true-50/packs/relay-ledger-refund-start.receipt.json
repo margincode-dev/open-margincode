@@ -1,0 +1,299 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:04:08.490175+00:00",
+  "head_change": "b4b6f11f87f381f04ee29bc8028e71d6331b4f86",
+  "id": "rcp:42856fee",
+  "items": [
+    {
+      "id": "task:relay-ledger-refund",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/quote.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/tax.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/report/csv_export.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:fc9a8169",
+      "reason": "goal-lead",
+      "score": 2.0163934230804443,
+      "source": null,
+      "tier": "summary",
+      "tokens": 65
+    },
+    {
+      "id": "rec:a1fa0c18",
+      "reason": "anchored",
+      "score": 1.6600000858306885,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "rec:32890c24",
+      "reason": "anchored",
+      "score": 1.6600000858306885,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "sym:3673",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:3676",
+      "reason": "hop2",
+      "score": 0.7733556628227234,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:3671",
+      "reason": "lexical",
+      "score": 0.7733241319656372,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:3792",
+      "reason": "hop1",
+      "score": 0.6499999761581421,
+      "source": [
+        "tallyho/workflow.py",
+        41,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:3672",
+      "reason": "hop1",
+      "score": 0.639453113079071,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:3725",
+      "reason": "hop1",
+      "score": 0.626838207244873,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3723",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "summary",
+      "tokens": 24
+    },
+    {
+      "id": "sym:3684",
+      "reason": "hop2",
+      "score": 0.5778205394744873,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:3674",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/ledger.py",
+        46,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3670",
+      "reason": "hop2",
+      "score": 0.5715174078941345,
+      "source": [
+        "tallyho/ledger.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:3664",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/errors.py",
+        24,
+        25
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:3788",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:ff870c85 note, open: Benchmarks for `Ledger.record_sale` are in a separate, manual job; the…",
+    "- rec:f789d88e attempt, open: Moving the imports inside `Money.zero` to speed up start-up saved unde…",
+    "- rec:4a6f3884 attempt, open: Moving the imports inside `Ledger.post` to speed up start-up saved und…",
+    "- rec:cf86dedf attempt, open: Taxing each line separately (taxes.tax per line) and rounding per line…",
+    "- rec:3558b80e attempt, open: Replacing the loop in `Money` with a comprehension made it shorter but…"
+  ],
+  "packer_version": 10,
+  "session": "bench-start-765887f5-e6ba-4dbc-8ae4-61589f4bc6db",
+  "task_id": "b7d982bd-63fb-4a42-8e3f-3c27df1df391",
+  "tokens": 707
+}

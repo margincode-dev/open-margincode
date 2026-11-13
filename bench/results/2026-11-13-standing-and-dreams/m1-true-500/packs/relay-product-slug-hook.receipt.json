@@ -1,0 +1,211 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:09:21.797004+00:00",
+  "head_change": "1b2b4d3a29234395bef1bfb3be35b1caab478145",
+  "id": "rcp:01fd28d5",
+  "items": [
+    {
+      "id": "task:relay-product-slug",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 35
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:d8d28c6e",
+      "reason": "goal-lead",
+      "score": 2.0320184230804443,
+      "source": null,
+      "tier": "summary",
+      "tokens": 70
+    },
+    {
+      "id": "rec:0d83d6d9",
+      "reason": "goal-lead",
+      "score": 2.0320019721984863,
+      "source": null,
+      "tier": "summary",
+      "tokens": 48
+    },
+    {
+      "id": "rec:4bd23973",
+      "reason": "semantic",
+      "score": 0.6257534623146057,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:8258552c",
+      "reason": "semantic",
+      "score": 0.6127994656562805,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:6067",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/repository.py",
+        44,
+        46
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:6063",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:5982",
+      "reason": "lexical",
+      "score": 0.7643382549285889,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "summary",
+      "tokens": 31
+    },
+    {
+      "id": "sym:6099",
+      "reason": "semantic",
+      "score": 0.5625,
+      "source": [
+        "tallyho/text.py",
+        8,
+        19
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:6001",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/models.py",
+        23,
+        35
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:6005",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        51,
+        60
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:6065",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/repository.py",
+        38,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:6066",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/repository.py",
+        41,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:6008",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:6060",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/repository.py",
+        19,
+        21
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:5981",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:5978",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/cli.py",
+        20,
+        23
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:aa8ff60b decision, open: New optional parameters of `Repository.product` are keyword-only (afte…",
+    "- rec:d8324773 decision, open: `product_to_record` keeps its docstring as the one place its behaviour…",
+    "- rec:2ce10cb6 decision, open: `CouponBook.add` keeps its docstring as the one place its behaviour is…",
+    "- rec:f15ee813 decision, open: New optional parameters of `cmd_products` are keyword-only (after *),…",
+    "- rec:6e51d6ff decision, open: Tests for `slugify` build their inputs with small factory helpers in c…"
+  ],
+  "packer_version": 10,
+  "session": "3954800e-ec71-4c7e-a1e1-fbfb6f247c45",
+  "task_id": "7ff68d2c-1dda-4bf6-8c0a-95602c39d6e9",
+  "tokens": 689
+}

@@ -1,0 +1,219 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:03:10.305167+00:00",
+  "head_change": "bad57e7157ad0b76f2ed94f0e1dab33d44b93a76",
+  "id": "rcp:47640011",
+  "items": [
+    {
+      "id": "task:relay-product-slug",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 35
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:ea7e1aeb",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 70
+    },
+    {
+      "id": "rec:ba29826a",
+      "reason": "goal-lead",
+      "score": 2.0317540168762207,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:908a1899",
+      "reason": "semantic",
+      "score": 0.6170065402984619,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:d721a3da",
+      "reason": "semantic",
+      "score": 0.5733515620231628,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:7ef83ebf",
+      "reason": "semantic",
+      "score": 0.5666583180427551,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:2747",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/repository.py",
+        44,
+        46
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2743",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2662",
+      "reason": "lexical",
+      "score": 0.7643382549285889,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2779",
+      "reason": "semantic",
+      "score": 0.5625,
+      "source": [
+        "tallyho/text.py",
+        8,
+        19
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2681",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/models.py",
+        23,
+        35
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2685",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        51,
+        60
+      ],
+      "tier": "summary",
+      "tokens": 23
+    },
+    {
+      "id": "sym:2745",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/repository.py",
+        38,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:2746",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/repository.py",
+        41,
+        42
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2688",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:2740",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/repository.py",
+        19,
+        21
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:2661",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:2658",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/cli.py",
+        20,
+        23
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:50cb44ed attempt, open: Currencies have different minor units (JPY 0 decimals, KWD 3). A fixed…",
+    "- rec:103babf7 attempt, open: Splitting Money by multiplying with 1/n (total.times(Decimal(1) / n))…",
+    "- rec:220b1227 decision, open: Event payloads carry money as integer minor units plus the currency co…",
+    "- rec:ede407a8 decision, open: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:577b6edd decision, open: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…"
+  ],
+  "packer_version": 10,
+  "session": "cb3408b2-bc69-41d7-b704-1077548b65cb",
+  "task_id": "901d6938-2296-4166-844c-576ad305d26b",
+  "tokens": 700
+}

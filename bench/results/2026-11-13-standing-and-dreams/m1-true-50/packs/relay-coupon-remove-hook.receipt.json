@@ -1,0 +1,195 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:03:54.260541+00:00",
+  "head_change": "1089752ff34916ba4e74293edfa3323fda0368c5",
+  "id": "rcp:1ee9a510",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:f1121658",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:1626399c",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "summary",
+      "tokens": 51
+    },
+    {
+      "id": "rec:b3946c60",
+      "reason": "semantic",
+      "score": 0.6441456079483032,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "rec:8f1b8a0c",
+      "reason": "semantic",
+      "score": 0.6344200968742371,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "rec:c7c40511",
+      "reason": "semantic",
+      "score": 0.6334235668182373,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "sym:3378",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 27
+    },
+    {
+      "id": "sym:3381",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:3380",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "summary",
+      "tokens": 35
+    },
+    {
+      "id": "sym:3379",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:3382",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:3457",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3375",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:3393",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3377",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:3477",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:ef4aa430 attempt, open: Wrapping `JsonFileStore.delete` in a bare try/except with a retry loop…",
+    "- rec:c60c462d attempt, open: Wrapping `cmd_products` in a bare try/except with a retry loop hid the…",
+    "- rec:f67f66ad attempt, open: Wrapping `RecordStore.list_page` in a bare try/except with a retry loo…",
+    "- rec:0100bed8 attempt, open: Replacing the loop in `Workflow.ship` with a comprehension made it sho…",
+    "- rec:8d92d2e8 attempt, open: Wrapping `count_records` in a bare try/except with a retry loop hid th…"
+  ],
+  "packer_version": 10,
+  "session": "6dce20bc-c2d0-442c-a63d-e3a5ad919a28",
+  "task_id": "d8275392-ad68-4e4e-9294-e2aa52a751af",
+  "tokens": 703
+}

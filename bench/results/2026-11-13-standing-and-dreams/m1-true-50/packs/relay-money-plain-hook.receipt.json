@@ -1,0 +1,215 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:04:43.171262+00:00",
+  "head_change": "8ce745c09e4526ac7054464b397de1b34ec932ec",
+  "id": "rcp:18e5e749",
+  "items": [
+    {
+      "id": "task:relay-money-plain",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:aec8245c",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "summary",
+      "tokens": 64
+    },
+    {
+      "id": "rec:e2d99074",
+      "reason": "goal-lead",
+      "score": 2.032522439956665,
+      "source": null,
+      "tier": "handle",
+      "tokens": 32
+    },
+    {
+      "id": "rec:f130cdc7",
+      "reason": "semantic",
+      "score": 0.6449841260910034,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:60ec8199",
+      "reason": "semantic",
+      "score": 0.6405763030052185,
+      "source": null,
+      "tier": "handle",
+      "tokens": 32
+    },
+    {
+      "id": "rec:559ba813",
+      "reason": "semantic",
+      "score": 0.6377367973327637,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:f00a014d",
+      "reason": "semantic",
+      "score": 0.597091019153595,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:4036",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/money.py",
+        77,
+        80
+      ],
+      "tier": "summary",
+      "tokens": 27
+    },
+    {
+      "id": "sym:4038",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:4026",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/money.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:4025",
+      "reason": "lexical",
+      "score": 0.7571954131126404,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:4027",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:4037",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/money.py",
+        82,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4040",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4061",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4017",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        73,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:4039",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4020",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        92,
+        93
+      ],
+      "tier": "handle",
+      "tokens": 19
+    }
+  ],
+  "omitted": [
+    "- rec:9093ac1c attempt, open: Taxing each line separately (taxes.tax per line) and rounding per line…",
+    "- rec:d1afe1b5 attempt, open: Moving the imports inside `Money.zero` to speed up start-up saved unde…",
+    "- rec:869a42a1 attempt, open: Wrapping `_exponent` in a bare try/except with a retry loop hid the re…",
+    "- rec:5b15d69a attempt, open: Wrapping `Discount` in a bare try/except with a retry loop hid the rea…",
+    "- rec:dee3592b attempt, open: Wrapping `count_records` in a bare try/except with a retry loop hid th…"
+  ],
+  "packer_version": 10,
+  "session": "8fa082c6-64bd-4d2c-a521-a9d8578b748f",
+  "task_id": "8729a7da-dbea-4a05-8b56-af4e4271e36c",
+  "tokens": 704
+}

@@ -1,0 +1,267 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:00:43.362771+00:00",
+  "head_change": "3054476c9c1cdb08cfe0d54491f1aec6abb70d6c",
+  "id": "rcp:6e03d17d",
+  "items": [
+    {
+      "id": "task:relay-store-count",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 52
+    },
+    {
+      "id": "file:tallyho/store/jsonfile.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/store/memory.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/cli.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/store/base.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_store.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "full",
+      "tokens": 39
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/store/scan.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:7af4126f",
+      "reason": "anchored",
+      "score": 0.4266666769981384,
+      "source": null,
+      "tier": "full",
+      "tokens": 81
+    },
+    {
+      "id": "sym:769",
+      "reason": "seed",
+      "score": 0.8178571462631226,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        14,
+        72
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:779",
+      "reason": "seed",
+      "score": 0.814453125,
+      "source": [
+        "tallyho/store/memory.py",
+        12,
+        46
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:763",
+      "reason": "hop1",
+      "score": 0.6499999761581421,
+      "source": [
+        "tallyho/store/base.py",
+        17,
+        41
+      ],
+      "tier": "summary",
+      "tokens": 25
+    },
+    {
+      "id": "sym:665",
+      "reason": "hop1",
+      "score": 0.6428571343421936,
+      "source": [
+        "tallyho/cli.py",
+        15,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:786",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/store/scan.py",
+        23,
+        24
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:669",
+      "reason": "hop2",
+      "score": 0.5715174078941345,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 16
+    },
+    {
+      "id": "sym:785",
+      "reason": "hop2",
+      "score": 0.5685049295425415,
+      "source": [
+        "tallyho/store/scan.py",
+        10,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:676",
+      "reason": "semantic",
+      "score": 0.5625,
+      "source": [
+        "tallyho/errors.py",
+        24,
+        25
+      ],
+      "tier": "handle",
+      "tokens": 16
+    },
+    {
+      "id": "sym:685",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:775",
+      "reason": "lexical",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/store/jsonfile.py",
+        47,
+        54
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:696",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 16
+    },
+    {
+      "id": "sym:687",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/ledger.py",
+        52,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:666",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/cli.py",
+        20,
+        23
+      ],
+      "tier": "handle",
+      "tokens": 17
+    }
+  ],
+  "omitted": [
+    "- sym:768 RecordStore.put_many (tallyho/store/base.py:39-41)",
+    "- sym:694 OrderLine.__post_init__ (tallyho/models.py:55-56)",
+    "- sym:824 store (tests/test_store.py:8-9)",
+    "- sym:668 main (tallyho/cli.py:31-42)",
+    "- sym:751 Repository (tallyho/repository.py:32-74)",
+    "- sym:752 Repository.__init__ (tallyho/repository.py:35-36)",
+    "- sym:753 Repository.save_product (tallyho/repository.py:38-39)",
+    "- sym:754 Repository.product (tallyho/repository.py:41-42)",
+    "- sym:755 Repository.products (tallyho/repository.py:44-46)"
+  ],
+  "packer_version": 10,
+  "session": "bench-start-8e8abdd2-74bf-44d9-ab79-1f1ae76a8eb6",
+  "task_id": "3e1d0acb-c30b-4e14-863b-1b3adfb76995",
+  "tokens": 716
+}

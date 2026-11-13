@@ -1,0 +1,303 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:02:37.033011+00:00",
+  "head_change": "972f5d41cfdf573917b56c8e9367b1d961868284",
+  "id": "rcp:4e647019",
+  "items": [
+    {
+      "id": "task:relay-line-taxes",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "file:tallyho/pricing/quote.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/pricing/tax.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/report/csv_export.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/repository.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/conftest.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_pricing.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/cli.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/config.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.36666667461395264,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "rec:be1df648",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 65
+    },
+    {
+      "id": "rec:2c7743b9",
+      "reason": "anchored",
+      "score": 0.707691490650177,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:1dbecf72",
+      "reason": "anchored",
+      "score": 0.6259151697158813,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:c4167587",
+      "reason": "semantic",
+      "score": 0.5871685743331909,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:2231",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2230",
+      "reason": "hop1",
+      "score": 0.8573102355003357,
+      "source": [
+        "tallyho/pricing/quote.py",
+        23,
+        27
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:2229",
+      "reason": "hop1",
+      "score": 0.8506069183349609,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "full",
+      "tokens": 24
+    },
+    {
+      "id": "sym:2190",
+      "reason": "hop1",
+      "score": 0.8446953892707825,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2192",
+      "reason": "hop2",
+      "score": 0.7826712727546692,
+      "source": [
+        "tallyho/models.py",
+        76,
+        84
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2234",
+      "reason": "hop1",
+      "score": 0.6329545378684998,
+      "source": [
+        "tallyho/pricing/tax.py",
+        25,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:2193",
+      "reason": "hop2",
+      "score": 0.5746212005615234,
+      "source": [
+        "tallyho/models.py",
+        86,
+        89
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:2183",
+      "reason": "hop2",
+      "score": 0.5715174078941345,
+      "source": [
+        "tallyho/models.py",
+        23,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:2245",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:2314",
+      "reason": "hop1",
+      "score": 0.5228225588798523,
+      "source": [
+        "tests/test_pricing.py",
+        20,
+        24
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:2189",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/models.py",
+        59,
+        60
+      ],
+      "tier": "handle",
+      "tokens": 20
+    }
+  ],
+  "omitted": [
+    "- repo map: .gitignore README.md pyproject.toml tallyho/ tests/ (35 files)",
+    "- rec:72620cd8 decision, open: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:1238885d attempt, open: list_page never returns more than max_page_size (100) records, whateve…",
+    "- rec:a35b6174 attempt, open: Splitting Money by multiplying with 1/n (total.times(Decimal(1) / n))…",
+    "- rec:4443e36a attempt, open: Currencies have different minor units (JPY 0 decimals, KWD 3). A fixed…"
+  ],
+  "packer_version": 10,
+  "session": "798ac9a0-72df-41be-8bcc-c43c1a321b00",
+  "task_id": "cf66ba5f-9500-4474-898a-ca4be729b170",
+  "tokens": 713
+}

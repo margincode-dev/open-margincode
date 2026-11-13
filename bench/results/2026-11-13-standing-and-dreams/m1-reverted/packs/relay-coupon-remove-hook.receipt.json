@@ -1,0 +1,203 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:00:11.892704+00:00",
+  "head_change": "6e1912b575b5cd79cbac5b1392dd72d6845a080b",
+  "id": "rcp:5fce9ab9",
+  "items": [
+    {
+      "id": "task:relay-coupon-remove",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 51
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:0f7b3d72",
+      "reason": "goal-lead",
+      "score": 0.8131147623062134,
+      "source": null,
+      "tier": "handle",
+      "tokens": 33
+    },
+    {
+      "id": "rec:fb4894b3",
+      "reason": "goal-lead",
+      "score": 0.8127016425132751,
+      "source": null,
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "rec:cc20e28e",
+      "reason": "semantic",
+      "score": 0.5857204794883728,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:1587299c",
+      "reason": "semantic",
+      "score": 0.5823230147361755,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:61d59dc2",
+      "reason": "semantic",
+      "score": 0.5718704462051392,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:17338dfe",
+      "reason": "semantic",
+      "score": 0.571734607219696,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "sym:58",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "full",
+      "tokens": 26
+    },
+    {
+      "id": "sym:61",
+      "reason": "lexical",
+      "score": 0.7767281532287598,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:60",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:59",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        43,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:62",
+      "reason": "lexical",
+      "score": 0.7599077224731445,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:137",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:55",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "summary",
+      "tokens": 24
+    },
+    {
+      "id": "sym:73",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:57",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:157",
+      "reason": "lexical",
+      "score": 0.4483756721019745,
+      "source": [
+        "tests/test_pricing.py",
+        27,
+        31
+      ],
+      "tier": "handle",
+      "tokens": 21
+    }
+  ],
+  "omitted": [
+    "- rec:02b7956c decision, open: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:f9632a9a note, open: merge f65237534293 reverted by bench-merger in 6e1912b575b5: the bench…",
+    "- rec:ab47114c decision, reverted: Count through the base class: len(self.list_page(collection, None, 10*…",
+    "- rec:4aed762c decision, reverted: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:0b982c5a decision, reverted: Every currency tallyho supports has two decimals. Plain amounts are mi…"
+  ],
+  "packer_version": 10,
+  "session": "3c2c7bca-50a8-4919-a59c-b9c6718b7337",
+  "task_id": "1085ba99-329a-4541-ab82-f4f536b54b62",
+  "tokens": 704
+}

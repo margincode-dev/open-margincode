@@ -877,17 +877,19 @@ async fn show(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Val
     Ok(Json(json!({"dream": d, "verdicts": verdicts})))
 }
 
-/// One verdict (`id`: the full id or `vd:…`) with the record it judges, so a person can read
-/// both before agreeing.
+/// One verdict (`id`: the full id or `vd:…`) with the record it judges and its reviews (oldest
+/// first, each with its run and evidence), so a person can read all of it before agreeing.
 async fn show_verdict(State(st): State<AppState>, Path(id): Path<String>) -> ApiResult<Value> {
     let v = st.pg.find_verdict(&id).await?;
     let rec = st.store.get_record(v.record_id).await?;
     let repo = repo_of(&st, &rec).await?;
+    let reviews = st.pg.verdict_reviews(v.id).await?;
     Ok(Json(json!({
         "verdict": verdict_json(&v),
         "repo": repo,
         "record": {"id": rec_handle(rec.id), "kind": rec.kind, "summary": rec.summary,
                    "body": rec.body, "anchors": rec.anchors, "author": rec.author_agent},
+        "reviews": reviews,
     })))
 }
 

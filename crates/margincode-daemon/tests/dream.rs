@@ -439,6 +439,13 @@ async fn a_verdict_a_person_rejects_has_no_effect() {
     assert_eq!(one["verdict"]["state"], "rejected", "{one}");
     assert_eq!(one["record"]["summary"], "hello never shouts", "{one}");
     assert_eq!(one["repo"], "demo", "{one}");
+    // and with its reviews: a person's has no run
+    let reviews = one["reviews"].as_array().expect("reviews");
+    assert_eq!(reviews.len(), 1, "{one}");
+    assert_eq!(reviews[0]["reviewer"], "vinh", "{one}");
+    assert_eq!(reviews[0]["agree"], false, "{one}");
+    assert!(reviews[0]["dream"].is_null(), "{one}");
+    assert_eq!(reviews[0]["evidence"], json!([]), "{one}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -742,6 +749,16 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
         pack(&e, &reader, "p1")
             .await
             .contains("(disputed: the greeter adds no mark")
+    );
+    // the verdict is read with the review that made it effective, the run's quote included
+    let (status, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{one}");
+    assert_eq!(
+        one["reviews"],
+        json!([{"reviewer": "checker", "agree": true, "dream": dream_id(&v),
+                "evidence": [{"code": "app/greeter.py", "quote": "def hello(self, name):"}],
+                "created_at": one["reviews"][0]["created_at"]}]),
+        "{one}"
     );
 
     let (_, feed) = call(

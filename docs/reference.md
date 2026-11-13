@@ -637,7 +637,8 @@ person's second look; the reviewer is `--agent` when one is named, else `user`.
   review run wrote. Packs are then what they were before, byte for byte.
 - `POST /v1/dreams/{id}/finish` ends a run (`{failed: true}` to say it failed);
   `GET /v1/dreams/{id}`, `GET /v1/repos/{repo}/verdicts?state=&record=` and
-  `GET /v1/verdicts/{id}` (one verdict with the record it judges) read them. Search and
+  `GET /v1/verdicts/{id}` (one verdict with the record it judges and its `reviews`, oldest
+  first: `reviewer`, `dream` (null for a person), `agree`, `evidence`) read them. Search and
   a task's records still list a hidden record, with `verdict: {kind, reason, handle}`. The feed
   gets `dream:started`, `dream:finished` and `verdict` (with its state).
 - An extension's `MergeGuard` is asked before a review is written (`Guarded::MemoryWrite` with

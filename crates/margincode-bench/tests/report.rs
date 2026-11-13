@@ -94,6 +94,7 @@ fn meta() -> Meta {
         noise: None,
         noise_seed: None,
         agent_isolation: None,
+        memory: None,
     }
 }
 
@@ -240,6 +241,7 @@ fn setup() -> Setup {
         agent_user: None,
         av_ws_root: None,
         wrong_reverted: false,
+        dreamed: None,
     };
     let out = work.path().join("results");
     Setup {
@@ -500,6 +502,54 @@ fn report_says_whether_the_agent_was_isolated() {
     );
 }
 
+/// Plan 16: rows do not say which store the av arms started from, so `meta.json` does
+/// (`raw`, `wrong-reverted`, `dreamed sha256:…`), the report prints it when it is not `raw`, and
+/// a results directory holds one.
+#[test]
+fn a_run_writes_its_memory_and_refuses_to_resume_into_results_of_another() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let s = setup();
+    // SAFETY: SERIAL is held.
+    unsafe { std::env::set_var("FAKE_MARKER", &s.marker) };
+    let a = args(&s, 5.0, true);
+    run(&s.specs, &a, &s.cfg).unwrap();
+    let meta_path = s.out.join("meta.json");
+    let written: Meta = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    assert_eq!(written.memory.as_deref(), Some("raw"));
+    let report = std::fs::read_to_string(s.out.join("report.md")).unwrap();
+    assert!(!report.contains("memory:"), "{report}");
+
+    // the same directory, run again with the wrong notes seeded as reverted work
+    let reverted = RunConfig {
+        wrong_reverted: true,
+        ..s.cfg.clone()
+    };
+    let err = run(&s.specs, &a, &reverted).err().unwrap();
+    assert!(
+        err.contains("started from `raw`") && err.contains("this run's from `wrong-reverted`"),
+        "{err}"
+    );
+
+    // results from before the options count as raw: a run without them resumes
+    let old = Meta {
+        memory: None,
+        ..written.clone()
+    };
+    std::fs::write(&meta_path, serde_json::to_vec(&old).unwrap()).unwrap();
+    run(&s.specs, &a, &s.cfg).expect("resumes");
+
+    // a report of a run on another memory says so
+    let dreamed = Meta {
+        memory: Some("wrong-reverted, dreamed sha256:00ff".into()),
+        ..written
+    };
+    let text = margincode_bench::report::render_report(&[], &dreamed);
+    assert!(
+        text.contains(" · memory: wrong-reverted, dreamed sha256:00ff · "),
+        "{text}"
+    );
+}
+
 #[test]
 fn a_run_writes_its_isolation_and_refuses_to_resume_into_results_of_another() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -532,6 +582,7 @@ fn a_run_writes_its_isolation_and_refuses_to_resume_into_results_of_another() {
     // results from before the option were not isolated: a run without the flag resumes them
     let old = Meta {
         agent_isolation: None,
+        memory: None,
         ..written
     };
     std::fs::write(&meta_path, serde_json::to_vec(&old).unwrap()).unwrap();

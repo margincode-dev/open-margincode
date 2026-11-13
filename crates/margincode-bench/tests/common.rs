@@ -81,6 +81,13 @@ pattern = 'return b - a'
     )
 }
 
+/// The `av` binary cargo built beside this test binary (`<target>/<profile>/av`), if it did.
+pub fn real_av() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let av = exe.parent()?.parent()?.join("av");
+    av.is_file().then_some(av)
+}
+
 /// A real daemon on an ephemeral port.
 pub struct TestDaemon {
     pub url: String,

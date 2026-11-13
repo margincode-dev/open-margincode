@@ -155,7 +155,9 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
    `--wrong-reverted`, the pool's `no_commit` notes are the records of a second earlier task
    instead. That task merges one file (`AV_BENCH_REVERTED.md`) and has its merge reverted
    before the agent's task starts, so those records' standing is `reverted` and trunk is the
-   base tree again.
+   base tree again. With `--dreamed FILE` (a file `dream-freeze` wrote, below), the store then
+   gets that file's verdicts and reviews for the task, still before the agent's task starts,
+   so its first pack already reads them.
 3. **Claude Code**: `claude -p "<goal>" --output-format stream-json --verbose` with an empty
    `CLAUDE_CONFIG_DIR` (your `~/.claude/.credentials.json` copied in), `--setting-sources project`,
    `--settings` and `--strict-mcp-config --mcp-config` files kept outside the workspace (empty for
@@ -181,6 +183,42 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
 Bash is allowed, so agents can run tests; it runs inside the throwaway copies under bench-work.
 Nothing but file permissions keeps it there: see the next section before a run whose numbers
 matter.
+
+## A dreamed memory (`dream-freeze`, `run --dreamed`)
+
+Plan 16's M2 stage B compares an agent that reads the raw records with one that reads them after
+a dream: `av dream` proposes verdicts on records, `av dream --verify` (another agent) agrees or
+not, and an agreed verdict changes what packs show. A dream costs money and varies from run to
+run, so the dreamed arm gets **one** dream, frozen, in every session:
+
+```bash
+# once: seed each task's store as a session would, dream on it twice, keep what that ended with
+margincode-bench dream-freeze bench/tasks-relay-wrong --wrong-reverted \
+  --dream-cmd 'claude -p "Read DREAM.md and do what it says"' \
+  --verify-cmd 'claude -p "Read DREAM.md and do what it says"' \
+  --out bench/results/<dir>/dreamed.json <the stack's options>
+# then the arm: every av session's store gets those verdicts before its agent starts
+margincode-bench run bench/tasks-relay-wrong --wrong-reverted --dreamed bench/results/<dir>/dreamed.json ...
+```
+
+`dream-freeze` runs the real `av dream` (`--av-bin`) as `--dreamer` and then `av dream --verify` as
+`--verifier`, each command with `sh -c` in its run's directory beside `DREAM.md` (`--limit`,
+`--timeout`, `--fix-rounds` are `av dream`'s), keeps the runs' directories under
+`<work-root>/df<pid>/<task>/dreams/`, and prints stage A's tally per task: wrong notes ended
+`disputed` and effective, and true lessons ended `disputed` or `outdated`. It spends what the two
+commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
+refuses a file frozen from another pool.
+
+The file names what stays the same from one seed to the next: a pool note by its place in the
+pool, any other record (the revert's note) by its earlier task's role, kind and place, an event
+by its kind, task role and place, and a quote's commit not at all when it was the run's own (a
+quote without one is checked at the run's commit). A session replays it through the daemon's own
+dream routes (review runs propose, verify runs review, as many runs as it takes to be handed
+every record), so every quote is checked again in that session's store, and then checks that
+every verdict ended in the state it was frozen in; anything else stops the session with an
+error. `meta.json` says which memory a run's av arms started from (`memory`: `raw`,
+`wrong-reverted`, `dreamed sha256:…`), the report prints it when it is not `raw`, and a results
+directory holds one.
 
 ## Agent isolation (`run --agent-user NAME`)
 

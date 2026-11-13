@@ -244,6 +244,28 @@ fn check_isolation(out: &Path, meta: &Meta) -> Result<()> {
     ))
 }
 
+/// Rows do not say which store their av arms started from (Plan 16: `--wrong-reverted`,
+/// `--dreamed`), so a results directory holds one: a run that would resume into rows made from
+/// another is refused. Results from before the options count as `raw`.
+fn check_memory(out: &Path, meta: &Meta) -> Result<()> {
+    let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
+        return Ok(());
+    };
+    let Ok(old) = serde_json::from_slice::<Meta>(&bytes) else {
+        return Ok(());
+    };
+    if old.memory() == meta.memory() || !out.join("rows.jsonl").exists() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} holds results whose av arms started from `{}`, this run's from `{}`: use one --out \
+         per memory",
+        out.display(),
+        old.memory(),
+        meta.memory()
+    ))
+}
+
 /// The whole run. Sessions already in `out/rows.jsonl` (an interrupted run) are not repeated and
 /// their cost counts toward the budget.
 pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunReport> {
@@ -332,10 +354,12 @@ fn run_sessions(
                 .as_ref()
                 .map_or_else(|| "none".to_owned(), |u| u.name.clone()),
         ),
+        memory: Some(crate::dreamed::memory_of(cfg)?),
         ..args.meta.clone()
     };
     check_noise_level(&args.out, &meta)?;
     check_isolation(&args.out, &meta)?;
+    check_memory(&args.out, &meta)?;
     write_result(
         &args.out.join("meta.json"),
         serde_json::to_vec_pretty(&meta).expect("json"),

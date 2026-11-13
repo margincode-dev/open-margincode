@@ -42,11 +42,10 @@ its next sync).
 
 Left open on purpose:
 
-- **Branch `loopback-default`**: its daemon change is on `main` (the daemon refuses an open
-  listen address without a token). Its other two commits, an architecture review and a shorter
-  `CLAUDE.md` with the module detail moved to `docs/architecture.md`, are not: the second rewrites
-  a file that has changed much since and needs redoing, not rebasing.
-- **Branch `wrong-lesson-cell`**: an older draft of the first benchmark run, probably superseded.
+- **Branches `loopback-default` and `wrong-lesson-cell`** (closed 2026-11-13): `loopback-default`'s
+  daemon change and architecture review are on `main` (#3, #137), and its shorter `CLAUDE.md` was
+  redone on the current one (module detail word for word in `docs/architecture.md`).
+  `wrong-lesson-cell`'s files are all on `main` (squashed in earlier); both branches were deleted.
 - **Release tags** are not here yet, and there is no release: `scripts/install.sh`, the README,
   the Docker image and the plugin command still name the old repository on purpose. Point them
   here with the first release (`release/0.0.4`).

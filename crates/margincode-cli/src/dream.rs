@@ -7,6 +7,7 @@
 //! this writes nothing but those files; the daemon still never starts a process.
 
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::Command;
 use std::time::Duration;
 
@@ -29,6 +30,8 @@ pub fn instructions_sha() -> String {
 
 pub struct Dream<'a> {
     pub agent: &'a str,
+    /// Read only where the agent command runs (Unix); `av dream` refuses to start elsewhere.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub url: &'a str,
     pub repo: &'a str,
     pub verify: bool,
@@ -37,6 +40,7 @@ pub struct Dream<'a> {
     /// How often the agent is run again on what the daemon refused.
     pub fix_rounds: u32,
     /// The agent command is killed after this long.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub timeout: Duration,
     /// Agents allowed to run at once on this host; `None` = no limit.
     pub max_agents: Option<u32>,

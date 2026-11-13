@@ -87,3 +87,37 @@ it is harness work, the same kind as `--wrong-reverted`, and its test goes besid
 To be filled in, and committed, before the first session of each part: the commit, the tree id,
 the sha256 of `av`, `margincode` and `margincode-bench`, the daemon image, and the model and its
 prices.
+
+### Part 1 (M1, free replay), filled in 2026-11-13 before the first `first-packs` command
+
+- **Commit** `850359b990829f9514f6f107de1a28e522f5c8fd` (branch `bench-wrong-reverted`), tree
+  `e7fcaa3ace6acd6f58effa15930fd4965409f5f6`, clean working tree. One build serves all five
+  commands (`m1-open` is the same build without the flag).
+- **Binaries**, `cargo build --release --locked -j 6 -p margincode-daemon -p margincode-cli
+  -p margincode-bench` in `rust:1.97.1` (`sha256:b1b3c9c0…dec813f`), `CARGO_TARGET_DIR=/target`:
+  - `margincode` `e15a7bbb054af0650f478f4c666283e225943a34b679f62dc0870c8e6b276586`
+  - `av` `130ef9bf2d1cb49746751edfaab459a7809e327d0987443fd7bd6291f8767b98`
+  - `margincode-daemon` `7b818d43c5fa506f214c39b40d22fd31ea92af017669c0db4a3f66410aa7705f`
+  - `margincode-bench` `b201129c032873d7863a3d5ee9aa26ea6a2808972c6228d0a3c26be04b913818`
+- **Daemon**: no image. The release binary above, run inside the harness container `m1-harness`
+  (`rust:1.97.1`, this checkout bind-mounted at `/src`) on the Docker network `m1-net`, which
+  also holds Postgres 16 (`m1-pg`, `postgres@sha256:ca0bd484…dbecb641d`), Qdrant v1.13.6
+  (`m1-qdrant`) and TEI cpu-1.7.2 (`m1-tei`), the recipe of `2026-11-first-pack/README.md`:
+
+  ```bash
+  cd /root
+  AV_DATABASE_URL=postgres://av:<password>@m1-pg:5432/bench AV_LISTEN=127.0.0.1:7450 \
+  AV_STORE_ROOT=/root/store AV_WS_ROOT=/root/bench-work/ws \
+  AV_QDRANT_URL=http://m1-qdrant:6334 AV_EMBED_URL=http://m1-tei:80 \
+  nohup /target/release/margincode-daemon >> /root/daemon.log 2>&1 &
+  ```
+
+  Fresh database, store, Qdrant and workspace root: nothing from an earlier run.
+- **Embedder**: TEI cpu-1.7.2 (`sha a69cc2e`) serving `BAAI/bge-small-en-v1.5` (float32, cls
+  pooling). Noise seed 1 (the default).
+- **Options** for every command ("the stack's options"): `--av-url http://127.0.0.1:7450
+  --work-root /root/bench-work --import-dir /root/bench-work/src --import-mount
+  /root/bench-work/src`. Tasks' repo: `bench/tallyho/make-repo.sh` into `~/bench-repos/tallyho`
+  (from `git archive HEAD bench/tallyho`, so the files keep their modes); venv
+  `~/bench-work/venv` (Python 3.13.5, pytest 9.2.0).
+- **Model and prices**: none. Part 1 starts no agent and calls no model.

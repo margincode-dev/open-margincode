@@ -239,6 +239,7 @@ fn setup() -> Setup {
         keep_work: true,
         agent_user: None,
         av_ws_root: None,
+        wrong_reverted: false,
     };
     let out = work.path().join("results");
     Setup {

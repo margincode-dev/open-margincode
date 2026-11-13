@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`margincode-bench run|first-packs --wrong-reverted`: a wrong note as the record of reverted work.** The pool's `no_commit` notes (the wrong-lesson pool's wrong notes) are seeded as the records of a second earlier task. Before the agent's task starts, that task is merged and its merge reverted, so their standing is `reverted`. Its one file (`AV_BENCH_REVERTED.md`) is gone again, so the agent's workspace is still the base tree. Without the flag every note is an open earlier task's record, as before. This is the harness side of Plan 16's M1, pre-registered and not run in `bench/results/2026-11-13-standing-and-dreams/PREREG.md`, together with M2's raw-against-dreamed comparison.
 - **No open address without a token.** `AV_LISTEN` now defaults to `127.0.0.1:7420` (was
   `0.0.0.0:7420`), and the daemon refuses to start on a non-loopback address unless `AV_TOKEN` is
   set or `AV_LISTEN_OPEN=1` says something else limits who can reach it. The compose file sets

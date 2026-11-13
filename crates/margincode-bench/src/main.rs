@@ -100,6 +100,10 @@ struct SessionArgs {
     /// --hook-arg=--max-code=3`.
     #[arg(long = "hook-arg", allow_hyphen_values = true)]
     hook_args: Vec<String>,
+    /// Plan 16 M1: seed the pool's `no_commit` notes (the wrong notes) as the records of an
+    /// earlier task whose merge was reverted, so their standing is `reverted`.
+    #[arg(long)]
+    wrong_reverted: bool,
     /// Also give the av arms the just-in-time hooks: `av hook pre-read` on reads and edits,
     /// `av hook stop` when the agent stops.
     #[arg(long)]
@@ -384,6 +388,7 @@ fn config(s: &SessionArgs) -> RunConfig {
         keep_work: s.keep_work,
         agent_user: None,
         av_ws_root: None,
+        wrong_reverted: s.wrong_reverted,
     }
 }
 

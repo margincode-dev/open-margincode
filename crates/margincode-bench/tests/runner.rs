@@ -107,6 +107,7 @@ fn fixture(mode: &str) -> Fixture {
         keep_work: true,
         agent_user: None,
         av_ws_root: None,
+        wrong_reverted: false,
     };
     Fixture {
         _repo: repo,
@@ -682,6 +683,53 @@ fn a_no_commit_note_is_a_record_in_the_av_arm_and_in_no_commit_message() {
         !log.contains("add() is right as it stands") && !log.contains("Leave calc.py alone"),
         "kept out of the git log channel: {log}"
     );
+}
+
+/// Plan 16 M1: with `wrong_reverted` the wrong note is a reverted task's record (its standing
+/// says so), the other note stays an open task's, and the agent's task starts on the base tree.
+#[test]
+fn a_wrong_note_can_be_seeded_as_the_record_of_a_reverted_task() {
+    let _g = serial();
+    let d = start_daemon(None);
+    let mut f = fixture("fix");
+    f.cfg.av_url = Some(d.url.clone());
+    f.cfg.wrong_reverted = true;
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.toml"), RELAY_NOTES_ONE_OFF_THE_LOG).unwrap();
+    let p = dir.path().join("calc-task.toml");
+    let text = spec_toml(&f.spec.repo_path, &f.spec.base_rev, &f.fix).replace(
+        "setup_cmd = \"\"\n",
+        "setup_cmd = \"\"\nrelay_pool = \"notes.toml\"\nrelay_pair = \"calc-add\"\n",
+    );
+    std::fs::write(&p, text).unwrap();
+    f.spec = load_spec(&p).unwrap();
+
+    // valid: the agent's workspace was the base tree (the reverted file is gone again)
+    let o = run_session(&f.spec, Arm::Av, 1, "rv", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+    let ws = PathBuf::from(std::fs::read_to_string(&f.marker).unwrap().trim());
+    assert!(
+        !ws.join(margincode_bench::runner::REVERTED_FILE).exists(),
+        "{}",
+        ws.display()
+    );
+    let task = task_of(&ws);
+    let t = get(&format!("{}/v1/tasks/{task}", d.url));
+    let repo = t["task"]["repo"].as_str().unwrap();
+    let standing = |q: &str| {
+        let hits = get(&format!("{}/v1/repos/{repo}/search?q={q}", d.url));
+        let r = hits["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "decision")
+            .cloned()
+            .unwrap_or_else(|| panic!("no decision for {q}: {hits}"));
+        assert_ne!(r["task_id"], task, "an earlier task's: {r}");
+        r["standing"]["origin"].as_str().unwrap_or("").to_owned()
+    };
+    assert_eq!(standing("stands"), "reverted");
+    assert_eq!(standing("README"), "open");
 }
 
 #[test]

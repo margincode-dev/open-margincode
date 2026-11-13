@@ -262,6 +262,7 @@ fn gate(agent: Option<AgentUser>, av_bin: Option<&Path>) -> Gate {
         keep_work: true,
         agent_user: agent,
         av_ws_root: Some(daemon.ws_root.clone()),
+        wrong_reverted: false,
     };
 
     let mut g = Gate {

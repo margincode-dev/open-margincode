@@ -155,6 +155,11 @@ pub struct RunConfig {
     /// The bench daemon's workspace root as this process sees it (`AV_WS_ROOT`). Only read with
     /// `agent_user` and an av arm: the preflight looks at it before the first session.
     pub av_ws_root: Option<PathBuf>,
+    /// Plan 16 Phase 1 (M1): seed the pool's `no_commit` notes (the wrong-lesson pool's wrong
+    /// notes) as the records of an earlier task whose merge was then reverted, so their
+    /// standing is `reverted`; the other notes stay the records of an open earlier task.
+    /// Off: every note is the open task's, as before.
+    pub wrong_reverted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,38 +348,116 @@ fn commit_notes_md(dest: &Path) -> Result<()> {
 
 /// E4, av arms: the relay notes as records of an earlier task, anchored to their code, so
 /// packs and the pre-read hook can show them to the agent's task.
-/// Seeds the relay notes as an earlier task's records and returns each one's `(pair, record id)`.
+/// Seeds the relay notes as an earlier task's records and returns each one's `(pair, record id)`,
+/// in pool order. With `wrong_reverted`, the `no_commit` notes are a second earlier task's,
+/// whose merge is reverted before the agent's task starts ([`reverted_task`]).
 fn seed_relay_records(
     spec: &TaskSpec,
     daemon: &Daemon,
     repo: &str,
+    wrong_reverted: bool,
 ) -> Result<Vec<(String, String)>> {
-    let started = daemon.post(
-        "/v1/tasks",
-        json!({"repo": repo, "title": "earlier work", "goal": "Earlier work on this code",
-               "agent": "agent-a", "session": format!("relay-{}", uuid::Uuid::new_v4())}),
-        None,
-    )?;
-    let task = started["task"]["id"].as_str().ok_or("no task id")?;
-    let generation = started["task"]["generation"].as_i64().unwrap_or(1);
+    let (task, generation) = earlier_task(daemon, repo, "agent-a", "earlier work")?;
+    let reverted = if wrong_reverted && spec.relay_notes.iter().any(|n| n.no_commit) {
+        Some(earlier_task(
+            daemon,
+            repo,
+            "agent-r",
+            "earlier work, reverted",
+        )?)
+    } else {
+        None
+    };
     let mut seeded = Vec::with_capacity(spec.relay_notes.len());
     for n in &spec.relay_notes {
+        let (t, g, agent) = match &reverted {
+            Some((rt, rg)) if n.no_commit => (rt.as_str(), *rg, "agent-r"),
+            _ => (task.as_str(), generation, "agent-a"),
+        };
         let mut anchor = json!({"path": n.path});
         if let Some(sym) = &n.symbol {
             anchor["symbol"] = json!(sym);
         }
         let rec = daemon.post(
-            &format!("/v1/tasks/{task}/records"),
+            &format!("/v1/tasks/{t}/records"),
             json!({"kind": n.kind, "summary": n.summary, "body": n.body,
-                   "anchors": [anchor], "agent": "agent-a"}),
-            Some(generation),
+                   "anchors": [anchor], "agent": agent}),
+            Some(g),
         )?;
         seeded.push((
             n.pair.clone(),
             rec["id"].as_str().unwrap_or_default().to_owned(),
         ));
     }
+    if let Some((t, g)) = &reverted {
+        reverted_task(daemon, t, *g)?;
+    }
     Ok(seeded)
+}
+
+/// Starts an earlier task as `agent`: (id, generation).
+fn earlier_task(daemon: &Daemon, repo: &str, agent: &str, title: &str) -> Result<(String, i64)> {
+    let started = daemon.post(
+        "/v1/tasks",
+        json!({"repo": repo, "title": title, "goal": "Earlier work on this code",
+               "agent": agent, "session": format!("relay-{}", uuid::Uuid::new_v4())}),
+        None,
+    )?;
+    let task = started["task"]["id"]
+        .as_str()
+        .ok_or("no task id")?
+        .to_owned();
+    Ok((task, started["task"]["generation"].as_i64().unwrap_or(1)))
+}
+
+/// The file the reverted task adds and its revert removes again, so trunk's tree is the base's.
+pub const REVERTED_FILE: &str = "AV_BENCH_REVERTED.md";
+
+/// Takes the task through submit, a passing validation, approval and merge, then reverts the
+/// merge: its records' standing becomes `reverted`. Its change is one new file
+/// ([`REVERTED_FILE`]), so after the revert trunk has the base's tree again.
+fn reverted_task(daemon: &Daemon, task: &str, generation: i64) -> Result<()> {
+    let t = daemon.get(&format!("/v1/tasks/{task}"))?;
+    let ws = PathBuf::from(
+        t["task"]["workspace_path"]
+            .as_str()
+            .ok_or("the reverted task has no workspace path")?,
+    );
+    std::fs::write(
+        ws.join(REVERTED_FILE),
+        "Work that was merged, then reverted.\n",
+    )
+    .map_err(|e| format!("{}: {e}", ws.display()))?;
+    let g = Some(generation);
+    daemon.post(
+        &format!("/v1/tasks/{task}/submit"),
+        json!({"agent": "agent-r"}),
+        g,
+    )?;
+    daemon.post(
+        &format!("/v1/tasks/{task}/validate"),
+        json!({"agent": "agent-r", "command": "bench", "exit_code": 0}),
+        g,
+    )?;
+    daemon.post(
+        &format!("/v1/tasks/{task}/review"),
+        json!({"reviewer": "bench-reviewer", "verdict": "approve"}),
+        None,
+    )?;
+    let merged = daemon.post(
+        &format!("/v1/tasks/{task}/merge"),
+        json!({"agent": "bench-merger"}),
+        None,
+    )?;
+    if merged["status"] != "merged" {
+        return Err(format!("the reverted task did not merge: {merged}"));
+    }
+    daemon.post(
+        &format!("/v1/tasks/{task}/revert"),
+        json!({"agent": "bench-merger", "reason": "the bench seeds this work as reverted"}),
+        None,
+    )?;
+    Ok(())
 }
 
 /// Every file of `rev` exists in `dir` with the same bytes.
@@ -531,7 +614,7 @@ fn start_av_task(
     let seeded = if spec.relay_notes.is_empty() {
         vec![]
     } else {
-        seed_relay_records(spec, daemon, &name)?
+        seed_relay_records(spec, daemon, &name, cfg.wrong_reverted)?
     };
     // The start pack is only kept for calibration (`pack.md`), so it goes to a session of its
     // own: under the agent's session the ledger would mark everything as sent, and the agent's

@@ -151,7 +151,11 @@ It prints the recommended `AV_TOKEN_FACTOR_CLAUDE`; set it on the bench daemon a
    own repo (`b<run>-<task>-<arm>-<rep>`), and a task is started (`pack_mode: task_only` for
    `av_no_packs`). The workspace is checked byte for byte against `base_rev`, the task's
    `[[dead_end]]`s are recorded as `attempt` records, `.av-task` is written, and the runner waits
-   for the embeddings.
+   for the embeddings. A relay pool's notes are the records of an earlier open task. With
+   `--wrong-reverted`, the pool's `no_commit` notes are the records of a second earlier task
+   instead. That task merges one file (`AV_BENCH_REVERTED.md`) and has its merge reverted
+   before the agent's task starts, so those records' standing is `reverted` and trunk is the
+   base tree again.
 3. **Claude Code**: `claude -p "<goal>" --output-format stream-json --verbose` with an empty
    `CLAUDE_CONFIG_DIR` (your `~/.claude/.credentials.json` copied in), `--setting-sources project`,
    `--settings` and `--strict-mcp-config --mcp-config` files kept outside the workspace (empty for

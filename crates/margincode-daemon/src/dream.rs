@@ -123,6 +123,11 @@ fn anchors_changed(then: &[Option<String>], now: &[Option<String>]) -> bool {
 ///  + 2·[another live record of its kind shares an anchor with it]
 ///  + min(packs of the last 30 days that showed it, 10) / 5
 ///  + 1·[it never had a verdict]`, ties by id.
+///
+/// A record a finished review run declined (was
+/// handed it and wrote no verdict on it) comes after every record no run declined, whatever
+/// its score: runs back to back with a small `limit` are then handed each record in turn
+/// instead of the same declined one every time. Among declined records the score decides.
 async fn worklist(
     st: &AppState,
     repo: &str,
@@ -170,11 +175,18 @@ async fn worklist(
             + 2.0 * f32::from(u8::from(clustered))
             + seen / 5.0
             + f32::from(u8::from(!c.had_verdict));
-        ranked.push((rec.clone(), score));
+        ranked.push((c.declined, rec.clone(), score));
     }
-    ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.id.0.cmp(&b.0.id.0)));
+    ranked.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| b.2.total_cmp(&a.2))
+            .then_with(|| a.1.id.0.cmp(&b.1.id.0))
+    });
     ranked.truncate(limit);
-    Ok(ranked)
+    Ok(ranked
+        .into_iter()
+        .map(|(_, rec, score)| (rec, score))
+        .collect())
 }
 
 fn clip(text: String) -> String {

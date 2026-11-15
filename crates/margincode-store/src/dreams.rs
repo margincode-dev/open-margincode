@@ -104,6 +104,8 @@ pub struct DreamCandidate {
     pub record: Record,
     /// Whether any verdict was ever written on it.
     pub had_verdict: bool,
+    /// Whether a review run that finished (`done`) was handed it and wrote no verdict on it.
+    pub declined: bool,
 }
 
 fn dream_from(r: &PgRow) -> Result<Dream> {
@@ -435,7 +437,8 @@ impl PgStore {
     /// The live records of `repo` a dream may judge, newest first, at most `scan`: decisions,
     /// attempts and notes written by agents (not mined from git), not superseded, not hidden
     /// by a verdict in effect, with no verdict waiting for its review, and, with an `area`,
-    /// anchored under it.
+    /// anchored under it. Each says whether a finished review run declined it (was handed it
+    /// and wrote no verdict on it).
     pub async fn dream_candidates(
         &self,
         repo: &str,
@@ -445,7 +448,14 @@ impl PgStore {
         let rows = sqlx::query(&format!(
             "SELECT {RECORD_COLS},
                     EXISTS (SELECT 1 FROM record_verdicts v WHERE v.record_id = r.id)
-                      AS had_verdict
+                      AS had_verdict,
+                    EXISTS (
+                      SELECT 1 FROM dreams d
+                      WHERE d.repo = $1 AND d.mode = 'review' AND d.status = 'done'
+                        AND d.worklist -> 'records' ? r.id::text
+                        AND NOT EXISTS (SELECT 1 FROM record_verdicts v
+                                        WHERE v.record_id = r.id AND v.dream_id = d.id))
+                      AS declined
              FROM records r JOIN tasks t ON t.id = r.task_id
              WHERE t.repo = $1
                AND r.kind IN ('decision', 'attempt', 'note')
@@ -469,17 +479,23 @@ impl PgStore {
         .fetch_all(self.pool())
         .await
         .map_err(serr)?;
-        let had: Vec<bool> = rows
+        let flags: Vec<(bool, bool)> = rows
             .iter()
-            .map(|r| r.try_get("had_verdict").map_err(serr))
+            .map(|r| {
+                Ok((
+                    r.try_get("had_verdict").map_err(serr)?,
+                    r.try_get("declined").map_err(serr)?,
+                ))
+            })
             .collect::<Result<_>>()?;
         let records = self.hydrate_records(rows).await?;
         Ok(records
             .into_iter()
-            .zip(had)
-            .map(|(record, had_verdict)| DreamCandidate {
+            .zip(flags)
+            .map(|(record, (had_verdict, declined))| DreamCandidate {
                 record,
                 had_verdict,
+                declined,
             })
             .collect())
     }

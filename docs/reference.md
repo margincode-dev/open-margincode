@@ -610,7 +610,10 @@ person's second look; the reviewer is `--agent` when one is named, else `user`.
   agents wrote: 3 for a record whose task's merge was reverted (or a decision of abandoned
   work), 2 when its anchored code on `main` differs from what it was recorded against (or last
   confirmed against), 2 when another live record of its kind shares an anchor, up to 2 for the
-  packs of the last 30 days that showed it, 1 when it never had a verdict. Each item carries the
+  packs of the last 30 days that showed it, 1 when it never had a verdict, ties by id. A record
+  that a finished review run was handed and wrote no verdict on (declined) comes after every
+  record no run declined, whatever its score, so runs back to back with a small `limit` reach
+  each record in turn; among declined records the score decides. Each item carries the
   record with its standing, its task (goal, status, lifecycle events), the anchored code on
   `main` now, the other live records on the same anchors and earlier verdicts, word for word.
 - `POST /v1/dreams/{id}/verdicts` `{verdicts: [{record, verdict, reason?, canonical?,

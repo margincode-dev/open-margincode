@@ -677,6 +677,39 @@ async fn a_confirmed_verdict_clears_the_changed_mark_and_such_records_are_looked
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_record_a_finished_run_left_undecided_waits_behind_records_no_run_declined() {
+    let e = env().await;
+    let t = start_task(&e, "Earlier work").await;
+    // two records that rank the same: one kind each, no shared anchor, no verdict
+    let a = record_on(&e, &t, "decision", "greetings stay short", "app/greeter.py").await;
+    let b = record_on(&e, &t, "note", "names keep their case", "app/util.py").await;
+    // a review run of one record that finishes without a verdict: what it was handed
+    async fn one(e: &Env) -> Value {
+        let (status, d) = post_json(
+            e,
+            "/v1/repos/demo/dreams",
+            json!({"agent": "dreamer", "mode": "review", "limit": 1}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{d}");
+        let handed = d["dream"]["worklist"]["records"][0].clone();
+        let (status, body) =
+            post_json(e, &format!("/v1/dreams/{}/finish", dream_id(&d)), json!({})).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        handed
+    }
+    // the first run is handed one of them and judges nothing
+    let first = one(&e).await;
+    assert!(first == a["id"] || first == b["id"], "{first}");
+    // the next run is handed the other, not the one already declined
+    let second = one(&e).await;
+    assert!(second == a["id"] || second == b["id"], "{second}");
+    assert_ne!(first, second, "a declined record is not handed again first");
+    // once both were declined, the ranking alone decides again
+    assert_eq!(one(&e).await, first);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own() {
     let e = env().await;
     let (earlier, reader) = two_tasks(&e).await;

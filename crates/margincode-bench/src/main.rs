@@ -259,16 +259,16 @@ enum Cmd {
         fix_rounds: u32,
         /// How many times the review run and then the verify run are made. Stage B: 1 (one
         /// verified pass). The tally's judged counts say which notes the rounds reached.
-        #[arg(long, default_value_t = 1, conflicts_with = "until_judged")]
+        #[arg(long, default_value_t = 1, conflicts_with = "until_empty")]
         rounds: u32,
         /// Stage A: review runs back to back until the worklist is empty (a record waiting for
-        /// a review is on no review run's list) or a run adds no verdict, then verify runs
-        /// until none waits. Exits 1, after writing the file, when a wrong note or a true
-        /// lesson was never judged.
+        /// a review is on no review run's list) or a run is handed nothing new (only what the
+        /// agent left undecided), then verify runs until none waits. Exits 1, after writing
+        /// the file, when a wrong note or a true lesson was never handed to a run.
         #[arg(long)]
-        until_judged: bool,
-        /// With --until-judged: the most runs of each pass.
-        #[arg(long, default_value_t = 20, requires = "until_judged")]
+        until_empty: bool,
+        /// With --until-empty: the most runs of each pass.
+        #[arg(long, default_value_t = 20, requires = "until_empty")]
         max_runs: u32,
     },
     /// Render report.md from a results directory.
@@ -772,7 +772,7 @@ fn main() -> ExitCode {
             timeout,
             fix_rounds,
             rounds,
-            until_judged,
+            until_empty,
             max_runs,
         } => (|| {
             let mut specs = load_tasks(&tasks)?;
@@ -809,7 +809,7 @@ fn main() -> ExitCode {
                     timeout: std::time::Duration::from_secs(timeout),
                     fix_rounds,
                     rounds,
-                    until_judged,
+                    until_empty,
                     max_runs,
                     home: cfg.work_root.join(&run_id).join(&spec.name),
                 };
@@ -818,7 +818,8 @@ fn main() -> ExitCode {
                 let a = &t.tally;
                 println!(
                     "{}: {} verdicts, {} effective; wrong notes disputed {}/{} (judged {}); \
-                     true lessons disputed or outdated {}/{} (judged {}) (dreams in {})",
+                     true lessons disputed or outdated {}/{} (judged {}); left undecided {} of {} \
+                     handed (dreams in {})",
                     spec.name,
                     a.verdicts,
                     a.effective,
@@ -828,14 +829,16 @@ fn main() -> ExitCode {
                     a.true_hit,
                     a.true_notes,
                     a.judged_true,
+                    a.undecided,
+                    a.handed,
                     args.home.display()
                 );
-                if until_judged {
+                if until_empty {
                     println!(
                         "{}: {} review runs, {} verify runs",
                         spec.name, t.review_runs, t.verify_runs
                     );
-                    if !a.all_judged() {
+                    if !a.all_handed() {
                         short.push(spec.name.clone());
                     }
                 }
@@ -849,9 +852,9 @@ fn main() -> ExitCode {
             println!("frozen: {}", out.display());
             if !short.is_empty() {
                 eprintln!(
-                    "dream-freeze: not every wrong note and true lesson was judged in {} (a run \
-                     added nothing, or --max-runs was reached): its bars are not read on all of \
-                     them",
+                    "dream-freeze: not every wrong note and true lesson was handed to a run in \
+                     {} (--max-runs was reached, or the worklist held only undecided records): \
+                     its bars are not read on all of them",
                     short.join(", ")
                 );
                 return Ok(1);

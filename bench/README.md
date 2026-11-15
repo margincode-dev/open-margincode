@@ -207,17 +207,21 @@ margincode-bench run bench/tasks-relay-wrong --wrong-reverted --dreamed bench/re
 `<work-root>/df<pid>/<task>/dreams/`, and prints stage A's tally per task: wrong notes ended
 `disputed` and effective, and true lessons ended `disputed` or `outdated`, each counted once by
 the note's newest effective verdict, and how many of each any verdict judged at all (a lesson no
-run was handed cannot be disputed). `--rounds N` makes the review run and then the verify run
+run was handed cannot be disputed), and the records any review run was handed beside how many
+of them no run gave a verdict (`handed`, `undecided`: the agent left them out because it could
+not tell; read from the runs' `bundle.json`; the plan's undecided share is their ratio).
+`--rounds N` makes the review run and then the verify run
 N times (default 1, stage B's one verified pass). Rounds do not promise every record a look: a
 judged record stays on the worklist (it loses only the point for never having had a verdict), so
 wrong notes from reverted work, at +3, take a place in every round. Stage A's pass is therefore
-`--until-judged`: review runs back to back, with no verify run between them, so that each is
+`--until-empty`: review runs back to back, with no verify run between them, so that each is
 handed records no run has judged yet (a record with a proposed verdict is on no review run's
-list), until one finds the worklist empty or adds no verdict (its agent declined all it was
-handed); then verify runs until none waits for a review or one reviews nothing. `--max-runs`
-(default 20) caps each pass. The file records the runs made (`review_runs`, `verify_runs`), and
-the command exits 1, after writing the file, when a wrong note or a true lesson was never
-judged. It spends what the commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
+list), until one finds the worklist empty or is handed nothing an earlier run was not (only
+what the agent left undecided); then verify runs until none waits for a review or one reviews
+nothing. `--max-runs` (default 20) caps each pass. The file records the runs made
+(`review_runs`, `verify_runs`), and the command exits 1, after writing the file, when a wrong
+note or a true lesson was never handed to a run (`handed_wrong`, `handed_true`); one that was
+handed and left out is undecided, which is reported. It spends what the commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
 refuses a file frozen from another pool.
 
 The file names what stays the same from one seed to the next: a pool note by its place in the

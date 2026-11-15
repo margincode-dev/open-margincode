@@ -2,7 +2,7 @@
 //!
 //! [`freeze`] seeds each task's store as a session would ([`runner::seed_store`]), runs
 //! `av dream` and then `av dream --verify` as a second agent (`rounds` times; or, with
-//! `until_judged`, review runs back to back until the worklist has nothing left and then verify
+//! `until_empty`, review runs back to back until the worklist has nothing left and then verify
 //! runs until nothing waits for a review), and writes what the passes ended with: every verdict, its state, and the verify run's review with its evidence. A
 //! session's store is seeded afresh, so its record ids, event ids and trunk commit are new; the
 //! file therefore names a record by its earlier task's role, kind, summary and place, an event
@@ -115,13 +115,27 @@ pub struct Tally {
     pub judged_wrong: usize,
     #[serde(default)]
     pub judged_true: usize,
+    /// Records (of the pool or not) handed to at least one review run, and how many of them no
+    /// run gave a verdict: the agent left them out because it could not tell (`DREAM.md`). The
+    /// plan's "share of items returned undecided" is `undecided / handed`; it decides Phase 5.
+    /// Read from the runs' `bundle.json` under [`FreezeArgs::home`].
+    #[serde(default)]
+    pub handed: usize,
+    #[serde(default)]
+    pub undecided: usize,
+    /// How many wrong notes and true lessons were among the handed records.
+    #[serde(default)]
+    pub handed_wrong: usize,
+    #[serde(default)]
+    pub handed_true: usize,
 }
 
 impl Tally {
-    /// Every wrong note and every true lesson had a verdict: stage A's bars are read on all of
-    /// them, not only on the ones a run happened to be handed.
-    pub fn all_judged(&self) -> bool {
-        self.judged_wrong == self.wrong_notes && self.judged_true == self.true_notes
+    /// Every wrong note and every true lesson was handed to a review run: stage A's bars are
+    /// read on all of them. One a run was handed and left out is undecided (reported, and read
+    /// by the bars as what it ended: not disputed); one no run was handed is not covered.
+    pub fn all_handed(&self) -> bool {
+        self.handed_wrong == self.wrong_notes && self.handed_true == self.true_notes
     }
 }
 
@@ -136,12 +150,13 @@ pub struct FrozenTask {
     /// [`FreezeArgs::rounds`] (files written before it had one round).
     #[serde(default = "one")]
     pub rounds: u32,
-    /// [`FreezeArgs::until_judged`]; `rounds` is then 1 (one review pass and one verify pass,
+    /// [`FreezeArgs::until_empty`]; `rounds` is then 1 (one review pass and one verify pass,
     /// each made of as many runs as it took).
     #[serde(default)]
-    pub until_judged: bool,
+    pub until_empty: bool,
     /// The `av dream` and `av dream --verify` runs made, the last one of a loop included (it
-    /// found nothing, or added nothing). 0 in files written before they were counted.
+    /// was handed nothing new, or reviewed nothing). 0 in files written before they were
+    /// counted.
     #[serde(default)]
     pub review_runs: u32,
     #[serde(default)]
@@ -228,16 +243,16 @@ pub struct FreezeArgs {
     /// one verified pass is 1; stage A's is 3, the plan's three review and three verify runs.
     /// Not a promise that every record is looked at: a judged record stays on the worklist, so
     /// [`Tally::judged_wrong`] and [`Tally::judged_true`] say what the rounds reached.
-    /// Ignored with `until_judged`.
+    /// Ignored with `until_empty`.
     pub rounds: u32,
-    /// Stage A: review runs back to back, with no verify run between them, until a run adds no
-    /// verdict (a record with a proposed verdict is on no review run's list, the daemon's rule,
-    /// so each run is handed records no run has judged yet, and the loop ends when the worklist
-    /// is empty or the agent declined everything it was handed); then verify runs until none
-    /// is waiting for a review or a run reviews nothing. [`Tally::all_judged`] says whether
-    /// every note was reached.
-    pub until_judged: bool,
-    /// The most runs of each pass `until_judged` makes (a cap on the money a loop can spend).
+    /// Stage A, the plan's "each time until the worklist is empty": review runs back to back,
+    /// with no verify run between them (a record with a proposed verdict is on no review run's
+    /// list, the daemon's rule, so each run is handed what no run has judged yet), until a run
+    /// is handed no record no earlier run was handed: the worklist is empty, or holds only
+    /// what the agent left undecided. Then verify runs until none waits for a review or a run
+    /// reviews nothing. [`Tally::all_handed`] says whether every note was reached.
+    pub until_empty: bool,
+    /// The most runs of each pass `until_empty` makes (a cap on the money a loop can spend).
     pub max_runs: u32,
     /// `$AV_HOME` of the two passes: their `dreams/<id>/` directories (bundle, instructions,
     /// what the agent wrote) are kept under it.
@@ -531,11 +546,11 @@ pub fn freeze(
     if args.rounds == 0 {
         return Err("--rounds is at least 1".into());
     }
-    if args.until_judged && args.max_runs == 0 {
+    if args.until_empty && args.max_runs == 0 {
         return Err("--max-runs is at least 1".into());
     }
     let (_src, seeded) = seed_store(spec, cfg, daemon, name)?;
-    let (review_runs, verify_runs) = if args.until_judged {
+    let (review_runs, verify_runs) = if args.until_empty {
         let r = until_nothing_new(cfg, args, daemon, name, false)?;
         (r, until_nothing_new(cfg, args, daemon, name, true)?)
     } else {
@@ -618,14 +633,33 @@ pub fn freeze(
             review,
         });
     }
-    let tally = tally(spec, &verdicts);
+    let mut tally = tally(spec, &verdicts);
+    let judged: std::collections::BTreeSet<String> = list["verdicts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v["record_id"].as_str().map(bare))
+        .collect();
+    let handed = handed_records(&args.home, name)?;
+    tally.handed = handed.len();
+    tally.undecided = handed.difference(&judged).count();
+    for id in &handed {
+        let Some(i) = names.key_of(id)?.note else {
+            continue;
+        };
+        match spec.relay_notes.get(i) {
+            Some(n) if n.no_commit => tally.handed_wrong += 1,
+            Some(n) if !n.noise => tally.handed_true += 1,
+            _ => {}
+        }
+    }
     Ok(FrozenTask {
         pool: pool_of(spec),
         wrong_reverted: cfg.wrong_reverted,
         dreamer: args.dreamer.clone(),
         verifier: args.verifier.clone(),
-        rounds: if args.until_judged { 1 } else { args.rounds },
-        until_judged: args.until_judged,
+        rounds: if args.until_empty { 1 } else { args.rounds },
+        until_empty: args.until_empty,
         review_runs,
         verify_runs,
         verdicts,
@@ -633,8 +667,42 @@ pub fn freeze(
     })
 }
 
-/// One pass of [`FreezeArgs::until_judged`]: runs of one kind until a run changes nothing (a
-/// review run that adds no verdict, a verify run that leaves as many waiting) or `max_runs`.
+/// The records handed to `repo`'s review runs, read from the `bundle.json` that `av dream` keeps
+/// in each run's directory under `home`.
+fn handed_records(home: &Path, repo: &str) -> Result<std::collections::BTreeSet<String>> {
+    let mut out = std::collections::BTreeSet::new();
+    let dir = home.join("dreams");
+    let Ok(runs) = std::fs::read_dir(&dir) else {
+        return Ok(out); // no run was handed anything
+    };
+    for run in runs {
+        let path = run
+            .map_err(|e| format!("{}: {e}", dir.display()))?
+            .path()
+            .join("bundle.json");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let b: Value =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let d = &b["dream"];
+        if d["repo"] != repo || d["mode"] != "review" {
+            continue;
+        }
+        out.extend(
+            d["worklist"]["records"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.as_str().map(bare)),
+        );
+    }
+    Ok(out)
+}
+
+/// One pass of [`FreezeArgs::until_empty`]: runs of one kind until a run changes nothing (a
+/// review run handed no record no earlier run was handed, a verify run that leaves as many
+/// waiting) or `max_runs`.
 /// Returns the runs made.
 fn until_nothing_new(
     cfg: &RunConfig,
@@ -643,10 +711,14 @@ fn until_nothing_new(
     repo: &str,
     verify: bool,
 ) -> Result<u32> {
-    // review: every verdict made so far; verify: the ones still waiting for a review
+    // review: the records any review run was handed; verify: the verdicts still waiting
     let count = || -> Result<usize> {
-        let state = if verify { "&state=proposed" } else { "" };
-        let list = daemon.get(&format!("/v1/repos/{repo}/verdicts?limit=1000{state}"))?;
+        if !verify {
+            return Ok(handed_records(&args.home, repo)?.len());
+        }
+        let list = daemon.get(&format!(
+            "/v1/repos/{repo}/verdicts?limit=1000&state=proposed"
+        ))?;
         Ok(list["verdicts"].as_array().map_or(0, Vec::len))
     };
     let mut before = count()?;
@@ -698,6 +770,11 @@ pub fn tally(spec: &TaskSpec, verdicts: &[FrozenVerdict]) -> Tally {
             .count(),
         judged_wrong: judged.iter().filter(|i| is_wrong(**i)).count(),
         judged_true: judged.iter().filter(|i| is_true(**i)).count(),
+        // what the runs were handed is read from their directories (`freeze`)
+        handed: 0,
+        undecided: 0,
+        handed_wrong: 0,
+        handed_true: 0,
     }
 }
 

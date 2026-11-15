@@ -799,7 +799,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         timeout: std::time::Duration::from_secs(60),
         fix_rounds: 0,
         rounds: 1,
-        until_judged: false,
+        until_empty: false,
         max_runs: 20,
         home: dir.path().join("home"),
     };
@@ -870,6 +870,10 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
             true_hit: 0,
             judged_wrong: 1,
             judged_true: 1,
+            handed: 3,
+            undecided: 0,
+            handed_wrong: 1,
+            handed_true: 1,
         }
     );
     let file = dir.path().join("dreamed.json");
@@ -965,6 +969,10 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
             true_hit: 0,
             judged_wrong: 1,
             judged_true: 1,
+            handed: 3,
+            undecided: 0,
+            handed_wrong: 1,
+            handed_true: 1,
         }
     );
     // and its replay gives each record's verdicts their own runs, oldest first
@@ -979,7 +987,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     assert!(o.valid, "{o:?}");
     let t1 = &frozen.tasks[&f.spec.name];
     assert_eq!(
-        (t1.rounds, t1.review_runs, t1.verify_runs, t1.until_judged),
+        (t1.rounds, t1.review_runs, t1.verify_runs, t1.until_empty),
         (1, 1, 1, false)
     );
 
@@ -989,13 +997,13 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     // the worklist empty; then three verify runs review the three verdicts.
     let loop_args = dreamed::FreezeArgs {
         limit: Some(1),
-        until_judged: true,
+        until_empty: true,
         home: dir.path().join("home3"),
         ..args.clone()
     };
     let t3 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-3", &loop_args).unwrap();
     assert_eq!(
-        (t3.rounds, t3.review_runs, t3.verify_runs, t3.until_judged),
+        (t3.rounds, t3.review_runs, t3.verify_runs, t3.until_empty),
         (1, 4, 3, true),
         "{t3:#?}"
     );
@@ -1003,7 +1011,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         t3.tally, t1.tally,
         "the same as one pass that was handed all three"
     );
-    assert!(t3.tally.all_judged());
+    assert!(t3.tally.all_handed());
     assert!(t3.verdicts.iter().all(|v| v.state != "proposed"), "{t3:#?}");
     // its replay
     let file3 = dir.path().join("dreamed-3.json");
@@ -1016,8 +1024,8 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     let o = run_session(&f.spec, Arm::Av, 3, "dr3", &f.cfg).unwrap();
     assert!(o.valid, "{o:?}");
 
-    // a dreamer that declines the true lesson: the run handed only it adds nothing, the loop
-    // stops there, and the tally says the true lesson was never judged
+    // a dreamer that declines the true lesson: it was handed (covered) and left undecided. The
+    // run after it is handed it again and nothing new, and the loop stops there
     std::fs::write(
         dir.path().join("skipper.sh"),
         FAKE_DREAMER.replace(
@@ -1032,9 +1040,22 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         ..loop_args.clone()
     };
     let t4 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-4", &skip).unwrap();
-    assert_eq!((t4.review_runs, t4.verify_runs), (3, 2), "{t4:#?}");
+    assert_eq!((t4.review_runs, t4.verify_runs), (4, 2), "{t4:#?}");
     assert_eq!((t4.tally.judged_wrong, t4.tally.judged_true), (1, 0));
-    assert!(!t4.tally.all_judged());
+    // the plan's undecided share: handed to a review run, and left out of every one
+    assert_eq!((t4.tally.handed, t4.tally.undecided), (3, 1));
+    assert!(t4.tally.all_handed(), "undecided is reported, not a gap");
+
+    // --max-runs reached before the worklist was empty: the true lesson was never handed
+    let capped = dreamed::FreezeArgs {
+        max_runs: 1,
+        home: dir.path().join("home5"),
+        ..loop_args.clone()
+    };
+    let t5 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-5", &capped).unwrap();
+    assert_eq!((t5.review_runs, t5.verify_runs), (1, 1), "{t5:#?}");
+    assert_eq!((t5.tally.handed, t5.tally.handed_true), (1, 0));
+    assert!(!t5.tally.all_handed());
 }
 
 #[test]

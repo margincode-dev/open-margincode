@@ -18,7 +18,8 @@ use crate::extract::{Symbol, SymbolKind, extract};
 const IGNORED_SEGMENTS: [&str; 4] = ["node_modules", ".venv", "target", ".git"];
 /// Neighbor walks are capped at this many hops.
 const MAX_HOPS: u8 = 2;
-/// Chunk text kept for embedding, counted in Unicode scalars.
+/// Chunk text kept for embedding (and for lexical code search), counted in Unicode scalars.
+/// `bench/retrieval/results/2026-11-14-chunk-length` measures other lengths.
 pub const MAX_EMBED_CHARS: usize = 2000;
 
 fn ierr(e: sqlx::Error) -> AvError {
@@ -760,12 +761,13 @@ async fn dependents_of(
     rows.iter().map(|r| r.try_get("id").map_err(ierr)).collect()
 }
 
-/// Keeps at most `MAX_EMBED_CHARS` scalars. A truncated value ends with `…`.
-fn truncate_embed(text: String) -> String {
-    if text.chars().count() <= MAX_EMBED_CHARS {
+/// Keeps at most `max_chars` scalars (at least 1). A truncated value ends with `…`.
+pub fn cap_chars(text: String, max_chars: usize) -> String {
+    let max_chars = max_chars.max(1);
+    if text.chars().count() <= max_chars {
         return text;
     }
-    let mut out: String = text.chars().take(MAX_EMBED_CHARS - 1).collect();
+    let mut out: String = text.chars().take(max_chars - 1).collect();
     out.push('\u{2026}');
     out
 }
@@ -792,12 +794,15 @@ fn line_slice(bytes: &[u8], start_line: u32, end_line: u32) -> String {
     out
 }
 
-fn chunk_text(path: &str, symbol: &Symbol, bytes: &[u8]) -> String {
+/// A symbol's chunk before the embedding cap: path, qualified name, signature, then its source
+/// lines. `bytes` is the whole file the symbol was extracted from.
+pub fn chunk_source(path: &str, symbol: &Symbol, bytes: &[u8]) -> String {
     let body = line_slice(bytes, symbol.start_line, symbol.end_line);
-    truncate_embed(format!(
-        "{path}\n{}\n{}\n{body}",
-        symbol.qname, symbol.signature
-    ))
+    format!("{path}\n{}\n{}\n{body}", symbol.qname, symbol.signature)
+}
+
+fn chunk_text(path: &str, symbol: &Symbol, bytes: &[u8]) -> String {
+    cap_chars(chunk_source(path, symbol, bytes), MAX_EMBED_CHARS)
 }
 
 async fn task_id_for_scope(

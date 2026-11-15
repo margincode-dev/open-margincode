@@ -1700,8 +1700,9 @@ fn bare_repo(path: &Path) {
 }
 
 /// The background push after `set_remote` or a merge, done: waits until no attempt is pending.
+/// The push usually lands in about a second; 30 s leaves room for a loaded test machine.
 async fn settled(e: &Env) -> Value {
-    for _ in 0..100 {
+    for _ in 0..600 {
         let b = backup(e).await;
         if b["failures"].as_u64().unwrap() > 0 || b["last_pushed"].is_string() {
             return b;

@@ -120,10 +120,19 @@ installable); `--agent-user benchagent`; no `--keep-work`; no noise; run seed 1;
    (`../2026-11-wrong-lesson-3/first-packs-qs/`), which had four records with the wrong note first.
    Any difference is reported. The pool here has three more notes, so a difference does not stop
    the run.
-5. **Isolation and fresh state,** as stage 2's PREREG lists them: the agent user, the modes of
+5. **One `av` per command.** The harness runs the hooks with `--av-bin`, but an `av` the agent
+   types in Bash is looked up on `PATH` (`runner.rs`, `settings` and `claude_command`, the same at
+   both commits). So the two builds live in two directories, `$A` and `$B`. Each command runs with
+   only its own build's directory on `PATH`, and the other build's directory is mode 700 for the
+   whole command (closed to `benchagent`). Checked as `benchagent` with each command's `PATH`:
+   `av record --help` lists `--supersedes` on build B and does not on build A, and `$B/av` (on
+   A's command) or `$A/av` (on B's) cannot be run. Without this, build B's `av` could reach
+   `av-before`: build A's daemon already accepts `supersedes` over HTTP; only its CLI lacks the
+   flag.
+6. **Isolation and fresh state,** as stage 2's PREREG lists them: the agent user, the modes of
    the bench tree, the results, the stores and the earlier runs' directories, `/tmp` emptied, a
    new database and store per daemon, one task-repository clone and one venv.
-6. **Balance** read before command 0 and written down.
+7. **Balance** read before command 0 and written down.
 
 ## Commands (in this order)
 
@@ -156,11 +165,28 @@ $B/scholion-bench run bench/tasks-relay --arms av --jit-hooks --reps 3 $P \
   --session-cap-usd 0.08 --budget-usd 0.60 --out $OUT/m0-guard $COMMON_B --confirm
 ```
 
-A rerun of the same command resumes it. The results directories are copied into this directory
-afterwards, as the harness wrote them. After commands 2 and 3, the `records` rows of each
-daemon's database whose `supersedes` is set are exported to `m0-av-before/superseded.jsonl` and
-`m0-wrong/superseded.jsonl` (secondary measure 3). Each row has its id, task, repository,
-author, kind, summary and `supersedes`.
+`PATH` and the closed directory are set per command as free check 5 says. A rerun of the same
+command resumes it. The results directories are copied into this directory afterwards, as the
+harness wrote them.
+
+**The store export** (secondary measure 3). After commands 2 and 3, each daemon's database is
+read once and written to `m0-av-before/superseded.jsonl` and `m0-wrong/superseded.jsonl`.
+Records survive a session: the harness abandons the session's task, it deletes none
+(`remove_work`), and `records.task_id` cascades only on a delete. Every session has a
+repository of its own, `b<run id>-<task>-<arm short>-<rep>` (`runner.rs`, the same at both
+commits), so a row is joined to its session by `tasks.repo`. The query, on the schema of both
+builds (`0001_init.sql`: `records.supersedes`, `tasks.repo`):
+
+```sql
+SELECT r.id, t.repo, r.task_id, r.author_agent, r.kind, r.summary, r.created_at,
+       r.supersedes, s.summary AS superseded_summary
+FROM records r JOIN tasks t ON t.id = r.task_id JOIN records s ON s.id = r.supersedes
+WHERE r.supersedes IS NOT NULL ORDER BY t.repo, r.created_at;
+```
+
+The superseded record is known by its summary: it is the session's task's own wrong note when
+`superseded_summary` is that pair's `summary` in `notes-silent.toml`, another task's wrong note
+when it is another `no_commit` note's, and a true note otherwise.
 
 **The smokes** are stage 2's smoke: isolated sessions on `relay-order-ids` with its true lesson.
 They pass if each row is `status=ok` and valid, and the event stream shows that the model answered
@@ -171,9 +197,10 @@ version. If a smoke fails, the cause is fixed and it runs again in a new directo
 
 **The gate after the control.** Commands 2 to 4 start only if `cold` is accepted at least 8 of
 10 times on each of the three tasks (stage 2's bar, 10 of 12, scaled down and rounded down). A
-task below that is not one the model solves unaided here. The README then reports the control's
-rows, and no note arm runs on that task. A replacement task needs an amendment, committed
-before any note-arm session.
+task below that is not one the model solves unaided here. If any task misses the gate, commands
+2 to 4 do not run at all. The README reports the control's rows, and the run stops. A replacement
+task needs an amendment, committed before any note-arm session, and the control is then run
+again on the new set.
 
 **Order.** Commands 2 and 3 run back to back, with nothing else between them, in the same
 DeepSeek price window. Both run at peak prices unless the owner moves the whole run off-peak. The
@@ -195,7 +222,8 @@ paid session. It reuses `../2026-11-wrong-lesson-3/analyze.py`'s code where that
 - The decision is pooled, and the per-task table is printed beside it. The three tasks are not a
   sample of "silent tasks", and no claim is made beyond these three.
 
-**Guard (the plan's bar):** the guard's `av` arm accepted at least 27 of 30. That is a rate of
+**Guard (the plan's bar):** of 30 valid sessions, the guard's `av` arm accepted at least 27.
+With fewer than 30 valid sessions, the guard is not assessed, and the README says so. That is a rate of
 0.900, not below 0.886, the lower end of the E4 sweep's interval at N = 0
 (`../2026-11-e4-scale/README.md`: `av` 30 of 30, 0.886 to 1.000). A line that teaches distrust
 must not cost what true lessons give. If the guard fails, the README says so beside the
@@ -231,8 +259,10 @@ what follows is not decided here.
 8. **Last edits,** stage 2's `content.py` per task: for every session that was not accepted, the
    last text it wrote to the task's file and whether it holds the note's call.
 
-**Leak check, before the result is read.** `leak.py` and `content.py` of this directory scan
-every transcript as stage 2's did. They count as exposing: a hidden test's name, another
+**Leak check, before the result is read.** `leak.py` and `content.py` of this directory do not
+exist yet. Like `analyze.py`, they are stage 2's scripts with this run's directories, written and
+committed with "Build" before the first paid session. They scan every transcript as stage 2's
+did. They count as exposing: a hidden test's name, another
 session's directory, the bench tree, the results, the stores, and any earlier run's
 directories. Both are run and committed before `rows.jsonl` is read for accepted counts. The
 primary is computed on all valid sessions. Exposed sessions are listed, and the tables are given

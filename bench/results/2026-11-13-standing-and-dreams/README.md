@@ -130,3 +130,60 @@ the prompt are not changed.
   must be at least 1.5 × the measured cost of a pass; if it is not, the passes stop there.
 - **An aborted pass** (a run hits its cap or fails, and `dream-freeze` stops) is reported as a
   deviation and run again from the same start; it is not counted as one of the six.
+
+### Pilots 1 and 2, as run (true-lesson pool, `--max-runs 1`, Sonnet 5.5, $2 cap per run)
+
+| | agent's tools | review run | verify run | verdicts | undecided / handed |
+|---|---|---|---|---|---|
+| pilot 1 | `Read,Write,Bash(av:*),Bash(jq:*)` | $0.171, 11 turns, 4 denials | $0.095, 11 turns, 5 denials | 5 | 15 / 20 |
+| pilot 2 | `Read,Write,Bash` | $0.128, 11 turns, 0 denials | $0.056, 6 turns, 0 denials | 2 | 18 / 20 |
+
+- **Pilot 1 is a mechanics failure.** Claude Code's permission check denied every command that
+  used `$AV_REPO` (`av show PATH --repo "$AV_REPO"`, as `DREAM.md` writes them), so both agents
+  judged from the bundle's excerpts alone and said so. Fix, a permission (allowed by the rule
+  above): `--allowedTools "Read,Write,Bash"` inside the throwaway harness container.
+- **Pilot 2: no denials, no errors, every verdict accepted** (no `refused.json`). The reviewer
+  judged 2 of 20 (both `confirmed`, both relay lessons) and left 18 out, saying the attempt,
+  convention and profiling notes cannot be confirmed or contradicted from the anchored code. That
+  is `DREAM.md`'s own rule ("leave an item out when you cannot tell"), and it is not changed.
+- Spent: $0.0009 (smoke call) + $0.266 (pilot 1) + $0.184 (pilot 2) = **$0.45** of $20.
+
+**What pilot 2 means for coverage.** The daemon's worklist (`dream::worklist`) is the top
+`limit` records by a fixed score (+3 from reverted work, +2 changed anchor, +2 clustered, shown
+in packs, +1 never had a verdict), ties by record id. A judged record leaves the candidates
+while its verdict is proposed; one left undecided keeps its score and its slot. So every record
+is handed only once the review runs have judged `records − limit` in all, before a run that
+judges nothing new. On stage A's pool at the default limit (20) that is 41. The stub check's
+first worklist held all 5 wrong notes but only 3 of the 5 true lessons, and the other two sit in
+the score-1.0 tier, 49 records in random id order. A reviewer that judges about 2 in 20 will
+not reach 41, and a pass would end "not covered" by the harness's rule. At the daemon's largest
+limit, 50, it needs 11.
+
+### Pilot 3, declared before it runs: one whole pass at `--limit 50`, off the stage A pool
+
+```bash
+margincode-bench dream-freeze bench/tasks-relay --only relay-quote-split --noise 50 \
+  --until-empty --limit 50 --max-runs 6 \
+  --dream-cmd 'sh /root/dreamer.sh' --verify-cmd 'sh /root/verifier.sh' \
+  --out /root/m2/pilot3.json <the stack's options>
+```
+
+The true-lesson pool again (60 records, so 10 must be judged), no bar read. It measures how
+many records a reviewer judges per run at 50 and what a whole pass costs.
+
+- **Go / no-go, fixed now.** If pilot 3 hands every pool lesson (the harness exits 0), stage A
+  runs at `--limit 50`; that is a deviation from "at the default limit", recorded in Build and
+  below, and 50 items a run may itself change how the reviewer judges. If it does not, stage A
+  does not start, and the owner chooses between a harness that dreams per area (so each worklist
+  fits the limit; a rebuild and a new Build) and an amended coverage rule.
+- **Model rule, applied to the measured pass.** Projected cost = 6 × pilot 3's whole pass cost
+  (the declared 5 + 3 runs assumed a reviewer that judges everything); Sonnet 5.5 if that is at
+  most $14, as declared.
+- **An uncovered pass of stage A counts as one of the six** (it is reported, and it does not
+  meet the bars). It is not an aborted pass, and it is not run again: that would be choosing
+  passes. An aborted pass (a run fails or hits its cap, and `dream-freeze` stops) is still run
+  again from the same start, as declared.
+- **Isolation.** From here the runs use binaries copied to `/root/m2bin` (the same sha256s as
+  under Build) and a `git archive 0a3a141 bench` snapshot in `/root/m2src`, so a rebuild or a
+  checkout change elsewhere on the machine cannot reach them; the daemon's pid is checked before
+  each pass.

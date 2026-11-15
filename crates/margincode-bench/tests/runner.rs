@@ -991,10 +991,11 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         (1, 1, 1, false)
     );
 
-    // stage A's loop: one record per run, so the ranking alone would hand the two reverted
-    // task's records every time (score 3 against the other note's 1). Review runs back to back
-    // are handed what no run has judged yet: three runs judge all three records, a fourth finds
-    // the worklist empty; then three verify runs review the three verdicts.
+    // stage A's loop: one record per run. The ranking alone would hand the reverted task's wrong
+    // note every time (4: reverted, never judged); the revert's own note and the README note
+    // score 1 each. Review runs back to back are handed what no run has judged yet: three runs
+    // judge all three records, a fourth finds the worklist empty; then three verify runs review
+    // the three verdicts.
     let loop_args = dreamed::FreezeArgs {
         limit: Some(1),
         until_empty: true,
@@ -1025,7 +1026,10 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     assert!(o.valid, "{o:?}");
 
     // a dreamer that declines the true lesson: it was handed (covered) and left undecided. The
-    // run after it is handed it again and nothing new, and the loop stops there
+    // declined note waits behind the record no run was handed yet, so the run after is handed
+    // that one; only the run after that is handed the declined note again, nothing new, and the
+    // loop stops there. So (4, 2) does not depend on which of the two notes tied at 1 sorts
+    // first by id
     std::fs::write(
         dir.path().join("skipper.sh"),
         FAKE_DREAMER.replace(

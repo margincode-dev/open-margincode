@@ -124,10 +124,13 @@ fn anchors_changed(then: &[Option<String>], now: &[Option<String>]) -> bool {
 ///  + min(packs of the last 30 days that showed it, 10) / 5
 ///  + 1·[it never had a verdict]`, ties by id.
 ///
-/// A record a finished review run declined (was
-/// handed it and wrote no verdict on it) comes after every record no run declined, whatever
-/// its score: runs back to back with a small `limit` are then handed each record in turn
-/// instead of the same declined one every time. Among declined records the score decides.
+/// A review run that finished (`done`) and was handed a record without writing a verdict on
+/// it has declined it, at the score the record had in that run (the run's `worklist.scores`,
+/// `DreamCandidate.declined_score`). A record waits behind every other record while its score
+/// is no higher than the highest score it was declined at. Among waiting records, and among
+/// the others, the score decides, ties by id. So runs back to back with a small `limit` are
+/// handed each record in turn instead of the same declined one every time, and a declined
+/// record whose score rises (its merge reverted, its code changed) leads again.
 async fn worklist(
     st: &AppState,
     repo: &str,
@@ -175,7 +178,8 @@ async fn worklist(
             + 2.0 * f32::from(u8::from(clustered))
             + seen / 5.0
             + f32::from(u8::from(!c.had_verdict));
-        ranked.push((c.declined, rec.clone(), score));
+        let waits = c.declined_score.is_some_and(|at| at >= score);
+        ranked.push((waits, rec.clone(), score));
     }
     ranked.sort_by(|a, b| {
         a.0.cmp(&b.0)
@@ -273,7 +277,14 @@ async fn start(
                 items.push(item);
             }
             let ids: Vec<RecordId> = ranked.iter().map(|(r, _)| r.id).collect();
-            (json!({"commit": trunk.0, "records": ids}), items)
+            let scores: serde_json::Map<String, Value> = ranked
+                .iter()
+                .map(|(r, score)| (r.id.0.to_string(), json!(score)))
+                .collect();
+            (
+                json!({"commit": trunk.0, "records": ids, "scores": scores}),
+                items,
+            )
         }
         "verify" => {
             let mut waiting = st

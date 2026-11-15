@@ -676,6 +676,26 @@ async fn a_confirmed_verdict_clears_the_changed_mark_and_such_records_are_looked
     );
 }
 
+/// A review run of `limit` records that finishes without a verdict: the run as started, and
+/// the records it was handed, in order.
+async fn declined_run(e: &Env, limit: usize) -> (Value, Vec<Value>) {
+    let (status, d) = post_json(
+        e,
+        "/v1/repos/demo/dreams",
+        json!({"agent": "dreamer", "mode": "review", "limit": limit}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{d}");
+    let handed = d["dream"]["worklist"]["records"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let (status, body) =
+        post_json(e, &format!("/v1/dreams/{}/finish", dream_id(&d)), json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    (d, handed)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_record_a_finished_run_left_undecided_waits_behind_records_no_run_declined() {
     let e = env().await;
@@ -683,30 +703,57 @@ async fn a_record_a_finished_run_left_undecided_waits_behind_records_no_run_decl
     // two records that rank the same: one kind each, no shared anchor, no verdict
     let a = record_on(&e, &t, "decision", "greetings stay short", "app/greeter.py").await;
     let b = record_on(&e, &t, "note", "names keep their case", "app/util.py").await;
-    // a review run of one record that finishes without a verdict: what it was handed
-    async fn one(e: &Env) -> Value {
-        let (status, d) = post_json(
-            e,
-            "/v1/repos/demo/dreams",
-            json!({"agent": "dreamer", "mode": "review", "limit": 1}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{d}");
-        let handed = d["dream"]["worklist"]["records"][0].clone();
-        let (status, body) =
-            post_json(e, &format!("/v1/dreams/{}/finish", dream_id(&d)), json!({})).await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        handed
-    }
     // the first run is handed one of them and judges nothing
-    let first = one(&e).await;
+    let (d, handed) = declined_run(&e, 1).await;
+    let first = handed[0].clone();
     assert!(first == a["id"] || first == b["id"], "{first}");
+    // the run keeps the score each record had in it
+    let key = first.as_str().unwrap();
+    assert_eq!(d["dream"]["worklist"]["scores"][key], json!(1.0), "{d}");
     // the next run is handed the other, not the one already declined
-    let second = one(&e).await;
+    let second = declined_run(&e, 1).await.1[0].clone();
     assert!(second == a["id"] || second == b["id"], "{second}");
     assert_ne!(first, second, "a declined record is not handed again first");
     // once both were declined, the ranking alone decides again
-    assert_eq!(one(&e).await, first);
+    assert_eq!(declined_run(&e, 1).await.1[0], first);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_declined_record_leads_again_once_it_scores_higher_than_when_it_was_declined() {
+    let e = env().await;
+    let t = start_task(&e, "Earlier work").await;
+    let a = record_on(&e, &t, "decision", "greetings stay short", "app/greeter.py").await;
+    let b = record_on(&e, &t, "note", "names keep their case", "app/util.py").await;
+    // one run is handed both and judges neither: both declined at 1.0
+    let (_, handed) = declined_run(&e, 2).await;
+    assert_eq!(handed.len(), 2, "{handed:?}");
+    // a second decision on a's anchor: a and a2 now share it (3.0 each); d is a record no run
+    // was handed, of another kind than b (1.0)
+    let a2 = record_on(
+        &e,
+        &t,
+        "decision",
+        "greetings end with a stop",
+        "app/greeter.py",
+    )
+    .await;
+    let d = record_on(
+        &e,
+        &t,
+        "attempt",
+        "caching the names was slower",
+        "app/util.py",
+    )
+    .await;
+    let (_, handed) = declined_run(&e, 3).await;
+    assert_eq!(handed.len(), 3, "{handed:?}");
+    let mut front: Vec<&str> = handed[..2].iter().map(|v| v.as_str().unwrap()).collect();
+    front.sort_unstable();
+    let mut want = vec![a["id"].as_str().unwrap(), a2["id"].as_str().unwrap()];
+    want.sort_unstable();
+    assert_eq!(front, want, "{handed:?}");
+    // b scores what it was declined at, so it waits behind d
+    assert_eq!(handed[2], d["id"], "{handed:?}; b = {}", b["id"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

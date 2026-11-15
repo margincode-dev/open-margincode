@@ -280,3 +280,18 @@ snapshot of `0a3a141`.
 **Cost.** Stage A's six passes **$4.41** (Claude Code's `total_cost_usd`, list prices); with the
 smoke call and the three pilots ($1.65), **$6.07 of the $20** budget. The plan's estimate for all
 of M2 was about $2.
+
+## 2026-11-15: the review worklist after stage A
+
+Stage A ran before the daemon set declined records aside (binaries built at `56968ed`). Since
+then a record that a finished review run was handed and left without a verdict waits behind the
+other records until it scores higher than it did in that run (#13 made the waiting permanent;
+the change after it, branch `dream-declined-lapse`, makes it lapse when the score rises; see
+`CHANGELOG.md`). The first review run on a freshly seeded store is ranked exactly as before, since
+no finished run exists yet, so stage B's one frozen pass is not affected. Stage B's Build must
+name the daemon commit it runs.
+
+What the rule implies, not a measured result (nothing was re-run): an `--until-empty` pass like
+stage A's would be handed every record of the pool, at any `--limit` (given enough
+`--max-runs`), instead of 55 to 57 of 61, since a run that judges none of what it was handed no
+longer gets the same records again while others wait.

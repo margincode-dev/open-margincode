@@ -1,0 +1,17 @@
+ok  quote-split: reference passes, dead end fails
+ok  store-count: reference passes, dead end fails
+ok  line-taxes: reference passes, dead end fails
+ok  coupon-remove: reference passes, dead end fails
+ok  money-plain: reference passes, dead end fails
+ok  customer-region: reference passes, dead end fails
+ok  refund-event: reference passes, dead end fails
+ok  product-slug: reference passes, dead end fails
+ok  ledger-refund: reference passes, dead end fails
+ok  order-ids: reference passes, dead end fails
+ok  order-merge: reference passes, dead end fails
+ok  order-merge (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  bus-resubscribe: reference passes, dead end fails
+ok  bus-resubscribe (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  tax-with-rate: reference passes, dead end fails
+ok  tax-with-rate (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+all 13 pairs ok (3 of them silent)

@@ -1,0 +1,10 @@
+ok  bus-resubscribe: the spec of ../tasks-relay-silent, byte for byte
+ok  tax-with-rate: the spec of ../tasks-relay-silent, byte for byte
+ok  quote-split: the spec of ../tasks-relay-wrong, relay_pool set to notes-silent.toml
+ok  bus-resubscribe: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  quote-split: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  tax-with-rate: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  bus-resubscribe (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  quote-split (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  tax-with-rate (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+M0 set ok

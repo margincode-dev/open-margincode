@@ -95,8 +95,8 @@ The stub (`sh` and `jq`): in review mode it confirms every item, quoting the fir
 item's anchored code with at least 12 non-space characters; in verify mode it agrees with every
 verdict, quoting the record. So it says nothing about judgement, only about the loop.
 
-- **61 records handed** (26 decisions, 18 notes, 17 attempts, no summary twice; the pool's 10
-  notes and 50 noise notes make 60, and the 61st was not traced), **5 review runs** at the default limit and **3 verify runs**; 60 verdicts, all 60 effective.
+- **61 records handed** (the open task's 5 true lessons and 50 noise notes; the reverted task's
+  5 wrong notes and the note its revert wrote, "merge … reverted by bench-merger …"), **5 review runs** at the default limit and **3 verify runs**; 60 verdicts, all 60 effective.
 - Every wrong note (5) and every true lesson (5) was handed to a run; the command exited 0.
 - **1 of 61 left undecided**: a record whose anchored code has no line the stub could quote. It
   was handed again in run 5, which then found nothing new, and the loop stopped as designed.
@@ -106,3 +106,27 @@ verdict, quoting the record. So it says nothing about judgement, only about the 
 
 What it predicts for the paid passes: about 5 review and 3 verify runs a pass, about 48 dream runs
 for stage A, as the registration's harness paragraph estimated.
+
+## M2 stage A: the pilot (paid), declared before it runs, 2026-11-15
+
+Not one of stage A's six passes, and no bar is read from it. It is run on **another pool** than
+stage A's, the true-lesson relay set (`bench/tasks-relay`, `--only relay-quote-split --noise
+50`, no `--wrong-reverted`), so that no stage A outcome is seen before the passes, and with
+`--until-empty --max-runs 1`: one review run and one verify run. It measures what one real-model
+run costs and whether the agent can do the job (no permission denials, no errors, verdicts the
+daemon accepts). After it, only mechanics may change (tools, permissions, caps); `DREAM.md` and
+the prompt are not changed.
+
+- **Agent.** Claude Code 2.1.325 with an Anthropic API key (passed into the container by name,
+  never written to a file or a command), the same model for dreamer and verifier, as two agents
+  (`dreamer`, `verifier`). The pilot runs `claude-sonnet-5-5`.
+- **Model rule, fixed now.** Projected cost of the six passes = 6 × (5 × the pilot's review run +
+  3 × its verify run), from the stub check's run counts. If that is at most $14, the passes run
+  on Sonnet 5.5. Otherwise, if the same projection for Haiku 5.5 (Sonnet's cost × 0.05, its price
+  ratio) is at most $14, on Haiku 5.5. Otherwise stage A is not run and the owner is asked.
+- **Budget.** $20 at list prices for all of it, counting the smoke call ($0.0009) and the pilot.
+  Each run's cost is Claude Code's own `total_cost_usd`, one file per round
+  (`claude-result-$AV_DREAM_ROUND.json`), summed over every file. Before each pass the money left
+  must be at least 1.5 × the measured cost of a pass; if it is not, the passes stop there.
+- **An aborted pass** (a run hits its cap or fails, and `dream-freeze` stops) is reported as a
+  deviation and run again from the same start; it is not counted as one of the six.

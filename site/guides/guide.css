@@ -46,4 +46,7 @@ pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 .btn { display: inline-block; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-decoration: none; font-weight: 500; font-size: 15px; }
 .btn.p { background: var(--rubric); border-color: var(--rubric); color: #fff; }
 footer { color: var(--faint); font-size: 14px; padding-bottom: 50px; border-top: 1px solid var(--line); padding-top: 20px; }
+.inception { display: flex; width: fit-content; margin-top: 14px; align-items: center; gap: 10px; color: var(--muted); text-decoration: none; }
+.inception:hover { color: var(--text); }
+.inception-logo { height: 18px; width: auto; aspect-ratio: 2090 / 394; flex: none; }
 @media (max-width: 600px) { nav a.hide { display: none; } }

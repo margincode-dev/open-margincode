@@ -9,6 +9,7 @@
 
 pub mod calibrate;
 pub mod dreamed;
+pub mod chunklen;
 pub mod isolate;
 pub mod metrics;
 pub mod mine;

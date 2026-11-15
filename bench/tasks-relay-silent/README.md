@@ -26,6 +26,9 @@ A wrong note is **silent** here when all of this holds:
 Three different mechanisms, none of them rounding: an invariant that shows with repeated input,
 what counts as the same thing for an idempotent call, and shared mutable state.
 
+Plan 16's M0 runs `relay-bus-resubscribe` and `relay-tax-with-rate` together with
+`relay-quote-split`, from [`../tasks-m0`](../tasks-m0), whose specs are copies of these.
+
 ## The pool and the arms
 
 The pool is [`../tasks-relay/pool/notes-silent.toml`](../tasks-relay/pool/notes-silent.toml): the

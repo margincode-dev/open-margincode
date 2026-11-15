@@ -799,6 +799,8 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         timeout: std::time::Duration::from_secs(60),
         fix_rounds: 0,
         rounds: 1,
+        until_judged: false,
+        max_runs: 20,
         home: dir.path().join("home"),
     };
     let freeze_cfg = RunConfig {
@@ -975,6 +977,64 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     f.cfg.dreamed = Some(file2);
     let o = run_session(&f.spec, Arm::Av, 2, "dr2", &f.cfg).unwrap();
     assert!(o.valid, "{o:?}");
+    let t1 = &frozen.tasks[&f.spec.name];
+    assert_eq!(
+        (t1.rounds, t1.review_runs, t1.verify_runs, t1.until_judged),
+        (1, 1, 1, false)
+    );
+
+    // stage A's loop: one record per run, so the ranking alone would hand the two reverted
+    // task's records every time (score 3 against the other note's 1). Review runs back to back
+    // are handed what no run has judged yet: three runs judge all three records, a fourth finds
+    // the worklist empty; then three verify runs review the three verdicts.
+    let loop_args = dreamed::FreezeArgs {
+        limit: Some(1),
+        until_judged: true,
+        home: dir.path().join("home3"),
+        ..args.clone()
+    };
+    let t3 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-3", &loop_args).unwrap();
+    assert_eq!(
+        (t3.rounds, t3.review_runs, t3.verify_runs, t3.until_judged),
+        (1, 4, 3, true),
+        "{t3:#?}"
+    );
+    assert_eq!(
+        t3.tally, t1.tally,
+        "the same as one pass that was handed all three"
+    );
+    assert!(t3.tally.all_judged());
+    assert!(t3.verdicts.iter().all(|v| v.state != "proposed"), "{t3:#?}");
+    // its replay
+    let file3 = dir.path().join("dreamed-3.json");
+    let frozen3 = dreamed::Frozen {
+        version: dreamed::VERSION,
+        tasks: [(f.spec.name.clone(), t3)].into_iter().collect(),
+    };
+    std::fs::write(&file3, serde_json::to_string_pretty(&frozen3).unwrap()).unwrap();
+    f.cfg.dreamed = Some(file3);
+    let o = run_session(&f.spec, Arm::Av, 3, "dr3", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
+
+    // a dreamer that declines the true lesson: the run handed only it adds nothing, the loop
+    // stops there, and the tally says the true lesson was never judged
+    std::fs::write(
+        dir.path().join("skipper.sh"),
+        FAKE_DREAMER.replace(
+            "{verdicts: [.items[] |",
+            "{verdicts: [.items[] | select(.record.summary | startswith(\"README\") | not) |",
+        ),
+    )
+    .unwrap();
+    let skip = dreamed::FreezeArgs {
+        dream_cmd: format!("sh {}", dir.path().join("skipper.sh").display()),
+        home: dir.path().join("home4"),
+        ..loop_args.clone()
+    };
+    let t4 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-4", &skip).unwrap();
+    assert_eq!((t4.review_runs, t4.verify_runs), (3, 2), "{t4:#?}");
+    assert_eq!((t4.tally.judged_wrong, t4.tally.judged_true), (1, 0));
+    assert!(!t4.tally.all_judged());
 }
 
 #[test]

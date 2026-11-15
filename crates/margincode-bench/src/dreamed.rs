@@ -1,9 +1,9 @@
 //! Plan 16 M2 stage B: one dreamed memory, frozen once and given to every session of the arm.
 //!
 //! [`freeze`] seeds each task's store as a session would ([`runner::seed_store`]), runs
-//! `av dream` and then `av dream --verify` as a second agent (`rounds` times, for stage A's
-//! three runs and three verify runs at the default limit), and writes what the passes ended
-//! with: every verdict, its state, and the verify run's review with its evidence. A
+//! `av dream` and then `av dream --verify` as a second agent (`rounds` times; or, with
+//! `until_judged`, review runs back to back until the worklist has nothing left and then verify
+//! runs until nothing waits for a review), and writes what the passes ended with: every verdict, its state, and the verify run's review with its evidence. A
 //! session's store is seeded afresh, so its record ids, event ids and trunk commit are new; the
 //! file therefore names a record by its earlier task's role, kind, summary and place, an event
 //! by its kind, task role and place, and drops a quote's commit when it was the run's own.
@@ -117,6 +117,14 @@ pub struct Tally {
     pub judged_true: usize,
 }
 
+impl Tally {
+    /// Every wrong note and every true lesson had a verdict: stage A's bars are read on all of
+    /// them, not only on the ones a run happened to be handed.
+    pub fn all_judged(&self) -> bool {
+        self.judged_wrong == self.wrong_notes && self.judged_true == self.true_notes
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrozenTask {
     /// `pair: summary` of every note of the pool, in order: a replay refuses another pool (a
@@ -128,6 +136,16 @@ pub struct FrozenTask {
     /// [`FreezeArgs::rounds`] (files written before it had one round).
     #[serde(default = "one")]
     pub rounds: u32,
+    /// [`FreezeArgs::until_judged`]; `rounds` is then 1 (one review pass and one verify pass,
+    /// each made of as many runs as it took).
+    #[serde(default)]
+    pub until_judged: bool,
+    /// The `av dream` and `av dream --verify` runs made, the last one of a loop included (it
+    /// found nothing, or added nothing). 0 in files written before they were counted.
+    #[serde(default)]
+    pub review_runs: u32,
+    #[serde(default)]
+    pub verify_runs: u32,
     pub verdicts: Vec<FrozenVerdict>,
     pub tally: Tally,
 }
@@ -210,7 +228,17 @@ pub struct FreezeArgs {
     /// one verified pass is 1; stage A's is 3, the plan's three review and three verify runs.
     /// Not a promise that every record is looked at: a judged record stays on the worklist, so
     /// [`Tally::judged_wrong`] and [`Tally::judged_true`] say what the rounds reached.
+    /// Ignored with `until_judged`.
     pub rounds: u32,
+    /// Stage A: review runs back to back, with no verify run between them, until a run adds no
+    /// verdict (a record with a proposed verdict is on no review run's list, the daemon's rule,
+    /// so each run is handed records no run has judged yet, and the loop ends when the worklist
+    /// is empty or the agent declined everything it was handed); then verify runs until none
+    /// is waiting for a review or a run reviews nothing. [`Tally::all_judged`] says whether
+    /// every note was reached.
+    pub until_judged: bool,
+    /// The most runs of each pass `until_judged` makes (a cap on the money a loop can spend).
+    pub max_runs: u32,
     /// `$AV_HOME` of the two passes: their `dreams/<id>/` directories (bundle, instructions,
     /// what the agent wrote) are kept under it.
     pub home: PathBuf,
@@ -503,11 +531,20 @@ pub fn freeze(
     if args.rounds == 0 {
         return Err("--rounds is at least 1".into());
     }
-    let (_src, seeded) = seed_store(spec, cfg, daemon, name)?;
-    for _ in 0..args.rounds {
-        av_dream(cfg, args, name, false)?;
-        av_dream(cfg, args, name, true)?;
+    if args.until_judged && args.max_runs == 0 {
+        return Err("--max-runs is at least 1".into());
     }
+    let (_src, seeded) = seed_store(spec, cfg, daemon, name)?;
+    let (review_runs, verify_runs) = if args.until_judged {
+        let r = until_nothing_new(cfg, args, daemon, name, false)?;
+        (r, until_nothing_new(cfg, args, daemon, name, true)?)
+    } else {
+        for _ in 0..args.rounds {
+            av_dream(cfg, args, name, false)?;
+            av_dream(cfg, args, name, true)?;
+        }
+        (args.rounds, args.rounds)
+    };
 
     let names = Names::read(daemon, name, &seeded)?;
     let list = daemon.get(&format!("/v1/repos/{name}/verdicts?limit=1000"))?;
@@ -587,10 +624,45 @@ pub fn freeze(
         wrong_reverted: cfg.wrong_reverted,
         dreamer: args.dreamer.clone(),
         verifier: args.verifier.clone(),
-        rounds: args.rounds,
+        rounds: if args.until_judged { 1 } else { args.rounds },
+        until_judged: args.until_judged,
+        review_runs,
+        verify_runs,
         verdicts,
         tally,
     })
+}
+
+/// One pass of [`FreezeArgs::until_judged`]: runs of one kind until a run changes nothing (a
+/// review run that adds no verdict, a verify run that leaves as many waiting) or `max_runs`.
+/// Returns the runs made.
+fn until_nothing_new(
+    cfg: &RunConfig,
+    args: &FreezeArgs,
+    daemon: &Daemon,
+    repo: &str,
+    verify: bool,
+) -> Result<u32> {
+    // review: every verdict made so far; verify: the ones still waiting for a review
+    let count = || -> Result<usize> {
+        let state = if verify { "&state=proposed" } else { "" };
+        let list = daemon.get(&format!("/v1/repos/{repo}/verdicts?limit=1000{state}"))?;
+        Ok(list["verdicts"].as_array().map_or(0, Vec::len))
+    };
+    let mut before = count()?;
+    if verify && before == 0 {
+        return Ok(0);
+    }
+    for run in 1..=args.max_runs {
+        av_dream(cfg, args, repo, verify)?;
+        let now = count()?;
+        let moved = if verify { now < before } else { now > before };
+        if !moved || (verify && now == 0) {
+            return Ok(run);
+        }
+        before = now;
+    }
+    Ok(args.max_runs)
 }
 
 /// Counts notes, not verdicts: after several rounds a note can have more than one verdict, and

@@ -258,10 +258,18 @@ enum Cmd {
         #[arg(long, default_value_t = 1)]
         fix_rounds: u32,
         /// How many times the review run and then the verify run are made. Stage B: 1 (one
-        /// verified pass); stage A: 3 (the plan's three of each; the tally's judged counts say
-        /// which notes the rounds reached).
-        #[arg(long, default_value_t = 1)]
+        /// verified pass). The tally's judged counts say which notes the rounds reached.
+        #[arg(long, default_value_t = 1, conflicts_with = "until_judged")]
         rounds: u32,
+        /// Stage A: review runs back to back until the worklist is empty (a record waiting for
+        /// a review is on no review run's list) or a run adds no verdict, then verify runs
+        /// until none waits. Exits 1, after writing the file, when a wrong note or a true
+        /// lesson was never judged.
+        #[arg(long)]
+        until_judged: bool,
+        /// With --until-judged: the most runs of each pass.
+        #[arg(long, default_value_t = 20, requires = "until_judged")]
+        max_runs: u32,
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
@@ -764,6 +772,8 @@ fn main() -> ExitCode {
             timeout,
             fix_rounds,
             rounds,
+            until_judged,
+            max_runs,
         } => (|| {
             let mut specs = load_tasks(&tasks)?;
             if !only.is_empty() {
@@ -788,6 +798,7 @@ fn main() -> ExitCode {
                 version: dreamed::VERSION,
                 tasks: Default::default(),
             };
+            let mut short = vec![];
             for spec in &specs {
                 let args = dreamed::FreezeArgs {
                     dreamer: dreamer.clone(),
@@ -798,6 +809,8 @@ fn main() -> ExitCode {
                     timeout: std::time::Duration::from_secs(timeout),
                     fix_rounds,
                     rounds,
+                    until_judged,
+                    max_runs,
                     home: cfg.work_root.join(&run_id).join(&spec.name),
                 };
                 let name = format!("d{run_id}-{}", spec.name);
@@ -817,6 +830,15 @@ fn main() -> ExitCode {
                     a.judged_true,
                     args.home.display()
                 );
+                if until_judged {
+                    println!(
+                        "{}: {} review runs, {} verify runs",
+                        spec.name, t.review_runs, t.verify_runs
+                    );
+                    if !a.all_judged() {
+                        short.push(spec.name.clone());
+                    }
+                }
                 frozen.tasks.insert(spec.name.clone(), t);
             }
             if let Some(dir) = out.parent() {
@@ -825,6 +847,13 @@ fn main() -> ExitCode {
             let text = serde_json::to_string_pretty(&frozen).map_err(|e| e.to_string())?;
             std::fs::write(&out, text).map_err(|e| format!("{}: {e}", out.display()))?;
             println!("frozen: {}", out.display());
+            if !short.is_empty() {
+                eprintln!(
+                    "dream-freeze: not every wrong note and true lesson was judged in {} (a run                      added nothing, or --max-runs was reached): its bars are not read on all of                      them",
+                    short.join(", ")
+                );
+                return Ok(1);
+            }
             Ok(0)
         })(),
         Cmd::Noise { repo, rev, n, seed } => (|| {

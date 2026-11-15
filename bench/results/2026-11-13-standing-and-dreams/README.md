@@ -231,8 +231,8 @@ every wrong note and every true lesson was handed to a run). Files: `m2-stage-a/
   for 5 of 6). The same four every time (store-count, line-taxes, coupon-remove, money-plain).
   The fifth, **quote-split's** ("Split a Money amount with total.times(Decimal(1) / n) …
   Money.allocate(n) hands out uneven parts … do not use it for splits"), was **`confirmed`**, by
-  the reviewer and agreed by the verifier, in all six passes, each time on `allocate`'s own
-  lines (`base, rest = divmod(self.minor, parts)` and the remainder handed out a cent at a time).
+  the reviewer and agreed by the verifier, in all six passes, each time on the same two lines of
+  `allocate` (`base, rest = divmod(self.minor, parts)` and the remainder handed out a cent at a time).
   Its factual half is true read literally (the parts can differ by a cent); its advice is the
   dead end. It is stage B's target task's own wrong note, so a dreamed store would carry it
   *confirmed*.
@@ -244,9 +244,13 @@ every wrong note and every true lesson was handed to a run). Files: `m2-stage-a/
   region {region!r}", …)`: the code on `main` breaks the rule, because that is the bug the
   lesson's task fixes. The verifier did not agree, so the verdict was `rejected` and never took
   effect. The bar holds because of the second agent, on the one occasion it was tested.
-- **Quotes: met as far as stage A can show.** Every verdict and every review the six passes
-  posted passed the daemon's quote check (no `refused.json` in any run). The second check, when
-  `run --dreamed` writes the frozen verdicts into a freshly seeded store, first runs in stage B.
+- **Quotes: met.** Every verdict and every review the six passes posted passed the daemon's
+  quote check when posted (no `refused.json` in any run). Re-checked afterwards, offline: each
+  of the 100 stored `code` and `record` quotes of the six `dreamed-N.json` is found verbatim in
+  that file on the tallyho repo's `main` (the tree every pass's quotes were checked at) or in that
+  record's text; 0 failed (`m2-stage-a/recheck.py`, run in the harness; one `event` reference, in pass
+  5, is checked by the daemon only). The daemon's own re-check, when `run --dreamed` writes the
+  frozen verdicts into a freshly seeded store, first runs in stage B.
 
 **Decision.** Stage A meets its bars as registered, so the registration allows stage B. Read with
 the two notes above: one wrong note is confirmed every time, and the true-lesson bar was
@@ -260,10 +264,18 @@ exercised once.
 - **Not every record was handed.** 55 to 57 of 61 a pass. The harness stops a pass when a run
   is handed nothing new, but the reviewer is not deterministic on records it is handed again:
   in pass 1, run 4 was handed the same 50 records as run 3 (which judged none) and judged 10.
-  The 4 to 6 records never handed were noise notes each time, so the bars are not affected (the
+  The 4 to 6 records never handed were noise notes each time (listed by `m2-stage-a/recheck.py`; the
+  revert's own note was handed in every pass), so the bars are not affected (the
   coverage rule is about the pool's notes), and the undecided share is over handed records only.
 - Verify runs judged every proposed verdict in one run each; 2 of 47 verdicts were rejected
   (pass 4: a `confirmed` on a noise note; pass 5: the dispute above).
+
+**Deviations from the registration**, all decided before pass 1 and none after a stage A
+outcome was seen: `--limit 50` instead of the default 20 (Build, and "Pilot 3" above); three
+pilots, declared here and not in the PREREG; the agents' tools widened to `Read,Write,Bash`
+after pilot 1's denials; a database that was not fresh (it held the stub check's and the
+pilots' stores; each pass seeded its own repo); the runs from `/root/m2bin` and a `bench`
+snapshot of `0a3a141`.
 
 **Cost.** Stage A's six passes **$4.41** (Claude Code's `total_cost_usd`, list prices); with the
 smoke call and the three pilots ($1.65), **$6.07 of the $20** budget. The plan's estimate for all

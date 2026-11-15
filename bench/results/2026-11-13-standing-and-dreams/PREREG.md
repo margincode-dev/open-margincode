@@ -85,7 +85,10 @@ dreamed arm those verdicts and reviews in its own freshly seeded store, before i
 "frozen and copied into every session" above: the same verdicts in all 30 sessions, written
 through the daemon's routes rather than copied as a database. Stage A runs `dream-freeze` six
 times from the same start, one `--out` each, and reads its tally (wrong notes `disputed` and
-effective; true lessons `disputed` or `outdated`). Test:
+effective; true lessons `disputed` or `outdated`; each note counted once, by its newest
+effective verdict, beside how many notes any verdict judged). Each of its passes is
+`--rounds 3`: the plan's "3 runs and 3 verify runs at the default limit", which reach the 60
+records where one run of 20 leaves 40 unjudged. Test:
 `a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm`
 (`crates/margincode-bench/tests/runner.rs`). The commands:
 
@@ -93,7 +96,7 @@ effective; true lessons `disputed` or `outdated`). Test:
 OUT=bench/results/2026-11-13-standing-and-dreams
 # stage A: six passes from the same start (wrong-lesson pool plus 50 noise notes)
 for i in 1 2 3 4 5 6; do
-  margincode-bench dream-freeze bench/tasks-relay-wrong --wrong-reverted --noise 50 \
+  margincode-bench dream-freeze bench/tasks-relay-wrong --wrong-reverted --noise 50 --rounds 3 \
     --dream-cmd '<dreamer command>' --verify-cmd '<verifier command>' \
     --out $OUT/m2-stage-a/dreamed-$i.json <the stack's options>
 done

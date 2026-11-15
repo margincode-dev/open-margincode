@@ -257,6 +257,10 @@ enum Cmd {
         /// `av dream --fix-rounds`.
         #[arg(long, default_value_t = 1)]
         fix_rounds: u32,
+        /// How many times the review run and then the verify run are made. Stage B: 1 (one
+        /// verified pass); stage A: 3 (three runs at the default limit reach all 60 records).
+        #[arg(long, default_value_t = 1)]
+        rounds: u32,
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
@@ -758,6 +762,7 @@ fn main() -> ExitCode {
             limit,
             timeout,
             fix_rounds,
+            rounds,
         } => (|| {
             let mut specs = load_tasks(&tasks)?;
             if !only.is_empty() {
@@ -791,21 +796,24 @@ fn main() -> ExitCode {
                     limit,
                     timeout: std::time::Duration::from_secs(timeout),
                     fix_rounds,
+                    rounds,
                     home: cfg.work_root.join(&run_id).join(&spec.name),
                 };
                 let name = format!("d{run_id}-{}", spec.name);
                 let t = dreamed::freeze(spec, &cfg, &daemon, &name, &args)?;
                 let a = &t.tally;
                 println!(
-                    "{}: {} verdicts, {} effective; wrong notes disputed {}/{}; true lessons \
-                     disputed or outdated {}/{} (dreams in {})",
+                    "{}: {} verdicts, {} effective; wrong notes disputed {}/{} (judged {}); \
+                     true lessons disputed or outdated {}/{} (judged {}) (dreams in {})",
                     spec.name,
                     a.verdicts,
                     a.effective,
                     a.wrong_disputed,
                     a.wrong_notes,
+                    a.judged_wrong,
                     a.true_hit,
                     a.true_notes,
+                    a.judged_true,
                     args.home.display()
                 );
                 frozen.tasks.insert(spec.name.clone(), t);

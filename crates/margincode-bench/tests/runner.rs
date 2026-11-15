@@ -798,6 +798,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         limit: None,
         timeout: std::time::Duration::from_secs(60),
         fix_rounds: 0,
+        rounds: 1,
         home: dir.path().join("home"),
     };
     let freeze_cfg = RunConfig {
@@ -865,6 +866,8 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
             wrong_disputed: 1,
             true_notes: 1,
             true_hit: 0,
+            judged_wrong: 1,
+            judged_true: 1,
         }
     );
     let file = dir.path().join("dreamed.json");
@@ -931,6 +934,47 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         memory.starts_with("wrong-reverted, dreamed sha256:"),
         "{memory}"
     );
+
+    // stage A's rounds: the review and verify runs twice. The second round judges every record
+    // again, so the wrong note has two disputes and is still one wrong note disputed
+    let twice = dreamed::FreezeArgs {
+        rounds: 2,
+        home: dir.path().join("home2"),
+        ..args.clone()
+    };
+    let t2 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-2", &twice).unwrap();
+    assert_eq!(t2.rounds, 2);
+    assert_eq!(t2.verdicts.len(), 6, "{t2:#?}");
+    assert_eq!(
+        t2.verdicts
+            .iter()
+            .filter(|v| v.wrong && v.state == "effective")
+            .count(),
+        2
+    );
+    assert_eq!(
+        t2.tally,
+        dreamed::Tally {
+            verdicts: 6,
+            effective: 2,
+            wrong_notes: 1,
+            wrong_disputed: 1,
+            true_notes: 1,
+            true_hit: 0,
+            judged_wrong: 1,
+            judged_true: 1,
+        }
+    );
+    // and its replay gives each record's verdicts their own runs, oldest first
+    let file2 = dir.path().join("dreamed-2.json");
+    let frozen2 = dreamed::Frozen {
+        version: dreamed::VERSION,
+        tasks: [(f.spec.name.clone(), t2)].into_iter().collect(),
+    };
+    std::fs::write(&file2, serde_json::to_string_pretty(&frozen2).unwrap()).unwrap();
+    f.cfg.dreamed = Some(file2);
+    let o = run_session(&f.spec, Arm::Av, 2, "dr2", &f.cfg).unwrap();
+    assert!(o.valid, "{o:?}");
 }
 
 #[test]

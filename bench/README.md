@@ -205,7 +205,11 @@ margincode-bench run bench/tasks-relay-wrong --wrong-reverted --dreamed bench/re
 `--verifier`, each command with `sh -c` in its run's directory beside `DREAM.md` (`--limit`,
 `--timeout`, `--fix-rounds` are `av dream`'s), keeps the runs' directories under
 `<work-root>/df<pid>/<task>/dreams/`, and prints stage A's tally per task: wrong notes ended
-`disputed` and effective, and true lessons ended `disputed` or `outdated`. It spends what the two
+`disputed` and effective, and true lessons ended `disputed` or `outdated`, each counted once by
+the note's newest effective verdict, and how many of each any verdict judged at all (a lesson no
+run was handed cannot be disputed). `--rounds N` makes the review run and then the verify run
+N times (default 1, stage B's one verified pass): stage A's pass is `--rounds 3`, three runs at
+the default limit of 20 for the 60 records of the pool with 50 noise notes. It spends what the
 commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
 refuses a file frozen from another pool.
 
@@ -214,7 +218,8 @@ pool, any other record (the revert's note) by its earlier task's role, kind and 
 by its kind, task role and place, and a quote's commit not at all when it was the run's own (a
 quote without one is checked at the run's commit). A session replays it through the daemon's own
 dream routes (review runs propose, verify runs review, as many runs as it takes to be handed
-every record), so every quote is checked again in that session's store, and then checks that
+every record; a record's verdicts in waves, as the rounds made them, each wave proposed and
+reviewed before the next, since a record with a proposed verdict is on no review run's list), so every quote is checked again in that session's store, and then checks that
 every verdict ended in the state it was frozen in; anything else stops the session with an
 error. `meta.json` says which memory a run's av arms started from (`memory`: `raw`,
 `wrong-reverted`, `dreamed sha256:…`), the report prints it when it is not `raw`, and a results

@@ -1,8 +1,9 @@
 //! Plan 16 M2 stage B: one dreamed memory, frozen once and given to every session of the arm.
 //!
 //! [`freeze`] seeds each task's store as a session would ([`runner::seed_store`]), runs
-//! `av dream` and then `av dream --verify` as a second agent, and writes what the two passes
-//! ended with: every verdict, its state, and the verify run's review with its evidence. A
+//! `av dream` and then `av dream --verify` as a second agent (`rounds` times, for stage A's
+//! three runs and three verify runs at the default limit), and writes what the passes ended
+//! with: every verdict, its state, and the verify run's review with its evidence. A
 //! session's store is seeded afresh, so its record ids, event ids and trunk commit are new; the
 //! file therefore names a record by its earlier task's role, kind, summary and place, an event
 //! by its kind, task role and place, and drops a quote's commit when it was the run's own.
@@ -108,6 +109,12 @@ pub struct Tally {
     /// ended `disputed` or `outdated` and effective (stage A's bar: none).
     pub true_notes: usize,
     pub true_hit: usize,
+    /// How many wrong notes and true lessons had any verdict at all: a true lesson no run was
+    /// handed cannot be disputed, so `true_hit = 0` says little when `judged_true` is low.
+    #[serde(default)]
+    pub judged_wrong: usize,
+    #[serde(default)]
+    pub judged_true: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,8 +125,15 @@ pub struct FrozenTask {
     pub wrong_reverted: bool,
     pub dreamer: String,
     pub verifier: String,
+    /// [`FreezeArgs::rounds`] (files written before it had one round).
+    #[serde(default = "one")]
+    pub rounds: u32,
     pub verdicts: Vec<FrozenVerdict>,
     pub tally: Tally,
+}
+
+fn one() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -192,6 +206,10 @@ pub struct FreezeArgs {
     pub limit: Option<u32>,
     pub timeout: Duration,
     pub fix_rounds: u32,
+    /// How many times the review run and then the verify run are made (at least 1). Stage B's
+    /// one verified pass is 1; stage A's is 3: three runs at the default limit of 20 reach all
+    /// 60 records of the pool with 50 noise notes, where one run leaves 40 of them unjudged.
+    pub rounds: u32,
     /// `$AV_HOME` of the two passes: their `dreams/<id>/` directories (bundle, instructions,
     /// what the agent wrote) are kept under it.
     pub home: PathBuf,
@@ -481,9 +499,14 @@ pub fn freeze(
     if args.dreamer == args.verifier {
         return Err("the verify pass is a second look: give it another agent name".into());
     }
+    if args.rounds == 0 {
+        return Err("--rounds is at least 1".into());
+    }
     let (_src, seeded) = seed_store(spec, cfg, daemon, name)?;
-    av_dream(cfg, args, name, false)?;
-    av_dream(cfg, args, name, true)?;
+    for _ in 0..args.rounds {
+        av_dream(cfg, args, name, false)?;
+        av_dream(cfg, args, name, true)?;
+    }
 
     let names = Names::read(daemon, name, &seeded)?;
     let list = daemon.get(&format!("/v1/repos/{name}/verdicts?limit=1000"))?;
@@ -563,30 +586,45 @@ pub fn freeze(
         wrong_reverted: cfg.wrong_reverted,
         dreamer: args.dreamer.clone(),
         verifier: args.verifier.clone(),
+        rounds: args.rounds,
         verdicts,
         tally,
     })
 }
 
+/// Counts notes, not verdicts: after several rounds a note can have more than one verdict, and
+/// the newest effective one is what packs read (the daemon's rule), so that one decides.
+/// `verdicts` are in the order they were proposed.
 pub fn tally(spec: &TaskSpec, verdicts: &[FrozenVerdict]) -> Tally {
     let effective = |v: &&FrozenVerdict| v.state == "effective";
     let notes = &spec.relay_notes;
+    let mut last: BTreeMap<usize, &FrozenVerdict> = BTreeMap::new();
+    let mut judged: std::collections::BTreeSet<usize> = Default::default();
+    for v in verdicts {
+        if let Some(i) = v.note {
+            judged.insert(i);
+            if v.state == "effective" {
+                last.insert(i, v);
+            }
+        }
+    }
+    let is_wrong = |i: usize| notes.get(i).is_some_and(|n| n.no_commit);
+    let is_true = |i: usize| notes.get(i).is_some_and(|n| !n.no_commit && !n.noise);
     Tally {
         verdicts: verdicts.len(),
         effective: verdicts.iter().filter(effective).count(),
         wrong_notes: notes.iter().filter(|n| n.no_commit).count(),
-        wrong_disputed: verdicts
+        wrong_disputed: last
             .iter()
-            .filter(effective)
-            .filter(|v| v.wrong && v.verdict == "disputed")
+            .filter(|(i, v)| is_wrong(**i) && v.verdict == "disputed")
             .count(),
         true_notes: notes.iter().filter(|n| !n.no_commit && !n.noise).count(),
-        true_hit: verdicts
+        true_hit: last
             .iter()
-            .filter(effective)
-            .filter(|v| v.note.is_some() && !v.wrong && !v.noise)
-            .filter(|v| matches!(v.verdict.as_str(), "disputed" | "outdated"))
+            .filter(|(i, v)| is_true(**i) && matches!(v.verdict.as_str(), "disputed" | "outdated"))
             .count(),
+        judged_wrong: judged.iter().filter(|i| is_wrong(**i)).count(),
+        judged_true: judged.iter().filter(|i| is_true(**i)).count(),
     }
 }
 
@@ -608,9 +646,52 @@ pub fn replay(
         .map(|v| names.id_of(&v.record))
         .collect::<Result<_>>()?;
 
-    // the review pass: as many runs as it takes to be handed every record
-    let mut made: Vec<Option<String>> = vec![None; task.verdicts.len()];
-    while made.iter().any(Option::is_none) {
+    // A record with a proposed verdict is on no review run's list (the daemon's rule), so the
+    // verdicts go in waves, as the rounds made them: a record's first verdict in wave 0, its
+    // second in wave 1, and so on, each wave proposed and then reviewed before the next.
+    let n = task.verdicts.len();
+    let mut wave = vec![0usize; n];
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    for (i, id) in ids.iter().enumerate() {
+        let c = seen.entry(id.as_str()).or_default();
+        wave[i] = *c;
+        *c += 1;
+    }
+    let waves = wave.iter().max().map_or(0, |m| m + 1);
+    let mut made: Vec<Option<String>> = vec![None; n];
+    for w in 0..waves {
+        replay_wave(task, spec, daemon, repo, &names, &ids, &wave, w, &mut made)?;
+    }
+    let made: Vec<String> = made.into_iter().map(Option::unwrap_or_default).collect();
+
+    // every verdict ends where it ended when it was frozen
+    for (v, id) in task.verdicts.iter().zip(&made) {
+        let now = daemon.get(&format!("/v1/verdicts/{id}"))?;
+        if now["verdict"]["state"] != v.state.as_str() {
+            return Err(format!(
+                "task {}: the replayed verdict on {:?} is {}, frozen as {}",
+                spec.name, v.record.summary, now["verdict"]["state"], v.state
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One wave of [`replay`]: its verdicts proposed (as many review runs as it takes to be handed
+/// every record), then the ones the frozen dream reviewed, reviewed.
+#[allow(clippy::too_many_arguments)]
+fn replay_wave(
+    task: &FrozenTask,
+    spec: &TaskSpec,
+    daemon: &Daemon,
+    repo: &str,
+    names: &Names,
+    ids: &[String],
+    wave: &[usize],
+    w: usize,
+    made: &mut [Option<String>],
+) -> Result<()> {
+    while (0..made.len()).any(|i| wave[i] == w && made[i].is_none()) {
         let started = daemon.post(
             &format!("/v1/repos/{repo}/dreams"),
             json!({"agent": task.dreamer, "mode": "review", "limit": RUN_LIMIT}),
@@ -634,11 +715,11 @@ pub fn replay(
         let mut batch = vec![];
         let mut which = vec![];
         for (i, v) in task.verdicts.iter().enumerate() {
-            if made[i].is_some() || !on_list.contains(&ids[i]) {
+            if wave[i] != w || made[i].is_some() || !on_list.contains(&ids[i]) {
                 continue;
             }
             let mut item = json!({"record": ids[i], "verdict": v.verdict, "reason": v.reason,
-                                  "evidence": thaw_all(&v.evidence, &names)?});
+                                  "evidence": thaw_all(&v.evidence, names)?});
             if let Some(c) = &v.canonical {
                 item["canonical"] = json!(names.id_of(c)?);
             }
@@ -677,11 +758,11 @@ pub fn replay(
             made[i] = r["verdict"]["id"].as_str().map(str::to_owned);
         }
     }
-    let made: Vec<String> = made.into_iter().map(Option::unwrap_or_default).collect();
 
-    // the verify pass, for the verdicts the frozen one reviewed
+    // the verify pass, for this wave's verdicts the frozen one reviewed
+    let id_of = |i: usize| made[i].clone().unwrap_or_default();
     let mut waiting: Vec<usize> = (0..task.verdicts.len())
-        .filter(|&i| task.verdicts[i].review.is_some())
+        .filter(|&i| wave[i] == w && task.verdicts[i].review.is_some())
         .collect();
     while !waiting.is_empty() {
         let started = daemon.post(
@@ -706,14 +787,14 @@ pub fn replay(
             .collect();
         let (now, later): (Vec<usize>, Vec<usize>) = waiting
             .iter()
-            .partition(|&&i| on_list.contains(&made[i].as_str()));
+            .partition(|&&i| on_list.contains(&id_of(i).as_str()));
         let result = (|| -> Result<()> {
             for &i in &now {
                 let r = task.verdicts[i].review.as_ref().expect("filtered");
                 daemon.post(
-                    &format!("/v1/verdicts/{}/review", made[i]),
+                    &format!("/v1/verdicts/{}/review", id_of(i)),
                     json!({"reviewer": r.reviewer, "agree": r.agree, "dream": dream,
-                           "evidence": thaw_all(&r.evidence, &names)?}),
+                           "evidence": thaw_all(&r.evidence, names)?}),
                     None,
                 )?;
             }
@@ -733,17 +814,6 @@ pub fn replay(
             ));
         }
         waiting = later;
-    }
-
-    // every verdict ends where it ended when it was frozen
-    for (v, id) in task.verdicts.iter().zip(&made) {
-        let now = daemon.get(&format!("/v1/verdicts/{id}"))?;
-        if now["verdict"]["state"] != v.state.as_str() {
-            return Err(format!(
-                "task {}: the replayed verdict on {:?} is {}, frozen as {}",
-                spec.name, v.record.summary, now["verdict"]["state"], v.state
-            ));
-        }
     }
     Ok(())
 }

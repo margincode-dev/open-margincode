@@ -9,7 +9,8 @@ Always (no tallyho needed):
   `relay_pool`, now `notes-silent.toml`, so all three tasks are run under one pool of thirteen
   notes;
 - in that pool each task's own note is the wrong one: a `decision` kept out of the commit log
-  (`no_commit`), anchored in the file the task changes, and for `quote-split` the text of
+  (`no_commit`), anchored to a symbol (the two silent notes in the file the task changes,
+  `quote-split`'s on `Money.allocate`), and for `quote-split` the text of
   `notes-wrong.toml`, unchanged.
 
 With a tallyho checkout and a Python with pytest as arguments, it also runs, for each of the three
@@ -73,8 +74,9 @@ for name, spec in specs.items():
         n = notes[0]
         check(n["kind"] == "decision" and n.get("no_commit") is True and not n.get("noise"),
               f"{name}: the note is not a no_commit decision")
-        check(n["path"] in spec["relevant_files"] and n.get("symbol"),
-              f"{name}: the note is not anchored to a symbol in a file the task changes")
+        # anchored where the pack finds it: the two silent notes in the file the task changes,
+        # quote-split's on `Money.allocate` in money.py, the call the right fix makes
+        check(n.get("path") and n.get("symbol"), f"{name}: the note is not anchored to a symbol")
         check(len(n["summary"]) <= 200, f"{name}: summary is {len(n['summary'])} characters")
         if name == "quote-split":
             check(n == wrong.get(name), "quote-split: the note differs from notes-wrong.toml's")

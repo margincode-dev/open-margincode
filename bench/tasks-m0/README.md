@@ -37,7 +37,7 @@ margincode-bench check bench/tasks-m0
   the edit the wrong note recommends (`dead` in `reference/edits.py`).
 - `check_set.py` here: the two silent specs are the silent set's files unchanged. `quote-split.toml`
   differs from the wrong-lesson spec only in `relay_pool`. In the pool, each task's own note is a
-  `no_commit` decision anchored in the file the task changes. It also runs `check.py`'s silent
+  `no_commit` decision anchored to a symbol (`relay-quote-split`'s on `Money.allocate` in `money.py`, the others in the file the task changes). It also runs `check.py`'s silent
   proof on all three pairs, `relay-quote-split` included, which `check.py` does not run for it: on
   the base tree the repo's own tests pass and the hidden test fails; with the fix both pass; with
   the wrong note's edit the own tests still pass and only the hidden test fails.

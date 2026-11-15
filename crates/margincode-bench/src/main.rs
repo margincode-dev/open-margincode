@@ -281,6 +281,8 @@ enum Cmd {
         #[arg(long)]
         database_url: Option<String>,
     },
+    /// Embedding chunk length and strategy, offline and dense-only (`chunklen.rs`).
+    ChunkLength(margincode_bench::chunklen::Cli),
     /// Mine retrieval tasks from a repo's history (small commits to non-test source files).
     Mine {
         /// The local clone to mine.
@@ -791,6 +793,7 @@ fn main() -> ExitCode {
             println!("report: {}", args.out.join("report.md").display());
             Ok(0)
         })(),
+        Cmd::ChunkLength(cli) => margincode_bench::chunklen::main(cli).map(|()| 0),
         Cmd::Mine {
             repo,
             repo_path,

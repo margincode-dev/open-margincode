@@ -1,0 +1,215 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-13T17:00:31.736923+00:00",
+  "head_change": "e6d2c0eabd6f8710604250ef64a940832eb49278",
+  "id": "rcp:45a001ae",
+  "items": [
+    {
+      "id": "task:relay-money-plain",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "handle",
+      "tokens": 12
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:65b4c6e6",
+      "reason": "goal-lead",
+      "score": 2.0322580337524414,
+      "source": null,
+      "tier": "summary",
+      "tokens": 67
+    },
+    {
+      "id": "rec:99ca2c3e",
+      "reason": "goal-lead",
+      "score": 0.8131147623062134,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:eba2fa02",
+      "reason": "semantic",
+      "score": 0.5896756649017334,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:5e777f65",
+      "reason": "semantic",
+      "score": 0.586155116558075,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:1af59c6c",
+      "reason": "semantic",
+      "score": 0.565910816192627,
+      "source": null,
+      "tier": "handle",
+      "tokens": 35
+    },
+    {
+      "id": "rec:5ea5bf6f",
+      "reason": "semantic",
+      "score": 0.22338759899139404,
+      "source": null,
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:384",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/money.py",
+        77,
+        80
+      ],
+      "tier": "full",
+      "tokens": 26
+    },
+    {
+      "id": "sym:386",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:374",
+      "reason": "lexical",
+      "score": 0.7664062976837158,
+      "source": [
+        "tallyho/money.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:373",
+      "reason": "lexical",
+      "score": 0.7571954131126404,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:375",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:385",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/money.py",
+        82,
+        83
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:388",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:409",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:365",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        73,
+        74
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:387",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:402",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "handle",
+      "tokens": 21
+    }
+  ],
+  "omitted": [
+    "- rec:e8cbd213 decision, open: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:f37636a8 note, open: merge a5781bc580c5 reverted by bench-merger in e6d2c0eabd6f: the bench…",
+    "- rec:ff93481c decision, reverted: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:76a290cd decision, reverted: CouponBook keys _by_code by the code exactly as it is passed in. Looku…",
+    "- rec:3f65385b decision, reverted: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable…"
+  ],
+  "packer_version": 10,
+  "session": "659cb7dc-b149-469f-8dee-3d98eb199109",
+  "task_id": "de260d47-760b-4060-8046-3003a5655c4a",
+  "tokens": 714
+}

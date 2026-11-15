@@ -77,6 +77,16 @@ pub struct VerdictRow {
     pub state: String,
 }
 
+/// One review of a verdict: a verify run's (`dream` set) or a person's.
+#[derive(Debug, Clone, Serialize)]
+pub struct VerdictReview {
+    pub reviewer: String,
+    pub dream: Option<Uuid>,
+    pub agree: bool,
+    pub evidence: Value,
+    pub created_at: DateTime<Utc>,
+}
+
 pub struct NewVerdict<'a> {
     pub record: RecordId,
     pub verdict: &'a str,
@@ -354,6 +364,29 @@ impl PgStore {
         .await
         .map_err(serr)?;
         rows.iter().map(verdict_from).collect()
+    }
+
+    /// A verdict's reviews, oldest first (the newest decides its state).
+    pub async fn verdict_reviews(&self, verdict: Uuid) -> Result<Vec<VerdictReview>> {
+        let rows = sqlx::query(
+            "SELECT reviewer, dream_id, agree, evidence, created_at
+               FROM verdict_reviews WHERE verdict_id = $1 ORDER BY id",
+        )
+        .bind(verdict)
+        .fetch_all(self.pool())
+        .await
+        .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok(VerdictReview {
+                    reviewer: r.try_get("reviewer").map_err(serr)?,
+                    dream: r.try_get("dream_id").map_err(serr)?,
+                    agree: r.try_get("agree").map_err(serr)?,
+                    evidence: r.try_get("evidence").map_err(serr)?,
+                    created_at: r.try_get("created_at").map_err(serr)?,
+                })
+            })
+            .collect()
     }
 
     /// Writes a review of a proposed verdict. `Conflict` unless the verdict is still proposed:

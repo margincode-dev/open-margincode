@@ -71,12 +71,23 @@ pub struct Meta {
     /// which reads as `none`. `orchestrate::run` writes it from the run's configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_isolation: Option<String>,
+    /// The store the av arms started from (Plan 16): `raw`, or `wrong-reverted`
+    /// (`--wrong-reverted`) and `dreamed sha256:<hex>` (`--dreamed`, the file's hash) joined by
+    /// `, `. Results from before the options have no value, which reads as `raw`.
+    /// `orchestrate::run` writes it from the run's configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
 }
 
 impl Meta {
     /// `none`, or the agent user's name.
     pub fn isolation(&self) -> &str {
         self.agent_isolation.as_deref().unwrap_or("none")
+    }
+
+    /// `raw`, or what [`Meta::memory`] says.
+    pub fn memory(&self) -> &str {
+        self.memory.as_deref().unwrap_or("raw")
     }
 }
 
@@ -158,7 +169,7 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# margincode-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {}{}{}{}{} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{}{}{}{}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
@@ -181,6 +192,10 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
             Some("none") => " · agent isolation: none".to_owned(),
             Some(user) => format!(" · agent isolation: user {user}"),
             None => String::new(),
+        },
+        match meta.memory() {
+            "raw" => String::new(),
+            m => format!(" · memory: {m}"),
         },
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)

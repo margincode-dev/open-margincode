@@ -5,6 +5,7 @@ use std::process::{Command, ExitCode, Stdio};
 
 use clap::{Args, Parser, Subcommand};
 use margincode_bench::calibrate::{Probe, cl100k_tokens, estimate_error, recommended_factor};
+use margincode_bench::dreamed;
 use margincode_bench::events::parse_stream;
 use margincode_bench::isolate::AgentUser;
 use margincode_bench::mine::{MineArgs, mine};
@@ -100,6 +101,15 @@ struct SessionArgs {
     /// --hook-arg=--max-code=3`.
     #[arg(long = "hook-arg", allow_hyphen_values = true)]
     hook_args: Vec<String>,
+    /// Plan 16 M1: seed the pool's `no_commit` notes (the wrong notes) as the records of an
+    /// earlier task whose merge was reverted, so their standing is `reverted`.
+    #[arg(long)]
+    wrong_reverted: bool,
+    /// Plan 16 M2 stage B: a file `dream-freeze` wrote. Each av session's store gets that
+    /// file's verdicts and reviews once it is seeded, before the agent's task starts (the
+    /// dreamed arm). Without it, the raw store.
+    #[arg(long)]
+    dreamed: Option<PathBuf>,
     /// Also give the av arms the just-in-time hooks: `av hook pre-read` on reads and edits,
     /// `av hook stop` when the agent stops.
     #[arg(long)]
@@ -205,6 +215,61 @@ enum Cmd {
         noise: usize,
         #[arg(long, default_value_t = 1)]
         noise_seed: u64,
+    },
+    /// Plan 16 M2: seed each relay task's store as `run --arms av` does, run `av dream` and
+    /// then `av dream --verify` on it as two agents, and write what they ended with to `--out`
+    /// for `run --dreamed` (every session of the dreamed arm then reads that one memory). Prints
+    /// stage A's tally per task. Spends only what the two agent commands spend.
+    DreamFreeze {
+        #[command(flatten)]
+        tasks: TaskArgs,
+        #[command(flatten)]
+        session: SessionArgs,
+        /// The file to write (JSON).
+        #[arg(long)]
+        out: PathBuf,
+        /// Only these tasks (by name).
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// As `run --noise`: a session replays a frozen dream only on the same pool.
+        #[arg(long, default_value_t = 0)]
+        noise: usize,
+        #[arg(long, default_value_t = 1)]
+        noise_seed: u64,
+        /// The agent name of the review pass.
+        #[arg(long, default_value = "dreamer")]
+        dreamer: String,
+        /// Its command, run with `sh -c` in the run's directory beside DREAM.md, e.g.
+        /// `claude -p "Read DREAM.md and do what it says"`.
+        #[arg(long)]
+        dream_cmd: String,
+        /// The agent name of the verify pass (another agent).
+        #[arg(long, default_value = "verifier")]
+        verifier: String,
+        #[arg(long)]
+        verify_cmd: String,
+        /// `av dream --limit` (records, or verdicts, per pass).
+        #[arg(long)]
+        limit: Option<u32>,
+        /// `av dream --timeout`, seconds.
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
+        /// `av dream --fix-rounds`.
+        #[arg(long, default_value_t = 1)]
+        fix_rounds: u32,
+        /// How many times the review run and then the verify run are made. Stage B: 1 (one
+        /// verified pass). The tally's judged counts say which notes the rounds reached.
+        #[arg(long, default_value_t = 1, conflicts_with = "until_empty")]
+        rounds: u32,
+        /// Stage A: review runs back to back until the worklist is empty (a record waiting for
+        /// a review is on no review run's list) or a run is handed nothing new (only what the
+        /// agent left undecided), then verify runs until none waits. Exits 1, after writing
+        /// the file, when a wrong note or a true lesson was never handed to a run.
+        #[arg(long)]
+        until_empty: bool,
+        /// With --until-empty: the most runs of each pass.
+        #[arg(long, default_value_t = 20, requires = "until_empty")]
+        max_runs: u32,
     },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
@@ -386,6 +451,8 @@ fn config(s: &SessionArgs) -> RunConfig {
         keep_work: s.keep_work,
         agent_user: None,
         av_ws_root: None,
+        wrong_reverted: s.wrong_reverted,
+        dreamed: s.dreamed.as_deref().map(expand),
     }
 }
 
@@ -424,6 +491,7 @@ fn meta(cfg: &RunConfig, specs: &[TaskSpec], seed: u64) -> Meta {
         noise_seed: None,
         // `orchestrate::run` fills it in from the configuration
         agent_isolation: None,
+        memory: None,
     }
 }
 
@@ -689,6 +757,110 @@ fn main() -> ExitCode {
             let report = first_packs_report(&rows, noise);
             std::fs::write(out.join("first-packs.md"), &report).map_err(|e| e.to_string())?;
             print!("{report}");
+            Ok(0)
+        })(),
+        Cmd::DreamFreeze {
+            tasks,
+            session,
+            out,
+            only,
+            noise,
+            noise_seed,
+            dreamer,
+            dream_cmd,
+            verifier,
+            verify_cmd,
+            limit,
+            timeout,
+            fix_rounds,
+            rounds,
+            until_empty,
+            max_runs,
+        } => (|| {
+            let mut specs = load_tasks(&tasks)?;
+            if !only.is_empty() {
+                specs.retain(|s| only.contains(&s.name));
+            }
+            for s in &specs {
+                check_spec(s)?;
+            }
+            add_noise(&mut specs, noise, noise_seed)?;
+            let cfg = config(&session);
+            if cfg.dreamed.is_some() {
+                return Err("dream-freeze dreams on the raw store: drop --dreamed".into());
+            }
+            let url = cfg
+                .av_url
+                .clone()
+                .ok_or("dream-freeze needs the bench daemon (--av-url)")?;
+            let daemon = Daemon::new(&url, cfg.av_token.as_deref());
+            let out = expand(&out);
+            let run_id = format!("df{:x}", std::process::id());
+            let mut frozen = dreamed::Frozen {
+                version: dreamed::VERSION,
+                tasks: Default::default(),
+            };
+            let mut short = vec![];
+            for spec in &specs {
+                let args = dreamed::FreezeArgs {
+                    dreamer: dreamer.clone(),
+                    dream_cmd: dream_cmd.clone(),
+                    verifier: verifier.clone(),
+                    verify_cmd: verify_cmd.clone(),
+                    limit,
+                    timeout: std::time::Duration::from_secs(timeout),
+                    fix_rounds,
+                    rounds,
+                    until_empty,
+                    max_runs,
+                    home: cfg.work_root.join(&run_id).join(&spec.name),
+                };
+                let name = format!("d{run_id}-{}", spec.name);
+                let t = dreamed::freeze(spec, &cfg, &daemon, &name, &args)?;
+                let a = &t.tally;
+                println!(
+                    "{}: {} verdicts, {} effective; wrong notes disputed {}/{} (judged {}); \
+                     true lessons disputed or outdated {}/{} (judged {}); left undecided {} of {} \
+                     handed (dreams in {})",
+                    spec.name,
+                    a.verdicts,
+                    a.effective,
+                    a.wrong_disputed,
+                    a.wrong_notes,
+                    a.judged_wrong,
+                    a.true_hit,
+                    a.true_notes,
+                    a.judged_true,
+                    a.undecided,
+                    a.handed,
+                    args.home.display()
+                );
+                if until_empty {
+                    println!(
+                        "{}: {} review runs, {} verify runs",
+                        spec.name, t.review_runs, t.verify_runs
+                    );
+                    if !a.all_handed() {
+                        short.push(spec.name.clone());
+                    }
+                }
+                frozen.tasks.insert(spec.name.clone(), t);
+            }
+            if let Some(dir) = out.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            let text = serde_json::to_string_pretty(&frozen).map_err(|e| e.to_string())?;
+            std::fs::write(&out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+            println!("frozen: {}", out.display());
+            if !short.is_empty() {
+                eprintln!(
+                    "dream-freeze: not every wrong note and true lesson was handed to a run in \
+                     {} (--max-runs was reached, or the worklist held only undecided records): \
+                     its bars are not read on all of them",
+                    short.join(", ")
+                );
+                return Ok(1);
+            }
             Ok(0)
         })(),
         Cmd::Noise { repo, rev, n, seed } => (|| {

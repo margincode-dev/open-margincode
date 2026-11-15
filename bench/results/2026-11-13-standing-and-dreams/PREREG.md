@@ -87,8 +87,10 @@ through the daemon's routes rather than copied as a database. Stage A runs `drea
 times from the same start, one `--out` each, and reads its tally (wrong notes `disputed` and
 effective; true lessons `disputed` or `outdated`; each note counted once, by its newest
 effective verdict, beside how many notes any verdict judged). Each of its passes is
-`--rounds 3`: the plan's "3 runs and 3 verify runs at the default limit", which reach the 60
-records where one run of 20 leaves 40 unjudged. Test:
+`--rounds 3`: the plan's "3 runs and 3 verify runs at the default limit". Rounds do not promise
+every record a look (a judged record stays on the worklist; a wrong note from reverted work keeps
+its +3 and a place in every round); `judged_wrong` and `judged_true` report what was reached.
+Test:
 `a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm`
 (`crates/margincode-bench/tests/runner.rs`). The commands:
 

@@ -208,8 +208,11 @@ margincode-bench run bench/tasks-relay-wrong --wrong-reverted --dreamed bench/re
 `disputed` and effective, and true lessons ended `disputed` or `outdated`, each counted once by
 the note's newest effective verdict, and how many of each any verdict judged at all (a lesson no
 run was handed cannot be disputed). `--rounds N` makes the review run and then the verify run
-N times (default 1, stage B's one verified pass): stage A's pass is `--rounds 3`, three runs at
-the default limit of 20 for the 60 records of the pool with 50 noise notes. It spends what the
+N times (default 1, stage B's one verified pass): stage A's pass is `--rounds 3`, the plan's three
+review and three verify runs at the default limit of 20. That does not promise every record a
+look: a judged record stays on the worklist (it loses only the point for never having had a
+verdict), so wrong notes from reverted work, at +3, take a place in every round, and
+`judged_wrong` and `judged_true` say what the rounds reached. It spends what the
 commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
 refuses a file frozen from another pool.
 

@@ -207,8 +207,9 @@ pub struct FreezeArgs {
     pub timeout: Duration,
     pub fix_rounds: u32,
     /// How many times the review run and then the verify run are made (at least 1). Stage B's
-    /// one verified pass is 1; stage A's is 3: three runs at the default limit of 20 reach all
-    /// 60 records of the pool with 50 noise notes, where one run leaves 40 of them unjudged.
+    /// one verified pass is 1; stage A's is 3, the plan's three review and three verify runs.
+    /// Not a promise that every record is looked at: a judged record stays on the worklist, so
+    /// [`Tally::judged_wrong`] and [`Tally::judged_true`] say what the rounds reached.
     pub rounds: u32,
     /// `$AV_HOME` of the two passes: their `dreams/<id>/` directories (bundle, instructions,
     /// what the agent wrote) are kept under it.

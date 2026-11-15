@@ -258,7 +258,8 @@ enum Cmd {
         #[arg(long, default_value_t = 1)]
         fix_rounds: u32,
         /// How many times the review run and then the verify run are made. Stage B: 1 (one
-        /// verified pass); stage A: 3 (three runs at the default limit reach all 60 records).
+        /// verified pass); stage A: 3 (the plan's three of each; the tally's judged counts say
+        /// which notes the rounds reached).
         #[arg(long, default_value_t = 1)]
         rounds: u32,
     },

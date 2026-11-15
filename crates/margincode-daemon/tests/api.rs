@@ -1724,7 +1724,8 @@ async fn merge_succeeds_when_remote_unreachable_and_records_failure() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "merged");
     let mut state = backup(&e).await;
-    for _ in 0..100 {
+    // the merge's background push, as in `settled()`: up to 30 s on a loaded machine
+    for _ in 0..600 {
         if state["failures"].as_u64().unwrap() >= 2 {
             break;
         }

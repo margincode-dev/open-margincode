@@ -221,7 +221,9 @@ what the agent left undecided); then verify runs until none waits for a review o
 nothing. `--max-runs` (default 20) caps each pass. The file records the runs made
 (`review_runs`, `verify_runs`), and the command exits 1, after writing the file, when a wrong
 note or a true lesson was never handed to a run (`handed_wrong`, `handed_true`); one that was
-handed and left out is undecided, which is reported. It spends what the commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
+handed and left out is undecided, which is reported. The daemon hands a record a finished run
+declined only after the records that are not waiting (unless its score rose since), so the
+loop reaches every record whatever the agent leaves out. It spends what the commands spend and nothing else. `--noise` and `--noise-seed` must be the run's: a session
 refuses a file frozen from another pool.
 
 The file names what stays the same from one seed to the next: a pool note by its place in the

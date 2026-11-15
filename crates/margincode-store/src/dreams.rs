@@ -104,8 +104,9 @@ pub struct DreamCandidate {
     pub record: Record,
     /// Whether any verdict was ever written on it.
     pub had_verdict: bool,
-    /// Whether a review run that finished (`done`) was handed it and wrote no verdict on it.
-    pub declined: bool,
+    /// The highest score at which a review run that finished (`done`) was handed it and wrote
+    /// no verdict on it; `None` when no run did.
+    pub declined_score: Option<f32>,
 }
 
 fn dream_from(r: &PgRow) -> Result<Dream> {
@@ -437,8 +438,8 @@ impl PgStore {
     /// The live records of `repo` a dream may judge, newest first, at most `scan`: decisions,
     /// attempts and notes written by agents (not mined from git), not superseded, not hidden
     /// by a verdict in effect, with no verdict waiting for its review, and, with an `area`,
-    /// anchored under it. Each says whether a finished review run declined it (was handed it
-    /// and wrote no verdict on it).
+    /// anchored under it. Each says the highest score at which a finished review run declined it
+    /// (was handed it and wrote no verdict on it), from the scores the run's worklist kept.
     pub async fn dream_candidates(
         &self,
         repo: &str,
@@ -449,13 +450,13 @@ impl PgStore {
             "SELECT {RECORD_COLS},
                     EXISTS (SELECT 1 FROM record_verdicts v WHERE v.record_id = r.id)
                       AS had_verdict,
-                    EXISTS (
-                      SELECT 1 FROM dreams d
+                    (SELECT max((d.worklist -> 'scores' ->> r.id::text)::float4)
+                       FROM dreams d
                       WHERE d.repo = $1 AND d.mode = 'review' AND d.status = 'done'
-                        AND d.worklist -> 'records' ? r.id::text
+                        AND jsonb_exists(d.worklist -> 'scores', r.id::text)
                         AND NOT EXISTS (SELECT 1 FROM record_verdicts v
                                         WHERE v.record_id = r.id AND v.dream_id = d.id))
-                      AS declined
+                      AS declined_score
              FROM records r JOIN tasks t ON t.id = r.task_id
              WHERE t.repo = $1
                AND r.kind IN ('decision', 'attempt', 'note')
@@ -479,12 +480,13 @@ impl PgStore {
         .fetch_all(self.pool())
         .await
         .map_err(serr)?;
-        let flags: Vec<(bool, bool)> = rows
+        let flags: Vec<(bool, Option<f32>)> = rows
             .iter()
             .map(|r| {
                 Ok((
                     r.try_get("had_verdict").map_err(serr)?,
-                    r.try_get("declined").map_err(serr)?,
+                    r.try_get::<Option<f32>, _>("declined_score")
+                        .map_err(serr)?,
                 ))
             })
             .collect::<Result<_>>()?;
@@ -492,10 +494,10 @@ impl PgStore {
         Ok(records
             .into_iter()
             .zip(flags)
-            .map(|(record, (had_verdict, declined))| DreamCandidate {
+            .map(|(record, (had_verdict, declined_score))| DreamCandidate {
                 record,
                 had_verdict,
-                declined,
+                declined_score,
             })
             .collect())
     }

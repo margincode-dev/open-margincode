@@ -87,17 +87,21 @@ through the daemon's routes rather than copied as a database. Stage A runs `drea
 times from the same start, one `--out` each, and reads its tally (wrong notes `disputed` and
 effective; true lessons `disputed` or `outdated`; each note counted once, by its newest
 effective verdict, beside how many notes any verdict judged). Each of its passes is
-`--until-judged`, which replaces the plan's "3 runs and 3 verify runs at the default limit" by
-the owner's decision of 2026-11-14: three rounds do not promise every record a look (a judged
-record stays on the worklist, and a wrong note from reverted work keeps its +3 and a place in
-every round), so a true lesson could go unjudged and the bar "no true lesson ends `disputed` or
-`outdated`" pass untested. Under `--until-judged` the review runs come back to back at the
-default limit, each handed records no run has judged yet, until the worklist is empty; then the
-verify runs, until none waits. A pass in which a wrong note or a true lesson was never judged
-(the agent declined it, or `--max-runs` was reached) is reported as such, and the command exits
-1; it is not counted as meeting the bars. The bars themselves are unchanged. With the pool of
-about 61 records that is about 4 review runs and 4 verify runs a pass, so the estimate below is
-at least 48 dream runs for stage A, not 36.
+`--until-judged`: the plan's "each time until the worklist is empty". Its "(3 runs and 3 verify
+runs at the default limit)" was an estimate of what that takes, and an earlier draft of this
+paragraph read it as the pass itself (`--rounds 3`); the owner settled it on 2026-11-14. Three
+rounds do not empty the worklist: a judged record stays on it, and a wrong note from reverted
+work keeps its +3 and a place in every round, so a true lesson could go unjudged and the bar "no
+true lesson ends `disputed` or `outdated`" pass untested. Under `--until-judged` the review runs
+come back to back at the default limit, each handed records no run has judged yet, until the
+worklist is empty; then the verify runs, until none waits. A pass in which a wrong note or a true
+lesson was never judged (the agent declined it, or `--max-runs` was reached) is reported as
+such, and the command exits 1; it is not counted as meeting the bars. "The same start" is one
+store: the five tasks of `bench/tasks-relay-wrong` share one pool (`notes-wrong.toml`, all five
+wrong notes and five true lessons) and seed the same records, so each pass dreams one of them
+(`--only relay-quote-split`), not five copies. The bars themselves are unchanged. With about 61
+records that is about 4 review runs and 4 verify runs a pass, about 48 dream runs for stage A
+where the plan estimated 36.
 Test:
 `a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm`
 (`crates/margincode-bench/tests/runner.rs`). The commands:
@@ -106,7 +110,8 @@ Test:
 OUT=bench/results/2026-11-13-standing-and-dreams
 # stage A: six passes from the same start (wrong-lesson pool plus 50 noise notes)
 for i in 1 2 3 4 5 6; do
-  margincode-bench dream-freeze bench/tasks-relay-wrong --wrong-reverted --noise 50 --until-judged \
+  margincode-bench dream-freeze bench/tasks-relay-wrong --only relay-quote-split \
+    --wrong-reverted --noise 50 --until-judged \
     --dream-cmd '<dreamer command>' --verify-cmd '<verifier command>' \
     --out $OUT/m2-stage-a/dreamed-$i.json <the stack's options>
 done

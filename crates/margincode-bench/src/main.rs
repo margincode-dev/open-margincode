@@ -849,7 +849,9 @@ fn main() -> ExitCode {
             println!("frozen: {}", out.display());
             if !short.is_empty() {
                 eprintln!(
-                    "dream-freeze: not every wrong note and true lesson was judged in {} (a run                      added nothing, or --max-runs was reached): its bars are not read on all of                      them",
+                    "dream-freeze: not every wrong note and true lesson was judged in {} (a run \
+                     added nothing, or --max-runs was reached): its bars are not read on all of \
+                     them",
                     short.join(", ")
                 );
                 return Ok(1);

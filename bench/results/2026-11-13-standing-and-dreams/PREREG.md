@@ -170,3 +170,61 @@ prices.
   (from `git archive HEAD bench/tallyho`, so the files keep their modes); venv
   `~/bench-work/venv` (Python 3.13.5, pytest 9.2.0).
 - **Model and prices**: none. Part 1 starts no agent and calls no model.
+
+### M2 stage A, filled in 2026-11-15 before its first pass
+
+- **Commit** for the record: the commit that adds this section, on `bench-dream-freeze` (PR #7).
+  The binaries were built at `56968ed`; `git diff 56968ed HEAD -- crates Cargo.lock Cargo.toml
+  rust-toolchain.toml` is empty. The tasks, pool and repo come from a `git archive 0a3a141 bench`
+  snapshot (`/root/m2src`); `bench/tasks-relay`, `bench/tasks-relay-wrong` and `bench/tallyho` are
+  unchanged from `0a3a141` to this commit.
+- **Binaries**, `cargo build --release --locked -j 6 -p margincode-daemon -p margincode-cli
+  -p margincode-bench` in `rust:1.97.1` (`sha256:b1b3c9c0…dec813f`), copied to `/root/m2bin`:
+  - `margincode` `e15a7bbb054af0650f478f4c666283e225943a34b679f62dc0870c8e6b276586`
+  - `av` `130ef9bf2d1cb49746751edfaab459a7809e327d0987443fd7bd6291f8767b98`
+  - `margincode-daemon` `0f1bb18cc8028422e6c226287f3e7fa15e14c888961ba7c3100edf2e5f331fa5`
+  - `margincode-bench` `49cea865757b1edaa952822669cf95b080eca2924ee8f598a9cbfd0a16750390`
+- **Daemon and stack**: Part 1's recipe on the network `m2-net`: harness `m2-harness`
+  (`rust:1.97.1`), Postgres `postgres:16` (`m2-pg`), Qdrant v1.13.6 (`m2-qdrant`), TEI cpu-1.7.2
+  serving `BAAI/bge-small-en-v1.5` (`m2-tei`); the daemon listens on `127.0.0.1:7450` (pid
+  16682). The database is not fresh: it holds the stub check's and the three pilots' stores. Each
+  pass seeds a fresh repo of its own (a new run id), and the worklist reads only its repo.
+- **Options** ("the stack's options"): `--av-url http://127.0.0.1:7450 --work-root
+  /root/bench-work --import-dir /root/bench-work/src --import-mount /root/bench-work/src`; repo
+  `bench/tallyho/make-repo.sh` into `~/bench-repos/tallyho`; noise seed 1.
+- **Agent**: Claude Code 2.1.325 (node 20, jq 1.7, git 2.47.3, Python 3.13.5 in the harness),
+  an Anthropic API key passed into the container by name. Dreamer and verifier are two agents
+  (`dreamer`, `verifier`) on the same model and the same script, `/root/dreamer.sh` =
+  `/root/verifier.sh` (sha256 `e2452e7f04cce6ce1e548caf388fec010961b9a4d11d3d6f6497daca6539eea9`):
+
+  ```sh
+  # Plan 16 M2 stage A agent: Claude Code on the model in $M2_MODEL, in the dream's directory.
+  exec claude -p "Read DREAM.md and do what it says." \
+    --model "$M2_MODEL" --output-format json --max-budget-usd "$M2_RUN_CAP" \
+    --permission-mode acceptEdits --allowedTools "Read,Write,Bash" \
+    > "claude-result-${AV_DREAM_ROUND:-0}.json"
+  ```
+
+  with `M2_MODEL=claude-sonnet-5-5` and `M2_RUN_CAP=1` ($1 per agent call, about 5 times the
+  dearest pilot 3 run, so a pass that disputes more than the pilots did is not cut off).
+- **Model and prices**: `claude-sonnet-5-5`, $2 input / $10 output per million tokens, cache
+  read $0.10 (list). Cost is Claude Code's own `total_cost_usd`, summed over every
+  `claude-result-*.json` of a pass. Budget: $20 for all M2 stage A work, $1.65 of it spent on the
+  smoke call and the three pilots (`README.md`).
+- **The command**, run six times, one at a time:
+
+  ```bash
+  margincode-bench dream-freeze bench/tasks-relay-wrong --only relay-quote-split \
+    --wrong-reverted --noise 50 --until-empty --limit 50 \
+    --dream-cmd 'sh /root/dreamer.sh' --verify-cmd 'sh /root/verifier.sh' \
+    --out /root/m2/stage-a/dreamed-$i.json <the stack's options>
+  ```
+
+  **Deviation: `--limit 50`** where the stage A paragraph says "at the default limit" (20). The
+  reason, and the go/no-go it passed, are in `README.md` ("Pilot 3"): a reviewer that leaves most
+  items undecided cannot have every record handed at 20; no stage A outcome had been seen. 50
+  items a run may itself change how the reviewer judges. `--max-runs` stays at its default, 20.
+- **Rules fixed before pass 1** (`README.md`): an uncovered pass is one of the six and does not
+  meet the bars; an aborted pass is run again from the same start; before each pass the money
+  left must be at least 1.5 times the dearest pass so far.
+

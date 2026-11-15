@@ -187,3 +187,24 @@ many records a reviewer judges per run at 50 and what a whole pass costs.
   under Build) and a `git archive 0a3a141 bench` snapshot in `/root/m2src`, so a rebuild or a
   checkout change elsewhere on the machine cannot reach them; the daemon's pid is checked before
   each pass.
+
+### Pilot 3, as run: covered, so stage A goes at `--limit 50`
+
+| run | mode | items | verdicts | cost | turns |
+|---|---|---|---|---|---|
+| 1 | review | 50 | 5 | $0.177 | 12 |
+| 2 | review | 50 | 2 | $0.152 | 10 |
+| 3 | review | 50 | 1 | $0.169 | 13 |
+| 4 | review | 50 | 5 | $0.196 | 12 |
+| 5 | review | 47 | 0 | $0.148 | 10 |
+| 6 | review | 47 | 0 | $0.179 | 13 |
+| 7 | verify | 13 | (2 rounds; 1 quote refused, fixed in round 2) | $0.182 | 15 |
+
+- All 60 records handed (run 5 was handed the last 2; run 6 found nothing new and the loop
+  stopped, which was also `--max-runs 6`); the command exited 0. 13 verdicts, 12 effective; 5
+  of the pool's 10 lessons judged, none `disputed` or `outdated` (no bar is read here).
+  Undecided 47 of 60. No permission denials, no errors.
+- **Whole pass $1.203.** Projected six passes: 6 × $1.203 = **$7.22**, at most $14, so stage A
+  runs on **Sonnet 5.5**. Spent so far $1.65 of $20.
+- Go: stage A runs at `--limit 50` (deviation from "at the default limit"; see Build). Stage A's
+  pool has 61 records, so its passes need 11 judged before a run that judges nothing new.

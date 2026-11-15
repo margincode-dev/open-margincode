@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "tasks": {
+    "relay-quote-split": {
+      "pool": [
+        "noise-0001: Tests for `Product` build their inputs with small factory helpers in conftest, not shared module-level objects.",
+        "quote-split: Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits.",
+        "noise-0002: New optional parameters of `JsonFileStore._load` are keyword-only (after *), so call sites stay readable when options are added.",
+        "noise-0003: Caching what `Discount.amount_off` returns in a module-level dict broke tests that expect a fresh value per case.",
+        "noise-0004: `MemoryStore.delete` is on the hot path of the nightly batch job; profile before adding work to it.",
+        "noise-0005: Remember `default_tax_table` is not thread-safe; each worker needs its own instance or an external lock.",
+        "noise-0006: `Workflow._move` is on the hot path of the nightly batch job; profile before adding work to it.",
+        "noise-0007: `CouponBook.add` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0008: New optional parameters of the `discounts` module are keyword-only (after *), so call sites stay readable when options are added.",
+        "noise-0009: `_exponent` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0010: The `cli` module reads files as UTF-8 explicitly; the platform default encoding differs on the Windows build agents.",
+        "noise-0011: Replacing the loop in `Money` with a comprehension made it shorter but much harder to step through in a debugger, so it was reverted.",
+        "noise-0012: Benchmarks for `Ledger.record_sale` are in a separate, manual job; the unit tests must not depend on timing.",
+        "store-count: Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends.",
+        "noise-0013: Benchmarks for the `tax` module are in a separate, manual job; the unit tests must not depend on timing.",
+        "noise-0014: Remember `Workflow` is not thread-safe; each worker needs its own instance or an external lock.",
+        "line-taxes: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed.",
+        "noise-0015: `JsonFileStore._save` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0016: Wrapping `cmd_products` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0017: Deprecation warnings from `render_table` are turned into errors in CI (filterwarnings = error), so fix them when they appear.",
+        "coupon-remove: CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already.",
+        "noise-0018: Adding type: ignore comments around `JsonFileStore.put_many` to quiet the checker hid a real Optional bug two callers up.",
+        "noise-0019: The `ledger` module keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0020: Wrapping `RecordStore.list_page` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "money-plain: Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format().",
+        "noise-0021: Wrapping `_exponent` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0022: New optional parameters of `parse_quantity` are keyword-only (after *), so call sites stay readable when options are added.",
+        "noise-0023: Replacing the loop in `Workflow.ship` with a comprehension made it shorter but much harder to step through in a debugger, so it was reverted.",
+        "noise-0024: The repr of objects around `JsonFileStore._path` shows up in logs, so keep it short and free of large nested data.",
+        "noise-0025: The `base` module is on the hot path of the nightly batch job; profile before adding work to it.",
+        "noise-0026: Wrapping `count_records` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0027: Moving the imports inside `Ledger.post` to speed up start-up saved under a millisecond and confused the linter.",
+        "noise-0028: New optional parameters of `Repository.product` are keyword-only (after *), so call sites stay readable when options are added.",
+        "noise-0029: The repr of objects around `cmd_export` shows up in logs, so keep it short and free of large nested data.",
+        "noise-0030: Tests for `TallyError` build their inputs with small factory helpers in conftest, not shared module-level objects.",
+        "noise-0031: Tried calling `Repository.order` twice to force a refresh; the second call returned the same stale object and nothing updated.",
+        "noise-0032: Wrapping `JsonFileStore.delete` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0033: Constants that `Ledger.record_sale` depends on live at the top of its module in UPPER_CASE, not as magic numbers inline.",
+        "noise-0034: The repr of objects around the `__init__` module shows up in logs, so keep it short and free of large nested data.",
+        "noise-0035: Caching what the `cli` module returns in a module-level dict broke tests that expect a fresh value per case.",
+        "noise-0036: Wrapping `Discount` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0037: The `table` module is on the hot path of the nightly batch job; profile before adding work to it.",
+        "customer-region: Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value.",
+        "noise-0038: `FixedDiscount` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "refund-event: Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages.",
+        "noise-0039: `Workflow.pay` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0040: Wrapping `RecordStore.get` in a bare try/except with a retry loop hid the real error and made the suite hang on the second pass.",
+        "noise-0041: Moving the imports inside `render_table` to speed up start-up saved under a millisecond and confused the linter.",
+        "product-slug: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads.",
+        "noise-0042: `CouponBook.__init__` is on the hot path of the nightly batch job; profile before adding work to it.",
+        "ledger-refund: A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id.",
+        "noise-0043: `TaxTable.tax` is on the hot path of the nightly batch job; profile before adding work to it.",
+        "order-ids: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs.",
+        "noise-0044: Moving the imports inside `Money.zero` to speed up start-up saved under a millisecond and confused the linter.",
+        "noise-0045: The `scan` module reads files as UTF-8 explicitly; the platform default encoding differs on the Windows build agents.",
+        "noise-0046: Log lines from `JsonFileStore._save` go through the logging module, never print(), so operators can filter them by logger name.",
+        "noise-0047: New optional parameters of `Repository.save_order` are keyword-only (after *), so call sites stay readable when options are added.",
+        "noise-0048: Deprecation warnings from `Ledger.balances` are turned into errors in CI (filterwarnings = error), so fix them when they appear.",
+        "noise-0049: `Ledger.record_sale` keeps its docstring as the one place its behaviour is described; the README only links to it.",
+        "noise-0050: Moving the imports inside the `__init__` module to speed up start-up saved under a millisecond and confused the linter."
+      ],
+      "wrong_reverted": true,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": true,
+      "review_runs": 5,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "reverted",
+            "kind": "decision",
+            "note": 16,
+            "nth": 0,
+            "summary": "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+          },
+          "note": 16,
+          "pair": "line-taxes",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "quote_order taxes the aggregate taxable base once (taxes.tax(taxable, region)), not each line separately",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/quote.py",
+              "quote": "tax = taxes.tax(taxable, order.customer.region)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/quote.py",
+                "quote": "taxable = Money(taxable.minor * discounted.minor // subtotal.minor, order.currency)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "reverted",
+            "kind": "decision",
+            "note": 13,
+            "nth": 0,
+            "summary": "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+          },
+          "note": 13,
+          "pair": "store-count",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "list_page is capped at max_page_size (100), so a limit of 10**9 does not return every record; this count would truncate",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "#: Largest page a backend returns, whatever ``limit`` asks for."
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/base.py",
+                "quote": "max_page_size: int = 100"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "reverted",
+            "kind": "decision",
+            "note": 20,
+            "nth": 0,
+            "summary": "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+          },
+          "note": 20,
+          "pair": "coupon-remove",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "CouponBook upper-cases codes on add/init and strips and upper-cases on get; keys are not stored as passed in",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "self._by_code = {c.code.upper(): c for c in coupons or []}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "return self._by_code.get(code.strip().upper())"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "reverted",
+            "kind": "decision",
+            "note": 24,
+            "nth": 0,
+            "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+          },
+          "note": 24,
+          "pair": "money-plain",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Not every currency has two decimals: JPY has 0 and KWD has 3; format() uses _exponent(currency)",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "exp = _exponent(self.currency)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "reverted",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+          },
+          "note": 1,
+          "pair": "quote-split",
+          "wrong": true,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "return [Money(base + (1 if i < rest else 0), self.currency) for i in range(parts)]"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "base, rest = divmod(self.minor, parts)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "attempt",
+            "note": 59,
+            "nth": 0,
+            "summary": "Moving the imports inside the `__init__` module to speed up start-up saved under a millisecond and confused the linter."
+          },
+          "note": 59,
+          "pair": "noise-0050",
+          "wrong": false,
+          "noise": true,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/__init__.py",
+              "quote": "from .table import render_table"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/__init__.py",
+                "quote": "from .csv_export import orders_to_csv, rows_to_csv"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "attempt",
+            "note": 47,
+            "nth": 0,
+            "summary": "Moving the imports inside `render_table` to speed up start-up saved under a millisecond and confused the linter."
+          },
+          "note": 47,
+          "pair": "noise-0041",
+          "wrong": false,
+          "noise": true,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/table.py",
+              "quote": "from ..text import pad"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/table.py",
+                "quote": "def render_table(headers: list[str], rows: list[list[str]], align: list[str] | None = None) -> str:"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 7,
+        "effective": 7,
+        "wrong_notes": 5,
+        "wrong_disputed": 4,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 0,
+        "handed": 57,
+        "undecided": 50,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    }
+  }
+}

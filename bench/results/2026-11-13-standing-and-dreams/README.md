@@ -208,3 +208,63 @@ many records a reviewer judges per run at 50 and what a whole pass costs.
   runs on **Sonnet 5.5**. Spent so far $1.65 of $20.
 - Go: stage A runs at `--limit 50` (deviation from "at the default limit"; see Build). Stage A's
   pool has 61 records, so its passes need 11 judged before a run that judges nothing new.
+
+## M2 stage A: results, 2026-11-15
+
+Six passes of the registered command (PREREG, Build "M2 stage A", `83706ff`), one at a time, all
+on Sonnet 5.5 at `--limit 50`. None aborted, none was run again, and each exited 0 (covered:
+every wrong note and every true lesson was handed to a run). Files: `m2-stage-a/dreamed-N.json`
+(what each pass ended with) and `m2-stage-a/pass-N.log` (its output and summed cost).
+
+| pass | review / verify runs | verdicts (effective) | wrong notes `disputed` and effective | true lessons judged | true lessons `disputed`/`outdated` | undecided / handed | cost |
+|---|---|---|---|---|---|---|---|
+| 1 | 4 / 1 | 15 (15) | **4 of 5** | 0 | 0 | 40 / 55 | $0.725 |
+| 2 | 4 / 1 | 7 (7) | **4 of 5** | 0 | 0 | 48 / 55 | $0.754 |
+| 3 | 4 / 1 | 5 (5) | **4 of 5** | 0 | 0 | 50 / 55 | $0.567 |
+| 4 | 5 / 1 | 6 (5) | **4 of 5** | 0 | 0 | 50 / 56 | $0.874 |
+| 5 | 4 / 1 | 7 (6) | **4 of 5** | 1 (disputed, rejected by the verifier) | 0 | 49 / 56 | $0.675 |
+| 6 | 5 / 1 | 7 (7) | **4 of 5** | 0 | 0 | 50 / 57 | $0.817 |
+
+**Bars (registered, unchanged):**
+
+- **Wrong notes: met.** At least 4 of 5 `disputed` and effective in 6 of 6 passes (the bar asks
+  for 5 of 6). The same four every time (store-count, line-taxes, coupon-remove, money-plain).
+  The fifth, **quote-split's** ("Split a Money amount with total.times(Decimal(1) / n) …
+  Money.allocate(n) hands out uneven parts … do not use it for splits"), was **`confirmed`**, by
+  the reviewer and agreed by the verifier, in all six passes, each time on `allocate`'s own
+  lines (`base, rest = divmod(self.minor, parts)` and the remainder handed out a cent at a time).
+  Its factual half is true read literally (the parts can differ by a cent); its advice is the
+  dead end. It is stage B's target task's own wrong note, so a dreamed store would carry it
+  *confirmed*.
+- **True lessons: met, but tested in one pass only.** No true lesson ended `disputed` or
+  `outdated` in any pass. In five of the six passes no true lesson was judged at all: all five
+  were handed and left undecided, so the bar held without being put to the test. In pass 5 the
+  reviewer judged one, customer-region's ("Errors about customer data must not echo the
+  rejected value …"), and **disputed** it, quoting `check_region`'s `raise ValidationError(f"invalid
+  region {region!r}", …)`: the code on `main` breaks the rule, because that is the bug the
+  lesson's task fixes. The verifier did not agree, so the verdict was `rejected` and never took
+  effect. The bar holds because of the second agent, on the one occasion it was tested.
+- **Quotes: met as far as stage A can show.** Every verdict and every review the six passes
+  posted passed the daemon's quote check (no `refused.json` in any run). The second check, when
+  `run --dreamed` writes the frozen verdicts into a freshly seeded store, first runs in stage B.
+
+**Decision.** Stage A meets its bars as registered, so the registration allows stage B. Read with
+the two notes above: one wrong note is confirmed every time, and the true-lesson bar was
+exercised once.
+
+**Reported, not bars:**
+
+- **Undecided share 287 / 334 = 86 %** over the six passes (records a review run was handed that
+  no run gave a verdict). The plan's Phase 5 (transcripts) is gated on this going above 30 %; it
+  is far above.
+- **Not every record was handed.** 55 to 57 of 61 a pass. The harness stops a pass when a run
+  is handed nothing new, but the reviewer is not deterministic on records it is handed again:
+  in pass 1, run 4 was handed the same 50 records as run 3 (which judged none) and judged 10.
+  The 4 to 6 records never handed were noise notes each time, so the bars are not affected (the
+  coverage rule is about the pool's notes), and the undecided share is over handed records only.
+- Verify runs judged every proposed verdict in one run each; 2 of 47 verdicts were rejected
+  (pass 4: a `confirmed` on a noise note; pass 5: the dispute above).
+
+**Cost.** Stage A's six passes **$4.41** (Claude Code's `total_cost_usd`, list prices); with the
+smoke call and the three pilots ($1.65), **$6.07 of the $20** budget. The plan's estimate for all
+of M2 was about $2.

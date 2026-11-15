@@ -1,0 +1,6 @@
+relay-quote-split: 6 verdicts, 5 effective; wrong notes disputed 4/5 (judged 5); true lessons disputed or outdated 0/5 (judged 0); left undecided 50 of 56 handed (dreams in /root/bench-work/df532e/relay-quote-split)
+relay-quote-split: 5 review runs, 1 verify runs
+frozen: /root/m2/stage-a/dreamed-4.json
+exit 0
+dir /root/bench-work/df532e/relay-quote-split
+cost 0.8741033999999999

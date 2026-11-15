@@ -75,3 +75,34 @@ B1 and B2 both pass, so the registration's decision rule allows Part 2. Part 2 w
   files keep their committed modes. Only the second one was used.
 - Run ids are `fp<pid>` per command (the harness's own); the workspaces were removed after each
   task (no `--keep-work`).
+
+## M2 stage A: a mechanics check with no model (free), 2026-11-15
+
+Not one of stage A's six passes, and no bar is read from it. Before any paid dream run, one
+`dream-freeze --until-empty` pass was made on stage A's own pool with a stub agent that calls no
+model, to see what the harness does at full size: how many runs a pass takes and whether every
+pool note is handed to one. Build: `56968ed` (PR #7), release binaries in `rust:1.97.1`, the daemon
+and stack of Part 1's recipe on a fresh database (containers `m2-*`), the same options.
+
+```bash
+margincode-bench dream-freeze bench/tasks-relay-wrong --only relay-quote-split \
+  --wrong-reverted --noise 50 --until-empty \
+  --dream-cmd 'sh /root/stub-dreamer.sh' --verify-cmd 'sh /root/stub-dreamer.sh' \
+  --out /root/dry/dreamed-dry3.json <the stack's options>
+```
+
+The stub (`sh` and `jq`): in review mode it confirms every item, quoting the first line of the
+item's anchored code with at least 12 non-space characters; in verify mode it agrees with every
+verdict, quoting the record. So it says nothing about judgement, only about the loop.
+
+- **61 records handed** (the pool's 10 notes plus 50 noise notes and the reverted task's record),
+  **5 review runs** at the default limit and **3 verify runs**; 60 verdicts, all 60 effective.
+- Every wrong note (5) and every true lesson (5) was handed to a run; the command exited 0.
+- **1 of 61 left undecided**: a record whose anchored code has no line the stub could quote. It
+  was handed again in run 5, which then found nothing new, and the loop stopped as designed.
+- Two earlier stub attempts are not counted: in the first, the stub quoted only the record, and
+  the daemon refused every `confirmed` verdict ("a confirmed verdict needs a quote of the code it
+  was checked against"); the second failed on a jq escape. Both ended at the stub, not the harness.
+
+What it predicts for the paid passes: about 5 review and 3 verify runs a pass, about 48 dream runs
+for stage A, as the registration's harness paragraph estimated.

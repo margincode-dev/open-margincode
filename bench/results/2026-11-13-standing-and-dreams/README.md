@@ -95,8 +95,8 @@ The stub (`sh` and `jq`): in review mode it confirms every item, quoting the fir
 item's anchored code with at least 12 non-space characters; in verify mode it agrees with every
 verdict, quoting the record. So it says nothing about judgement, only about the loop.
 
-- **61 records handed** (the pool's 10 notes plus 50 noise notes and the reverted task's record),
-  **5 review runs** at the default limit and **3 verify runs**; 60 verdicts, all 60 effective.
+- **61 records handed** (26 decisions, 18 notes, 17 attempts, no summary twice; the pool's 10
+  notes and 50 noise notes make 60, and the 61st was not traced), **5 review runs** at the default limit and **3 verify runs**; 60 verdicts, all 60 effective.
 - Every wrong note (5) and every true lesson (5) was handed to a run; the command exited 0.
 - **1 of 61 left undecided**: a record whose anchored code has no line the stub could quote. It
   was handed again in run 5, which then found nothing new, and the loop stopped as designed.

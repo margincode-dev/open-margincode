@@ -43,7 +43,7 @@ the hook does not run twice. Installing Claude's hooks later deletes that file w
 Grok caps a turn at **8 continuations**. Each Stop block counts, and after 8 the turn ends even
 if av still has work. The next prompt starts that counter over, so a long backlog spans turns.
 The hook's own cap is `AV_HOOK_MAX_CONTINUES` (default 20 continues per session, counted in
-`.av-task`). `Stop` waits up to `AV_HOOK_WAIT_SECS` (default 600; `0` turns the wait off) for work
+`.av-task`). `Stop` waits up to `AV_HOOK_WAIT_SECS` (default 600; `0` turns the wait off; `av watch` sets `0` for a Grok it starts) for work
 to appear. That wait sends no model tokens. The hook's timeout is the wait plus 60 seconds: a hook
 Grok cancels at its timeout has its output discarded, and Grok's own default for `Stop` is 600
 seconds, the same as the default wait, not above it.

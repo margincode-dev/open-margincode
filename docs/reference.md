@@ -464,6 +464,34 @@ export AV_IMPORT_ROOT=/mnt/c/Users/me/avsrc  AV_IMPORT_MOUNT='C:\Users\me\avsrc'
 in `WSLENV`, and fails builds with "Incorrect function" when `DOCKER_CONFIG` is on a WSL path.
 Enabling WSL integration for the distro in Docker Desktop avoids all of this.
 
+### Native av.exe on Windows
+
+Lite mode does not run on Windows (there is no Windows build of `margincode-daemon`). The daemon runs in
+Docker Desktop, with the mounts below, and a native `av.exe` is only the client.
+
+```powershell
+git init --bare D:/avexport/NAME.git
+$env:AV_WS_ROOT = 'D:/avws'            # becomes AV_WS_HOST_ROOT, the path clients work in
+$env:AV_WS_MOUNT = 'D:/avws'           # /ws, writable
+$env:AV_IMPORT_MOUNT = 'D:/avsrc'      # /import, read-only
+```
+
+The bundled compose file has no `/export` mount and does not pass `AV_BACKUP_REMOTES`, and a value set
+on the host does nothing. In an override file, add `D:/avexport:/export` to the daemon service's volumes
+and `AV_BACKUP_REMOTES=NAME=/export/NAME.git` to its environment. Then start the stack as in Full stack (Docker).
+
+In Git Bash, set `MSYS_NO_PATHCONV=1` for each `av` command, or `/import/...` is rewritten to a Windows path:
+
+```bash
+MSYS_NO_PATHCONV=1 av repo add NAME /import/NAME   # before av init: init posts the Windows
+av init                                             # path, which the daemon cannot read
+export AV_AGENT=claude   # the agent named in .av-task; otherwise writes are refused as "claim lost"
+```
+
+The daemon does not reach GitHub, and `main` is protected: push the backup to a branch from Windows git,
+`git -C D:/avexport/NAME.git push https://github.com/OWNER/REPO.git main:refs/heads/av/NAME`, then open a
+pull request from that branch.
+
 ### Docker Desktop memory on Windows
 
 Docker Desktop runs in a WSL 2 VM that by default may grow to half the machine's RAM and keeps

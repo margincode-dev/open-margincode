@@ -1,6 +1,6 @@
 # scholion-bench report
 
-Date 2026-11-15 23:34 UTC · claude 2.1.318 (Claude Code) · av unknown · model deepseek-flash · seed 1 · av arms: hooks only · agent isolation: user benchagent · 1 sessions launched, $0.019 spent
+Date 2026-11-16 00:13 UTC · claude 2.1.318 (Claude Code) · av unknown · model claude-haiku-5-5 · seed 1 · av arms: hooks only · agent isolation: user benchagent · 1 sessions launched, $0.008 spent
 
 Valid sessions per arm: av 1.
 **No significance claim**: fewer than 30 valid sessions in at least one arm; the intervals below are bootstrap 95% CIs of the median and are wide at this n.
@@ -11,10 +11,10 @@ Token counts exclude cache reads in every arm, so per-turn re-reads of the same 
 
 | arm | accepted | cost / accepted | wall / accepted | median cost (95% CI) | median tokens_total (95% CI) | median tokens_to_first_edit (no edit) | repeated dead ends |
 |---|---|---|---|---|---|---|---|
-| av | 1/1 | $0.019 | 67 s | $0.019 | 30583 | 18354 (0) | 0 |
+| av | 1/1 | $0.008 | 34 s | $0.008 | 23604 | 12957 (0) | 0 |
 
 ## Per task
 
 | task | arm | n | accepted | median tokens_to_first_edit | median tokens_total | repeated dead ends | median cost |
 |---|---|---|---|---|---|---|---|
-| relay-order-ids | av | 1 | 1 | 18354 | 30583 | 0 | $0.019 |
+| relay-order-ids | av | 1 | 1 | 12957 | 23604 | 0 | $0.008 |

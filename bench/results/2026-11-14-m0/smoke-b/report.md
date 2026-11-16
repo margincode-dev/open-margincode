@@ -1,6 +1,6 @@
 # scholion-bench report
 
-Date 2026-11-15 23:31 UTC · claude 2.1.318 (Claude Code) · av unknown · model deepseek-flash · seed 1 · av arms: hooks only · agent isolation: user benchagent · 3 sessions launched, $0.054 spent
+Date 2026-11-16 00:11 UTC · claude 2.1.318 (Claude Code) · av unknown · model claude-haiku-5-5 · seed 1 · av arms: hooks only · agent isolation: user benchagent · 3 sessions launched, $0.021 spent
 
 Valid sessions per arm: cold 1, notes 1, av 1.
 **No significance claim**: fewer than 30 valid sessions in at least one arm; the intervals below are bootstrap 95% CIs of the median and are wide at this n.
@@ -11,22 +11,22 @@ Token counts exclude cache reads in every arm, so per-turn re-reads of the same 
 
 | arm | accepted | cost / accepted | wall / accepted | median cost (95% CI) | median tokens_total (95% CI) | median tokens_to_first_edit (no edit) | repeated dead ends |
 |---|---|---|---|---|---|---|---|
-| cold | 0/1 | n/a | n/a | $0.024 | 38493 | 24438 (0) | 0 |
-| notes | 1/1 | $0.016 | 50 s | $0.016 | 28727 | 20897 (0) | 0 |
-| av | 1/1 | $0.014 | 40 s | $0.014 | 26254 | 18291 (0) | 0 |
+| cold | 0/1 | n/a | n/a | $0.006 | 22180 | 15415 (0) | 0 |
+| notes | 1/1 | $0.006 | 25 s | $0.006 | 20816 | 16182 (0) | 0 |
+| av | 1/1 | $0.009 | 37 s | $0.009 | 28734 | 16373 (0) | 0 |
 
 ## Attribution (relative change)
 
 | comparison | cost / accepted | median tokens_total | median tokens_to_first_edit | success rate |
 |---|---|---|---|---|
-| relay: av vs notes | -14.0% | -8.6% | -12.5% | +0.0% |
-| relay: notes vs cold | n/a | -25.4% | -14.5% | n/a |
-| relay: av vs cold | n/a | -31.8% | -25.2% | n/a |
+| relay: av vs notes | +63.7% | +38.0% | +1.2% | +0.0% |
+| relay: notes vs cold | n/a | -6.1% | +5.0% | n/a |
+| relay: av vs cold | n/a | +29.5% | +6.2% | n/a |
 
 ## Per task
 
 | task | arm | n | accepted | median tokens_to_first_edit | median tokens_total | repeated dead ends | median cost |
 |---|---|---|---|---|---|---|---|
-| relay-order-ids | cold | 1 | 0 | 24438 | 38493 | 0 | $0.024 |
-| relay-order-ids | notes | 1 | 1 | 20897 | 28727 | 0 | $0.016 |
-| relay-order-ids | av | 1 | 1 | 18291 | 26254 | 0 | $0.014 |
+| relay-order-ids | cold | 1 | 0 | 15415 | 22180 | 0 | $0.006 |
+| relay-order-ids | notes | 1 | 1 | 16182 | 20816 | 0 | $0.006 |
+| relay-order-ids | av | 1 | 1 | 16373 | 28734 | 0 | $0.009 |

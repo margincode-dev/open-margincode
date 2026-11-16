@@ -14,16 +14,43 @@ Its "Build" section was committed (`223ae29`) before the first paid session.
 | 0. smoke, build B (`smoke-b/`) | 3 | 3 `ok` | $0.0539 | $1.15 → $1.14 (with smoke A) |
 | 0. smoke, build A (`smoke-a/`) | 1 | 1 `ok` | $0.0194 | |
 | 1. `cold` (`m0-cold/`) | 30 | 30 `ok` | $0.2592 | $1.14 → $1.01 |
+| 2. `av-before`, build A (`m0-av-before/`) | 30 | 30 `ok` | $0.3166 | $0.99 → $0.84 |
 
-**The smokes pass**, on both builds. Each row is `status=ok` and valid. In every session the model
+These directories are under `deepseek/`. Command 2 was accepted 1 of 10 on
+`relay-bus-resubscribe`, 0 of 10 on `relay-quote-split` and 10 of 10 on `relay-tax-with-rate`.
+That is a description only. Command 3 (`notes`, `av-phase0`) never ran on DeepSeek, so no arm
+here has a pair to be compared with. Its store export is `deepseek/m0-av-before/superseded.jsonl`
+(0 rows: no `av-before` session superseded anything) and `records.jsonl` (44 rows). The account
+keeps $0.84, which this run leaves unspent.
+
+**The DeepSeek smokes passed**, on both builds. Each row is `status=ok` and valid. In every session the model
 answered and made at least one edit, and verify ran. `av`'s `hook-count` is not empty
 (session-start, pre-read, post-edit, stop), and `meta.json` names `benchagent` under
 `agent_isolation` and Claude Code 2.1.318. Smoke rows are not part of any arm.
 
-**The gate after the control passes**: `cold` was accepted 10 of 10 on `relay-quote-split`,
+**The DeepSeek gate passed**: `cold` was accepted 10 of 10 on `relay-quote-split`,
 10 of 10 on `relay-bus-resubscribe` and 10 of 10 on `relay-tax-with-rate` (pooled 30/30, Wilson
 0.886 to 1.000). The bar is at least 8 of 10 on each. The model solves all three tasks unaided
 here.
+
+## What has run on Haiku 5.5
+
+| command | sessions | rows | harness figure | Claude Code's own figure |
+|---|---|---|---|---|
+| 0. smoke, build B (`smoke-b/`) | 3 | 3 `ok` | $0.0210 | $0.0210 |
+| 0. smoke, build A (`smoke-a/`) | 1 | 1 `ok` | $0.0079 | $0.0079 |
+
+**The smokes pass**, under `PREREG.md`'s conditions and amendment 1's. Every row is `status=ok`
+and valid. The model answered, made at least one edit (one to three), and verify ran. `av`'s
+`hook-count` shows session-start, pre-read, post-edit and stop. `meta.json` names `benchagent`,
+Claude Code 2.1.318 and `models: ["claude-haiku-5-5"]`, and every assistant message in the event
+streams is from `claude-haiku-5-5`. The largest single request's prompt was 34,957 tokens, under
+the 100K price threshold. The highest session cost $0.0092, under the $0.04 bar. The harness
+figure at the list prices matches Claude Code's own `total_cost_usd` to the cent.
+
+The Haiku daemons are new, on new databases (`m0ha`, `m0hb`), as amendment 1 says. The DeepSeek
+daemons were stopped at 00:11 UTC, and their stores, workspace roots and run directories were
+moved under `/m0/results/deepseek/`.
 
 ## Why the DeepSeek run paused at 23:48 UTC (superseded by amendment 1)
 

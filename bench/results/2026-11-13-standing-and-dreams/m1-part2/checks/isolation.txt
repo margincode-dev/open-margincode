@@ -1,0 +1,34 @@
+== command on P0 (P1 closed)
+/m1/P0/bin/av
+021ad167c462d568d5c0d0c4e0fe8842ceb80fddb1f543dc56d179f3166ac956  /m1/P0/bin/av
+1
+other build refused
+6
+== command on P1 (P0 closed)
+/m1/P1/bin/av
+eeb89199ad606604e4fa862a0d5b0de6f6cd7e03e3c85b46ccff108cb4213d27  /m1/P1/bin/av
+1
+other build refused
+6
+== modes
+711 /m1
+700 /m1/tree-h
+700 /m1/srcP1
+700 /m1/srcH
+700 /m1/H
+700 /m1/bench-repos
+700 /m1/P0/store
+700 /m1/P1/store
+700 /m1/results
+700 /m1/checks
+711 /m1/bench-work
+711 /m1/bench-work/runs
+711 /m1/bench-work/ws-p0
+711 /m1/bench-work/ws-p1
+700 /m1/bench-work/src
+755 /m1/bench-work/venv
+700 /m0
+700 /b2
+700 /bench
+700 /root
+700 /src

@@ -385,3 +385,40 @@ wording of each note, ten repetitions per task.
    `ws-p0` and `ws-p1` 711; `/m0`, `/b2`, `/bench`, `/root` and `/src` 700; `/tmp` emptied before
    each command; new databases, stores and workspace roots for both daemons.
 
+**Free check results**, all before the first paid session (files in `m1-part2/checks/` and
+`m1-part2/first-packs-p0/`, `first-packs-p1/`):
+
+1. Task set: `reference/check.py` "all 13 pairs ok (3 of them silent)"; `tasks-relay-silent/check_set.py`
+   "silent set ok"; `tasks-m0/check_set.py` "M0 set ok", all three tasks silent. The last was
+   run on `/m1/srcH` (the archive before the model lines changed), as M0 ran it on its `/m0/tree`:
+   on the run tree its byte-for-byte checks against `tasks-relay-silent` and `tasks-relay-wrong`
+   fail by design, since only `tasks-m0` and `tasks-relay` have the Haiku model line. This check
+   ran before the conditions above were committed; they are M0's conditions, unchanged.
+2. Specs: 13 of 13 `ok`.
+3. Replay: **passes** (`checks/replay-check.txt`, `replay_check.py`). Both commands exited 0.
+
+   | build | task | task's wrong note in the hook pack | its label | seeded wrong-note lines, of them `reverted` | Phase 0's line |
+   |---|---|---|---|---|---|
+   | P0 | `relay-quote-split` | `summary` | none | 6, 0 | yes |
+   | P0 | `relay-bus-resubscribe` | `summary` | none | 5, 0 | yes |
+   | P0 | `relay-tax-with-rate` | `summary` | none | 8, 0 | yes |
+   | P1 | `relay-quote-split` | `handle` | `reverted` | 3, 3 | yes |
+   | P1 | `relay-bus-resubscribe` | `handle` | `reverted` | 2, 2 | yes |
+   | P1 | `relay-tax-with-rate` | `summary` | `reverted` | 4, 4 | yes |
+
+   Reported, not conditions: on build P1 Phase 1 moves two of the three tasks' own wrong notes
+   to the `handle` tier (cut to about 70 characters), and `relay-tax-with-rate`'s stays at
+   `summary`. P1's hook pack shows fewer of the eight seeded wrong notes (3, 2, 4 lines against
+   6, 5, 8). The pre-read answer for the task's file (`first-packs.md`, last column) carries the
+   wrong note only for `relay-bus-resubscribe` on P1 ("tallyho/events.py: yes"). In the pack at
+   task start, `relay-tax-with-rate`'s note is absent on both builds, as in M0's replay. The
+   revert's own note ("merge … reverted by bench-merger …") is a record in the hook pack of both
+   builds, labelled `open` on P1.
+4. One `av` per command (`checks/isolation.txt`): as `benchagent`, P0's command finds
+   `/m1/P0/bin/av` (`021ad167…`) and P1's `/m1/P1/bin/av` (`eeb89199…`); `av record --help`
+   names `--supersedes` on both; the other build's `av` is refused on each; `/m1/H`,
+   `/m1/results`, `/m1/tree-h`, `/m0`, `/bench` and `/b2` are refused.
+5. Isolation: the modes above hold (`checks/isolation.txt`). The replays' repositories
+   (`fp<pid>-…`) stay in both databases and their workspaces under `ws-p0` and `ws-p1`; every
+   session imports and seeds a repository of its own (`b<run id>-<task>-av-<rep>`), as in M0.
+

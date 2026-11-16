@@ -1,0 +1,12 @@
+8 seeded wrong notes in the pool
+
+| build | task | task's wrong note in the hook pack | its line has `rec:` | its label | lines with a seeded wrong note | of them `reverted` | with any origin | Phase 0's line under "Decisions & dead ends" |
+|---|---|---|---|---|---|---|---|---|
+| p0 | relay-quote-split | summary | yes | none | 6 | 0 | 0 | yes |
+| p0 | relay-bus-resubscribe | summary | yes | none | 5 | 0 | 0 | yes |
+| p0 | relay-tax-with-rate | summary | yes | none | 8 | 0 | 0 | yes |
+| p1 | relay-quote-split | handle | yes | reverted | 3 | 3 | 3 | yes |
+| p1 | relay-bus-resubscribe | handle | yes | reverted | 2 | 2 | 2 | yes |
+| p1 | relay-tax-with-rate | summary | yes | reverted | 4 | 4 | 4 | yes |
+
+Replay conditions: pass.

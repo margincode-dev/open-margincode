@@ -1,0 +1,195 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-16T01:46:46.15602+00:00",
+  "head_change": "613f6bf20c93b81198175c57eb860b1d9a8e90fd",
+  "id": "rcp:c6646022",
+  "items": [
+    {
+      "id": "task:relay-bus-resubscribe",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "summary",
+      "tokens": 56
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "full",
+      "tokens": 64
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:52a522c4",
+      "reason": "goal-lead",
+      "score": 0.8131147623062134,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:8932a51f",
+      "reason": "goal-lead",
+      "score": 0.8127016425132751,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:481656fb",
+      "reason": "semantic",
+      "score": 0.5691112875938416,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:1ee775e5",
+      "reason": "semantic",
+      "score": 0.2149987518787384,
+      "source": null,
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:16",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/events.py",
+        16,
+        17
+      ],
+      "tier": "full",
+      "tokens": 33
+    },
+    {
+      "id": "sym:14",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/events.py",
+        11,
+        22
+      ],
+      "tier": "full",
+      "tokens": 20
+    },
+    {
+      "id": "sym:15",
+      "reason": "lexical",
+      "score": 0.7698103189468384,
+      "source": [
+        "tallyho/events.py",
+        12,
+        14
+      ],
+      "tier": "full",
+      "tokens": 29
+    },
+    {
+      "id": "sym:17",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/events.py",
+        19,
+        22
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:137",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:136",
+      "reason": "lexical",
+      "score": 0.7503052949905396,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:142",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:138",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/cli.py",
+        15,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:7",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "full",
+      "tokens": 25
+    }
+  ],
+  "omitted": [
+    "- rec:5937840a decision, open: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:9130fd41 decision, open: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:381d8a6d decision, open: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:c6241db5 decision, open: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:ca82fc11 note, open: merge ee949d93e6b0 reverted by bench-merger in 613f6bf20c93: the bench…"
+  ],
+  "packer_version": 9,
+  "session": "fca5830e-0613-4dd8-9b75-02a432bb03fc",
+  "task_id": "88aac009-cbfc-428b-aaeb-b9da2d13c374",
+  "tokens": 700
+}

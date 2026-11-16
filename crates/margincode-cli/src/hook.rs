@@ -107,13 +107,14 @@ fn print_pack(
         input["source"].as_str(),
         Some("startup" | "compact" | "clear")
     ) {
-        tf.session = uuid::Uuid::new_v4().to_string();
-        if let Err(e) = taskfile::write(dir, &tf) {
+        let fresh = uuid::Uuid::new_v4().to_string();
+        if let Err(e) = taskfile::update(dir, &tf, |now| now.session = fresh.clone()) {
             eprintln!(
                 "av: hook session-start: cannot update {}: {e}",
                 taskfile::NAME
             );
         }
+        tf.session = fresh;
     }
     let budget = budget.to_string();
     let map = map.to_string();
@@ -620,10 +621,10 @@ pub fn post_edit(client: &Client, agent: &str) {
         return;
     }
     // stamp first, so a burst of edits right behind this one is debounced too
-    tf.last_checkpoint_ms = Some(now);
-    if let Err(e) = taskfile::write(&dir, &tf) {
+    if let Err(e) = taskfile::update(&dir, &tf, |f| f.last_checkpoint_ms = Some(now)) {
         eprintln!("av: hook post-edit: cannot update {}: {e}", taskfile::NAME);
     }
+    tf.last_checkpoint_ms = Some(now);
     let generation = generation(&tf, agent);
     // a remote checkout (Plan 14) sends its changes as a patch
     match crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
@@ -763,10 +764,10 @@ fn nudge_to_record(
     if r["status"] != "open" || syms.is_empty() {
         return false;
     }
-    tf.nudged_session = Some(session.to_owned());
-    if let Err(e) = taskfile::write(dir, tf) {
+    if let Err(e) = taskfile::update(dir, tf, |f| f.nudged_session = Some(session.to_owned())) {
         eprintln!("av: hook stop: cannot update {}: {e}", taskfile::NAME);
     }
+    tf.nudged_session = Some(session.to_owned());
     let mut names = syms[..syms.len().min(NUDGE_SYMBOLS)].join(", ");
     if syms.len() > NUDGE_SYMBOLS {
         names.push_str(&format!(" and {} more", syms.len() - NUDGE_SYMBOLS));
@@ -798,8 +799,9 @@ fn waiting(would: &Value) -> String {
 }
 
 /// Check 2: prints the block and counts it when av has work for this agent, polling for up to
-/// `AV_HOOK_WAIT_SECS`. Returns without printing when nothing fits, the cap is reached, or the
-/// daemon cannot be asked.
+/// `AV_HOOK_WAIT_SECS`. Returns without printing when nothing fits, the cap is reached, the
+/// daemon cannot be asked, or the continue cannot be counted in `.av-task` (it changed hands
+/// during the wait, or cannot be written).
 ///
 /// `named` is false when the hook has no name of its own (no `--agent`, no `AV_AGENT`, not run by
 /// Grok, which acts as `grok`). It then asks as the task's owner, not as `agent`: see `asks_as`.
@@ -855,10 +857,29 @@ fn keep_busy(
         }
         std::thread::sleep(left.min(POLL));
     };
-    tf.continue_session = Some(session.to_owned());
-    tf.continues = used + 1;
-    if let Err(e) = taskfile::write(dir, tf) {
-        eprintln!("av: hook stop: cannot update {}: {e}", taskfile::NAME);
+    // counted on the file as it is now: the wait may have lasted minutes, and another Stop of this
+    // session may have counted meanwhile. It blocks only on a continue it counted: one it could not
+    // count (the file changed hands, or cannot be read or written) would never reach the cap.
+    let mut under_cap = false;
+    let counted = taskfile::update(dir, tf, |now| {
+        let before = if now.continue_session.as_deref() == Some(session) {
+            now.continues
+        } else {
+            0
+        };
+        if before < max {
+            under_cap = true;
+            now.continue_session = Some(session.to_owned());
+            now.continues = before + 1;
+        }
+    });
+    match counted {
+        Ok(true) if under_cap => {}
+        Ok(_) => return,
+        Err(e) => {
+            eprintln!("av: hook stop: cannot update {}: {e}", taskfile::NAME);
+            return;
+        }
     }
     let reason = format!("av: {} - call start_task with no title", waiting(&would));
     println!("{}", json!({"decision": "block", "reason": reason}));

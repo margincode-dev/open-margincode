@@ -1396,10 +1396,11 @@ async fn abandon_says_when_the_workspace_was_removed() {
 
 // ---- F10: a start_task the client gave up on is handed to its retry ----
 //
-// Claude Code, when its tool timeout fires, sends `notifications/cancelled` with the request id
-// and keeps the call's socket open (measured 2026-11-16, Claude Code 2.1.325); its retry carries
-// the same `Mcp-Session-Id`. In the dogfood run that found this, both retries came while the
-// ~90 s start was still running.
+// Claude Code (2.1.325, measured 2026-11-16 through a logging proxy) resets a tool call's socket
+// 60 s after it sent the call, sends `notifications/cancelled` with the request id only when its
+// MCP_TOOL_TIMEOUT is shorter than that (none at the default 60 s), and retries about 1 s after it
+// gave up with the same `Mcp-Session-Id`. In the dogfood run that found this, both retries came
+// while the ~90 s start was still running.
 
 async fn paused_env() -> (Env, std::sync::Arc<margincode_daemon::StartPackPause>) {
     let pause = std::sync::Arc::new(margincode_daemon::StartPackPause {

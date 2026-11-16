@@ -49,11 +49,11 @@ pub(crate) struct McpSession {
     last_used: Instant,
 }
 
-/// A `start_task` call of a session (F10). Claude Code gives up on a slow call by sending
-/// `notifications/cancelled` and retries in the same session; it resets the call's socket 60 s
-/// after it sent the call (measured with Claude Code 2.1.325). The start goes on while a call
-/// holds it, and its answer goes to the retry instead of being lost; the retry makes no second
-/// task.
+/// A `start_task` call of a session (F10). Claude Code (2.1.325) gives up on a slow call: it
+/// resets the call's socket 60 s after it sent it, sends `notifications/cancelled` only when its
+/// `MCP_TOOL_TIMEOUT` is shorter than that (none at the default 60 s), and retries about 1 s
+/// later in the same session. The start goes on, and its answer goes to the retry instead of
+/// being lost; the retry makes no second task.
 #[derive(Clone)]
 struct StartCall {
     /// The JSON-RPC id of the call that holds it: the call it was made for, or the retry it was
@@ -1154,8 +1154,8 @@ fn gave_up(st: &AppState, sid: &str, request: &str) {
     });
 }
 
-/// A call's future dropped before it answered: its socket closed (Claude Code resets a cancelled
-/// call's socket 60 s after it sent it, as early as the cancel at its default timeout). A start
+/// A call's future dropped before it answered: its socket closed (Claude Code resets a call's
+/// socket 60 s after it sent it; at its default timeout that is the only sign it gave up). A start
 /// the call still holds that waits for work stops and takes nothing for a client that may be gone;
 /// any other is kept for a retry as if cancelled. A start a retry took over is that retry's.
 struct Unanswered<'a> {

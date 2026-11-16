@@ -1212,7 +1212,15 @@ pub(crate) async fn abandon(
 /// Main has already moved, so a failure is logged and reported (`missing`), never returned.
 async fn restore_workspace(st: &AppState, task: &Task) -> &'static str {
     match crate::disk::ensure_workspace(st, task).await {
-        Ok(what) => what,
+        Ok(what) => {
+            // snapshots leave `.av-task` out, so a re-created workspace comes back without one
+            // (F40); written with no name, as on every hand-out: the caller is the merger, not
+            // the owner
+            if what == "restored" {
+                hand_out(st, task);
+            }
+            what
+        }
         Err(e) => {
             tracing::warn!(task = %task.slug, error = %e, "restoring the task's workspace failed");
             "missing"
@@ -1439,7 +1447,7 @@ pub(crate) async fn resume_as(
 }
 
 /// A claimed or resumed task's new session, written with its generation into the workspace's
-/// `.av-task` (F14).
+/// `.av-task` (F14). Also writes the file of a workspace an undo or revert re-created (F40).
 fn hand_out(st: &AppState, task: &Task) -> String {
     let session = Uuid::new_v4().to_string();
     crate::task_file::write(

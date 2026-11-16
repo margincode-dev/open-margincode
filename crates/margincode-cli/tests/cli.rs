@@ -4557,6 +4557,50 @@ fn watch_passes_the_agent_name_and_daemon_url() {
     assert_eq!(who.trim(), format!("grok {}", d.url));
 }
 
+/// T2: since every workspace has a task file (#24), the Stop hook of a headless agent `av watch`
+/// started waited up to `AV_HOOK_WAIT_SECS` (600 s) for more work, holding its slot. `av watch`
+/// is the loop that waits, so it turns the hook's wait off for its command, unless its own
+/// environment sets the variable.
+#[test]
+fn watch_turns_the_stop_hook_wait_off_for_its_command() {
+    let (d, _scratch) = image_item_queued();
+    let dir = TempDir::new().unwrap();
+    let home = TempDir::new().unwrap();
+    let seen = |set: Option<&str>| {
+        let mut c = watch_in(
+            &d,
+            dir.path(),
+            home.path(),
+            &[
+                "--once",
+                "--",
+                "sh",
+                "-c",
+                "echo \"${AV_HOOK_WAIT_SECS-unset}\" > wait",
+            ],
+        );
+        match set {
+            Some(v) => c.env("AV_HOOK_WAIT_SECS", v),
+            None => c.env_remove("AV_HOOK_WAIT_SECS"),
+        };
+        ok(c.output().unwrap());
+        std::fs::read_to_string(dir.path().join("wait"))
+            .unwrap()
+            .trim()
+            .to_string()
+    };
+    assert_eq!(
+        seen(None),
+        "0",
+        "the hook's wait is off for a watched command"
+    );
+    assert_eq!(
+        seen(Some("30")),
+        "30",
+        "a wait set for av watch is passed on"
+    );
+}
+
 #[test]
 fn watch_stops_after_max_runs_and_backs_off_on_failure() {
     let (d, _scratch) = image_item_queued();

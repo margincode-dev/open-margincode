@@ -471,8 +471,9 @@ enum Cmd {
         take: Vec<String>,
     },
     /// Run an agent command whenever work fits --agent: looks every --every seconds without taking
-    /// anything, then runs the command (with AV_AGENT and AV_URL set) and waits for it. The command
-    /// takes the work itself, e.g. `av watch --agent grok -- grok -p "take your next av task"`.
+    /// anything, then runs the command (with AV_AGENT and AV_URL set, and AV_HOOK_WAIT_SECS=0 unless
+    /// set for av watch, so the agent's Stop hook does not also wait for work) and waits for it. The
+    /// command takes the work itself, e.g. `av watch --agent grok -- grok -p "take your next av task"`.
     Watch {
         #[arg(long)]
         repo: Option<String>,

@@ -4,6 +4,10 @@
 //! The command is expected to take the work itself (`start_task` with no arguments, or
 //! `av next`). This runs on the user's machine; the daemon still never starts a process.
 //!
+//! The command also gets `AV_HOOK_WAIT_SECS=0` unless this process has the variable set: the
+//! watch is the loop that waits for work, so the Stop hook of the agent it started does not also
+//! wait (up to 600 s, holding the slot) and carry the session into another task (T2).
+//!
 //! `--max-agents N` caps the agents running at once on this host, across every watch that shares
 //! `$AV_HOME`: an agent runs only while its watch holds one of N slots
 //! (`margincode_agentrun::slots`, shared with anything else that starts agents on the host).
@@ -19,6 +23,8 @@ use margincode_agentrun::slots;
 
 /// The longest pause after failures (the command, or the daemon).
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
+/// The Stop hook's wait for more work (`hook::stop`), which a watched command gets as 0.
+const HOOK_WAIT: &str = "AV_HOOK_WAIT_SECS";
 
 pub struct Watch<'a> {
     pub agent: &'a str,
@@ -107,11 +113,15 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
             work["repo"].as_str().unwrap_or_default(),
             work["title"].as_str().unwrap_or_default()
         );
-        let status = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .env("AV_AGENT", w.agent)
-            .env("AV_URL", w.url)
-            .status();
+            .env("AV_URL", w.url);
+        if std::env::var_os(HOOK_WAIT).is_none() {
+            command.env(HOOK_WAIT, "0");
+        }
+        let status = command.status();
         drop(slot); // the agent is done: another watch may start one
         runs += 1;
         let ok = match &status {

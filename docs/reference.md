@@ -786,7 +786,12 @@ tags cover what it needs. `av agent rm NAME` removes a profile (`DELETE /v1/agen
 An unknown name is an error. So is removing an agent that still owns an open, handed-off,
 in-review or conflicted task, unless `av agent rm NAME --force` (the tasks stay). A profile an extension
 manages cannot be removed here, the same as `av agent set`. `av watch`, once per agent,
-starts that CLI only when something fits it and sets `AV_AGENT` for the command.
+starts that CLI only when something fits it and sets `AV_AGENT` for the command. It also sets
+`AV_HOOK_WAIT_SECS=0` for the command unless `av watch` itself has that variable set: the watch
+is what waits for the next piece of work, so the Stop hook of the agent it started does not also
+wait (up to 600 s, holding the watch's slot) and carry that session into another task. Set it
+for `av watch` (`AV_HOOK_WAIT_SECS=600 av watch …`) to have one headless session work through
+several tasks.
 `av watch --max-agents N` (or `AV_MAX_AGENTS`) caps the agents running at once on the host,
 across every watch that shares `$AV_HOME`: a watch runs its command only while it holds one of
 N lock files in `$AV_HOME/agents`, and the OS releases a dead watch's lock. With no free slot
@@ -1404,7 +1409,7 @@ opens with a warning naming the culprit merge.
   Code's `claude-code`), so the hook does not offer it its own task as a review. An unnamed session in a task
   it does not own (a previous owner still running after a claim over MCP) is asked for as the owner too; give
   such sessions a name (`AV_AGENT`). If nothing fits yet it keeps looking every 15 s for up to `AV_HOOK_WAIT_SECS`
-  (default 600; `0` turns this off), which costs no model tokens, then lets the stop through. It continues one
+  (default 600; `0` turns this off; `av watch` sets `0` for the agents it starts), which costs no model tokens, then lets the stop through. It continues one
   agent session at most `AV_HOOK_MAX_CONTINUES` times (default 20, counted in `.av-task`), and a daemon that
   does not answer allows the stop at once. `install.sh` sets the hook's timeout to `AV_HOOK_WAIT_SECS` + 60 s,
   so run it again after changing the wait: `AV_HOOK_WAIT_SECS=120 integrations/claude-code/install.sh`.

@@ -4703,6 +4703,71 @@ async fn a_merge_guard_can_refuse_a_review_verdict_before_anything_is_written() 
     assert_eq!(e.store.latest_verdict_any(task_id).await.unwrap(), None);
 }
 
+/// F15: `av review` (HTTP) wrote the verdict, then each finding, and the 200-character limit was
+/// checked inside each finding's write: a long third finding left a `request_changes` verdict and
+/// two review records behind a refused call. Every finding is now checked before anything is
+/// written, and the verdict is written after the findings.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_with_one_bad_finding_writes_nothing() {
+    let e = env().await;
+    let t = ready_for_review(&e).await;
+    let task_id = margincode_core::TaskId(id(&t).parse().unwrap());
+    let long = "x".repeat(263);
+    let findings = |third: &str| {
+        json!([{"summary": "name the helper for what it does"},
+               {"summary": "add a test for empty names", "body": "the old code returned None"},
+               {"summary": third}])
+    };
+    for (third, says) in [
+        (
+            long.as_str(),
+            "findings[2]: the summary has 263 characters; at most 200",
+        ),
+        ("  ", "findings[2]: the summary is empty"),
+    ] {
+        let (status, body) = post(
+            &e,
+            &t,
+            "review",
+            json!({"reviewer": "reviewer", "verdict": "request_changes",
+                   "findings": findings(third)}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains(says),
+            "{says}: {body}"
+        );
+        let records = e.store.task_records(task_id).await.unwrap();
+        assert!(
+            !records
+                .iter()
+                .any(|r| r.kind == margincode_core::RecordKind::Review),
+            "{records:?}"
+        );
+        assert_eq!(e.store.latest_verdict_any(task_id).await.unwrap(), None);
+        let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+        assert_eq!(task["task"]["status"], "in_review", "{task}");
+    }
+    // the same call with the summary fixed stores exactly three
+    let (status, body) = post(
+        &e,
+        &t,
+        "review",
+        json!({"reviewer": "reviewer", "verdict": "request_changes",
+               "findings": findings("x".repeat(200).as_str())}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let records = e.store.task_records(task_id).await.unwrap();
+    let n = records
+        .iter()
+        .filter(|r| r.kind == margincode_core::RecordKind::Review)
+        .count();
+    assert_eq!(n, 3, "{records:?}");
+    assert!(e.store.latest_verdict_any(task_id).await.unwrap().is_some());
+}
+
 /// A guard that knows only the approval question still gets it, after the review question.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_is_asked_before_the_approval_question() {

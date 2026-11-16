@@ -159,7 +159,10 @@ least one decision, attempt, note or handoff record. The refusal lists changed s
 record covers. An approve needs a passing validation at the head and is refused when the head is
 already approved in its current review round, since the latest submit (the answer names who
 approved it and when); after a resubmit the head is reviewed again.
-A review finding the reviewer already stored at the same head is not stored twice.
+A review finding the reviewer already stored at the same head is not stored twice. Every finding
+is checked before anything is written (a summary that is blank or longer than 200 characters is
+refused with `400`, naming it as `findings[i]`), and the verdict is written after the findings, so
+a refused review leaves no verdict and no findings behind.
 
 **Claims.** A handoff stores what is done, remaining, broken and still open as a `handoff` record
 and returns a *handoff bundle*: goal, state, records (decisions and dead ends first), changes

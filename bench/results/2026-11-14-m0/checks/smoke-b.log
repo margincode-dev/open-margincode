@@ -1,0 +1,12 @@
+scholion-bench: relay-order-ids · av · rep 1 (spent $-0.00 of $0.30)
+scholion-bench: relay-order-ids · notes · rep 1 (spent $0.01 of $0.30)
+scholion-bench: relay-order-ids · cold · rep 1 (spent $0.03 of $0.30)
+plan: 1 tasks × 3 arms × 1 reps = 3 sessions (seed 1)
+model: deepseek-flash
+  cold: 1 sessions (below 30: no significance claim)
+  notes: 1 sessions (below 30: no significance claim)
+  av: 1 sessions (below 30: no significance claim)
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $0.24 at the $0.08 per-session cap
+budget: $0.30; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 999); what that user can read is checked before the first session
+report: /m0/results/smoke-b/report.md

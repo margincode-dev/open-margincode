@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-16 00:13 UTC",
+  "claude_version": "2.1.318 (Claude Code)",
+  "av_rev": "unknown",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "seed": 1,
+  "av_mcp": false,
+  "agent_isolation": "benchagent"
+}

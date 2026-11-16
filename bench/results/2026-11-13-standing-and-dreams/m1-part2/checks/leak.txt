@@ -1,0 +1,31 @@
+## Sessions that named something outside their own copy
+
+| run | arm | sessions | exposed | hidden test | other session | source tree | results | store | looked around | tmp | web | daemon over HTTP |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| m1-p0 | av | 30 | 0 | 0 | 0 | 0 | 0 | 0 | 16 | 0 | 0 | 0 |
+| m1-p1 | av | 30 | 0 | 0 | 0 | 0 | 0 | 0 | 11 | 1 | 0 | 0 |
+
+## Every flagged call, and the answer it got
+
+| run | session | classes | tool | input (240 chars) | answer (200 chars) |
+|---|---|---|---|---|---|
+| (none) | | | | | |
+
+## Absolute paths named outside the session's own directories
+
+By the first three components; the number of calls across all sessions.
+
+| path | calls | sessions |
+|---|---|---|
+| `/` | 52 | 27 |
+| `/3` | 2 | 2 |
+| `/d` | 1 | 1 |
+| `/dev/null` | 9 | 9 |
+| `/from` | 10 | 7 |
+| `/import` | 3 | 3 |
+| `/m1/P0/bin` | 27 | 10 |
+| `/m1/P1/bin` | 32 | 13 |
+| `/n` | 2 | 2 |
+| `/tmp/chk_` | 3 | 1 |
+
+60 sessions scanned, 0 exposed (written to exposed.json).

@@ -1366,7 +1366,11 @@ opens with a warning naming the culprit merge.
   **Keep agents busy.** After that check, `Stop` asks the daemon for this agent's next work (a dry run of
   `POST /v1/backlog/next`, the call `av watch` polls). If something fits (queued work, a review, a handoff or an
   abandoned task), it blocks the stop with `av: <what is waiting> - call start_task with no title`, so the agent
-  carries on instead of idling. If nothing fits yet it keeps looking every 15 s for up to `AV_HOOK_WAIT_SECS`
+  carries on instead of idling. Claude Code's hook given no name (no `--agent`, no `AV_AGENT`) asks as the task's owner,
+  not as `agent`. For the session that owns the task, that is the name its own MCP tools act under (Claude
+  Code's `claude-code`), so the hook does not offer it its own task as a review. An unnamed session in a task
+  it does not own (a previous owner still running after a claim over MCP) is asked for as the owner too; give
+  such sessions a name (`AV_AGENT`). If nothing fits yet it keeps looking every 15 s for up to `AV_HOOK_WAIT_SECS`
   (default 600; `0` turns this off), which costs no model tokens, then lets the stop through. It continues one
   agent session at most `AV_HOOK_MAX_CONTINUES` times (default 20, counted in `.av-task`), and a daemon that
   does not answer allows the stop at once. `install.sh` sets the hook's timeout to `AV_HOOK_WAIT_SECS` + 60 s,

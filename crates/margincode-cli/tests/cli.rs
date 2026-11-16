@@ -5815,16 +5815,13 @@ fn a_review_that_names_no_verdict_is_refused_and_touches_nothing_else() {
     assert!(listed.contains(&vd), "{listed}");
 }
 
-/// F14: a task started over MCP has a `.av-task` the daemon wrote, so `av` and the hooks in its
-/// workspace find the task with no `--task`. As `av init --for claude` sets it up: no
-/// `X-Av-Agent` (the MCP session is named after the client, `claude-code`) and no `AV_AGENT`
-/// (the CLI and hooks act as `agent`); the owner's writes must not be refused as "claim lost".
-#[test]
-fn validate_finds_a_task_started_over_mcp() {
-    let d = start_daemon();
+/// Adds the repo `demo` and starts the task "Over MCP" in it as Claude Code does after
+/// `av init --for claude`: no `X-Av-Agent`, so the MCP session is named after the client,
+/// `claude-code`. Returns the task's workspace.
+fn start_over_mcp_as_claude_code(d: &Daemon) -> PathBuf {
     let scratch = TempDir::new().unwrap();
     ok(av(
-        &d,
+        d,
         scratch.path(),
         &["repo", "add", "demo", d.src.to_str().unwrap()],
     ));
@@ -5855,7 +5852,17 @@ fn validate_finds_a_task_started_over_mcp() {
         .into_json()
         .unwrap();
     assert_eq!(r["result"]["isError"], false, "{r}");
-    let ws = d.ws.join("demo/over-mcp");
+    d.ws.join("demo/over-mcp")
+}
+
+/// F14: a task started over MCP has a `.av-task` the daemon wrote, so `av` and the hooks in its
+/// workspace find the task with no `--task`. As `av init --for claude` sets it up: no
+/// `X-Av-Agent` (the MCP session is named after the client, `claude-code`) and no `AV_AGENT`
+/// (the CLI and hooks act as `agent`); the owner's writes must not be refused as "claim lost".
+#[test]
+fn validate_finds_a_task_started_over_mcp() {
+    let d = start_daemon();
+    let ws = start_over_mcp_as_claude_code(&d);
     std::fs::write(
         ws.join("app/greeter.py"),
         "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
@@ -5871,4 +5878,49 @@ fn validate_finds_a_task_started_over_mcp() {
     );
     let passed = ok(av(&d, &ws, &["validate", "--", "true"]));
     assert!(passed.contains("validation passed"), "{passed}");
+}
+
+/// F41: in that same default install the Stop hook acts as `agent` while the session's
+/// `start_task` acts as `claude-code`. Once the session submits, its task is in review, and the
+/// hook must not offer the session its own task as a review waiting: `start_task` would find
+/// nothing there and the hook would block again, turn after paid turn.
+#[test]
+fn the_stop_hook_does_not_offer_a_session_its_own_task_for_review() {
+    let d = start_daemon();
+    let ws = start_over_mcp_as_claude_code(&d);
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    ok(av_env(
+        &d.url,
+        &ws,
+        &[("AV_AGENT", "claude-code")],
+        &[
+            "submit",
+            "--record",
+            "decision: shout the name @ app/greeter.py",
+        ],
+    ));
+    let stopped = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &[("AV_HOOK_WAIT_SECS", "1")],
+        &["hook", "stop"],
+        &stop_input(&ws, "cc-1", false),
+    ));
+    assert_eq!(
+        stopped, "",
+        "the session was offered its own task: {stopped}"
+    );
+    // the review is still offered to an agent that is not its owner
+    let other = ok(av_stdin_env(
+        &d.url,
+        &ws,
+        &[("AV_HOOK_WAIT_SECS", "1"), ("AV_AGENT", "reviewer")],
+        &["hook", "stop"],
+        &stop_input(&ws, "cc-2", false),
+    ));
+    assert!(other.contains("a review is waiting"), "{other}");
 }

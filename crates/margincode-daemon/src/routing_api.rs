@@ -860,7 +860,12 @@ fn offer_review(st: &AppState, task: Task, approved: bool, agent: &str) -> Resul
 /// workspace and a first pack, like `start_task`), a handed-off task that names tags is claimed
 /// (the handoff bundle, like `claim_task`). With nothing to give it returns `{"task": null,
 /// "queued": N}`: N queued items, none of which the caller may take now.
-async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<Value> {
+async fn next(
+    State(st): State<AppState>,
+    ext: axum::http::Extensions,
+    Json(b): Json<NextBody>,
+) -> ApiResult<Value> {
+    let phase = ext.get::<NextPhase>().cloned();
     let agent = b.agent.trim().to_owned();
     if agent.is_empty() {
         return Err(AvError::Invalid("agent must not be empty".into()).into());
@@ -903,9 +908,10 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         if let Some(v) = act(&st, &agent, &b, choices).await? {
             return Ok(Json(v));
         }
-        // nothing to give: wait for something (the call is dropped if the client goes away)
+        // nothing to give: wait for something, until the deadline, until the call is dropped
+        // (an HTTP client that closed the connection) or until its `NextPhase` is stopped
         let now = Instant::now();
-        if now >= deadline {
+        if now >= deadline || phase.as_ref().is_some_and(|p| !p.to(NextPhase::WAITING)) {
             return Ok(Json(nothing("task")));
         }
         let tick = st.wait_tick.min(deadline - now);
@@ -913,8 +919,42 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
             Some(w) => w.wait(tick).await,
             None => tokio::time::sleep(tick).await,
         }
+        if phase.as_ref().is_some_and(|p| !p.to(NextPhase::LOOKING)) {
+            return Ok(Json(nothing("task")));
+        }
     }
 }
+
+/// Where a `next` call is, for an in-process caller that may want to stop it (MCP's
+/// `start_task`, F10), as a request extension. Only a call that is waiting (it holds nothing)
+/// can be stopped; one that is looking may be taking work, and goes on.
+#[derive(Clone, Default)]
+pub(crate) struct NextPhase(std::sync::Arc<std::sync::atomic::AtomicU8>);
+
+impl NextPhase {
+    const LOOKING: u8 = 0;
+    const WAITING: u8 = 1;
+    const STOPPED: u8 = 2;
+
+    /// Looking to waiting or back; false once stopped.
+    fn to(&self, phase: u8) -> bool {
+        let from = if phase == Self::WAITING {
+            Self::LOOKING
+        } else {
+            Self::WAITING
+        };
+        self.0.compare_exchange(from, phase, SeqCst, SeqCst).is_ok()
+    }
+
+    /// Stops the call: it waits no more, and takes nothing once it waits. True when it was
+    /// waiting, so it holds nothing and may be dropped at once; a call that is looking may be
+    /// taking work, and goes on with that look.
+    pub(crate) fn stop(&self) -> bool {
+        self.0.swap(Self::STOPPED, SeqCst) == Self::WAITING
+    }
+}
+
+use std::sync::atomic::Ordering::SeqCst;
 
 /// An agent CLI that runs subagents is a team and may hold several open tasks, up to its
 /// profile's `max_open`. At the limit it gets only what finishes work: reviews and merges of
@@ -1065,6 +1105,7 @@ async fn start_from_backlog(
         .await
         .map_err(|e| AvError::Store(format!("task start stopped: {e}")))??
     };
+    crate::api::pause_before_pack(st).await;
     let req = first_pack_request(task.id, b.budget, b.session.clone());
     let (task, pack) = pack_for_task(st, task.id, req).await?;
     Ok(json!({ "task": task, "pack": pack, "from": "backlog", "backlog_id": item.id }))

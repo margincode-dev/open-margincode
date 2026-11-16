@@ -35,6 +35,7 @@ const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 const PARSE_ERROR: i64 = -32700;
+const INTERNAL_ERROR: i64 = -32603;
 
 #[derive(Clone)]
 pub(crate) struct McpSession {
@@ -43,8 +44,43 @@ pub(crate) struct McpSession {
     /// generation it writes under. Usually one at a time; an agent CLI's subagents share their
     /// parent's session (checked with Claude Code), so a team can hold several.
     tasks: Vec<(String, Option<i64>)>,
+    /// This session's latest `start_task` calls, oldest first (F10).
+    starts: Vec<StartCall>,
     last_used: Instant,
 }
+
+/// A `start_task` call of a session (F10). Claude Code gives up on a slow call by sending
+/// `notifications/cancelled` and retries in the same session; it resets the call's socket 60 s
+/// after it sent the call (measured with Claude Code 2.1.325). The start goes on while a call
+/// holds it, and its answer goes to the retry instead of being lost; the retry makes no second
+/// task.
+#[derive(Clone)]
+struct StartCall {
+    /// The JSON-RPC id of the call that holds it: the call it was made for, or the retry it was
+    /// last handed to.
+    request: String,
+    /// What it asked: `{repo, title, goal}` (no title or goal: the next backlog task).
+    asked: Value,
+    /// The client cancelled that call.
+    cancelled: bool,
+    /// `None` while it runs; then `Some` of the task it gave, or `Some(None)` for none.
+    done: tokio::sync::watch::Receiver<Option<Option<Done>>>,
+    /// Stops the start.
+    stop: tokio::task::AbortHandle,
+    /// Where its `next` call is: only a start still waiting for work may be stopped.
+    phase: crate::routing_api::NextPhase,
+}
+
+/// A start's answer: its text, and the task with its generation.
+#[derive(Clone)]
+struct Done {
+    text: String,
+    task: String,
+    generation: Option<i64>,
+}
+
+/// How many `start_task` calls a session keeps.
+const SESSION_STARTS: usize = 8;
 
 /// How many tasks a session remembers; older ones need `task_id`.
 const SESSION_TASKS: usize = 32;
@@ -310,7 +346,22 @@ async fn inner(
     body: Option<Value>,
     generation: Option<i64>,
 ) -> (StatusCode, Value) {
+    inner_with(st, method, uri, body, generation, None).await
+}
+
+/// `inner`, with the `NextPhase` a `next` call reports to.
+async fn inner_with(
+    st: &AppState,
+    method: &str,
+    uri: &str,
+    body: Option<Value>,
+    generation: Option<i64>,
+    phase: Option<crate::routing_api::NextPhase>,
+) -> (StatusCode, Value) {
     let mut req = Request::builder().method(method).uri(uri);
+    if let Some(phase) = phase {
+        req = req.extension(phase);
+    }
     if let Some(g) = generation {
         req = req.header(crate::flow::GENERATION_HEADER, g.to_string());
     }
@@ -487,15 +538,22 @@ type Call = (
     fn(&Value) -> String,
 );
 
-/// Runs one tool. `Ok` is the tool's text (`Err` inside: the daemon refused, a tool error);
-/// the outer `Err` is a protocol error (unknown tool, bad arguments).
+/// What a tool call gave: its text (`Err`: the daemon refused, a tool error) and, for
+/// `start_task`, the task it started or resumed for this session (what `remember` keeps).
+struct Ran {
+    text: Result<String, String>,
+    started: Option<(String, Option<i64>)>,
+}
+
+/// Runs one tool. The `Err` is a protocol error (unknown tool, bad arguments).
 async fn run_tool(
     st: &AppState,
     sid: &str,
     s: &McpSession,
     name: &str,
     args: &Value,
-) -> Result<Result<String, String>, RpcError> {
+    phase: Option<crate::routing_api::NextPhase>,
+) -> Result<Ran, RpcError> {
     let agent = s.agent.as_str();
     let (method, uri, body, generation, render): Call = match name {
         // With no title and goal: the next backlog task that fits this agent (Plan 8).
@@ -1035,8 +1093,9 @@ async fn run_tool(
             }
         }
     };
-    let (status, out) = inner(st, method, &uri, body, generation).await;
+    let (status, out) = inner_with(st, method, &uri, body, generation, phase).await;
     if status.is_success() {
+        let mut started = None;
         match name {
             "start_task" => {
                 // `{"task": null}`: nothing was waiting, so there is nothing to remember; a
@@ -1044,7 +1103,9 @@ async fn run_tool(
                 if let Some(id) = out["task"]["id"].as_str()
                     && out["from"] != "review"
                 {
-                    remember(st, sid, id, out["task"]["generation"].as_i64());
+                    let generation = out["task"]["generation"].as_i64();
+                    remember(st, sid, id, generation);
+                    started = Some((id.to_owned(), generation));
                 }
             }
             "claim_task" => remember(
@@ -1055,7 +1116,10 @@ async fn run_tool(
             ),
             _ => {}
         }
-        return Ok(Ok(render(&out)));
+        return Ok(Ran {
+            text: Ok(render(&out)),
+            started,
+        });
     }
     let message = out["error"]
         .as_str()
@@ -1064,7 +1128,178 @@ async fn run_tool(
         // malformed input the route itself refused: a protocol error, as for the schema checks
         return Err(invalid(message));
     }
-    Ok(Err(message))
+    Ok(Ran {
+        text: Err(message),
+        started: None,
+    })
+}
+
+/// Runs `f` on session `sid`, if it still exists.
+fn with_session<R>(st: &AppState, sid: &str, f: impl FnOnce(&mut McpSession) -> R) -> Option<R> {
+    st.mcp
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_mut(sid)
+        .map(f)
+}
+
+/// The client cancelled call `request`: if it is a start, its answer is kept for a retry.
+fn gave_up(st: &AppState, sid: &str, request: &str) {
+    with_session(st, sid, |s| {
+        for c in &mut s.starts {
+            if c.request == request {
+                c.cancelled = true;
+            }
+        }
+    });
+}
+
+/// A call's future dropped before it answered: its socket closed (Claude Code resets a cancelled
+/// call's socket 60 s after it sent it, as early as the cancel at its default timeout). A start
+/// the call still holds that waits for work stops and takes nothing for a client that may be gone;
+/// any other is kept for a retry as if cancelled. A start a retry took over is that retry's.
+struct Unanswered<'a> {
+    st: &'a AppState,
+    sid: &'a str,
+    request: &'a str,
+    armed: bool,
+}
+
+impl Drop for Unanswered<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        with_session(self.st, self.sid, |s| {
+            let Some(i) = s.starts.iter().position(|c| c.request == self.request) else {
+                return; // a retry took it over
+            };
+            if s.starts[i].done.borrow().is_none() && s.starts[i].phase.stop() {
+                s.starts.remove(i).stop.abort();
+            } else {
+                s.starts[i].cancelled = true;
+            }
+        });
+    }
+}
+
+/// Whether the task `d` gave is still this agent's under the generation it was given at.
+async fn still_open(st: &AppState, d: &Done) -> bool {
+    let (status, out) = inner(st, "GET", &format!("/v1/tasks/{}", d.task), None, None).await;
+    status.is_success()
+        && matches!(out["task"]["status"].as_str(), Some("open" | "conflicted"))
+        && out["task"]["generation"].as_i64() == d.generation
+}
+
+/// `start_task` (F10): a retry of a start this session cancelled gets that start's answer,
+/// waiting for it while it still runs; any other call starts as before. The start runs on a task
+/// of its own while a call holds it (see `Unanswered`).
+async fn start_tool(
+    st: &AppState,
+    sid: &str,
+    s: &McpSession,
+    args: &Value,
+    request: &str,
+) -> Result<Result<String, String>, RpcError> {
+    let asked = json!({"repo": args["repo"], "title": args["title"], "goal": args["goal"]});
+    let mut unanswered = Unanswered {
+        st,
+        sid,
+        request,
+        armed: true,
+    };
+    // the newest cancelled start that asked the same, and gave a task or still runs; it is now
+    // this call's, so a cancelled retry leaves it to the next one
+    let earlier = with_session(st, sid, |s| {
+        let c =
+            s.starts.iter_mut().rev().find(|c| {
+                c.cancelled && c.asked == asked && !matches!(*c.done.borrow(), Some(None))
+            })?;
+        c.request = request.to_owned();
+        c.cancelled = false;
+        Some(c.done.clone())
+    })
+    .flatten();
+    let mut cancelled = false;
+    if let Some(mut done) = earlier {
+        let gave = match done.wait_for(Option::is_some).await {
+            Ok(d) => d.clone().flatten(),
+            Err(_) => None, // the start stopped
+        };
+        if let Some(d) = gave
+            && still_open(st, &d).await
+        {
+            unanswered.armed = false;
+            return Ok(Ok(d.text));
+        }
+        // nothing to hand over: start anew, still cancelled if this call was cancelled meanwhile;
+        // a call whose entry a later retry took over was cancelled, and that retry starts instead
+        let entry = with_session(st, sid, |s| {
+            let i = s.starts.iter().position(|c| c.request == request)?;
+            Some(s.starts.remove(i).cancelled)
+        })
+        .flatten();
+        match entry {
+            Some(c) => cancelled = c,
+            None => {
+                unanswered.armed = false;
+                return Ok(Err(
+                    "start_task was cancelled; a later call took it over".into()
+                ));
+            }
+        }
+    }
+
+    let (tx, rx) = tokio::sync::watch::channel(None);
+    let phase = crate::routing_api::NextPhase::default();
+    let run = {
+        let (st, sid, s, args, phase) = (
+            st.clone(),
+            sid.to_owned(),
+            s.clone(),
+            args.clone(),
+            phase.clone(),
+        );
+        tokio::spawn(async move {
+            let ran = run_tool(&st, &sid, &s, "start_task", &args, Some(phase)).await;
+            let done = match &ran {
+                Ok(Ran {
+                    text: Ok(text),
+                    started: Some((task, generation)),
+                }) => Some(Done {
+                    text: text.clone(),
+                    task: task.clone(),
+                    generation: *generation,
+                }),
+                _ => None,
+            };
+            let _ = tx.send(Some(done));
+            ran
+        })
+    };
+    with_session(st, sid, |s| {
+        s.starts.push(StartCall {
+            request: request.to_owned(),
+            asked,
+            cancelled,
+            done: rx,
+            stop: run.abort_handle(),
+            phase,
+        });
+        // the oldest finished one goes; one that runs stays until it is done
+        if s.starts.len() > SESSION_STARTS
+            && let Some(i) = s.starts.iter().position(|c| c.done.borrow().is_some())
+        {
+            s.starts.remove(i);
+        }
+    });
+    let ran = run.await;
+    unanswered.armed = false;
+    let ran = ran.map_err(|e| RpcError {
+        code: INTERNAL_ERROR,
+        message: format!("start_task stopped: {e}"),
+    })?;
+    Ok(ran?.text)
 }
 
 async fn call_tool(
@@ -1072,6 +1307,7 @@ async fn call_tool(
     sid: &str,
     s: &McpSession,
     params: &Value,
+    request: &Value,
 ) -> Result<Value, RpcError> {
     let name = params["name"].as_str().unwrap_or_default();
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -1109,7 +1345,12 @@ async fn call_tool(
     if let Some(given) = args["task_id"].as_str() {
         args["task_id"] = json!(task_ref(st, given).await?);
     }
-    let (text, is_error) = match run_tool(st, sid, s, name, &args).await? {
+    let ran = if name == "start_task" {
+        start_tool(st, sid, s, &args, &request.to_string()).await?
+    } else {
+        run_tool(st, sid, s, name, &args, None).await?.text
+    };
+    let (text, is_error) = match ran {
         Ok(text) => (text, false),
         Err(text) => (text, true),
     };
@@ -1168,6 +1409,7 @@ async fn initialize(
             McpSession {
                 agent,
                 tasks: pinned.map(|(t, g)| (t, Some(g))).into_iter().collect(),
+                starts: Vec::new(),
                 last_used: Instant::now(),
             },
         );
@@ -1264,13 +1506,17 @@ pub(crate) async fn post(State(st): State<AppState>, headers: HeaderMap, body: B
         s.last_used = Instant::now();
     }
     let Some(id) = id else {
-        // a notification (`notifications/initialized`, cancellations): nothing to answer
+        // a notification (`notifications/initialized`, cancellations): nothing to answer; a
+        // cancelled start is kept for the session's retry (F10)
+        if method == "notifications/cancelled" {
+            gave_up(&st, sid, &params["requestId"].to_string());
+        }
         return StatusCode::ACCEPTED.into_response();
     };
     let outcome = match method.as_str() {
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools": listed_tools(&st)})),
-        "tools/call" => call_tool(&st, sid, &session, &params).await,
+        "tools/call" => call_tool(&st, sid, &session, &params, &id).await,
         other => Err(RpcError {
             code: METHOD_NOT_FOUND,
             message: format!("method not supported: {other}"),
@@ -1291,7 +1537,15 @@ pub(crate) async fn delete(State(st): State<AppState>, headers: HeaderMap) -> Re
         .and_then(|v| v.to_str().ok())
         .and_then(|sid| st.mcp.lock().unwrap_or_else(|e| e.into_inner()).remove(sid));
     match removed {
-        Some(_) => StatusCode::NO_CONTENT.into_response(),
+        Some(s) => {
+            // its client is done: a start still waiting for work takes nothing (F10)
+            for c in &s.starts {
+                if c.done.borrow().is_none() && c.phase.stop() {
+                    c.stop.abort();
+                }
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

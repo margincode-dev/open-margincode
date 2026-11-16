@@ -446,6 +446,16 @@ pub struct StartPackPause {
     pub armed: std::sync::atomic::AtomicBool,
 }
 
+/// The `StartPackPause` seam, in both start paths (`start_task` and a start from the backlog).
+pub(crate) async fn pause_before_pack(st: &AppState) {
+    if let Some(pause) = st.extension::<StartPackPause>()
+        && pause.armed.load(std::sync::atomic::Ordering::SeqCst)
+    {
+        pause.ready.notify_waiters();
+        pause.proceed.notified().await;
+    }
+}
+
 async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> ApiResult<Started> {
     // Wait for a turn before anything is written: a client that gives up while queued leaves
     // nothing behind. Then the task is made on a task of its own, so a client that leaves during
@@ -473,12 +483,7 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
     let task = made
         .await
         .map_err(|e| AvError::Store(format!("task start stopped: {e}")))??;
-    if let Some(pause) = st.extension::<StartPackPause>()
-        && pause.armed.load(std::sync::atomic::Ordering::SeqCst)
-    {
-        pause.ready.notify_waiters();
-        pause.proceed.notified().await;
-    }
+    pause_before_pack(&st).await;
     let pack_req = first_pack_request(task.id, req.budget, req.session);
     let (task, pack) = pack_for_task(&st, task.id, pack_req).await?;
     Ok(Json(Started { task, pack }))

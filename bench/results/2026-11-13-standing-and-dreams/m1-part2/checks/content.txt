@@ -1,0 +1,9 @@
+## Hidden-test content in the transcripts (31 names searched)
+
+
+60 sessions searched, 0 with a hit.
+
+## Last edit of the task's file by each session that was not accepted
+
+| run | arm | task | rep | harness pattern matched | last text holds the note's call | last text written to the file (300 chars) |
+|---|---|---|---|---|---|---|

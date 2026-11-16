@@ -130,6 +130,7 @@ pub struct AppState {
     /// `false` until the daemon's shutdown future completes (`serve_with`); extensions watch it
     /// through `shutdown()`.
     shutdown: Arc<tokio::sync::watch::Sender<bool>>,
+    reclaim_passes: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl AppState {
@@ -182,6 +183,7 @@ impl AppState {
             extensions: ext::Extensions::default(),
             events: ext::EventFeed::default(),
             shutdown: Arc::new(tokio::sync::watch::channel(false).0),
+            reclaim_passes: Arc::new(tokio::sync::watch::channel(0).0),
         }
     }
 
@@ -191,6 +193,15 @@ impl AppState {
     /// not served through `serve_with` never signals it.
     pub fn shutdown(&self) -> tokio::sync::watch::Receiver<bool> {
         self.shutdown.subscribe()
+    }
+
+    /// Completed reclaim-loop passes; stays 0 when the loop is not running.
+    pub fn reclaim_passes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.reclaim_passes.subscribe()
+    }
+
+    pub(crate) fn count_reclaim_pass(&self) {
+        self.reclaim_passes.send_modify(|n| *n += 1);
     }
 
     /// Tells every `shutdown()` handle that the daemon is stopping.

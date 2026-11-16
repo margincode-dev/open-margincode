@@ -723,7 +723,14 @@ pub fn stop(client: &Client, agent: &str) {
     {
         return;
     }
-    keep_busy(client, agent, &dir, &mut tf, &session);
+    keep_busy(
+        client,
+        agent,
+        agent_named() || grok_hook(),
+        &dir,
+        &mut tf,
+        &session,
+    );
 }
 
 /// Check 1: prints the block and returns true when it asked the agent to record its changes.
@@ -793,9 +800,13 @@ fn waiting(would: &Value) -> String {
 /// Check 2: prints the block and counts it when av has work for this agent, polling for up to
 /// `AV_HOOK_WAIT_SECS`. Returns without printing when nothing fits, the cap is reached, or the
 /// daemon cannot be asked.
+///
+/// `named` is false when the hook has no name of its own (no `--agent`, no `AV_AGENT`, not run by
+/// Grok, which acts as `grok`). It then asks as the task's owner, not as `agent`: see `asks_as`.
 fn keep_busy(
     client: &Client,
     agent: &str,
+    named: bool,
     dir: &std::path::Path,
     tf: &mut TaskFile,
     session: &str,
@@ -813,11 +824,22 @@ fn keep_busy(
     if used >= max {
         return;
     }
+    let asker = if named {
+        agent.to_owned()
+    } else {
+        match client.get(&format!("/v1/tasks/{}", tf.task), &[]) {
+            Ok(r) => asks_as(agent, r["task"]["owner_agent"].as_str()),
+            Err(e) => {
+                eprintln!("av: hook stop: {e}");
+                return;
+            }
+        }
+    };
     let deadline = Instant::now() + Duration::from_secs(wait);
     let would = loop {
         let r = client.post(
             "/v1/backlog/next",
-            &json!({"agent": agent, "session": "av-hook", "dry_run": true}),
+            &json!({"agent": asker, "session": "av-hook", "dry_run": true}),
         );
         match r {
             Ok(r) if !r["would"].is_null() => break r["would"].clone(),
@@ -840,6 +862,24 @@ fn keep_busy(
     }
     let reason = format!("av: {} - call start_task with no title", waiting(&would));
     println!("{}", json!({"decision": "block", "reason": reason}));
+}
+
+/// The name an unnamed Stop hook asks `next` under: its task's owner, else `agent`.
+///
+/// A hook given no name acts as `agent` (the Claude default), while the session's MCP tools act
+/// under another name (Claude Code's `claude-code`). Asked as `agent`, `next` would offer the
+/// session its own task as a review once it submitted it, since a review is kept only from its
+/// owner, and `start_task` would then find nothing: the hook would block every stop until
+/// `AV_HOOK_MAX_CONTINUES`. The owner is the session's own name when the session owns the task,
+/// the usual case in its workspace. An unnamed session in a task it does not own (a previous
+/// owner still running after a claim over MCP, or one opened in another agent's workspace) is
+/// asked for as the owner too, which may be wrong for it: the hook cannot learn the name the
+/// session's MCP tools act under.
+fn asks_as(agent: &str, owner: Option<&str>) -> String {
+    match owner {
+        Some(owner) if !owner.trim().is_empty() => owner.to_owned(),
+        _ => agent.to_owned(),
+    }
 }
 
 /// As `generation_for` in main.rs, for the hook's own task file.
@@ -868,11 +908,18 @@ pub fn pick_hook_agent(cli_agent: &str, named: bool, grok_hook: bool) -> String 
 /// `pick_hook_agent` for this process: `--agent` / `AV_AGENT`, else `grok` under Grok's hook
 /// environment, else `cli_agent`.
 pub fn hook_agent(cli_agent: &str) -> String {
-    let named =
-        agent_flag_present() || std::env::var("AV_AGENT").is_ok_and(|v| !v.trim().is_empty());
-    let grok_hook = std::env::var_os("GROK_HOOK_EVENT").is_some()
-        || std::env::var_os("GROK_SESSION_ID").is_some();
-    pick_hook_agent(cli_agent, named, grok_hook)
+    pick_hook_agent(cli_agent, agent_named(), grok_hook())
+}
+
+/// Whether this process was given an agent name: `--agent` or a non-empty `AV_AGENT`.
+fn agent_named() -> bool {
+    agent_flag_present() || std::env::var("AV_AGENT").is_ok_and(|v| !v.trim().is_empty())
+}
+
+/// Whether Grok runs this hook (`GROK_HOOK_EVENT` or `GROK_SESSION_ID`); it then acts as `grok`,
+/// the name `av init --for grok` also gives its MCP session.
+fn grok_hook() -> bool {
+    std::env::var_os("GROK_HOOK_EVENT").is_some() || std::env::var_os("GROK_SESSION_ID").is_some()
 }
 
 fn agent_flag_present() -> bool {
@@ -923,6 +970,13 @@ mod tests {
         assert_eq!(pick_hook_agent("agent", false, true), "grok");
         assert_eq!(pick_hook_agent("agent", false, false), "agent");
         assert_eq!(stop_timeout_for(600), 660);
+    }
+
+    #[test]
+    fn an_unnamed_stop_hook_asks_as_its_tasks_owner() {
+        assert_eq!(asks_as("agent", Some("claude-code")), "claude-code");
+        assert_eq!(asks_as("agent", Some(" ")), "agent");
+        assert_eq!(asks_as("agent", None), "agent");
     }
 
     #[test]

@@ -390,6 +390,30 @@ pub fn verdict_text(r: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// `INSTRUCTIONS` is compiled in from outside `crates/`, so the image build must copy the
+    /// file (deploy/Dockerfile) and must not ignore it (.dockerignore drops `**/*.md`).
+    #[test]
+    fn image_build_sees_dream_md() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let file = "integrations/dream/DREAM.md";
+        let dockerfile = std::fs::read_to_string(root.join("deploy/Dockerfile")).unwrap();
+        assert!(
+            dockerfile.lines().any(|l| {
+                let w: Vec<&str> = l.split_whitespace().collect();
+                w.len() == 3 && w[0] == "COPY" && file.starts_with(w[1].trim_end_matches('/'))
+            }),
+            "deploy/Dockerfile copies no directory holding {file}"
+        );
+        let ignore = std::fs::read_to_string(root.join(".dockerignore")).unwrap();
+        // The last matching line wins; only the two shapes this file uses are understood.
+        let ignored = ignore.lines().fold(false, |ignored, l| match l.trim() {
+            "**/*.md" => true,
+            l if l.strip_prefix('!') == Some(file) => false,
+            _ => ignored,
+        });
+        assert!(!ignored, ".dockerignore drops {file}");
+    }
+
     use super::*;
 
     #[test]

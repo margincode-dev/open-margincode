@@ -3,3 +3,5 @@ target/
 .superpowers/
 docs/
 **/*.md
+# Compiled into the CLI (deploy/Dockerfile copies it).
+!integrations/dream/DREAM.md

@@ -23,7 +23,7 @@ use client::{CliError, Client, Result};
 use margincode_agentrun::slots::{self, Kind};
 use margincode_core::{MAX_SUMMARY_CHARS, RecordKind};
 use serde_json::{Value, json};
-use taskfile::TaskFile;
+use taskfile::{Claim, TaskFile};
 
 #[derive(Parser)]
 #[command(
@@ -52,7 +52,7 @@ struct Cli {
     /// Bearer token for a daemon started with AV_TOKEN.
     #[arg(long, env = "AV_TOKEN", global = true, hide_env_values = true)]
     token: Option<String>,
-    /// Claim generation writes are made under (default: from .av-task when it names this agent).
+    /// Claim generation writes are made under (default: from .av-task; refused when this agent has a name and the file names another owner).
     #[arg(long, env = "AV_GENERATION", global = true)]
     generation: Option<i64>,
     #[command(subcommand)]
@@ -1139,22 +1139,94 @@ fn cwd() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))
 }
 
-fn generation_for(cli: &Cli, task: &str) -> Option<i64> {
+/// The generation a write to `task` is made under (T1a): `--generation`, else this workspace's
+/// `.av-task` when it is about `task`, by `taskfile::claim_of`. A named agent in a workspace whose
+/// file names another owner is refused here, before any request, with both names. An unnamed
+/// command in a named owner's workspace writes under the file's generation, with a warning.
+fn generation_for(cli: &Cli, task: &str) -> Result<Option<i64>> {
     if cli.generation.is_some() {
-        return cli.generation;
+        return Ok(cli.generation);
     }
-    let cwd = std::env::current_dir().ok()?;
-    let (_, tf) = taskfile::find(&cwd)?;
-    if tf.task != task {
-        return None;
-    }
-    match &tf.agent {
-        Some(owner) if *owner != cli.agent => Some(0),
-        _ => tf.generation,
+    let Some(tf) = task_file_of(task) else {
+        return Ok(None);
+    };
+    match taskfile::claim_of(&tf, named_agent(cli)) {
+        Claim::TakenBy(owner) => Err(CliError::Local(taskfile::taken_over(owner, &cli.agent))),
+        Claim::Holds(generation) => {
+            if named_agent(cli).is_none()
+                && let Some(owner) = tf.owner()
+            {
+                warn_unnamed(owner);
+            }
+            Ok(generation)
+        }
     }
 }
 
+/// `generation_for` for `av validate`: a validation is an attestation, not an owner's write, so a
+/// named agent that does not own the task (a reviewer in the owner's workspace) sends none and
+/// is not refused. `None` in the second place when it owns the task, else the owner's name.
+fn validate_generation<'a>(
+    cli: &Cli,
+    task: &str,
+    tf: Option<&'a TaskFile>,
+) -> (Option<i64>, Option<&'a str>) {
+    if cli.generation.is_some() {
+        return (cli.generation, None);
+    }
+    let Some(tf) = tf.filter(|tf| tf.task == task) else {
+        return (None, None);
+    };
+    match taskfile::claim_of(tf, named_agent(cli)) {
+        Claim::TakenBy(owner) => (None, Some(owner)),
+        Claim::Holds(generation) => {
+            if named_agent(cli).is_none()
+                && let Some(owner) = tf.owner()
+            {
+                warn_unnamed(owner);
+            }
+            (generation, None)
+        }
+    }
+}
+
+/// This workspace's `.av-task` when it is about `task`.
+fn task_file_of(task: &str) -> Option<TaskFile> {
+    let cwd = std::env::current_dir().ok()?;
+    let (_, tf) = taskfile::find(&cwd)?;
+    (tf.task == task).then_some(tf)
+}
+
+/// This command's agent name when it was given one (`--agent`, `AV_AGENT`), else `None`.
+fn named_agent(cli: &Cli) -> Option<&str> {
+    hook::agent_named().then_some(cli.agent.as_str())
+}
+
+/// Once per command: an unnamed command in a named owner's workspace is let through, as the
+/// owner's own (its hooks, a terminal without `AV_AGENT`), but cannot be told from another agent.
+fn warn_unnamed(owner: &str) {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    WARNED.call_once(|| {
+        eprintln!("av: acting on `{owner}`'s task with no agent name; set `AV_AGENT`");
+    });
+}
+
 fn write_taskfile(workspace: &std::path::Path, tf: &TaskFile) {
+    if let Ok(text) = std::fs::read_to_string(workspace.join(taskfile::NAME))
+        && let Ok(there) = serde_json::from_str::<TaskFile>(&text)
+        && there.task == tf.task
+    {
+        // a claim answered since this one wrote a newer file there: it is the newer claim's
+        if there.generation > tf.generation {
+            return;
+        }
+        // the daemon already named the owner of this hand-out (`X-Av-Name-Owner`, T1a): its file
+        // stands, and the hooks' marks a Stop may have set since are kept; the fewer writes here,
+        // the fewer chances to put an older generation back over a claim that lands meanwhile
+        if there.generation == tf.generation && there.agent.is_some() {
+            return;
+        }
+    }
     if let Err(e) = taskfile::write(workspace, tf) {
         eprintln!(
             "av: warning: could not write {} in {}: {e}",
@@ -1555,7 +1627,7 @@ fn run(cli: Cli) -> Result<()> {
             )?;
             let task = &r["task"];
             if let Some(dir) = checkout {
-                remote::clone(&client, s(&task["id"]), dir, &cli.agent, &session)?;
+                remote::clone(&client, s(&task["id"]), dir, &session)?;
                 println!("checkout: {}", dir.display());
                 println!("task: {} ({})", s(&task["id"]), s(&task["slug"]));
                 println!("session: {session}\n");
@@ -1564,13 +1636,16 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             let workspace = PathBuf::from(s(&task["workspace_path"]));
+            let (agent, aliases) = taskfile::owned_by(&client, task);
             let tf = TaskFile {
                 task: s(&task["id"]).to_owned(),
                 session: session.clone(),
                 generation: task["generation"].as_i64(),
-                agent: Some(cli.agent.clone()),
+                agent,
+                aliases,
                 last_checkpoint_ms: None,
                 nudged_session: None,
+                told_session: None,
                 continue_session: None,
                 continues: 0,
                 remote: None,
@@ -1584,7 +1659,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Checkpoint => {
             let (task, _) = resolve_task(&cli)?;
-            let r = remote::checkpoint_task(&client, &task, generation_for(&cli, &task), &cwd()?)?;
+            let r = remote::checkpoint_task(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
             let changed: Vec<&str> = r["changed"]
                 .as_array()
                 .map(|a| a.iter().filter_map(Value::as_str).collect())
@@ -1613,7 +1688,7 @@ fn run(cli: Cli) -> Result<()> {
                 .session
                 .clone()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let c = remote::clone(&client, task, &dir, &cli.agent, &session)?;
+            let c = remote::clone(&client, task, &dir, &session)?;
             println!("checkout: {}", dir.display());
             println!("task: {} ({slug})", s(&r["task"]["id"]));
             println!("head: {}", short(s(&c["head_change"])));
@@ -1661,7 +1736,7 @@ fn run(cli: Cli) -> Result<()> {
             };
             let (task, _) = resolve_task(&cli)?;
             // anchors are hashed against the daemon's workspace: send a remote checkout's edits
-            remote::push_if_remote(&client, &task, generation_for(&cli, &task), &cwd()?)?;
+            remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
             for mut item in items {
                 item["agent"] = json!(cli.agent);
                 if item["receipt"].is_null() {
@@ -1670,7 +1745,7 @@ fn run(cli: Cli) -> Result<()> {
                 let r = client.post_as(
                     &format!("/v1/tasks/{task}/records"),
                     &item,
-                    generation_for(&cli, &task),
+                    generation_for(&cli, &task)?,
                 )?;
                 println!("{}", recorded_line(&r));
             }
@@ -1949,7 +2024,7 @@ fn run(cli: Cli) -> Result<()> {
                 .map(|r| parse_record_spec(r))
                 .collect::<Result<Vec<_>>>()?;
             let (task, _) = resolve_task(&cli)?;
-            remote::push_if_remote(&client, &task, generation_for(&cli, &task), &cwd()?)?;
+            remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
             let mut body = json!({"agent": cli.agent});
             if !records.is_empty() {
                 body["records"] = Value::Array(records);
@@ -1957,7 +2032,7 @@ fn run(cli: Cli) -> Result<()> {
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/submit"),
                 &body,
-                generation_for(&cli, &task),
+                generation_for(&cli, &task)?,
             )?;
             println!(
                 "submitted ({}) · head {} · {} changed",
@@ -1989,9 +2064,29 @@ fn run(cli: Cli) -> Result<()> {
         } => {
             let (task, _) = resolve_task(&cli)?;
             let cwd = std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))?;
-            let root = taskfile::find(&cwd).map(|(dir, _)| dir).unwrap_or(cwd);
-            // Checkpoint first, so the checks that apply follow the files as they are now.
-            remote::checkpoint_task(&client, &task, generation_for(&cli, &task), &root)?;
+            let found = taskfile::find(&cwd);
+            let (generation, not_owner) =
+                validate_generation(&cli, &task, found.as_ref().map(|(_, tf)| tf));
+            let root = found.as_ref().map(|(dir, _)| dir.clone()).unwrap_or(cwd);
+            // Checkpoint first, so the checks that apply follow the files as they are now. A named
+            // agent that does not own the task (a reviewer) attests the head as it is instead.
+            match not_owner {
+                None => {
+                    remote::checkpoint_task(&client, &task, generation, &root)?;
+                }
+                // a remote checkout's files reach the daemon only by a checkpoint: without one the
+                // command would run on a tree the head it is recorded at may not hold
+                Some(owner) if found.as_ref().is_some_and(|(_, tf)| tf.remote.is_some()) => {
+                    return Err(CliError::Local(format!(
+                        "`{owner}` owns this task, and this is a remote checkout: a validation \
+                         here would attest files the daemon does not have. Validate in the \
+                         owner's workspace, or as the owner."
+                    )));
+                }
+                Some(owner) => eprintln!(
+                    "av: `{owner}` owns this task: validating its head as it is, without a checkpoint"
+                ),
+            }
             // the command and the checks are the build: they run while a host build slot is held
             let slot = max_builds
                 .map(|n| {
@@ -2041,8 +2136,8 @@ fn run(cli: Cli) -> Result<()> {
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/validate"),
                 &json!({"agent": cli.agent, "command": command.join(" "), "exit_code": code,
-                        "output_tail": tail, "checks": checks}),
-                generation_for(&cli, &task),
+                        "output_tail": tail, "checks": checks, "at_head": not_owner.is_some()}),
+                generation,
             )?;
             if checks_failed && code == 0 {
                 return Err(CliError::Local(
@@ -2111,11 +2206,11 @@ fn run(cli: Cli) -> Result<()> {
             let (task, _) = resolve_task(&cli)?;
             let here = cwd()?;
             let pushed =
-                remote::push_if_remote(&client, &task, generation_for(&cli, &task), &here)?;
+                remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &here)?;
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/sync"),
                 &json!({"agent": cli.agent}),
-                generation_for(&cli, &task),
+                generation_for(&cli, &task)?,
             )?;
             println!(
                 "on main {} · head {}",
@@ -2188,13 +2283,13 @@ fn run(cli: Cli) -> Result<()> {
             prefer,
         } => {
             let (task, _) = resolve_task(&cli)?;
-            remote::push_if_remote(&client, &task, generation_for(&cli, &task), &cwd()?)?;
+            remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/handoff"),
                 &json!({"agent": cli.agent, "done": done, "remaining": remaining,
                         "broken": broken, "questions": questions, "budget": budget,
                         "needs": needs, "prefer": prefer}),
-                generation_for(&cli, &task),
+                generation_for(&cli, &task)?,
             )?;
             println!(
                 "{} · head {} · another agent continues with `av claim {task}`\n",
@@ -2429,7 +2524,7 @@ fn run(cli: Cli) -> Result<()> {
             let r = client.post_as(
                 &format!("/v1/tasks/{task}/abandon"),
                 &json!({"agent": cli.agent}),
-                generation_for(&cli, &task),
+                generation_for(&cli, &task)?,
             )?;
             println!("{}", s(&r["status"]));
         }
@@ -2444,22 +2539,25 @@ fn run(cli: Cli) -> Result<()> {
             println!("{}", s(&r["markdown"]));
         }
         Cmd::Claim { task_id, budget } => {
-            let r = client.post(
+            let r = client.post_naming_owner(
                 &format!("/v1/tasks/{task_id}/claim"),
                 &json!({"agent": cli.agent, "budget": budget}),
             )?;
             let task = &r["task"];
             let workspace = PathBuf::from(s(&task["workspace_path"]));
             let session = s(&r["session"]).to_owned();
+            let (agent, aliases) = taskfile::owned_by(&client, task);
             write_taskfile(
                 &workspace,
                 &TaskFile {
                     task: s(&task["id"]).to_owned(),
                     session: session.clone(),
                     generation: r["generation"].as_i64(),
-                    agent: Some(cli.agent.clone()),
+                    agent,
+                    aliases,
                     last_checkpoint_ms: None,
                     nudged_session: None,
+                    told_session: None,
                     continue_session: None,
                     continues: 0,
                     remote: None,
@@ -2861,7 +2959,7 @@ fn run(cli: Cli) -> Result<()> {
                 .session
                 .clone()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let r = client.post(
+            let r = client.post_naming_owner(
                 "/v1/backlog/next",
                 &json!({"repo": repo, "agent": cli.agent, "session": session, "budget": budget,
                         "wait_secs": wait, "take": take}),
@@ -2901,7 +2999,8 @@ fn run(cli: Cli) -> Result<()> {
                 .iter()
                 .any(|from| r["from"] == *from);
             let workspace = PathBuf::from(s(&task["workspace_path"]));
-            // a claim starts a fresh session; the owner name is the profile's, not an alias
+            // a claim starts a fresh session; the owner name is the profile's, with its aliases
+            let (agent, aliases) = taskfile::owned_by(&client, task);
             let session = if handoff {
                 s(&r["session"]).to_owned()
             } else {
@@ -2918,9 +3017,11 @@ fn run(cli: Cli) -> Result<()> {
                     task: s(&task["id"]).to_owned(),
                     session: session.clone(),
                     generation,
-                    agent: Some(s(&task["owner_agent"]).to_owned()),
+                    agent,
+                    aliases,
                     last_checkpoint_ms: None,
                     nudged_session: None,
+                    told_session: None,
                     continue_session: None,
                     continues: 0,
                     remote: None,

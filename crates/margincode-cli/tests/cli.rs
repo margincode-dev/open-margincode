@@ -1229,10 +1229,23 @@ fn handoff_then_claim_moves_the_workspace_to_the_new_agent() {
     assert_eq!(file["agent"], "codex", "{file}");
     assert_ne!(file["session"], old_session, "a claim starts a new session");
 
-    // the previous owner, still in the workspace, is fenced off; the claimant is not
-    let stale = av(&d, &ws, &["checkpoint"]);
-    assert!(!stale.status.success(), "{}", out(&stale));
-    assert!(err(&stale).contains("claim lost"), "{}", err(&stale));
+    // names fence only when both sides are known (T1a): another named agent is refused, with
+    // both names; the previous owner here had no name, so it cannot be told from codex's own
+    // unnamed hooks, and is let through with a warning (F5)
+    let other = av_as(&d, &ws, "claude", &["checkpoint"]);
+    assert!(!other.status.success(), "{}", out(&other));
+    assert!(
+        err(&other).contains("`codex` now owns this task; you are `claude`"),
+        "{}",
+        err(&other)
+    );
+    let unnamed = av(&d, &ws, &["checkpoint"]);
+    assert!(unnamed.status.success(), "{}", err(&unnamed));
+    assert!(
+        err(&unnamed).contains("acting on `codex`'s task with no agent name"),
+        "{}",
+        err(&unnamed)
+    );
     ok(av_as(&d, &ws, "codex", &["checkpoint"]));
     let status = ok(av_as(&d, &ws, "codex", &["status"]));
     assert!(status.contains("owner codex · generation 2"), "{status}");
@@ -3202,21 +3215,31 @@ fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
 
 /// The task was started as `agent`. A Stop hook that acts as someone else is fenced at the
 /// checkpoint (`claim lost` on stderr). One that acts as the owner checkpoints quietly.
+/// Whether `av hook stop` acted as someone other than the task's owner `claude`: it then tells
+/// the session that `claude` owns the task (once per session, so each call has its own).
 fn stop_claims(d: &Daemon, ws: &Path, env: &[(&str, &str)], args: &[&str]) -> bool {
-    let o = av_stdin_env(&d.url, ws, env, args, &stop_input(ws, "who", false));
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let o = av_stdin_env(
+        &d.url,
+        ws,
+        env,
+        args,
+        &stop_input(ws, &format!("who-{n}"), false),
+    );
     assert!(o.status.success(), "{}", err(&o));
-    let stderr = err(&o);
     assert!(
         out(&o).is_empty() || out(&o).contains("\"block\""),
         "unexpected stdout {}",
         out(&o)
     );
-    stderr.contains("claim lost")
+    out(&o).contains("`claude` now owns this task")
 }
 
 #[test]
 fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise() {
-    let (d, ws, _scratch) = started();
+    // the file names `claude`: a hook under another name is told so (T1a)
+    let (d, ws, _scratch) = started_as("claude");
     // Grok sets one of these on the hook process. Neither --agent nor AV_AGENT is set.
     assert!(
         stop_claims(&d, &ws, &[("GROK_HOOK_EVENT", "Stop")], &["hook", "stop"]),
@@ -3226,17 +3249,17 @@ fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise(
         stop_claims(&d, &ws, &[("GROK_SESSION_ID", "sess")], &["hook", "stop"]),
         "GROK_SESSION_ID alone should act as grok"
     );
-    // Claude Code sets neither, so the hook keeps the default agent, who owns this task.
+    // Claude Code sets neither, so the hook has no name, and no name is never fenced.
     assert!(
         !stop_claims(&d, &ws, &[], &["hook", "stop"]),
-        "without a Grok variable the hook is the Claude default (the task owner)"
+        "without a Grok variable the hook is unnamed (the owner's own, as far as av can tell)"
     );
     // An explicit name wins over the Grok environment.
     assert!(
         !stop_claims(
             &d,
             &ws,
-            &[("AV_AGENT", "agent"), ("GROK_HOOK_EVENT", "Stop")],
+            &[("AV_AGENT", "claude"), ("GROK_HOOK_EVENT", "Stop")],
             &["hook", "stop"]
         ),
         "AV_AGENT wins over GROK_HOOK_EVENT"
@@ -3255,9 +3278,9 @@ fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise(
             &d,
             &ws,
             &[("GROK_HOOK_EVENT", "Stop"), ("GROK_SESSION_ID", "sess")],
-            &["--agent", "agent", "hook", "stop"]
+            &["--agent", "claude", "hook", "stop"]
         ),
-        "--agent agent is the owner even when Grok's variables are set"
+        "--agent claude is the owner even when Grok's variables are set"
     );
 }
 
@@ -6028,4 +6051,423 @@ fn the_stop_hook_does_not_offer_a_session_its_own_task_for_review() {
         &stop_input(&ws, "cc-2", false),
     ));
     assert!(other.contains("a review is waiting"), "{other}");
+}
+
+// T1a: names fence only when both sides are known.
+
+/// An MCP session on `d`, named by `X-Av-Agent: name`; returns (its endpoint, its session id).
+fn mcp_named(d: &Daemon, name: &str) -> (String, String) {
+    let mcp = format!("{}/mcp", d.url);
+    let init = ureq::post(&mcp)
+        .set("accept", "application/json, text/event-stream")
+        .set("x-av-agent", name)
+        .send_json(
+            serde_json::json!({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                       "clientInfo": {"name": "some-client", "version": "1"}}}),
+        )
+        .unwrap();
+    let session = init.header("mcp-session-id").unwrap().to_owned();
+    ureq::post(&mcp)
+        .set("mcp-session-id", &session)
+        .set("accept", "application/json, text/event-stream")
+        .send_json(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        .unwrap();
+    (mcp, session)
+}
+
+fn mcp_tool(mcp: &(String, String), name: &str, args: serde_json::Value) -> serde_json::Value {
+    let r: serde_json::Value = ureq::post(&mcp.0)
+        .set("mcp-session-id", &mcp.1)
+        .set("accept", "application/json, text/event-stream")
+        .send_json(
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": name, "arguments": args}}),
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    r
+}
+
+/// A task `owner` started with the CLI (its `.av-task` names `owner`), with a record.
+fn started_as(owner: &str) -> (Daemon, PathBuf, TempDir) {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    ok(av_as(
+        &d,
+        scratch.path(),
+        owner,
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+        ],
+    ));
+    let ws = d.ws.join("demo/improve-greeting");
+    ok(av_as(
+        &d,
+        &ws,
+        owner,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout in hello",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    (d, ws, scratch)
+}
+
+fn task_now(d: &Daemon, task: &str) -> serde_json::Value {
+    ureq::get(&format!("{}/v1/tasks/{task}", d.url))
+        .call()
+        .unwrap()
+        .into_json::<serde_json::Value>()
+        .unwrap()["task"]
+        .clone()
+}
+
+#[test]
+fn a_named_previous_owner_is_fenced_after_a_claim_over_mcp() {
+    let (d, ws, _scratch) = started_as("claude");
+    ok(av_as(
+        &d,
+        &ws,
+        "claude",
+        &["handoff", "--done", "half", "--remaining", "rest"],
+    ));
+    let task = task_id_of(&ws);
+    let grok = mcp_named(&d, "grok");
+    let claimed = mcp_tool(&grok, "claim_task", serde_json::json!({"task_id": task}));
+    assert!(claimed.to_string().contains("generation: 2"), "{claimed}");
+    let before = task_now(&d, &task);
+
+    // the previous owner edits on; its hook must land nothing and tell it
+    std::fs::write(ws.join("app/greeter.py"), "def hello():\n    return 'HI'\n").unwrap();
+    let o = av_stdin_env(
+        &d.url,
+        &ws,
+        &[("AV_AGENT", "claude")],
+        &["hook", "post-edit"],
+        &hook_input(&ws, "PostToolUse", "cc-1"),
+    );
+    assert!(o.status.success(), "{}", err(&o));
+    let now = task_now(&d, &task);
+    assert_eq!(
+        now["head_change"], before["head_change"],
+        "a fenced edit landed"
+    );
+    assert_eq!(
+        now["lease_expires"], before["lease_expires"],
+        "it renewed grok's lease"
+    );
+    let told = out(&o);
+    assert!(told.contains("additionalContext"), "{told}");
+    assert!(told.contains("`grok` now owns this task"), "{told}");
+    // and the installed hook script passes that answer on to Claude Code
+    let input = hook_input(&ws, "PostToolUse", "cc-1");
+    let told = out(&post_edit_script(&d, &ws, "claude", &input));
+    assert!(told.contains("`grok` now owns this task"), "{told}");
+
+    // its CLI is refused before any request, with both names
+    let o = av_as(&d, &ws, "claude", &["checkpoint"]);
+    assert!(!o.status.success(), "{}", out(&o));
+    let said = err(&o);
+    assert!(said.contains("grok") && said.contains("claude"), "{said}");
+    assert_eq!(task_now(&d, &task)["head_change"], before["head_change"]);
+
+    // its Stop hook says so once per session, a stop that a block continued too, and then lets
+    // it stop: queued work is not offered to it on the new owner's file
+    post_item(&d, &ws, "Fix the README typos");
+    let stop = |session: &str| {
+        let o = stop_with(
+            &d,
+            &ws,
+            &[("AV_AGENT", "claude"), ("AV_HOOK_WAIT_SECS", "1")],
+            session,
+            true,
+        );
+        assert!(o.status.success(), "{}", err(&o));
+        out(&o)
+    };
+    assert!(stop("cc-1").contains("`grok` now owns this task"));
+    assert!(stop("cc-1").is_empty(), "told twice");
+    // and the new owner's own record nudge is not spent by that mark
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert!(file.get("nudged_session").is_none(), "{file}");
+    assert!(file.get("continue_session").is_none(), "{file}");
+
+    // a validation is an attestation: it checkpoints nothing, and the daemon records it at the
+    // head as it is, so over the edits the fence kept out it is refused and the head stays
+    let o = av_as(&d, &ws, "claude", &["validate", "--", "true"]);
+    assert!(err(&o).contains("without a checkpoint"), "{}", err(&o));
+    assert!(!o.status.success(), "{}", out(&o));
+    assert!(
+        err(&o).contains("holds edits its head does not"),
+        "{}",
+        err(&o)
+    );
+    assert_eq!(task_now(&d, &task)["head_change"], before["head_change"]);
+
+    // the new owner is not fenced
+    ok(av_as(&d, &ws, "grok", &["checkpoint"]));
+}
+
+/// An owner that took its task under an alias (`av watch --agent opus` sets `AV_AGENT=opus`;
+/// `next` resolves it to the profile `claude-opus`) holds the claim in its workspace.
+#[test]
+fn an_owner_under_an_alias_is_not_fenced() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    ureq::put(&format!("{}/v1/agents/claude-opus", d.url))
+        .send_json(serde_json::json!({"best": ["code"], "aliases": ["opus"]}))
+        .unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Louder",
+            "--goal",
+            "Make hello louder",
+        ],
+    ));
+    let taken = ok(av_as(&d, scratch.path(), "opus", &["next"]));
+    let ws = PathBuf::from(
+        taken
+            .lines()
+            .find_map(|l| l.strip_prefix("workspace: "))
+            .unwrap_or_else(|| panic!("{taken}")),
+    );
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["agent"], "claude-opus", "{file}");
+    assert_eq!(file["aliases"], serde_json::json!(["opus"]), "{file}");
+    std::fs::write(ws.join("app/greeter.py"), "def hello():\n    return 'HI'\n").unwrap();
+    ok(av_as(&d, &ws, "opus", &["checkpoint"]));
+    ok(av_as(&d, &ws, "claude-opus", &["checkpoint"]));
+}
+
+/// F5: a command with no agent name in a named owner's workspace is that owner's own (its hooks,
+/// a terminal without `AV_AGENT`); it is accepted, with a warning.
+#[test]
+fn an_unnamed_command_is_not_refused_in_a_named_owners_workspace() {
+    let (d, ws, _scratch) = started_as("claude");
+    std::fs::write(ws.join("app/greeter.py"), "def hello():\n    return 'HI'\n").unwrap();
+    let o = av(&d, &ws, &["checkpoint"]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(
+        err(&o).contains("acting on `claude`'s task with no agent name"),
+        "{}",
+        err(&o)
+    );
+}
+
+/// A validation is an attestation, not an owner's write: a named reviewer may run it in the
+/// owner's workspace.
+#[test]
+fn a_reviewer_can_validate_in_the_owners_workspace() {
+    let (d, ws, _scratch) = started_as("claude");
+    std::fs::write(ws.join("app/greeter.py"), "def hello():\n    return 'HI'\n").unwrap();
+    ok(av_as(&d, &ws, "claude", &["submit"]));
+    let task = task_id_of(&ws);
+    let head = task_now(&d, &task)["head_change"].clone();
+    let passed = ok(av_as(&d, &ws, "reviewer", &["validate", "--", "true"]));
+    assert!(passed.contains("validation passed"), "{passed}");
+    // recorded at the owner's head, which it does not move
+    assert_eq!(task_now(&d, &task)["head_change"], head);
+    assert!(passed.contains(&head.as_str().unwrap()[..12]), "{passed}");
+}
+
+/// A remote checkout names the task's owner, not whoever ran `av remote clone`: a reviewer's clone
+/// is fenced like the reviewer, and the owner's own clone holds the claim.
+#[test]
+fn a_remote_clone_names_the_owner() {
+    let (d, ws, _scratch) = started_as("claude");
+    let task = task_of(&ws);
+    let host = TempDir::new().unwrap();
+    let dir = host.path().join("co");
+    ok(av_as(
+        &d,
+        host.path(),
+        "grok",
+        &["remote", "clone", &task, dir.to_str().unwrap()],
+    ));
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["agent"], "claude", "{file}");
+    std::fs::write(
+        dir.join("app/greeter.py"),
+        "def hello():\n    return 'HI'\n",
+    )
+    .unwrap();
+    let o = av_as(&d, &dir, "grok", &["checkpoint"]);
+    assert!(
+        !o.status.success() && err(&o).contains("`claude` now owns this task"),
+        "{}",
+        err(&o)
+    );
+    // nor attest it: the command would run on files the daemon's head does not hold
+    let o = av_as(&d, &dir, "grok", &["validate", "--", "true"]);
+    assert!(
+        !o.status.success() && err(&o).contains("remote checkout"),
+        "{}",
+        err(&o)
+    );
+    ok(av_as(&d, &dir, "claude", &["checkpoint"]));
+}
+
+/// A task started under an alias stores the alias as its owner (only `next` resolves one): the
+/// file names the profile's other names with it, so the owner under its profile's name (the name
+/// Grok's hooks act as) holds the claim.
+#[test]
+fn an_owner_that_started_under_an_alias_goes_by_its_profiles_names() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    ureq::put(&format!("{}/v1/agents/grok", d.url))
+        .send_json(serde_json::json!({"best": ["code"], "aliases": ["opus"]}))
+        .unwrap();
+    ok(av_as(
+        &d,
+        scratch.path(),
+        "opus",
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Louder",
+            "--goal",
+            "Make hello louder",
+        ],
+    ));
+    let ws = d.ws.join("demo/louder");
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["agent"], "opus", "{file}");
+    assert_eq!(file["aliases"], serde_json::json!(["grok"]), "{file}");
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "def hello():
+    return 'HI'
+",
+    )
+    .unwrap();
+    ok(av_as(&d, &ws, "grok", &["checkpoint"]));
+    let o = av_as(&d, &ws, "codex", &["checkpoint"]);
+    assert!(
+        !o.status.success() && err(&o).contains("`opus` now owns this task"),
+        "{}",
+        err(&o)
+    );
+}
+
+/// `integrations/claude-code/hooks/post-edit.sh` with `stdin`, as `agent`, with this build's `av`
+/// first on `PATH`.
+fn post_edit_script(d: &Daemon, ws: &Path, agent: &str, stdin: &str) -> Output {
+    use std::io::Write as _;
+    let bin = Path::new(env!("CARGO_BIN_EXE_av"))
+        .parent()
+        .unwrap()
+        .to_owned();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let mut child = Command::new("bash")
+        .arg(repo_root().join("integrations/claude-code/hooks/post-edit.sh"))
+        .current_dir(ws)
+        .env("PATH", path)
+        .env("AV_URL", &d.url)
+        .env("AV_AGENT", agent)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("GROK_HOOK_EVENT")
+        .env("AV_FOOTPRINT", "off")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+/// `av claim` has the daemon name the claimant in the file it hands out (`X-Av-Name-Owner`), so
+/// the new generation is never on disk unnamed for a named previous owner to read and write
+/// under before this process writes the file itself. A thread reads the file throughout.
+#[test]
+fn av_claims_new_generation_is_never_on_disk_unnamed() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (d, ws, _scratch) = started_as("claude");
+    ok(av_as(
+        &d,
+        &ws,
+        "claude",
+        &["handoff", "--done", "half", "--remaining", "rest"],
+    ));
+    let task = task_id_of(&ws);
+    let path = ws.join(".av-task");
+    let done = Arc::new(AtomicBool::new(false));
+    let watcher = {
+        let done = done.clone();
+        std::thread::spawn(move || {
+            let (mut seen, mut unnamed) = (0u32, Vec::new());
+            while !done.load(Ordering::SeqCst) {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(tf) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                if tf["generation"] == 2 {
+                    seen += 1;
+                    if tf["agent"] != "codex" {
+                        unnamed.push(text);
+                    }
+                }
+            }
+            (seen, unnamed)
+        })
+    };
+    ok(av_as(&d, &ws, "codex", &["claim", &task]));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    done.store(true, Ordering::SeqCst);
+    let (seen, unnamed) = watcher.join().unwrap();
+    assert!(seen > 0, "the watcher never read generation 2");
+    assert!(unnamed.is_empty(), "generation 2 named nobody: {unnamed:?}");
 }

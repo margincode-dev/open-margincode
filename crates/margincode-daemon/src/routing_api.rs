@@ -862,6 +862,7 @@ fn offer_review(st: &AppState, task: Task, approved: bool, agent: &str) -> Resul
 /// "queued": N}`: N queued items, none of which the caller may take now.
 async fn next(
     State(st): State<AppState>,
+    headers: axum::http::HeaderMap,
     ext: axum::http::Extensions,
     Json(b): Json<NextBody>,
 ) -> ApiResult<Value> {
@@ -905,7 +906,18 @@ async fn next(
                 None => nothing("would"),
             }));
         }
-        if let Some(v) = act(&st, &agent, &b, choices).await? {
+        let named = crate::task_file::names_owner(&ext, &headers);
+        if let Some(v) = act(&st, &agent, &b, choices, named).await? {
+            // a claim or a resume named the owner as it handed out the file; a start from the
+            // backlog names it now (no previous owner is in a new workspace)
+            if named
+                && v["from"] == "backlog"
+                && let Some(id) = v["task"]["id"]
+                    .as_str()
+                    .and_then(|t| Uuid::parse_str(t).ok())
+            {
+                crate::task_file::name_owner(&st, TaskId(id)).await;
+            }
             return Ok(Json(v));
         }
         // nothing to give: wait for something, until the deadline, until the call is dropped
@@ -1003,31 +1015,36 @@ async fn act(
     agent: &str,
     b: &NextBody,
     choices: Vec<Choice>,
+    named: bool,
 ) -> Result<Option<Value>> {
     let mut first_err: Option<AvError> = None;
     for choice in choices {
         let made = match choice {
             Choice::Review { task, approved } => offer_review(st, task, approved, agent),
-            Choice::Returned(item) => resume_as(st, TaskId(item.id), agent, b.budget, b.family)
-                .await
-                .map(|mut v| {
-                    v["from"] = json!("changes_requested");
-                    v["next"] = json!(RETURNED_TODO);
-                    v
-                }),
-            Choice::Handoff(item) => claim_as(st, TaskId(item.id), agent, b.budget, b.family)
-                .await
-                .map(|mut v| {
-                    v["from"] = json!("handoff");
-                    v
-                }),
+            Choice::Returned(item) => {
+                resume_as(st, TaskId(item.id), agent, b.budget, b.family, named)
+                    .await
+                    .map(|mut v| {
+                        v["from"] = json!("changes_requested");
+                        v["next"] = json!(RETURNED_TODO);
+                        v
+                    })
+            }
+            Choice::Handoff(item) => {
+                claim_as(st, TaskId(item.id), agent, b.budget, b.family, named)
+                    .await
+                    .map(|mut v| {
+                        v["from"] = json!("handoff");
+                        v
+                    })
+            }
             Choice::Abandoned(item) => {
                 let id = TaskId(item.id);
                 let own = st.store.get_task(id).await?.owner_agent == agent;
                 let taken = if own {
-                    resume_as(st, id, agent, b.budget, b.family).await
+                    resume_as(st, id, agent, b.budget, b.family, named).await
                 } else {
-                    claim_as(st, id, agent, b.budget, b.family).await
+                    claim_as(st, id, agent, b.budget, b.family, named).await
                 };
                 taken.map(|mut v| {
                     v["from"] = json!("abandoned");
@@ -1038,9 +1055,9 @@ async fn act(
                 let id = TaskId(item.id);
                 let own = st.store.get_task(id).await?.owner_agent == agent;
                 let taken = if own {
-                    resume_as(st, id, agent, b.budget, b.family).await
+                    resume_as(st, id, agent, b.budget, b.family, named).await
                 } else {
-                    claim_as(st, id, agent, b.budget, b.family).await
+                    claim_as(st, id, agent, b.budget, b.family, named).await
                 };
                 taken.map(|mut v| {
                     v["from"] = json!("conflicted");

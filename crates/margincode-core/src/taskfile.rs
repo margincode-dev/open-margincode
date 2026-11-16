@@ -13,19 +13,27 @@ pub struct TaskFile {
     pub task: String,
     pub session: String,
     /// The claim generation this workspace's owner writes under, and that owner. A later claim
-    /// rewrites both. The CLI writes its own name, which fences off a previous owner's writes
-    /// from this directory; the daemon writes no name (F14), and then a previous owner's hooks
-    /// there write under the new generation.
+    /// rewrites both. The CLI writes its own name; the daemon writes one only for an agent that
+    /// named itself (`X-Av-Agent`), else none (F14). `claim_of` says what a reader may send.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Other names of `agent` (its profile's aliases, written by the daemon): a reader under one
+    /// of them is the owner too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     /// When `av hook post-edit` last checkpointed (Unix ms), for its debounce.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_checkpoint_ms: Option<u64>,
     /// The agent session `av hook stop` last asked to record its changes; it asks once per session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nudged_session: Option<String>,
+    /// The agent session `av hook stop` last told that its claim was taken over (T1a); it tells
+    /// once per session. Not `nudged_session`: a previous owner's mark must not stop the new
+    /// owner's record nudge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub told_session: Option<String>,
     /// The agent session whose Stop hooks `av hook stop` has continued because av had work for
     /// it, and how many times (`AV_HOOK_MAX_CONTINUES` caps it). A new session starts at zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,13 +55,84 @@ impl TaskFile {
             session,
             generation: Some(generation),
             agent: None,
+            aliases: Vec::new(),
             last_checkpoint_ms: None,
             nudged_session: None,
+            told_session: None,
             continue_session: None,
             continues: 0,
             remote: None,
         }
     }
+
+    /// The owner the file names: none when it names nobody or the default `agent`, the name
+    /// every unnamed CLI and hook acts as (it tells nobody apart).
+    pub fn owner(&self) -> Option<&str> {
+        self.agent
+            .as_deref()
+            .filter(|a| !a.trim().is_empty() && *a != DEFAULT_AGENT)
+    }
+}
+
+/// The name `av` and its hooks act as when nobody named them (no `--agent`, no `AV_AGENT`).
+pub const DEFAULT_AGENT: &str = "agent";
+
+/// What a reader of the file may write under (T1a).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Claim<'a> {
+    /// The file's generation: the reader is the owner, or one of the two has no name.
+    Holds(Option<i64>),
+    /// The reader has a name, and the file names another owner: the reader's claim was taken
+    /// over (or it never had one). Its writes from this directory are refused.
+    TakenBy(&'a str),
+}
+
+/// The one rule for what a reader sends, given its explicit name (`None`: no `--agent`, no
+/// `AV_AGENT`, not a Grok hook). Names fence only when both sides are known: an unnamed reader
+/// cannot be told from the owner's own hooks (F5), and a file that names nobody cannot tell who
+/// owns it. A reader named as the owner or one of its aliases holds the claim.
+pub fn claim_of<'a>(tf: &'a TaskFile, reader: Option<&str>) -> Claim<'a> {
+    match (reader, tf.owner()) {
+        (Some(r), Some(owner)) if r != owner && !tf.aliases.iter().any(|a| a == r) => {
+            Claim::TakenBy(owner)
+        }
+        _ => Claim::Holds(tf.generation),
+    }
+}
+
+/// What a fenced reader is told, after `av: ` (the CLI's refusal, the hooks' notice).
+pub fn taken_over(owner: &str, reader: &str) -> String {
+    format!("`{owner}` now owns this task; you are `{reader}`. Stop editing this workspace.")
+}
+
+/// The other names `owner` goes by, for a file's `aliases`: the profile it names or else is an
+/// alias of (given as `(name, aliases)`; a profile's own name wins, as in `routing::resolve`),
+/// that profile's name and aliases, `owner` left out. None when no profile knows it. A task stores the name it was started or claimed under, which may be an
+/// alias (only `next` resolves one), so an owner under any of the profile's names holds the claim.
+pub fn other_names<'a>(
+    owner: &str,
+    profiles: impl IntoIterator<Item = (&'a str, &'a [String])>,
+) -> Vec<String> {
+    let profiles: Vec<(&str, &[String])> = profiles.into_iter().collect();
+    let Some((name, aliases)) = profiles
+        .iter()
+        .find(|(name, _)| *name == owner)
+        .or_else(|| {
+            profiles
+                .iter()
+                .find(|(_, aliases)| aliases.iter().any(|a| a == owner))
+        })
+        .copied()
+    else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for n in std::iter::once(name).chain(aliases.iter().map(String::as_str)) {
+        if n != owner && !names.iter().any(|m| m == n) {
+            names.push(n.to_owned());
+        }
+    }
+    names
 }
 
 /// Where a remote checkout last agreed with the daemon.
@@ -138,6 +217,38 @@ mod tests {
         let now = find(&d).unwrap().1;
         assert_eq!((now.session.as_str(), now.continues), ("s2", 3));
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn names_fence_only_when_both_sides_are_known() {
+        let mut tf = TaskFile::new("t".into(), "s".into(), 3);
+        // a file that names nobody, or the default name: every reader holds the claim
+        assert_eq!(claim_of(&tf, Some("grok")), Claim::Holds(Some(3)));
+        tf.agent = Some(DEFAULT_AGENT.into());
+        assert_eq!(claim_of(&tf, Some("grok")), Claim::Holds(Some(3)));
+        tf.agent = Some("claude-opus".into());
+        tf.aliases = vec!["opus".into()];
+        // an unnamed reader may be the owner's own hook (F5)
+        assert_eq!(claim_of(&tf, None), Claim::Holds(Some(3)));
+        assert_eq!(claim_of(&tf, Some("claude-opus")), Claim::Holds(Some(3)));
+        assert_eq!(claim_of(&tf, Some("opus")), Claim::Holds(Some(3)));
+        assert_eq!(claim_of(&tf, Some("grok")), Claim::TakenBy("claude-opus"));
+    }
+
+    #[test]
+    fn an_owner_stored_as_an_alias_goes_by_its_profiles_names() {
+        let opus = vec!["opus".to_owned(), "claude".to_owned()];
+        let grok: Vec<String> = Vec::new();
+        let profiles = || [("claude-opus", opus.as_slice()), ("grok", grok.as_slice())];
+        assert_eq!(other_names("claude-opus", profiles()), ["opus", "claude"]);
+        // a task started or claimed under an alias names the profile, and its other aliases
+        assert_eq!(other_names("opus", profiles()), ["claude-opus", "claude"]);
+        assert!(other_names("grok", profiles()).is_empty());
+        assert!(other_names("codex", profiles()).is_empty());
+        // a profile's own name wins over another profile, listed first, that has it as an alias
+        let aaa = vec!["claude".to_owned()];
+        let listed = [("aaa", aaa.as_slice()), ("claude", &opus[..1])];
+        assert_eq!(other_names("claude", listed), ["opus"]);
     }
 
     #[test]

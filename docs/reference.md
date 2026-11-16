@@ -173,13 +173,45 @@ lost". Writes under the current generation renew the lease.
 (over HTTP or MCP), a start from the backlog, a claim and a resume. It holds the task, a
 session (a start's caller's, over MCP the MCP session; a claim's or a resume's new one) and the
 generation, so hooks and `av` commands run anywhere in the workspace find their task without
-`--task`. The daemon's file names no agent, since it does not know the name `av` and the hooks
-act as there (Claude Code's hooks act as `agent`, its MCP session as `claude-code`); the CLI
-writes its own name when it starts or takes a task (`av task start`, `av claim`, `av next`), and
-a file naming another agent makes `av` send generation 0, refused as "claim lost". So after a
-claim over MCP, a previous owner's hooks and `av` commands still running in that directory write
-under the new generation and are accepted (the MCP tools of its session are still fenced). A
-resume keeps what the file held for the same generation and changes only its session. A review
+`--task`. The daemon's file names the owner only when the agent named itself (an MCP session
+named by `X-Av-Agent`, as `av watch` and `av init --for grok` set up, or a claim or `next` that
+sends `X-Av-Name-Owner`, as `av claim` and `av next` do), in the same write that hands out a
+claim's or a resume's generation (a reader that sees the new generation sees the name);
+otherwise it names none, since the daemon does not know the name `av` and the hooks act
+as there (Claude Code's hooks act as `agent`, its MCP session as `claude-code`). The CLI names the
+owner when it starts or takes a task (`av task start`, `av claim`, `av next`) or clones one (`av
+remote clone`): the task's owner as the daemon stores it (`next` resolves an alias to its
+profile's name; a start or a claim keeps the name it was given, which may be an alias), never the
+name of whoever ran the clone. A file a newer claim wrote meanwhile is left as it is, and so is one
+the daemon already named for the same hand-out. Both list, as the file's `aliases`, the other names of the profile
+the owner names or is an alias of, and name nobody when the profiles cannot be read (an owner
+named without its other names could be fenced).
+
+Names fence only when both sides are known. An `av` command or hook with a name (`--agent`,
+`AV_AGENT`, or a Grok hook, which acts as `grok`) in a workspace whose file names another owner
+(not the default `agent`, nor one of its aliases) lost its claim: the CLI refuses before sending
+anything ("`codex` now owns this task; you are `claude`"), the `post-edit` hook checkpoints
+nothing and tells the agent so on every edit (as `additionalContext`), and the Stop hook blocks
+once per agent session with the same sentence, also when that stop continues an earlier block
+(the file keeps the session it told, `told_session`, apart from the record nudge's); after that
+it lets the agent stop, without waiting for new work or nudging. An unnamed
+command there is let through under the file's generation, with a warning that names the owner and
+asks for `AV_AGENT`: it cannot be told from the owner's own unnamed hooks. So after a claim, a
+previous owner with no name still writes under the new generation and is accepted (the MCP tools
+of its session are still fenced). `--generation` (`AV_GENERATION`) is sent as given, over the
+rule. A Grok whose MCP session is named by `X-Av-Agent` as something other than `grok` (a
+persona) needs `AV_AGENT` set to that same name, as the Cloud's runner sets it, or its hooks act
+as `grok` and are fenced in its own workspace.
+
+`av validate` is an attestation, not an owner's write: a named non-owner (a reviewer in the
+owner's workspace) checkpoints nothing, says so, and sends no generation. In a remote checkout it
+is refused: that checkout's files reach the daemon only by a checkpoint, so the command would run
+on files the recorded head may not hold. The daemon records it at the task's head as it is
+(`at_head`), never moving the head: it refuses one made over files that head does not hold, such
+as a previous owner's edits the fence kept out ("holds edits its head does not"), which only the
+owner can checkpoint and validate.
+
+A resume keeps what the file held for the same generation and changes its session (and, for an agent that named itself, writes the owner and its other names). A review
 offered by `next` leaves the file as it is. Snapshots and patches never include it. A write the
 daemon cannot make is logged and does not fail the start or claim.
 
@@ -327,7 +359,8 @@ Several agents work against one daemon at once:
   after a newer one, and no write of a previous owner lands after a claim.
 - **Fencing**: claims are one conditional update (of racing claimants exactly one wins) that
   increments the task's generation; writes carrying an older generation are refused. Agents are
-  told apart by `--agent`/`AV_AGENT`, so agents sharing one name are not fenced from each other.
+  told apart by `--agent`/`AV_AGENT`, so agents sharing one name are not fenced from each other,
+  and an agent with no name is not fenced in a workspace at all (see `.av-task` above).
 - **Per repo**: jj mutations (import, new workspace, snapshot) hold a per-repo mutex. Reads of
   files and diffs address immutable commits by id and take no lock, so packs and indexing never
   wait behind another agent's snapshot. All of them share one jj store per repo.
@@ -499,7 +532,7 @@ In Git Bash, set `MSYS_NO_PATHCONV=1` for each `av` command, or `/import/...` is
 ```bash
 MSYS_NO_PATHCONV=1 av repo add NAME /import/NAME   # before av init: init posts the Windows
 av init                                             # path, which the daemon cannot read
-export AV_AGENT=claude   # the agent named in .av-task; otherwise writes are refused as "claim lost"
+export AV_AGENT=claude   # the agent named in .av-task; another name is refused, none only warns
 ```
 
 The daemon does not reach GitHub, and `main` is protected: push the backup to a branch from Windows git,

@@ -456,7 +456,11 @@ pub(crate) async fn pause_before_pack(st: &AppState) {
     }
 }
 
-async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> ApiResult<Started> {
+async fn start_task(
+    State(st): State<AppState>,
+    ext: axum::http::Extensions,
+    Json(req): Json<StartTask>,
+) -> ApiResult<Started> {
     // Wait for a turn before anything is written: a client that gives up while queued leaves
     // nothing behind. Then the task is made on a task of its own, so a client that leaves during
     // the copy cannot stop it half done (an open task with no workspace or intent).
@@ -484,6 +488,9 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
     let task = made
         .await
         .map_err(|e| AvError::Store(format!("task start stopped: {e}")))??;
+    if ext.get::<crate::task_file::NamedByAgent>().is_some() {
+        crate::task_file::name_owner(&st, task.id).await;
+    }
     pause_before_pack(&st).await;
     let pack_req = first_pack_request(task.id, req.budget, req.session);
     let (task, pack) = pack_for_task(&st, task.id, pack_req).await?;
@@ -584,7 +591,14 @@ pub(crate) async fn create_started(
     st.store
         .renew_lease(task.id, task.generation, st.lease_secs)
         .await?;
-    crate::task_file::write(st, &dir, &task.id.to_string(), session, task.generation);
+    crate::task_file::write(
+        st,
+        &dir,
+        &task.id.to_string(),
+        session,
+        task.generation,
+        None,
+    );
     Ok(task)
 }
 

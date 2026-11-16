@@ -613,6 +613,19 @@ pub fn post_edit(client: &Client, agent: &str) {
     let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
         return;
     };
+    let event = input["hook_event_name"].as_str().unwrap_or("PostToolUse");
+    // a named agent whose claim was taken over checkpoints nothing, and is told on every edit:
+    // a refusal on stderr reaches nobody (T1a)
+    let generation = match claim(&tf, agent) {
+        taskfile::Claim::TakenBy(owner) => {
+            println!(
+                "{}",
+                taken_over_output(event, &taskfile::taken_over(owner, agent))
+            );
+            return;
+        }
+        taskfile::Claim::Holds(generation) => generation,
+    };
     let now = now_ms();
     if tf
         .last_checkpoint_ms
@@ -625,14 +638,16 @@ pub fn post_edit(client: &Client, agent: &str) {
         eprintln!("av: hook post-edit: cannot update {}: {e}", taskfile::NAME);
     }
     tf.last_checkpoint_ms = Some(now);
-    let generation = generation(&tf, agent);
     // a remote checkout (Plan 14) sends its changes as a patch
     match crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
         Ok(answer) => {
-            let event = input["hook_event_name"].as_str().unwrap_or("PostToolUse");
             if let Some(out) = notices_output(&answer, event) {
                 println!("{out}");
             }
+        }
+        // the daemon's own fence (an unnamed hook under an older file, a claim since the read)
+        Err(e) if e.to_string().contains("claim lost") => {
+            println!("{}", taken_over_output(event, &e.to_string()));
         }
         Err(e) => eprintln!("av: hook post-edit: checkpoint failed: {e}"),
     }
@@ -720,7 +735,23 @@ pub fn stop(client: &Client, agent: &str) {
         return;
     };
     let session = session.unwrap_or_else(|| tf.session.clone());
-    if input["stop_hook_active"] != true && nudge_to_record(client, agent, &dir, &mut tf, &session)
+    // a named agent whose claim was taken over is told once per session, in place of the record
+    // nudge (its checkpoint would be refused); a Stop hook can only say so by blocking (T1a). It
+    // is told even on a stop that a block continued: the mark keeps it to once. Then it may stop:
+    // nothing here is its work, and the file's counters are the new owner's.
+    if let taskfile::Claim::TakenBy(owner) = claim(&tf, agent) {
+        if tf.told_session.as_deref() != Some(session.as_str()) {
+            let reason = format!("av: {}", taskfile::taken_over(owner, agent));
+            if let Err(e) = taskfile::update(&dir, &tf, |f| {
+                f.told_session = Some(session.clone());
+            }) {
+                eprintln!("av: hook stop: cannot update {}: {e}", taskfile::NAME);
+            }
+            println!("{}", json!({"decision": "block", "reason": reason}));
+        }
+        return;
+    } else if input["stop_hook_active"] != true
+        && nudge_to_record(client, agent, &dir, &mut tf, &session)
     {
         return;
     }
@@ -746,7 +777,11 @@ fn nudge_to_record(
         return false;
     }
     // the last edits may be inside post-edit's debounce
-    if let Err(e) = crate::remote::checkpoint_task(client, &tf.task, generation(tf, agent), dir) {
+    let generation = match claim(tf, agent) {
+        taskfile::Claim::Holds(generation) => generation,
+        taskfile::Claim::TakenBy(_) => return false,
+    };
+    if let Err(e) = crate::remote::checkpoint_task(client, &tf.task, generation, dir) {
         eprintln!("av: hook stop: checkpoint failed: {e}");
         return false;
     }
@@ -903,12 +938,17 @@ fn asks_as(agent: &str, owner: Option<&str>) -> String {
     }
 }
 
-/// As `generation_for` in main.rs, for the hook's own task file.
-fn generation(tf: &TaskFile, agent: &str) -> Option<i64> {
-    match &tf.agent {
-        Some(owner) if owner != agent => Some(0),
-        _ => tf.generation,
-    }
+/// `taskfile::claim_of` for a hook acting as `agent`: its name counts only when it was given one
+/// (`--agent`, `AV_AGENT`) or Grok runs it (`grok`, the name its MCP session also has).
+fn claim<'a>(tf: &'a TaskFile, agent: &str) -> taskfile::Claim<'a> {
+    let named = agent_named() || grok_hook();
+    taskfile::claim_of(tf, named.then_some(agent))
+}
+
+/// The notice for a hook whose agent lost its claim, as Claude Code `additionalContext`.
+fn taken_over_output(event: &str, text: &str) -> String {
+    json!({"hookSpecificOutput": {"hookEventName": event, "additionalContext": format!("av: {text}")}})
+        .to_string()
 }
 
 /// Which agent `av hook` acts as.
@@ -933,7 +973,7 @@ pub fn hook_agent(cli_agent: &str) -> String {
 }
 
 /// Whether this process was given an agent name: `--agent` or a non-empty `AV_AGENT`.
-fn agent_named() -> bool {
+pub(crate) fn agent_named() -> bool {
     agent_flag_present() || std::env::var("AV_AGENT").is_ok_and(|v| !v.trim().is_empty())
 }
 

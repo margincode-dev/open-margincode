@@ -192,8 +192,9 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(12)]
 }
 
-/// `av remote clone`: makes `dir` a checkout of `task` at its head and writes its `.av-task`.
-pub fn clone(client: &Client, task: &str, dir: &Path, agent: &str, session: &str) -> Result<Value> {
+/// `av remote clone`: makes `dir` a checkout of `task` at its head and writes its `.av-task`,
+/// naming the task's owner (not the cloner: a clone does not take the claim).
+pub fn clone(client: &Client, task: &str, dir: &Path, session: &str) -> Result<Value> {
     let r = client.get(&format!("/v1/tasks/{task}"), &[])?;
     let t = &r["task"];
     let id = t["id"].as_str().unwrap_or(task).to_owned();
@@ -215,13 +216,16 @@ pub fn clone(client: &Client, task: &str, dir: &Path, agent: &str, session: &str
     let commit = commit_of(dir, None, &patch, &head, tree.as_deref())?;
     git.run(&["update-ref", "HEAD", &commit])?;
     git.run(&["reset", "-q", "--hard"])?;
+    let (agent, aliases) = taskfile::owned_by(client, t);
     let tf = TaskFile {
         task: id.clone(),
         session: session.to_owned(),
         generation: t["generation"].as_i64(),
-        agent: Some(agent.to_owned()),
+        agent,
+        aliases,
         last_checkpoint_ms: None,
         nudged_session: None,
+        told_session: None,
         continue_session: None,
         continues: 0,
         remote: Some(Remote {

@@ -40,6 +40,9 @@ const INTERNAL_ERROR: i64 = -32603;
 #[derive(Clone)]
 pub(crate) struct McpSession {
     agent: String,
+    /// The agent named itself (`X-Av-Agent`), not only its client (`clientInfo.name`): the
+    /// workspaces it is handed name it as their owner (`task_file::NamedByAgent`, T1a).
+    named: bool,
     /// The tasks this session started, claimed or resumed, oldest first, each with the claim
     /// generation it writes under. Usually one at a time; an agent CLI's subagents share their
     /// parent's session (checked with Claude Code), so a team can hold several.
@@ -346,10 +349,10 @@ async fn inner(
     body: Option<Value>,
     generation: Option<i64>,
 ) -> (StatusCode, Value) {
-    inner_with(st, method, uri, body, generation, None).await
+    inner_with(st, method, uri, body, generation, None, false).await
 }
 
-/// `inner`, with the `NextPhase` a `next` call reports to.
+/// `inner`, with the `NextPhase` a `next` call reports to, for a session that named itself or not.
 async fn inner_with(
     st: &AppState,
     method: &str,
@@ -357,10 +360,14 @@ async fn inner_with(
     body: Option<Value>,
     generation: Option<i64>,
     phase: Option<crate::routing_api::NextPhase>,
+    named: bool,
 ) -> (StatusCode, Value) {
     let mut req = Request::builder().method(method).uri(uri);
     if let Some(phase) = phase {
         req = req.extension(phase);
+    }
+    if named {
+        req = req.extension(crate::task_file::NamedByAgent);
     }
     if let Some(g) = generation {
         req = req.header(crate::flow::GENERATION_HEADER, g.to_string());
@@ -1093,7 +1100,7 @@ async fn run_tool(
             }
         }
     };
-    let (status, out) = inner_with(st, method, &uri, body, generation, phase).await;
+    let (status, out) = inner_with(st, method, &uri, body, generation, phase, s.named).await;
     if status.is_success() {
         let mut started = None;
         match name {
@@ -1384,9 +1391,13 @@ async fn initialize(
     params: &Value,
 ) -> Result<(String, Value), RpcError> {
     let pinned = pinned_task(st, headers).await?;
-    let agent = headers
+    let own_name = headers
         .get("x-av-agent")
         .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let named = own_name.is_some();
+    let agent = own_name
         .or(params["clientInfo"]["name"].as_str())
         .map(str::trim)
         .filter(|a| !a.is_empty())
@@ -1408,6 +1419,7 @@ async fn initialize(
             sid.clone(),
             McpSession {
                 agent,
+                named,
                 tasks: pinned.map(|(t, g)| (t, Some(g))).into_iter().collect(),
                 starts: Vec::new(),
                 last_used: Instant::now(),

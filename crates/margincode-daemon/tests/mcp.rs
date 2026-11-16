@@ -1799,3 +1799,134 @@ async fn start_task_over_mcp_writes_the_task_file() {
     // fence the owner's own writes from its workspace
     assert!(tf.get("agent").is_none(), "names no agent: {tf}");
 }
+
+// T1a: the daemon names the owner in `.av-task` only when the agent named itself (`X-Av-Agent`),
+// with its profile's aliases, so a hook that acts under that name or an alias is not fenced from
+// its own workspace. A session named only by its client program gets a file with no name.
+
+/// `initialize` with `X-Av-Agent: name`; returns the session id.
+async fn connect_named(e: &Env, name: &str) -> String {
+    let (status, sid, body) = initialize_with(e, ("x-av-agent", name)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sid = sid.expect("initialize returns Mcp-Session-Id");
+    let n = send(
+        e,
+        Some(&sid),
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+    )
+    .await;
+    assert_eq!(n.status, StatusCode::ACCEPTED);
+    sid
+}
+
+/// The task a `start_task` answer names, as `{"task": {"id", "slug"}}`.
+fn started_task(said: &str) -> Value {
+    let line = said.lines().find(|l| l.starts_with("task: ")).unwrap();
+    let (task, slug) = line["task: ".len()..].split_once(" (").unwrap();
+    json!({"task": {"id": task, "slug": slug.trim_end_matches(')')}})
+}
+
+/// Started over MCP by `session`, then handed off by its owner `owner`.
+async fn started_and_handed_off(e: &Env, session: &str, owner: &str) -> Value {
+    let said = text(
+        &tool(
+            e,
+            session,
+            "start_task",
+            json!({"repo": "demo", "title": "Louder", "goal": "Make hello louder"}),
+        )
+        .await,
+    );
+    let t = started_task(&said);
+    edit_greeter(e, &t);
+    record_decision(e, &t).await;
+    assert_eq!(handoff(e, &t, owner).await.0, StatusCode::OK);
+    t
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_named_by_header_gets_its_name_in_the_task_file() {
+    let e = env().await;
+    put_profile(
+        &e,
+        "claude-opus",
+        json!({"best": ["code"], "aliases": ["opus"]}),
+    )
+    .await;
+    // named by an alias: the session acts as the profile's name
+    let s = connect_named(&e, "opus").await;
+    let t = started_and_handed_off(&e, &s, "claude-opus").await;
+    let tf = task_file(&e, &t);
+    assert_eq!(tf["agent"], "claude-opus", "{tf}");
+    assert_eq!(tf["aliases"], json!(["opus"]), "{tf}");
+    assert_eq!(tf["generation"], 1, "{tf}");
+
+    // a claim by another named session names the new owner, and only it
+    let g = connect_named(&e, "grok").await;
+    let claimed = text(&tool(&e, &g, "claim_task", json!({"task_id": t["task"]["id"]})).await);
+    assert!(claimed.contains("generation: 2"), "{claimed}");
+    let tf = task_file(&e, &t);
+    assert_eq!(tf["agent"], "grok", "{tf}");
+    assert_eq!(tf["generation"], 2, "{tf}");
+    assert!(tf.get("aliases").is_none(), "{tf}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_named_only_by_its_client_gets_none() {
+    let e = env().await;
+    let s = connect_named(&e, "grok").await;
+    let t = started_and_handed_off(&e, &s, "grok").await;
+    assert_eq!(task_file(&e, &t)["agent"], "grok");
+    // `codex` is only the client's name: its claim leaves the file naming nobody
+    let c = connect(&e, "codex").await;
+    let claimed = text(&tool(&e, &c, "claim_task", json!({"task_id": t["task"]["id"]})).await);
+    assert!(claimed.contains("generation: 2"), "{claimed}");
+    let tf = task_file(&e, &t);
+    assert!(tf.get("agent").is_none(), "{tf}");
+    assert_eq!(tf["generation"], 2, "{tf}");
+}
+
+/// A claim names its owner in the same write that hands out the new generation (T1a): a reader
+/// that saw generation 2 saw the name too, so no named previous owner reads the new generation
+/// from a file that names nobody and lands a write under it. A thread reads the file throughout
+/// the claim; with the name written after, it finds generation 2 unnamed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claims_file_is_named_in_the_write_that_hands_out_its_generation() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let e = env().await;
+    let s = connect_named(&e, "claude").await;
+    let t = started_and_handed_off(&e, &s, "claude").await;
+    let path = ws_dir(&e, &t).join(".av-task");
+    let done = Arc::new(AtomicBool::new(false));
+    let watcher = {
+        let done = done.clone();
+        std::thread::spawn(move || {
+            let (mut seen, mut unnamed) = (0u32, Vec::new());
+            while !done.load(Ordering::SeqCst) {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(tf) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                if tf["generation"] == 2 {
+                    seen += 1;
+                    if tf["agent"] != "grok" {
+                        unnamed.push(text);
+                    }
+                }
+            }
+            (seen, unnamed)
+        })
+    };
+    let g = connect_named(&e, "grok").await;
+    let claimed = text(&tool(&e, &g, "claim_task", json!({"task_id": t["task"]["id"]})).await);
+    assert!(claimed.contains("generation: 2"), "{claimed}");
+    // keep reading a moment after, as a hook would
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    done.store(true, Ordering::SeqCst);
+    let (seen, unnamed) = watcher.join().unwrap();
+    assert!(seen > 0, "the watcher never read generation 2");
+    assert!(unnamed.is_empty(), "generation 2 named nobody: {unnamed:?}");
+}

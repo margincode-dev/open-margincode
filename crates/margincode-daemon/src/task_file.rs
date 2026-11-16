@@ -1,20 +1,24 @@
 //! The `.av-task` the daemon writes into a workspace it hands out (F14): on a start, a start
 //! from the backlog, a claim and a resume, and into one an undo or a revert re-created (F40), so
-//! hooks and `av` commands in a workspace an agent got
-//! over MCP or HTTP find their task. Snapshots and patches leave the file out (`AGENT_IGNORES`
-//! in `margincode-vcs`). A failed write is logged and never fails the hand-out.
+//! hooks and `av` commands in a workspace an agent got over MCP or HTTP find their task.
+//! Snapshots and patches leave the file out (`AGENT_IGNORES` in `margincode-vcs`). A failed write
+//! is logged and never fails the hand-out.
 //!
-//! The file names no agent. Its `agent` is the name `av` and the hooks in that directory act as,
-//! which the daemon does not know: Claude Code's hooks act as `agent` (no `AV_AGENT`) while its
-//! MCP session is named after the client (`claude-code`), and a file naming that owner would make
-//! the CLI send generation 0, refused as "claim lost", for the owner's own writes. The cost: after
-//! a claim, a previous owner's hooks still running in that directory write under the new
-//! generation and are accepted (the MCP tools of its session are still fenced). The CLI writes
-//! its own name when it starts or takes a task.
+//! The file names its owner only when the agent named itself (`NamedByAgent`: an MCP session
+//! named by `X-Av-Agent`), with its profile's other names (`owner_of`, T1a), in the same write
+//! that hands out the generation: a reader that saw the new generation has seen the name too, so
+//! no named previous owner gets a write in under it. Otherwise it names
+//! none: the name `av` and the hooks there act as is unknown to the daemon (Claude Code's hooks
+//! act as `agent` while its MCP session is named after the client, `claude-code`), and a wrong
+//! name would fence the owner. Names fence only when both sides are known
+//! (`margincode_core::taskfile::claim_of`), so after a claim a previous owner with no name still
+//! writes under the new generation (the MCP tools of its session are still fenced). The CLI
+//! writes its own name when it starts or takes a task.
 
 use std::io::{Read, Write};
 use std::path::Path;
 
+use margincode_core::Task;
 use margincode_core::taskfile::{NAME, TaskFile};
 
 use crate::AppState;
@@ -26,9 +30,17 @@ const MAX_READ: u64 = 64 * 1024;
 /// process, not a host path), with `session`. A file already there for the same task and
 /// generation (a resume) keeps everything else it holds: the name the CLI wrote, and the hooks'
 /// counters, so the Stop hook's cap on continues still counts across a resume. A claim raises the
-/// generation, so its file starts afresh.
-pub(crate) fn write(st: &AppState, dir: &Path, task: &str, session: String, generation: i64) {
-    if let Err(e) = try_write(st, dir, task, session, generation) {
+/// generation, so its file starts afresh. `owner`, when the agent named itself, is written as the
+/// file's owner.
+pub(crate) fn write(
+    st: &AppState,
+    dir: &Path,
+    task: &str,
+    session: String,
+    generation: i64,
+    owner: Option<&Owner>,
+) {
+    if let Err(e) = try_write(st, dir, task, session, generation, owner) {
         tracing::warn!(task, dir = %dir.display(), error = %e, "could not write {NAME}");
     }
 }
@@ -39,6 +51,7 @@ fn try_write(
     task: &str,
     session: String,
     generation: i64,
+    owner: Option<&Owner>,
 ) -> std::io::Result<()> {
     if !dir.starts_with(&st.ws_root) || !dir.is_dir() {
         return Err(std::io::Error::other(
@@ -46,7 +59,7 @@ fn try_write(
         ));
     }
     let path = dir.join(NAME);
-    let tf = match read_existing(&path) {
+    let mut tf = match read_existing(&path) {
         Some(old) if old.task == task && old.generation == Some(generation) => TaskFile {
             session,
             remote: None,
@@ -54,14 +67,111 @@ fn try_write(
         },
         _ => TaskFile::new(task.to_owned(), session, generation),
     };
-    let text = serde_json::to_string(&tf).map_err(std::io::Error::other)?;
+    if let Some(owner) = owner {
+        tf.agent = Some(owner.name.clone());
+        tf.aliases = owner.aliases.clone();
+    }
+    put(&path, &tf)
+}
+
+/// A request's agent named itself (an MCP session named by `X-Av-Agent`), rather than being
+/// named after its client program: the workspace the request is handed then names its owner
+/// (`owner_of`, T1a). The MCP layer adds it to each in-process request of such a session.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NamedByAgent;
+
+/// The header a client sends on a claim or `next` to have the file it is handed name the owner,
+/// as `NamedByAgent` does: `av claim` and `av next` send it, since they write that same name
+/// into the file themselves once answered (T1a). Named in the daemon's own write, the new
+/// generation is never on disk unnamed for a named previous owner to read.
+pub(crate) const NAME_OWNER_HEADER: &str = "x-av-name-owner";
+
+/// Whether this request's hand-out names its owner (`NamedByAgent` or `NAME_OWNER_HEADER`).
+pub(crate) fn names_owner(ext: &axum::http::Extensions, headers: &axum::http::HeaderMap) -> bool {
+    ext.get::<NamedByAgent>().is_some() || headers.contains_key(NAME_OWNER_HEADER)
+}
+
+/// The owner a file names, with the other names it goes by.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Owner {
+    pub(crate) name: String,
+    pub(crate) aliases: Vec<String>,
+}
+
+/// The owner of `task` as a file names it, for an agent that named itself: its hooks and `av` act
+/// under that name too (`av watch` sets `AV_AGENT` to it, Grok's hooks act as `grok`), so the file
+/// fences a named previous owner from the workspace and never the owner. The task's owner may be
+/// an alias it was started or claimed under, so the aliases are the profile's other names
+/// (`margincode_core::taskfile::other_names`). None, so the file names nobody, when the profiles
+/// cannot be read: naming the owner without its other names could fence it.
+pub(crate) async fn owner_of(st: &AppState, task: &Task) -> Option<Owner> {
+    let profiles = match st.store.list_profiles().await {
+        Ok(profiles) => profiles,
+        Err(e) => {
+            tracing::warn!(task = %task.slug, error = %e, "could not name the owner in {NAME}");
+            return None;
+        }
+    };
+    let aliases = margincode_core::taskfile::other_names(
+        &task.owner_agent,
+        profiles
+            .iter()
+            .map(|p| (p.name.as_str(), p.aliases.as_slice())),
+    );
+    Some(Owner {
+        name: task.owner_agent.clone(),
+        aliases,
+    })
+}
+
+/// Names the owner (`owner_of`) in the file a start just wrote, for an agent that named itself.
+/// A claim and a resume name it in their own write; a start can name it after, as no previous
+/// owner is in a new workspace. Only into the file of the task's current generation. A failure is
+/// logged; the file then names nobody.
+pub(crate) async fn name_owner(st: &AppState, id: margincode_core::TaskId) {
+    let _guard = st.lock_task(id).await;
+    let task = match st.store.get_task(id).await {
+        Ok(task) => task,
+        Err(e) => {
+            tracing::warn!(task = %id.0, error = %e, "could not name the owner in {NAME}");
+            return;
+        }
+    };
+    let Some(owner) = owner_of(st, &task).await else {
+        return;
+    };
+    let dir = st.to_local_path(&task.workspace_path);
+    if let Err(e) = try_name(st, &dir, &task, &owner) {
+        tracing::warn!(task = %task.slug, error = %e, "could not name the owner in {NAME}");
+    }
+}
+
+fn try_name(st: &AppState, dir: &Path, task: &Task, owner: &Owner) -> std::io::Result<()> {
+    if !dir.starts_with(&st.ws_root) || !dir.is_dir() {
+        return Err(std::io::Error::other(
+            "not a workspace directory of this daemon",
+        ));
+    }
+    let path = dir.join(NAME);
+    let Some(mut tf) = read_existing(&path)
+        .filter(|old| old.task == task.id.to_string() && old.generation == Some(task.generation))
+    else {
+        return Ok(());
+    };
+    tf.agent = Some(owner.name.clone());
+    tf.aliases = owner.aliases.clone();
+    put(&path, &tf)
+}
+
+fn put(path: &Path, tf: &TaskFile) -> std::io::Result<()> {
+    let text = serde_json::to_string(tf).map_err(std::io::Error::other)?;
     // Removed, then made anew: `create_new` follows no link planted at the name, and no
     // temporary file is left for a snapshot to take. On a start no client has the path yet; a
     // hook that reads it during a claim or a resume finds no task and does nothing. A hook that
     // writes it in between makes `create_new` fail once; the second try replaces its file.
     let mut tries = 0;
     loop {
-        match std::fs::remove_file(&path) {
+        match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
@@ -69,7 +179,7 @@ fn try_write(
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&path)
+            .open(path)
         {
             Ok(mut f) => return f.write_all(text.as_bytes()),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries == 0 => tries += 1,

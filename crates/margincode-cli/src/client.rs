@@ -90,6 +90,13 @@ impl Client {
         self.finish(path, req.send_json(body))
     }
 
+    /// `post` of a claim or `next`, asking the daemon to name the owner in the `.av-task` it hands
+    /// out (`X-Av-Name-Owner`, T1a), as this process then writes it too.
+    pub fn post_naming_owner(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
+        self.finish(path, req.set("x-av-name-owner", "1").send_json(body))
+    }
+
     pub fn delete(&self, path: &str) -> Result<Value> {
         let req = self.authorized(self.agent.delete(&format!("{}{path}", self.base)));
         self.finish(path, req.call())

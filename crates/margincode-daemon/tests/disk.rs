@@ -153,14 +153,6 @@ async fn revert_after_gc_restores_the_workspace() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
-/// The `.av-task` in a task's workspace, which snapshots leave out.
-fn task_file(e: &Env, t: &Value) -> Value {
-    let path = ws_dir(e, t).join(".av-task");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("no task file at {}: {err}", path.display()));
-    serde_json::from_str(&text).unwrap()
-}
-
 /// F40: a workspace undo or revert re-creates comes back without `.av-task` (snapshots leave it
 /// out), so the owner's hooks and `av` commands there found no task.
 #[tokio::test(flavor = "multi_thread")]

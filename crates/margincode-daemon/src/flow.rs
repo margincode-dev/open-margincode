@@ -341,6 +341,11 @@ pub(crate) struct ValidateBody {
     /// Results of the task's convention checks (`GET /v1/tasks/{id}/checks`), run alongside.
     #[serde(default)]
     checks: Vec<CheckResult>,
+    /// An attestation by an agent that does not own the task (`av validate` by a named
+    /// non-owner, T1a): it sends no generation, so it must not move the head. Recorded at the
+    /// task's head as it is; refused when the workspace holds files that head does not.
+    #[serde(default)]
+    at_head: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -365,7 +370,11 @@ pub(crate) async fn validate(
     let _guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     fence(&st, &task, &headers).await?;
-    let (head, _, _) = snapshot_and_index(&st, &task).await?;
+    let head = if b.at_head {
+        head_as_found(&st, &task).await?
+    } else {
+        snapshot_and_index(&st, &task).await?.0
+    };
     let summary: String = format!("`{}` exit {}", b.command, b.exit_code)
         .chars()
         .take(200)
@@ -1217,7 +1226,7 @@ async fn restore_workspace(st: &AppState, task: &Task) -> &'static str {
             // (F40); written with no name, as on every hand-out: the caller is the merger, not
             // the owner
             if what == "restored" {
-                hand_out(st, task);
+                hand_out(st, task, None);
             }
             what
         }
@@ -1358,20 +1367,42 @@ pub(crate) struct ClaimBody {
 pub(crate) async fn claim(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
     Json(b): Json<ClaimBody>,
 ) -> ApiResult<Value> {
-    Ok(Json(
-        claim_as(&st, TaskId(id), &b.agent, b.budget, b.family).await?,
-    ))
+    let named = crate::task_file::names_owner(&ext, &headers);
+    let claimed = claim_as(&st, TaskId(id), &b.agent, b.budget, b.family, named).await?;
+    Ok(Json(claimed))
 }
 
-/// `claim` without the HTTP wrapper, for `next` (Plan 8).
+/// The head a non-owner's validation is recorded at: the task's, unmoved. Refused when the
+/// workspace's files differ from it, such as a previous owner's edits the fence kept out of the
+/// head: the command ran on files the head does not hold, and only the owner may make them one.
+/// The comparison needs a snapshot, so the workspace's jj commit then holds those files, as the
+/// owner's next snapshot would take them; the task's head and its index do not move.
+async fn head_as_found(st: &AppState, task: &Task) -> Result<ChangeId> {
+    let now = st.vcs.snapshot(&task.repo, &task.slug).await?;
+    let found = st.vcs.tree_id(&task.repo, &now).await?;
+    if found != st.vcs.tree_id(&task.repo, &task.head_change).await? {
+        return Err(AvError::IllegalState(format!(
+            "task {}'s workspace holds edits its head does not: only its owner can validate \
+             them, after a checkpoint",
+            task.slug
+        )));
+    }
+    Ok(task.head_change.clone())
+}
+
+/// `claim` without the HTTP wrapper, for `next` (Plan 8). `named`: the agent named itself
+/// (`NamedByAgent`), so the workspace's file names it (T1a).
 pub(crate) async fn claim_as(
     st: &AppState,
     id: TaskId,
     agent: &str,
     budget: Option<u32>,
     family: Option<AgentFamily>,
+    named: bool,
 ) -> Result<Value> {
     if agent.trim().is_empty() {
         return Err(AvError::Invalid("agent must not be empty".into()));
@@ -1380,7 +1411,7 @@ pub(crate) async fn claim_as(
     let _guard = st.lock_task(id).await;
     let task = st.store.claim_task(id, agent, st.lease_secs).await?;
     reconcile_task_overlay(st, &task).await?;
-    let session = hand_out(st, &task);
+    let session = hand_out(st, &task, owner(st, &task, named).await.as_ref());
     let bundle = st
         .packer
         .handoff_bundle(BundleRequest {
@@ -1406,6 +1437,7 @@ pub(crate) async fn resume_as(
     agent: &str,
     budget: Option<u32>,
     family: Option<AgentFamily>,
+    named: bool,
 ) -> Result<Value> {
     let _guard = st.lock_task(id).await;
     let task = st.store.get_task(id).await?;
@@ -1429,7 +1461,7 @@ pub(crate) async fn resume_as(
     }
     let task = st.store.get_task(id).await?;
     reconcile_task_overlay(st, &task).await?;
-    let session = hand_out(st, &task);
+    let session = hand_out(st, &task, owner(st, &task, named).await.as_ref());
     let bundle = st
         .packer
         .handoff_bundle(BundleRequest {
@@ -1447,8 +1479,9 @@ pub(crate) async fn resume_as(
 }
 
 /// A claimed or resumed task's new session, written with its generation into the workspace's
-/// `.av-task` (F14). Also writes the file of a workspace an undo or revert re-created (F40).
-fn hand_out(st: &AppState, task: &Task) -> String {
+/// `.av-task` (F14), naming `owner` when the agent named itself (T1a). Also writes the file of a
+/// workspace an undo or revert re-created (F40).
+fn hand_out(st: &AppState, task: &Task, owner: Option<&crate::task_file::Owner>) -> String {
     let session = Uuid::new_v4().to_string();
     crate::task_file::write(
         st,
@@ -1456,8 +1489,18 @@ fn hand_out(st: &AppState, task: &Task) -> String {
         &task.id.to_string(),
         session.clone(),
         task.generation,
+        owner,
     );
     session
+}
+
+/// The owner a hand-out's file names: only for an agent that named itself (T1a).
+async fn owner(st: &AppState, task: &Task, named: bool) -> Option<crate::task_file::Owner> {
+    if named {
+        crate::task_file::owner_of(st, task).await
+    } else {
+        None
+    }
 }
 
 fn short(hex: &str) -> &str {

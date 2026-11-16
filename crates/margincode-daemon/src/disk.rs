@@ -911,6 +911,7 @@ pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()
             if let Err(e) = enforce_budget(&state, false).await {
                 tracing::warn!(error = %e, "holding the repos to their build budget failed");
             }
+            state.count_reclaim_pass();
         }
     }))
 }

@@ -146,8 +146,9 @@ async fn customize_can_watch_for_the_daemons_shutdown() {
     let db = TestDb::new().await;
     let dir = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let (ran, customized) = tokio::sync::oneshot::channel::<()>();
+    let (saw, seen_down) = tokio::sync::oneshot::channel::<()>();
     let seen = Arc::new(AtomicBool::new(false));
     let flag = seen.clone();
 
@@ -155,13 +156,14 @@ async fn customize_can_watch_for_the_daemons_shutdown() {
         config(&db, dir.path(), None),
         listener,
         move |state: AppState| async move {
-            // an extension's background task (a watcher, a webhook thread) stops with the daemon
             let mut shutdown = state.shutdown();
             assert!(!*shutdown.borrow(), "not shutting down at start-up");
             tokio::spawn(async move {
                 shutdown.wait_for(|down| *down).await.unwrap();
                 flag.store(true, Ordering::SeqCst);
+                let _ = saw.send(());
             });
+            let _ = ran.send(());
             Ok::<_, BoxError>((state, Router::new()))
         },
         async move {
@@ -169,17 +171,13 @@ async fn customize_can_watch_for_the_daemons_shutdown() {
         },
     );
     let client = async move {
-        wait_up(addr).await;
+        customized.await.expect("serve_with ran customize");
         assert!(!seen.load(Ordering::SeqCst), "shutdown seen while serving");
         stop.send(()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
-        while !seen.load(Ordering::SeqCst) {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the extension task did not see the shutdown within a second"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        seen_down
+            .await
+            .expect("the extension task saw the shutdown");
+        assert!(seen.load(Ordering::SeqCst));
     };
     let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
         tokio::join!(server, client)

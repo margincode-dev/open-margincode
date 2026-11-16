@@ -1091,6 +1091,14 @@ async fn floor_zero_turns_the_check_off() {
     assert_eq!(disk["below_floor"], false, "{disk}");
 }
 
+async fn whole_passes(passes: &mut tokio::sync::watch::Receiver<u64>, n: u64) {
+    let from = *passes.borrow_and_update();
+    passes
+        .wait_for(|done| *done >= from + n)
+        .await
+        .expect("the reclaim loop runs while the daemon serves");
+}
+
 /// The reclaim tick runs with retention `never` when the floor is on, and below the floor it
 /// reclaims a finished task's workspace the retention would keep for good.
 #[cfg(unix)]
@@ -1104,15 +1112,14 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let ws = dir.path().join("ws");
-    let held: Arc<std::sync::Mutex<Option<AppState>>> = Arc::default();
+    let (hand, held) = tokio::sync::oneshot::channel::<AppState>();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let keep = held.clone();
     let server = serve_with(
         cfg,
         listener,
         |state: AppState| async move {
             let state = state.with_reclaim_tick(Duration::from_millis(200));
-            *keep.lock().unwrap() = Some(state.clone());
+            let _ = hand.send(state.clone());
             Ok::<_, BoxError>((state, Router::new()))
         },
         async move {
@@ -1120,17 +1127,8 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
         },
     );
     let client = async move {
-        // the listener is bound before serve_with runs the extension closure, so a connect
-        // alone does not mean the state is held yet
-        let mut state = None;
-        for _ in 0..200 {
-            state = held.lock().unwrap().clone();
-            if state.is_some() && tokio::net::TcpStream::connect(addr).await.is_ok() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-        let state = state.expect("serve_with handed the state to the extension within 5 s");
+        let state = held.await.expect("serve_with ran the extension closure");
+        let mut passes = state.reclaim_passes();
         let (code, out) = raw(
             addr,
             "POST",
@@ -1179,22 +1177,15 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
         ] {
             ok(addr, &format!("/v1/tasks/{tid}/{op}"), body).await;
         }
-        // retention never: only the floor removes it
-        tokio::time::sleep(Duration::from_millis(600)).await;
+        // the first pass may have started before the change; the second started after it
+        whole_passes(&mut passes, 2).await;
         assert!(wdir.exists(), "kept above the floor with retention never");
         state.set_disk_min_free(FAR_ABOVE);
-        let mut gone = false;
-        for _ in 0..40 {
-            if !wdir.exists() {
-                gone = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        whole_passes(&mut passes, 2).await;
         stop.send(()).unwrap();
         assert!(
-            gone,
-            "the tick reclaimed {wdir:?} below the floor within 4 s"
+            !wdir.exists(),
+            "a reclaim pass that began below the floor removed {wdir:?}"
         );
     };
     let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {

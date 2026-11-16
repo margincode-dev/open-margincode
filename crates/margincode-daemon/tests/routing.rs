@@ -692,6 +692,109 @@ async fn a_task_its_owner_is_already_fixing_is_not_offered_again() {
     assert_eq!(peek(&e, "claude").await["would"], Value::Null);
 }
 
+/// `next` as `agent` with `extra` merged into the body.
+async fn next_with(e: &Env, agent: &str, extra: Value) -> Value {
+    let mut b = json!({"agent": agent, "session": "s-next"});
+    b.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    let (status, body) = call(&e.app, "POST", "/v1/backlog/next", Some(b)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+/// Dogfood 2026-11-16 (F31): the Cloud runner handles its owners' sent-back tasks itself (it
+/// counts review rounds and escalates), so after F16 `next` handed it back a task it had
+/// escalated, ahead of its backlog. A caller that says `skip_returned` is not offered its own
+/// sent-back task, in a peek or a take, and gets its other work; one that does not still is.
+#[tokio::test]
+async fn a_caller_that_skips_returned_tasks_gets_its_other_work() {
+    let e = env_with(|s| s.with_lease_secs(3600)).await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    post_for(&e, "quieter hello", &["code"], "claude").await;
+    assert_eq!(
+        peek(&e, "claude").await["would"]["from"],
+        "changes_requested"
+    );
+
+    let skip = json!({"take": ["work"], "skip_returned": true});
+    let mut peek_skip = skip.clone();
+    peek_skip["dry_run"] = json!(true);
+    let would = &next_with(&e, "claude", peek_skip).await["would"];
+    assert_eq!(would["from"], "backlog", "{would}");
+    let body = next_with(&e, "claude", skip).await;
+    assert_eq!(body["from"], "backlog", "{body}");
+    assert_eq!(body["task"]["title"], "quieter hello", "{body}");
+    assert_ne!(body["task"]["id"], t["task"]["id"]);
+}
+
+/// Past the owner's lease a sent-back task is still its owner's returned task, not an abandoned
+/// one, so a `skip_returned` owner is not handed it as `abandoned` either.
+#[tokio::test]
+async fn a_caller_that_skips_returned_tasks_does_not_get_them_back_after_the_lease() {
+    let e = env_with(|s| s.with_lease_secs(2)).await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+    let skip = json!({"take": ["work"], "skip_returned": true});
+    let mut peek_skip = skip.clone();
+    peek_skip["dry_run"] = json!(true);
+    assert_eq!(
+        next_with(&e, "claude", peek_skip).await["would"],
+        Value::Null
+    );
+    let body = next_with(&e, "claude", skip).await;
+    assert_eq!(body["task"], Value::Null, "{body}");
+}
+
+/// At its `max_open` limit an agent is offered only what finishes work, its sent-back task
+/// among them; with `skip_returned` that is nothing.
+#[tokio::test]
+async fn at_its_limit_a_caller_that_skips_returned_tasks_gets_nothing() {
+    let e = env_with(|s| s.with_lease_secs(3600)).await;
+    put_limited(&e, "claude", &["code"], 4, 1).await;
+    put_agent(&e, "grok", &["image"], &["code"], 2).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    post_for(&e, "quieter hello", &["code"], "claude").await;
+    assert_eq!(
+        peek(&e, "claude").await["would"]["from"],
+        "changes_requested"
+    );
+
+    let body = next_with(&e, "claude", json!({"skip_returned": true})).await;
+    assert_eq!(body["task"], Value::Null, "{body}");
+    assert_eq!(body["at_capacity"]["max"], 1, "{body}");
+}
+
 // ---- Plan 9 Task 6: a dry-run peek ----
 
 async fn peek(e: &Env, agent: &str) -> Value {

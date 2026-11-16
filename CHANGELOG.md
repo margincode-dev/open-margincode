@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`next` takes `skip_returned`.** With `skip_returned: true`, `POST /v1/backlog/next` does not offer the caller its own tasks that review sent back (in a `dry_run`, a wait and at the `max_open` limit too), for a caller that takes those up itself: the Commercial runner counts review rounds and escalates, and after the change below it was handed back the task it had just escalated, ahead of its other work, in a loop. Without it nothing changes. Found syncing the Commercial edition (2026-11-16).
 - **A task sent back with requested changes goes back to its owner at once.** `next`, `start_task` with no arguments and `av watch` used to offer it to nobody until the owner's lease ran out (the change request renews it, 30 minutes by default), so a headless owner never came back to its findings, and after the lease any fitting agent could take it. Now the owner gets it first, after reviews of others' work: `from: changes_requested`, resumed under the same generation, with the handoff bundle (the findings) and a `next` line. It is not offered again once the owner moved its head, and it is kept at a team's `max_open` limit. Found by dogfooding (2026-11-16).
 - **deploy/Dockerfile builds from main again.** It copies `integrations/dream`, which `av dream`'s instructions are compiled from, so the image build needs that directory.
 

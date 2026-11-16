@@ -465,8 +465,8 @@ enum Cmd {
         /// With nothing to take, wait up to this many seconds for something (the daemon caps it).
         #[arg(long)]
         wait: Option<u64>,
-        /// Take only these: review, merge, work (backlog items, handoffs, abandoned and
-        /// conflicted tasks). Repeat or comma-separate; default everything.
+        /// Take only these: review, merge, work (backlog items, handoffs, your own tasks sent
+        /// back, abandoned and conflicted tasks). Repeat or comma-separate; default everything.
         #[arg(long, value_delimiter = ',')]
         take: Vec<String>,
     },

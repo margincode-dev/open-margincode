@@ -1,0 +1,24 @@
+smoke-p0 relay-order-ids av r1: success=True edits=4 largest prompt=31783 cost=$0.0075 hooks='session-start\npre-read\npre-read\npost-edit\npre-read\npost-edit\npre-read\npost-edit\npost-edit\nstop\nstop' models=['claude-haiku-5-5']
+  ok  status ok
+  ok  answered
+  ok  an edit
+  ok  verify ran
+  ok  hook-count
+  ok  benchagent
+  ok  claude 2.1.318
+  ok  models haiku
+  ok  prompt <= 100K
+  ok  cost <= $0.04
+smoke-p1 relay-order-ids av r1: success=True edits=5 largest prompt=33887 cost=$0.0086 hooks='session-start\npre-read\npre-read\npost-edit\npre-read\npost-edit\npre-read\npost-edit\npost-edit\npre-read\npost-edit\nstop\nstop' models=['claude-haiku-5-5']
+  ok  status ok
+  ok  answered
+  ok  an edit
+  ok  verify ran
+  ok  hook-count
+  ok  benchagent
+  ok  claude 2.1.318
+  ok  models haiku
+  ok  prompt <= 100K
+  ok  cost <= $0.04
+
+Smokes: pass.

@@ -1,0 +1,8 @@
+01:49:14Z start smoke-p0
+01:49:15Z end smoke-p0 exit=1
+01:49:15Z start smoke-p1
+01:49:15Z end smoke-p1 exit=1
+01:49:32Z start smoke-p0 (again, after the refusal)
+01:50:17Z end smoke-p0 exit=0
+01:50:17Z start smoke-p1 (again, after the refusal)
+01:51:10Z end smoke-p1 exit=0

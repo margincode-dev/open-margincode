@@ -614,6 +614,84 @@ async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
     assert_eq!(body["task"]["owner_agent"], "codex");
 }
 
+/// Dogfood 2026-11-16 (F16): a headless owner (`av watch`) asked `next` right after a change
+/// request and was told there was nothing for it, because its task sat inside the lease the
+/// change request had just renewed. The owner gets its task back at once, under the same
+/// generation, with the findings; the reviewer and other agents still get nothing.
+#[tokio::test]
+async fn a_task_sent_back_is_offered_to_its_owner_at_once() {
+    let e = env_with(|s| s.with_lease_secs(3600)).await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+
+    let would = &peek(&e, "claude").await["would"];
+    assert_eq!(would["from"], "changes_requested", "{would}");
+    assert_eq!(would["task_id"], t["task"]["id"]);
+
+    let (status, body) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["from"], "changes_requested", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+    assert_eq!(body["task"]["owner_agent"], "claude");
+    assert_eq!(
+        body["generation"], t["task"]["generation"],
+        "resumed, not claimed"
+    );
+    assert!(
+        body["bundle"]["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("say why it shouts"),
+        "the findings come with it: {body}"
+    );
+    assert!(
+        body["next"].as_str().unwrap().contains("av submit"),
+        "{body}"
+    );
+
+    for agent in ["grok", "codex"] {
+        let (_, body) = next(&e, agent).await;
+        assert_eq!(body["task"], Value::Null, "{agent}: {body}");
+    }
+}
+
+/// Once the owner has moved the head after the change request it is fixing the task, so a second
+/// session under the same agent name is not handed the same task.
+#[tokio::test]
+async fn a_task_its_owner_is_already_fixing_is_not_offered_again() {
+    let e = env_with(|s| s.with_lease_secs(3600)).await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    std::fs::write(
+        ws_dir(&e, &t).join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()  # shouts\n",
+    )
+    .unwrap();
+    let uri = format!("/v1/tasks/{}/checkpoint", id(&t));
+    let (status, b) = call_as(&e.app, "POST", &uri, None, Some(1)).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+
+    assert_eq!(peek(&e, "claude").await["would"], Value::Null);
+}
+
 // ---- Plan 9 Task 6: a dry-run peek ----
 
 async fn peek(e: &Env, agent: &str) -> Value {

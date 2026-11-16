@@ -534,7 +534,7 @@ async fn run_tool(
                         r["next"].as_str().unwrap_or_default()
                     );
                 }
-                let md = if ["handoff", "abandoned", "conflicted"]
+                let md = if ["handoff", "abandoned", "conflicted", "changes_requested"]
                     .iter()
                     .any(|from| r["from"] == *from)
                 {
@@ -542,7 +542,7 @@ async fn run_tool(
                 } else {
                     &r["pack"]["markdown"]
                 };
-                // a conflicted task says what to do first
+                // a conflicted task, or one sent back with requested changes, says what to do first
                 let todo = r["next"]
                     .as_str()
                     .map(|n| format!("{n}\n\n"))

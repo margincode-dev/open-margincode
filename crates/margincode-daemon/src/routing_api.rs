@@ -1,7 +1,7 @@
 //! Plan 8: agent profiles, the backlog and `next` (HTTP). The rules that pick an item for an
 //! agent are `margincode_core::routing`; this module only moves data and starts or claims tasks.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -450,7 +450,8 @@ impl Choice {
                 approved: false, ..
             } => Take::Review,
             Choice::Review { approved: true, .. } => Take::Merge,
-            Choice::Conflicted(_)
+            Choice::Returned(_)
+            | Choice::Conflicted(_)
             | Choice::Handoff(_)
             | Choice::Abandoned(_)
             | Choice::Backlog(_) => Take::Work,
@@ -545,12 +546,18 @@ const REVIEW_TODO: &str = "Review it: review_task, run its tests in its workspac
 const MERGE_TODO: &str = "It is approved: merge it.";
 const SYNC_TODO: &str = "Its merge conflicted because main moved: av sync it onto main, resolve \
                          the conflict markers, re-run the check, validate and submit it again.";
+const RETURNED_TODO: &str = "A reviewer requested changes: the findings are below. Fix each one, \
+                             re-run the check, then av validate and av submit.";
 
 /// What `next` may give an agent, best first.
 #[derive(Debug)]
 pub(crate) enum Choice {
     /// Another agent's task in review; `approved` at its current head (then it only needs a merge).
     Review { task: Task, approved: bool },
+    /// The agent's own open task that a reviewer sent back with requested changes, while its head
+    /// is still the one judged: offered to its owner at once (resumed, not claimed). The change
+    /// request renewed the owner's lease, so without this the owner would wait out that lease.
+    Returned(BacklogItem),
     /// A task whose merge conflicted: its owner syncs it onto main, resolves and resubmits. Offered
     /// to the owner at once, to any other agent once the owner's lease ran out (then claimed).
     Conflicted(BacklogItem),
@@ -570,9 +577,9 @@ enum Kind {
     Conflicted,
 }
 
-/// Everything `agent` may be given now, best first (reviews and merges, the agent's own conflicted
-/// tasks, then handoffs and backlog items in the order of `routing::order_for`), and how many
-/// items are queued.
+/// Everything `agent` may be given now, best first (reviews and merges, the agent's own tasks sent
+/// back with requested changes and its own conflicted tasks, then handoffs and backlog items in the
+/// order of `routing::order_for`), and how many items are queued.
 pub(crate) async fn choose(
     st: &AppState,
     agent: &str,
@@ -580,6 +587,38 @@ pub(crate) async fn choose(
     profiles: &[Profile],
 ) -> Result<(Vec<Choice>, usize)> {
     let mut choices = review_choices(st, agent, repo, profiles).await?;
+
+    // The owner's own tasks sent back with requested changes, at once. Only while the head is the
+    // one the reviewer judged: once the owner moved it, a session of it is already fixing the task,
+    // and a second session under the same name is not handed it too. A session that died mid-fix
+    // falls back to the lease (an abandoned task, below).
+    let mut returned: HashSet<Uuid> = HashSet::new();
+    let mut open = st.pg.list_tasks(repo, Some(TaskStatus::Open), 500).await?;
+    open.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then(a.task.id.0.cmp(&b.task.id.0))
+    });
+    for row in open {
+        let task = row.task;
+        if task.owner_agent != agent {
+            continue;
+        }
+        if let Some(v) = st.store.latest_verdict_any(task.id).await?
+            && v.verdict == Verdict::RequestChanges
+            && v.head == task.head_change
+        {
+            returned.insert(task.id.0);
+            let since = v.at.unwrap_or(row.created_at);
+            choices.push(Choice::Returned(task_item(
+                &task,
+                Vec::new(),
+                None,
+                since,
+                0,
+            )));
+        }
+    }
 
     // Conflicted tasks: the owner keeps its own at once (it has to sync, resolve and resubmit);
     // another agent may take one once the owner's lease ran out, like an abandoned open task.
@@ -642,6 +681,9 @@ pub(crate) async fn choose(
         ));
     }
     for a in st.store.abandoned_tasks(repo, st.lease_secs).await? {
+        if returned.contains(&a.task.id.0) {
+            continue; // offered to its owner above, as sent back
+        }
         let needs = task_needs(st, &a.task).await?;
         kind.insert(a.task.id.0, Kind::Abandoned);
         // The reviewer whose change request reopened it does not rescue it: the owner's work
@@ -681,6 +723,7 @@ fn would(c: &Choice) -> Value {
             return json!({ "from": "review", "task_id": task.id, "repo": task.repo,
                            "title": task.title });
         }
+        Choice::Returned(i) => ("changes_requested", i),
         Choice::Handoff(i) => ("handoff", i),
         Choice::Abandoned(i) => ("abandoned", i),
         Choice::Conflicted(i) => ("conflicted", i),
@@ -866,8 +909,8 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
 
 /// An agent CLI that runs subagents is a team and may hold several open tasks, up to its
 /// profile's `max_open`. At the limit it gets only what finishes work: reviews and merges of
-/// others' tasks, and its own abandoned and conflicted tasks back. Returns the choices left and, at the limit,
-/// `(open, max)`.
+/// others' tasks, and its own tasks back (sent back, abandoned, conflicted). Returns the choices
+/// left and, at the limit, `(open, max)`.
 async fn within_limit(
     st: &AppState,
     agent: &str,
@@ -888,7 +931,8 @@ async fn within_limit(
     let mut kept = Vec::new();
     for c in choices {
         let keep = match &c {
-            Choice::Review { .. } => true,
+            // only ever the agent's own
+            Choice::Review { .. } | Choice::Returned(_) => true,
             Choice::Abandoned(item) | Choice::Conflicted(item) => {
                 st.store.get_task(TaskId(item.id)).await?.owner_agent == agent
             }
@@ -915,6 +959,13 @@ async fn act(
     for choice in choices {
         let made = match choice {
             Choice::Review { task, approved } => offer_review(st, task, approved, agent),
+            Choice::Returned(item) => resume_as(st, TaskId(item.id), agent, b.budget, b.family)
+                .await
+                .map(|mut v| {
+                    v["from"] = json!("changes_requested");
+                    v["next"] = json!(RETURNED_TODO);
+                    v
+                }),
             Choice::Handoff(item) => claim_as(st, TaskId(item.id), agent, b.budget, b.family)
                 .await
                 .map(|mut v| {

@@ -793,6 +793,13 @@ cheapest) has it to itself for `--reserve` seconds (default 600), after which an
 it may take it, so work moves on when an agent runs out of quota. Untagged work goes to the
 cheapest agent.
 
+A task a reviewer sends back with requested changes goes back to its owner at once: the owner's
+next `av next` (or `start_task` with no arguments) after the reviews of others' work resumes it,
+`from: changes_requested`, with the findings and a line on what to do. It stops being offered
+once the owner moves its head (a session is already fixing it). If the owner then goes quiet, the
+task is offered after the lease, as an abandoned one, to anyone but the reviewer. So `av watch`
+brings a headless agent back to its own findings.
+
 Each agent CLI is treated as an engineering team: Margincode gives it work, has another team review
 it and keeps the shared memory, while the CLI splits the work among its own subagents. Those
 subagents carry the team's name (the `X-Av-Agent` header is in the CLI's config), so a team never

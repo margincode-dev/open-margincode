@@ -2897,7 +2897,7 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             // a claimed or resumed task comes with its handoff bundle
-            let handoff = ["handoff", "abandoned", "conflicted"]
+            let handoff = ["handoff", "abandoned", "conflicted", "changes_requested"]
                 .iter()
                 .any(|from| r["from"] == *from);
             let workspace = PathBuf::from(s(&task["workspace_path"]));
@@ -2931,9 +2931,9 @@ fn run(cli: Cli) -> Result<()> {
             println!("session: {session}");
             if handoff {
                 println!("generation: {}\n", r["generation"]);
-                // a conflicted task says what to do first
-                if r["from"] == "conflicted" {
-                    println!("{}\n", s(&r["next"]));
+                // a conflicted task, or one sent back with requested changes, says what to do first
+                if let Some(todo) = r["next"].as_str() {
+                    println!("{todo}\n");
                 }
                 println!("{}", s(&r["bundle"]["markdown"]));
             } else {

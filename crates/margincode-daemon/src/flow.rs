@@ -743,6 +743,26 @@ pub(crate) struct Finding {
     anchors: Vec<Anchor>,
 }
 
+/// What the store would refuse in a finding, checked for all of them before any is written: the
+/// store checks each summary only as it writes it. Errors name the finding's index.
+fn check_findings(findings: &[Finding]) -> Result<()> {
+    for (i, f) in findings.iter().enumerate() {
+        let n = f.summary.chars().count();
+        if f.summary.trim().is_empty() {
+            return Err(AvError::Invalid(format!(
+                "findings[{i}]: the summary is empty; nothing was written"
+            )));
+        }
+        if n > margincode_core::MAX_SUMMARY_CHARS {
+            return Err(AvError::Invalid(format!(
+                "findings[{i}]: the summary has {n} characters; at most {}; nothing was written",
+                margincode_core::MAX_SUMMARY_CHARS
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ReviewBody {
     reviewer: String,
@@ -755,7 +775,8 @@ pub(crate) struct ReviewBody {
 /// head and is refused when the head is already approved in this review round (since the latest
 /// submit); `request_changes` sends the task back to its owner with the findings as `review`
 /// records. A finding the reviewer already stored at this head (a retried review) is not stored
-/// again.
+/// again. Every finding is checked before anything is written, and the verdict is written after
+/// the findings, so a refused review leaves neither (F15).
 pub(crate) async fn review(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -779,6 +800,7 @@ pub(crate) async fn review(
         .into());
     }
     // before anything is written: a refusal leaves no verdict and no review records
+    check_findings(&b.findings)?;
     let action = crate::Guarded::Review {
         task: &task,
         reviewer: &b.reviewer,
@@ -832,16 +854,6 @@ pub(crate) async fn review(
             return Err(AvError::IllegalState(format!("cannot approve: {reason}")).into());
         }
     }
-    st.store
-        .add_verdict(
-            task.id,
-            &b.reviewer,
-            b.verdict,
-            &head,
-            Some(&task.base_change),
-            None,
-        )
-        .await?;
     // (summary, body, anchors) of the findings this reviewer already has at this head; anchors in
     // `sorted_anchors` order on both sides, since the store reads them back in its own order
     let mut stored: Vec<(String, String, Vec<Anchor>)> = if b.findings.is_empty() {
@@ -879,6 +891,17 @@ pub(crate) async fn review(
             })
             .await?;
     }
+    // after the findings: a write that fails among them leaves no verdict either
+    st.store
+        .add_verdict(
+            task.id,
+            &b.reviewer,
+            b.verdict,
+            &head,
+            Some(&task.base_change),
+            None,
+        )
+        .await?;
     let status = if b.verdict == Verdict::RequestChanges {
         // The owner's lease may have run out while the task waited in review. Renewed before the
         // task reopens, so no `next` finds it open and abandoned in between and the owner has a

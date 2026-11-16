@@ -1,5 +1,6 @@
 //! The `.av-task` the daemon writes into a workspace it hands out (F14): on a start, a start
-//! from the backlog, a claim and a resume, so hooks and `av` commands in a workspace an agent got
+//! from the backlog, a claim and a resume, and into one an undo or a revert re-created (F40), so
+//! hooks and `av` commands in a workspace an agent got
 //! over MCP or HTTP find their task. Snapshots and patches leave the file out (`AGENT_IGNORES`
 //! in `margincode-vcs`). A failed write is logged and never fails the hand-out.
 //!

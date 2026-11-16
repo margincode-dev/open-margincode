@@ -1393,3 +1393,381 @@ async fn abandon_says_when_the_workspace_was_removed() {
     let abandoned = text(&tool(&e, &s, "abandon", json!({})).await);
     assert_eq!(abandoned, "task abandoned; its workspace was removed");
 }
+
+// ---- F10: a start_task the client gave up on is handed to its retry ----
+//
+// Claude Code (2.1.325, measured 2026-11-16 through a logging proxy) resets a tool call's socket
+// 60 s after it sent the call, sends `notifications/cancelled` with the request id only when its
+// MCP_TOOL_TIMEOUT is shorter than that (none at the default 60 s), and retries about 1 s after it
+// gave up with the same `Mcp-Session-Id`. In the dogfood run that found this, both retries came
+// while the ~90 s start was still running.
+
+async fn paused_env() -> (Env, std::sync::Arc<margincode_daemon::StartPackPause>) {
+    let pause = std::sync::Arc::new(margincode_daemon::StartPackPause {
+        ready: tokio::sync::Notify::new(),
+        proceed: tokio::sync::Notify::new(),
+        armed: std::sync::atomic::AtomicBool::new(false),
+    });
+    let p = pause.clone();
+    let e = env_with(move |s| s.with_extension(p)).await;
+    put_profile(&e, "claude", json!({"best": ["code"], "cost_rank": 1})).await;
+    (e, pause)
+}
+
+fn arm(pause: &margincode_daemon::StartPackPause) {
+    pause.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Lets a paused start go on; disarmed first, so a second start (a bug) does not wait forever.
+fn release(pause: &margincode_daemon::StartPackPause) {
+    pause
+        .armed
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    pause.proceed.notify_waiters();
+}
+
+/// `tools/call` of `name` under JSON-RPC id `id`, on a task of its own (so a test can cancel or
+/// drop it while it runs); the reply body.
+fn call_with_id(
+    e: &Env,
+    session: &str,
+    id: i64,
+    name: &str,
+    args: Value,
+) -> tokio::task::JoinHandle<Value> {
+    let app = e.app.clone();
+    let session = session.to_owned();
+    let msg = json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+                     "params": {"name": name, "arguments": args}});
+    tokio::spawn(async move {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", session)
+            .body(Body::from(msg.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    })
+}
+
+async fn started(e: &Env, session: &str, id: i64, args: Value) -> String {
+    text(
+        &call_with_id(e, session, id, "start_task", args)
+            .await
+            .unwrap(),
+    )
+}
+
+async fn cancel(e: &Env, session: &str, id: i64) {
+    let r = send(
+        e,
+        Some(session),
+        json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+               "params": {"requestId": id, "reason": "SdkError: Request timed out"}}),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::ACCEPTED);
+}
+
+async fn open_tasks(e: &Env) -> Vec<Value> {
+    let (status, out) = call(&e.app, "GET", "/v1/tasks?status=open", None).await;
+    assert_eq!(status, StatusCode::OK, "{out}");
+    out["tasks"].as_array().unwrap().clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_cancelled_in_flight_is_handed_to_the_retry_once_it_is_done() {
+    let (e, pause) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    arm(&pause);
+    let ready = pause.ready.notified();
+    let first = call_with_id(&e, &s, 11, "start_task", json!({}));
+    ready.await;
+    cancel(&e, &s, 11).await;
+
+    let retry = call_with_id(&e, &s, 12, "start_task", json!({}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !retry.is_finished(),
+        "the retry waits for the start in flight"
+    );
+    release(&pause);
+
+    let first = text(&first.await.unwrap());
+    let retry = retry.await.unwrap();
+    assert_eq!(retry["id"], 12);
+    assert_eq!(
+        text(&retry),
+        first,
+        "the retry gets the answer the client never read"
+    );
+    assert!(first.contains("workspace:"), "{first}");
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_cancelled_after_its_answer_was_written_is_handed_to_the_retry() {
+    let (e, _) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    let first = started(&e, &s, 21, json!({})).await;
+    cancel(&e, &s, 21).await;
+    assert_eq!(started(&e, &s, 22, json!({})).await, first);
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+/// A hand-back is tracked like a start: the probe's own retry was cancelled too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retry_that_is_cancelled_too_leaves_the_task_to_the_next_retry() {
+    let (e, pause) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    arm(&pause);
+    let ready = pause.ready.notified();
+    let first = call_with_id(&e, &s, 31, "start_task", json!({}));
+    ready.await;
+    cancel(&e, &s, 31).await;
+    let second = call_with_id(&e, &s, 32, "start_task", json!({}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    cancel(&e, &s, 32).await;
+    release(&pause);
+    let first = text(&first.await.unwrap());
+    second.await.unwrap();
+
+    assert_eq!(started(&e, &s, 33, json!({})).await, first);
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+/// A client that closes its socket drops the call, and its start stops as before: a start
+/// still waiting for work takes nothing once its client is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_start_whose_socket_closed_takes_nothing() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let first = call_with_id(&e, &s, 41, "start_task", json!({"wait": 30}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !first.is_finished(),
+        "nothing is queued, so the start waits"
+    );
+    first.abort();
+    let _ = first.await;
+
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    tokio::time::sleep(TAKE_WINDOW).await;
+    assert!(
+        open_tasks(&e).await.is_empty(),
+        "the gone call took the item"
+    );
+    let next = started(&e, &s, 42, json!({})).await;
+    assert!(next.contains("workspace:"), "{next}");
+}
+
+/// Claude Code resets a cancelled call's socket 60 s after it sent the call, while the start
+/// may still run (measured with 2.1.325): a start that a retry took over goes on for the retry.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_taken_over_by_a_retry_goes_on_when_its_socket_closes() {
+    let (e, pause) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    arm(&pause);
+    let ready = pause.ready.notified();
+    let first = call_with_id(&e, &s, 91, "start_task", json!({}));
+    ready.await;
+    cancel(&e, &s, 91).await;
+    let retry = call_with_id(&e, &s, 92, "start_task", json!({}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    first.abort();
+    let _ = first.await;
+    release(&pause);
+
+    let retry = text(&retry.await.unwrap());
+    assert!(retry.contains("workspace:"), "{retry}");
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+/// At Claude Code's default 60 s timeout the socket reset comes with the cancel, before any
+/// retry: a start that is past waiting goes on and is the retry's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_whose_socket_closed_before_any_retry_is_handed_to_the_retry() {
+    let (e, pause) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    arm(&pause);
+    let ready = pause.ready.notified();
+    let first = call_with_id(&e, &s, 95, "start_task", json!({}));
+    ready.await;
+    first.abort(); // no cancel: Claude Code sends none at its default timeout
+    let _ = first.await;
+
+    let retry = call_with_id(&e, &s, 96, "start_task", json!({}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !retry.is_finished(),
+        "the retry waits for the start in flight"
+    );
+    release(&pause);
+    let retry = text(&retry.await.unwrap());
+    assert!(retry.contains("workspace:"), "{retry}");
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+/// How long the tests below give a start that still waits to take an item posted meanwhile.
+const TAKE_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The control for the tests below: a start that waits has taken an item posted meanwhile
+/// within `TAKE_WINDOW`, by the same check they make.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_start_takes_an_item_posted_while_it_waits() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let first = call_with_id(&e, &s, 97, "start_task", json!({"wait": 30}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    tokio::time::sleep(TAKE_WINDOW).await;
+    assert_eq!(
+        open_tasks(&e).await.len(),
+        1,
+        "not taken within TAKE_WINDOW"
+    );
+    let got = first.await.unwrap();
+    assert!(text(&got).contains("workspace:"), "{got}");
+}
+
+/// A client that ends its session (`DELETE /mcp`) is gone: its waiting start takes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_start_of_a_deleted_session_takes_nothing() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let _first = call_with_id(&e, &s, 98, "start_task", json!({"wait": 30}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/mcp")
+        .header("mcp-session-id", s.as_str())
+        .body(Body::empty())
+        .unwrap();
+    let resp = e.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    tokio::time::sleep(TAKE_WINDOW).await;
+    assert!(
+        open_tasks(&e).await.is_empty(),
+        "a gone session took the item"
+    );
+}
+
+/// When the retry that holds a waiting start goes too, the start stops and takes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_start_whose_retry_closed_too_takes_nothing() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let first = call_with_id(&e, &s, 93, "start_task", json!({"wait": 30}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    cancel(&e, &s, 93).await;
+    let retry = call_with_id(&e, &s, 94, "start_task", json!({"wait": 30}));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    first.abort();
+    let _ = first.await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        !retry.is_finished(),
+        "the retry waits for the start it holds"
+    );
+    retry.abort();
+    let _ = retry.await;
+
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    tokio::time::sleep(TAKE_WINDOW).await;
+    assert!(open_tasks(&e).await.is_empty(), "a gone call took the item");
+}
+
+/// A start is handed back only to a retry with the same repo: another repo (or none) asks for
+/// other work.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_start_is_handed_only_to_a_retry_with_the_same_repo() {
+    let (e, _) = paused_env().await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let s = connect(&e, "claude").await;
+    let first = started(&e, &s, 81, json!({"repo": "demo"})).await;
+    assert!(first.contains("workspace:"), "{first}");
+    cancel(&e, &s, 81).await;
+    assert_ne!(started(&e, &s, 82, json!({})).await, first);
+    assert_eq!(started(&e, &s, 83, json!({"repo": "demo"})).await, first);
+    assert_eq!(open_tasks(&e).await.len(), 1);
+}
+
+/// A start the client read is never handed back: the session's next start is other work, and
+/// two calls at once (subagents share their parent's session) get a task each.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delivered_start_is_not_handed_back() {
+    let (e, _) = paused_env().await;
+    for title in ["louder hello", "quieter hello", "plain hello", "warm hello"] {
+        post_backlog(&e, title, &["code"], 0).await;
+    }
+    let s = connect(&e, "claude").await;
+    let one = started(&e, &s, 51, json!({})).await;
+    let two = started(&e, &s, 52, json!({})).await;
+    assert_ne!(one, two);
+    let (a, b) = (
+        call_with_id(&e, &s, 53, "start_task", json!({})),
+        call_with_id(&e, &s, 54, "start_task", json!({})),
+    );
+    let (a, b) = (text(&a.await.unwrap()), text(&b.await.unwrap()));
+    assert!(
+        a.contains("workspace:") && b.contains("workspace:"),
+        "{a}\n{b}"
+    );
+    assert_ne!(a, b);
+    assert_eq!(open_tasks(&e).await.len(), 4);
+}
+
+/// An explicit start is handed back only to a retry that asks for the same task, so a retry
+/// makes no `slug-2`; another title is a new task.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_explicit_start_is_handed_only_to_the_same_ask() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let ask = json!({"repo": "demo", "title": "Louder hello", "goal": "Make hello louder"});
+    let first = started(&e, &s, 61, ask.clone()).await;
+    cancel(&e, &s, 61).await;
+    let other = json!({"repo": "demo", "title": "Quieter hello", "goal": "Make hello quieter"});
+    assert_ne!(started(&e, &s, 62, other).await, first);
+    assert_eq!(started(&e, &s, 63, ask).await, first);
+    let slugs: Vec<String> = open_tasks(&e)
+        .await
+        .iter()
+        .map(|t| t["slug"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(slugs.len(), 2, "{slugs:?}");
+    assert!(!slugs.iter().any(|s| s.ends_with("-2")), "{slugs:?}");
+}
+
+/// Only an answer that gave a task is handed back, and only while that task is still open under
+/// the same generation.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_start_that_gave_a_task_still_open_is_handed_back() {
+    let (e, _) = paused_env().await;
+    let s = connect(&e, "claude").await;
+    let none = started(&e, &s, 71, json!({})).await;
+    assert!(none.starts_with("No task is waiting"), "{none}");
+    cancel(&e, &s, 71).await;
+    post_backlog(&e, "louder hello", &["code"], 0).await;
+    let got = started(&e, &s, 72, json!({})).await;
+    assert!(got.contains("workspace:"), "{got}");
+
+    cancel(&e, &s, 72).await;
+    let task = open_tasks(&e).await[0]["id"].as_str().unwrap().to_owned();
+    op(&e, &task, "abandon", json!({"agent": "claude"})).await;
+    let after = started(&e, &s, 73, json!({})).await;
+    assert!(after.starts_with("No task is waiting"), "{after}");
+}

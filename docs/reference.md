@@ -1307,6 +1307,17 @@ opens with a warning naming the culprit merge.
   remembers the task it started or claimed (and the claim generation its writes carry); the agent name is the
   client's name, or an `X-Av-Agent` header. Checked with Claude Code 2.1.308: `claude mcp list` shows `av`
   connected against a locally started daemon.
+  A `start_task` the client gave up on is not lost. A first pack can take longer than the client's
+  tool timeout (`MCP_TOOL_TIMEOUT`, 60 s by default). Claude Code (2.1.325) then gives up on the
+  call: it resets the call's socket 60 s after it sent it, sends `notifications/cancelled` only
+  when its timeout is shorter than that (none at the default), and calls `start_task` again about
+  1 s later in the same MCP session. The start goes on, and that retry is answered with its answer
+  (waiting for it when it still runs) instead of being handed another task. Only a start still
+  waiting for work stops, and takes nothing, when its call's socket closed with no retry holding
+  it or when its session ended (`DELETE /mcp`). Only a retry that asks the same (the same repo,
+  title and goal, each possibly absent) is handed it, and only while the task it gave is still the
+  agent's under the same claim. A retry in another session, or after a daemon restart, does not
+  find it: the task waits for its lease to run out, as before.
 - **Claude Code**: `integrations/claude-code/install.sh` (needs `jq`) copies three hooks to `~/.claude/av-hooks/` and
   merges them into `~/.claude/settings.json` (previous file kept as `settings.json.bak`; running it again replaces
   them). `SessionStart` prints an 800-token pack for the task of the session's directory (a fresh pack session at

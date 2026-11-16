@@ -2968,6 +2968,111 @@ fn hook_stop_picks_up_work_that_arrives_during_the_wait() {
     assert!(v["reason"].as_str().unwrap().contains("Late job"), "{v}");
 }
 
+/// F39: the Stop hook reads `.av-task` when it starts and writes its count back after the wait.
+/// A claim made while it waits rewrites the file under the new generation; the hook's write must
+/// not put the previous owner's generation back, or the new owner is refused as "claim lost".
+#[test]
+fn a_stop_hook_that_waited_through_a_claim_leaves_the_new_owners_task_file() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout in hello",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    ok(av(
+        &d,
+        &ws,
+        &["handoff", "--done", "half", "--remaining", "rest"],
+    ));
+    let task = task_id_of(&ws);
+    let url = d.url.clone();
+    let scratch_path = scratch.path().to_path_buf();
+    let claimant = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let claimed = Command::new(env!("CARGO_BIN_EXE_av"))
+            .current_dir(&scratch_path)
+            .env("AV_URL", &url)
+            .env("AV_AGENT", "codex")
+            .args(["claim", &task])
+            .output()
+            .unwrap();
+        let claimed = ok(claimed);
+        assert!(claimed.contains("generation: 2"), "{claimed}");
+        // the hook writes its count only when it finds work
+        ok(av_with(
+            &url,
+            &scratch_path,
+            &[
+                "post", "--repo", "demo", "--title", "Late job", "--goal", "g",
+            ],
+        ));
+    });
+    let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "20")], "cc-1", false);
+    claimant.join().unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["generation"], 2, "the claim's file was undone: {file}");
+    assert_eq!(file["agent"], "codex", "{file}");
+    // a continue it could not count would give the session a fresh budget under the new file
+    assert!(
+        String::from_utf8_lossy(&o.stdout).trim().is_empty(),
+        "a hook that lost its claim kept the session busy: {}",
+        String::from_utf8_lossy(&o.stdout)
+    );
+    ok(av_as(&d, &ws, "codex", &["checkpoint"]));
+}
+
+/// The cap is checked again on the file as it is after the wait: another Stop of the same session
+/// may have counted the last continue meanwhile.
+#[test]
+fn a_stop_hook_checks_the_cap_again_after_its_wait() {
+    let (d, ws, scratch) = started();
+    let url = d.url.clone();
+    let scratch_path = scratch.path().to_path_buf();
+    let file_path = ws.join(".av-task");
+    let other_stop = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let mut file: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file_path).unwrap()).unwrap();
+        file["continue_session"] = "cc-1".into();
+        file["continues"] = 2.into();
+        std::fs::write(&file_path, file.to_string()).unwrap();
+        ok(av_with(
+            &url,
+            &scratch_path,
+            &[
+                "post", "--repo", "demo", "--title", "Late job", "--goal", "g",
+            ],
+        ));
+    });
+    let o = stop_with(
+        &d,
+        &ws,
+        &[("AV_HOOK_WAIT_SECS", "20"), ("AV_HOOK_MAX_CONTINUES", "2")],
+        "cc-1",
+        false,
+    );
+    other_stop.join().unwrap();
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(
+        String::from_utf8_lossy(&o.stdout).trim().is_empty(),
+        "the hook continued past the cap: {}",
+        String::from_utf8_lossy(&o.stdout)
+    );
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["continues"], 2, "{file}");
+}
+
 #[test]
 fn hook_stop_wait_of_zero_turns_the_feature_off() {
     let (d, ws, scratch) = started();

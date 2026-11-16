@@ -429,6 +429,11 @@ struct NextBody {
     /// `merge`, a worker that never reviews for `work`, and is then not offered others' reviews.
     #[serde(default)]
     take: Vec<Take>,
+    /// Not offered its own tasks that review sent back (`changes_requested`): for a caller that
+    /// takes those up itself, such as a runner that counts review rounds and escalates, which
+    /// would otherwise be handed back a task it escalated, ahead of its other work.
+    #[serde(default)]
+    skip_returned: bool,
 }
 
 /// The kinds of thing `next` gives.
@@ -439,7 +444,8 @@ pub(crate) enum Take {
     Review,
     /// Another agent's task approved at its head, to merge.
     Merge,
-    /// A backlog item, a handed-off task, an abandoned or a conflicted task.
+    /// A backlog item, a handed-off task, the caller's own task sent back, an abandoned or a
+    /// conflicted task.
     Work,
 }
 
@@ -876,6 +882,9 @@ async fn next(State(st): State<AppState>, Json(b): Json<NextBody>) -> ApiResult<
         let (mut choices, queued) = choose(&st, &agent, b.repo.as_deref(), &profiles).await?;
         if !b.take.is_empty() {
             choices.retain(|c| b.take.contains(&c.kind()));
+        }
+        if b.skip_returned {
+            choices.retain(|c| !matches!(c, Choice::Returned(_)));
         }
         let (choices, full) = within_limit(&st, &agent, &profiles, choices).await?;
         let nothing = |key: &str| {

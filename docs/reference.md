@@ -798,7 +798,10 @@ next `av next` (or `start_task` with no arguments) after the reviews of others' 
 `from: changes_requested`, with the findings and a line on what to do. It stops being offered
 once the owner moves its head (a session is already fixing it). If the owner then goes quiet, the
 task is offered after the lease, as an abandoned one, to anyone but the reviewer. So `av watch`
-brings a headless agent back to its own findings.
+brings a headless agent back to its own findings. A caller that takes up its sent-back tasks
+itself (the Commercial runner counts review rounds and escalates) sends `skip_returned: true` to
+`POST /v1/backlog/next` and is not offered them, before or after the lease, so that caller is
+never handed back a task it escalated (another agent may still take it once the lease ran out).
 
 Each agent CLI is treated as an engineering team: Margincode gives it work, has another team review
 it and keeps the shared memory, while the CLI splits the work among its own subagents. Those

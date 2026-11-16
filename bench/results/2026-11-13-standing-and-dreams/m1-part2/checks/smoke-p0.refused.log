@@ -1,0 +1,6 @@
+margincode-bench: --agent-user benchagent: refusing to run.
+As user benchagent (uid 999) a session could:
+  enter /m1/bench-work/ws-p0/bfp11e66-relay-bus-resubscribe-av-1 (workspaces the daemon kept)
+  enter /m1/bench-work/ws-p0/bfp11e66-relay-quote-split-av-1 (workspaces the daemon kept)
+  enter /m1/bench-work/ws-p0/bfp11e66-relay-tax-with-rate-av-1 (workspaces the daemon kept)
+Close each of them to that user. For a directory only the harness needs, `chmod 700` on it (or on the top of a mounted bench tree) is enough: root still reads it. The daemon's workspace root needs `chmod 711`.

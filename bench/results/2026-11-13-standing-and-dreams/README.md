@@ -1,5 +1,7 @@
 # M1 Part 1, the free replay: results, 2026-11-13
 
+(M1 Part 2, the paid run, is at the end of this file: "M1 Part 2, paid: results, 2026-11-16".)
+
 No agent ran, no model was called, nothing was spent. The registration is `PREREG.md` in this
 directory; its "Build" section (Part 1) was committed in `597be88` before the first `first-packs`
 command. Binaries built from `850359b` (tree `e7fcaa3`).
@@ -295,3 +297,126 @@ What the rule implies, not a measured result (nothing was re-run): an `--until-e
 stage A's would be handed every record of the pool, at any `--limit` (given enough
 `--max-runs`), instead of 55 to 57 of 61, since a run that judges none of what it was handed no
 longer gets the same records again while others wait.
+
+## M1 Part 2, paid: results, 2026-11-16
+
+**Not shown at this size.** On Claude Haiku 5.5, with each task's wrong note seeded as the record
+of a task whose merge was reverted, `av` with Phases 0 and 1 (build P1, `84bb472`) was accepted
+**30 of 30** (Wilson 0.886 to 1.000), and `av` with Phase 0 alone (build P0, `90ba62e`) was also
+**30 of 30** (0.886 to 1.000). The intervals overlap, so by the registered rule nothing is
+claimed. Phase 1 is not shown to help or to hurt on these tasks. 60 sessions cost $0.3605, and
+with the smokes $0.3766.
+
+This is the outcome the prediction committed with Build expected. Build P0 already solved every
+task, so a gain from Phase 1 could not show. At 30 sessions an arm can only be shown to hurt.
+
+The registration is `PREREG.md`, "Part 2". Its Build subsection ("Part 2 (M1, paid)") was
+committed in two parts before the first paid session: `d980fd9` with the builds, the stack, the
+commands, the rules and the free checks' conditions, and `e0ba268` with the free checks'
+results. The smokes are in `bbdfd07`. The leak and hidden-test checks and the store export are in
+`77a5b90`, committed before any accepted count was read. The files are in `m1-part2/`. No claim
+is made beyond these three tasks, this model and tallyho.
+
+### Results (`m1-part2/checks/analyze.txt`, `analyze.py` as committed)
+
+| arm | build | valid | accepted | 95 % Wilson | cost | median session |
+|---|---|---|---|---|---|---|
+| `av-p0` (Phase 0) | P0, `90ba62e` | 30 | 30 | 0.886 to 1.000 | $0.1788 | $0.0060 |
+| `av-p01` (Phases 0 and 1) | P1, `84bb472` | 30 | 30 | 0.886 to 1.000 | $0.1817 | $0.0059 |
+
+Each task, in each arm, was accepted 10 of 10 (`relay-quote-split`, `relay-bus-resubscribe`,
+`relay-tax-with-rate`). Every row is `status=ok`, and no session was skipped for budget.
+
+Described beside the rule, not used for it:
+
+- **Delivery of the task's wrong note.** In P1, the session-start hook showed it in 30 of 30
+  sessions and labelled it `reverted` in all 30. It was whole (`summary` tier) in only 10, all
+  of them `relay-tax-with-rate`. On `relay-quote-split` and `relay-bus-resubscribe` it was cut to
+  the `handle` tier, as in the replay. A pre-read answer carried it whole in 18 P1 sessions. In
+  P0 the hook showed it whole in 29 of 30, with no origin, and a pre-read answer carried it whole
+  in 1. The one P0 session without it, `relay-tax-with-rate` rep 3, got a session-start pack with
+  the map and code but no records at all. Its pre-read answer for `tallyho/pricing/tax.py` then
+  carried the note whole, and the session was accepted. Phase 0's line was in the hook of the 29
+  P0 sessions whose pack had records, and of all 30 P1 sessions.
+- **Superseded records, read from the store** (`m1-p0/superseded.jsonl`, `m1-p1/superseded.jsonl`).
+  In P0, 11 sessions wrote a record that supersedes their task's wrong note: 8 on
+  `relay-tax-with-rate` and 3 on `relay-quote-split`. One of those quote-split sessions also
+  superseded another task's wrong note (line-taxes'), and no session superseded a true note. In
+  P1 no session superseded anything (0 of 30). All 60 sessions were accepted, whether or not they
+  corrected the note. With the note demoted and labelled `reverted`, the P1 agents left it alone
+  rather than correcting it.
+- **The wrong edit** (`repeated_dead_ends` ≥ 1). 1 session matched it, P1 `relay-bus-resubscribe`
+  rep 7, and it was still accepted, since its final file passed the hidden test. P0 had 0.
+- **Last edits** (`checks/content.txt`). No session failed, so the table is empty.
+- **Cost.** P1 cost 1.6 % more than P0 ($0.1817 against $0.1788), and $0.0061 against $0.0060 per
+  accepted task. The largest single request's prompt was 32,011 tokens, under the 100K price
+  threshold. The harness figure at list prices matches Claude Code's own `total_cost_usd` to
+  the cent in every directory.
+
+Set beside M0 as a description, not a comparison (another run, without `--wrong-reverted`): M0's
+`av-phase0` (the same binaries as P0) was 30 of 30 on these tasks, and P0 here is 30 of 30 too.
+Seeding the wrong notes as reverted work did not cost build P0 anything.
+
+**The leak check** (`m1-part2/checks/leak.txt`, `exposed.json`) found 0 exposed sessions of 60
+and no flagged call. Outside a session's own directories, the agents named `/` (counted as
+"looked around": 16 P0 sessions, 11 P1), their own build's `av` directory (listed, not exposing),
+`/dev/null`, a `/tmp` file in one P1 session, and pieces of code that the path pattern picks up
+(`/from`, `/n`, `/3`, `/d`, `/import`). The hidden-test scan
+(`checks/content-hidden.txt`) found 0 hits in 60 sessions. The tables without exposed sessions
+are therefore the same.
+
+### What ran
+
+| command | sessions | rows | harness figure | time (UTC) |
+|---|---|---|---|---|
+| 0. smoke, build P0 (`smoke-p0/`) | 1 | 1 `ok` | $0.0075 | 01:49 to 01:50 |
+| 0. smoke, build P1 (`smoke-p1/`) | 1 | 1 `ok` | $0.0086 | 01:50 to 01:51 |
+| 1. `av-p0`, build P0 (`m1-p0/`) | 30 | 30 `ok` | $0.1788 | 01:51 to 02:10 |
+| 2. `av-p01`, build P1 (`m1-p1/`) | 30 | 30 `ok` | $0.1817 | 02:10 to 02:28 |
+| **total** | **62** | | **$0.3766** | |
+
+Commands 1 and 2 ran back to back from `m1chain.sh`, with nothing between them. **The smokes
+pass** (`checks/smoke-check.txt`, `smoke_check.py`). Every row is `ok` and valid, and the model
+answered and made 4 and 5 edits. Verify ran, and `hook-count` shows session-start, pre-read,
+post-edit and stop. `meta.json` names `benchagent`, Claude Code 2.1.318 and
+`models: ["claude-haiku-5-5"]`, and every assistant message is from `claude-haiku-5-5`. The
+largest prompt was 33,887 tokens, and the dearer smoke cost $0.0086, under $0.04. The store
+export (`export.sh`) ran once after command 2: P0 has 12 superseding records and 45 records by the
+sessions' agents, and P1 has 0 and 37.
+
+### Deviations
+
+- **One harness for both arms.** Neither build's own harness has `--wrong-reverted`, which came
+  after the rename, so both arms ran `main`'s harness (`7dd5208`) against their own daemon and
+  `av`. This was declared in Build before any check. The replay showed that the harness's seeding
+  works on both daemons.
+- **The first P1 build was not P1.** The first `cargo build` of `84bb472` reused a cache copied
+  from M0's build A target directory. The archive's source files carry the commit's older
+  timestamps, so cargo kept build A's `scholion-*` binaries (`av` had build A's size). This was
+  seen from the timestamps before any check ran. The binaries were thrown away and rebuilt from
+  an empty target directory, and the hashes under Build are that clean build. Nothing ran on the
+  first one.
+- **Free check 1 ran before its conditions were committed.** These are M0's task-set checks, with
+  M0's conditions. `tasks-m0/check_set.py` was run on `/m1/srcH`, the archive before the model
+  lines changed. On the run tree its byte-for-byte checks against `tasks-relay-silent` and
+  `tasks-relay-wrong` fail by design (`checks/check-m0.txt` holds the passing run).
+- **The preflight refused both smokes once** (`checks/smoke-p0.refused.log`, `smoke-p1.refused.log`),
+  before any session. The replay had left its agent-task workspaces under `ws-p0` and `ws-p1`
+  open. They were closed (mode 700), and the same commands ran again. This is the same thing that
+  happened in M0.
+- **The databases are not empty of everything but the run.** They hold the replays' repositories
+  (`fp<pid>-…`). Every session imports and seeds a repository of its own, as in M0.
+- **The branch** started from `306bf0b` (`bench-m0-run`, PR #15) while #15 was open. #15 was
+  merged during the run without changing that commit, so the branch is off `main`'s history.
+
+### Files
+
+- `PREREG.md`, "Part 2 (M1, paid)": the Build. `m1-part2/`: `analyze.py`, `leak.py`, `content.py`,
+  `replay_check.py`, `smoke_check.py`, `export.sh`, `m1cmd.sh` and `m1chain.sh`. The first three
+  and the two run scripts were committed with the Build.
+- `m1-part2/first-packs-p0/`, `first-packs-p1/`: the free replay. `smoke-p0/`, `smoke-p1/`,
+  `m1-p0/` and `m1-p1/` are what the harness wrote, with the store exports in the last two.
+- `m1-part2/checks/`: the free checks, the harness logs, `leak.txt`, `content-hidden.txt`,
+  `content.txt` and `analyze.txt`.
+- Transcripts are not committed. They stay in `lp-harness` under `/m1/bench-work/runs`, closed to
+  the agent user.

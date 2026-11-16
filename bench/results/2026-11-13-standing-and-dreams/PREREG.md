@@ -228,3 +228,197 @@ prices.
   meet the bars; an aborted pass is run again from the same start; before each pass the money
   left must be at least 1.5 times the dearest pass so far.
 
+### Part 2 (M1, paid), filled in 2026-11-16 before its first paid session
+
+This subsection is written in two commits, both before the first paid session (the smokes): the
+first names the builds, the stack, the commands, the rules and the free checks' pass conditions,
+before any free check ran; the second adds the free checks' results. Nothing above this
+subsection is changed. The scripts are in `m1-part2/`.
+
+- **Model and stack: M0's, as "Model and stack" above asks.** M0 ran on Claude Haiku 5.5
+  (`../2026-11-14-m0/AMENDMENT-1-haiku.md`, which says M1 Part 2 copies it), so Part 2 does:
+  `claude-haiku-5-5` on Anthropic's first-party API, `ANTHROPIC_BASE_URL` unset, the key passed
+  into the container by name at `docker exec` and given to Claude Code as `ANTHROPIC_API_KEY`
+  (never written down), `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL` and
+  `CLAUDE_CODE_SUBAGENT_MODEL` set to `claude-haiku-5-5`; Claude Code 2.1.318; prices
+  `--price-per-mtok 0.10,0.125,0.01,0.50` (Haiku 5.5's list prices for prompts up to 100K
+  tokens); `--agent-user benchagent`, `--jit-hooks`, no MCP, no `--keep-work`, no noise, run seed
+  1, `--session-cap-usd 0.08`. The tasks are `bench/tasks-m0` on `notes-silent.toml`, with
+  `--wrong-reverted` in both arms: the pool's eight `no_commit` notes (each task's own wrong note
+  among them) are the records of an earlier task whose merge was reverted; the five true notes
+  stay the records of an open earlier task.
+- **The run tree.** `/m1/tree-h`: a `git archive` of `main` at `7dd5208` (tree `012def99…`, as
+  M0's) made by M0's `haiku-tree.sh`, so it differs from the archive only in the `model` line of
+  the 13 task files under `bench/tasks-m0/` and `bench/tasks-relay/`. Its task, pool and tallyho
+  files are byte for byte M0's `/m0/tree-h` (`diff -r` shows only files M0 added later under
+  `bench/results/` and `__pycache__`).
+- **Build P0, `av` with Phase 0:** commit `90ba62e` (tree `391e83cd…`), M0's build B: its
+  binaries, copied from `/m0/B/bin` to `/m1/P0/bin`:
+  - `av` `021ad167c462d568d5c0d0c4e0fe8842ceb80fddb1f543dc56d179f3166ac956`
+  - `scholion` `f52b8b0182e11a94cd4f62b80b1e6ac5e30120d69264cf544757f7cf0f68f90b`
+  - `scholion-daemon` `461f0e6632b91af3a20b20e9a023256c0152ee8205089207d49f9056b9bf2d47`
+- **Build P1, `av` with Phases 0 and 1:** commit `84bb472` (tree
+  `61195c99e62937375026e98122c5d290362f0645`), whose parent is `90ba62e`: the two builds differ by
+  Phase 1 (standing) and nothing else. From a `git archive` in `/m1/srcP1`, `cargo build
+  --release --locked -j 12 -p scholion-cli -p scholion-daemon -p scholion-bench` in the harness
+  container from an empty `CARGO_TARGET_DIR=/target/m1p1`, copied to `/m1/P1/bin`:
+  - `av` `eeb89199ad606604e4fa862a0d5b0de6f6cd7e03e3c85b46ccff108cb4213d27`
+  - `scholion` `c065b0206f5321d58b15f0c89bcf4fd3d48c73bcaf43a3b05b9f2010359efe2f`
+  - `scholion-daemon` `021c9633835d3d4b67794fb3fc247a943cb10fd3bdd85f32c4267319d694219e`
+
+  Main's Phase 2 (`3f9e159`, verdicts) and everything after it are left out: they would change
+  the arm beyond Phase 1.
+- **One harness for both arms: `main` at `7dd5208`.** Neither build's harness has
+  `--wrong-reverted` (it came in `850359b`, after the rename). The harness of `7dd5208` seeds the
+  reverted task through routes both daemons have (`submit`, `validate`, `review`, `merge`,
+  `revert`). Between `90ba62e` and `7dd5208` the harness's runner changes the seeding,
+  `--dreamed` and names, not what a session is given or how it is run or verified. Built from
+  `/m1/srcH` (a `git archive` of `7dd5208`), `cargo build --release --locked -j 8 -p
+  margincode-bench`, `CARGO_TARGET_DIR=/target/m1h`, copied to `/m1/H/bin` (mode 700, root
+  only): `margincode-bench` `bb261833202ebcee98f8ae3e734738b597be9fb18e545358f1c4d1b9f18ad188`.
+- **Container and services**: `lp-harness` (`rust:1.97.1`), M0's container, in a new root `/m1`,
+  on the network `lp-bench` with Postgres 16 (`lp-pg`), Qdrant 1.13.6 (`lp-qdrant`) and TEI
+  cpu-1.7.2 (`lp-tei`) serving `BAAI/bge-small-en-v1.5`. M0's daemons were stopped first.
+- **Daemons**: build P0's on `127.0.0.1:7481` (new database `m1p0`, store `/m1/P0/store`,
+  workspace root `/m1/bench-work/ws-p0`); build P1's on `127.0.0.1:7482` (new database `m1p1`,
+  store `/m1/P1/store`, workspace root `/m1/bench-work/ws-p1`). Both with
+  `AV_QDRANT_URL=http://lp-qdrant:6334` and `AV_EMBED_URL=http://lp-tei:80`.
+- **Options**: `HOME=/m1`; `--work-root /m1/bench-work --import-dir /m1/bench-work/src
+  --import-mount /m1/bench-work/src`; `--agent-user benchagent --av-ws-root` with the command's
+  daemon's workspace root; `--av-bin` the build's `av`. Task repository
+  `bench/tallyho/make-repo.sh` into `/m1/bench-repos/tallyho` (`main` tree `c0ea5267…`, the same
+  tree as M0's); venv `/m1/bench-work/venv`, Python 3.13.5 with M0's packages (pytest 9.2.0,
+  pluggy 1.7.0, iniconfig 2.3.1, packaging 26.3, Pygments 2.21.0). `m1-part2/m1cmd.sh` runs one
+  command with these options; `m1-part2/m1chain.sh` runs commands 1 and 2.
+
+**Commands** (`m1cmd.sh P0|P1 <args>`, which adds the options above and `--confirm`; results to
+`/m1/results/<out>`, copied to `m1-part2/<out>` afterwards as the harness wrote them):
+
+```bash
+# 0. smokes, one per build: does an isolated session run at all? (not a result)
+m1cmd.sh P0 bench/tasks-relay/order-ids.toml --arms av --jit-hooks --reps 1 --wrong-reverted \
+  --session-cap-usd 0.08 --budget-usd 0.10 --out /m1/results/smoke-p0
+m1cmd.sh P1 bench/tasks-relay/order-ids.toml --arms av --jit-hooks --reps 1 --wrong-reverted \
+  --session-cap-usd 0.08 --budget-usd 0.10 --out /m1/results/smoke-p1
+# 1. av with Phase 0, then 2. av with Phases 0 and 1, back to back (m1chain.sh)
+m1cmd.sh P0 bench/tasks-m0 --arms av --jit-hooks --reps 10 --wrong-reverted \
+  --session-cap-usd 0.08 --budget-usd 0.70 --out /m1/results/m1-p0
+m1cmd.sh P1 bench/tasks-m0 --arms av --jit-hooks --reps 10 --wrong-reverted \
+  --session-cap-usd 0.08 --budget-usd 0.70 --out /m1/results/m1-p1
+```
+
+`relay-order-ids`'s pool has no `no_commit` note, so `--wrong-reverted` changes nothing in the
+smokes; it is passed so the smoke command is the measured one. **The smokes pass** under M0's
+conditions and its amendment's: every row `status=ok` and valid; the model answered and made at
+least one edit; verify ran; `hook-count` not empty; `meta.json` names `benchagent`, Claude Code
+2.1.318 and `models: ["claude-haiku-5-5"]`; no single request with a prompt above 100K tokens;
+no session above $0.04. If one fails, the cause is fixed and it runs again in a new directory
+(`smoke-p0-2`, …); if the prompt or cost condition fails, the run stops and the owner is asked.
+
+**The store export**, after command 2, from each daemon's database, M0's two queries
+(`../2026-11-14-m0/PREREG.md`), written to `m1-p0/` and `m1-p1/`: `superseded.jsonl`, and
+`records.jsonl` with `r.author_agent NOT IN ('agent-a', 'agent-r', 'bench-merger')` (`agent-r`
+is the reverted task's author and `bench-merger` its merge and revert, `runner.rs` of the
+harness).
+
+**Decision rule** (the plan's, as M0 wrote it out; `m1-part2/analyze.py`). Primary: accepted /
+valid sessions, `av-p01` (build P1) against `av-p0` (build P0), pooled over the three tasks, each
+with its 95 % Wilson interval. No claim unless both arms have 30 valid sessions, 10 per task.
+**Phase 1 helps** if `av-p01`'s lower end is above `av-p0`'s upper end; **Phase 1 hurts** if
+`av-p01`'s upper end is below `av-p0`'s lower end; otherwise **not shown at this size**, and the
+words "equal" and "no effect" are not used. Per task, delivery of the wrong note (in the
+session-start hook at any tier, whole, labelled `reverted`, whole in a pre-read answer), the
+wrong edit, superseded records and cost are described beside it, not used for the decision.
+`analyze.py` reads every row of both arms into the decision with no filter between the tables
+and the rule. Tested before the run on M0's `av-before` and `av-phase0` rows relabelled as
+`m1-p0` and `m1-p1`: it reproduces M0's tables (11/30 and 30/30, 18 wrong edits, 15 supersedes
+of the task's wrong note and 1 of a true note), and with an arm cut to 20 rows it prints "No
+claim".
+
+**A prediction, for the record.** In M0, `av-phase0` (build P0, without `--wrong-reverted`) was
+accepted 30 of 30 on these tasks. If build P0 stays near that with the wrong notes seeded as
+reverted work, `av-p01` cannot be shown to help at this size (30 of 30 is the most it can get,
+and its lower end, 0.886, is not above a P0 upper end of 1.000); only "hurts" or "not shown" can
+come out.
+
+**Leak check, before the result is read.** `m1-part2/leak.py` (M0's, with this run's
+directories) and part 1 of `m1-part2/content.py` (`--hidden-only`, which reads no row) are run
+on every transcript and committed before `rows.jsonl` is read for accepted counts. The primary is
+computed on all valid sessions; exposed sessions are listed and the tables given again without
+them.
+
+**Stopping rules, validity and spend.** `--session-cap-usd 0.08`; `max_turns` 30; the budgets
+above (an arm that runs out is partial, never extrapolated, and the primary is then not
+assessed). A session the harness marks `invalid` stays and is not retried; a command that stops
+with an error (no row written) is fixed and rerun (a rerun resumes). No row is edited, dropped
+or run again by hand. The key's month cap is the owner's ($100 a calendar month, tracked outside
+this repository): a command starts only if this month's spend plus its budget stays under it.
+Commands 1 and 2 run back to back, with nothing between them.
+
+**Confounds named in advance.** The two arms differ by Phase 1 and by their daemon's fresh
+store, and run one after the other, not interleaved. The harness is newer than both builds (one
+harness for both, so it is not a difference between them). The merge and revert of the earlier
+task are in the repository's history in both arms, and the revert's own note (`merge … reverted
+by bench-merger`) is a record in both; only build P1 ranks and labels by them. One model, one
+wording of each note, ten repetitions per task.
+
+**Free checks** (no model), with their pass conditions, fixed before any of them ran:
+
+1. Task set: `bench/tasks-relay/reference/check.py`, `bench/tasks-relay-silent/check_set.py`
+   and `bench/tasks-m0/check_set.py` with `/m1/bench-repos/tallyho` and the venv: all ok.
+2. Specs: `margincode-bench check bench/tasks-m0 bench/tasks-relay` in the run tree: all ok.
+3. Replay, one per build, fresh state each: `margincode-bench first-packs bench/tasks-m0
+   --wrong-reverted --jit-hooks --av-bin /m1/<b>/bin/av --out /m1/results/first-packs-<b>
+   <options>`, against that build's daemon. It passes if both exit 0 (every task's reverted task
+   merged and reverted, and the agent's task started on the base tree) and, for each of the
+   three tasks: on build P0, the task's wrong note is in the session-start pack with its `rec:`
+   handle and not labelled with an origin, and Phase 0's line is under "Decisions & dead ends";
+   on build P1, Phase 0's line is there, and every line that shows one of the eight seeded wrong
+   notes is labelled `reverted`. Where build P1 puts each task's wrong note (`summary`, `handle`
+   or absent in the hook pack; whole in a pre-read answer or not) is reported, not a condition:
+   moving it down is what Phase 1 does. If a condition fails, no paid session starts and the
+   replay is reported as it is.
+4. One `av` per command: as `benchagent` with each command's `PATH`, `av` is that build's (sha256)
+   and `av record --help` names `--supersedes`; the other build's `av` cannot be run.
+5. Isolation and fresh state: `/m1` 711; the run tree, both sources, the harness's directory, the
+   repositories, both stores, `/m1/results` and `/m1/checks` 700; `/m1/bench-work`, its `runs`,
+   `ws-p0` and `ws-p1` 711; `/m0`, `/b2`, `/bench`, `/root` and `/src` 700; `/tmp` emptied before
+   each command; new databases, stores and workspace roots for both daemons.
+
+**Free check results**, all before the first paid session (files in `m1-part2/checks/` and
+`m1-part2/first-packs-p0/`, `first-packs-p1/`):
+
+1. Task set: `reference/check.py` "all 13 pairs ok (3 of them silent)"; `tasks-relay-silent/check_set.py`
+   "silent set ok"; `tasks-m0/check_set.py` "M0 set ok", all three tasks silent. The last was
+   run on `/m1/srcH` (the archive before the model lines changed), as M0 ran it on its `/m0/tree`:
+   on the run tree its byte-for-byte checks against `tasks-relay-silent` and `tasks-relay-wrong`
+   fail by design, since only `tasks-m0` and `tasks-relay` have the Haiku model line. This check
+   ran before the conditions above were committed; they are M0's conditions, unchanged.
+2. Specs: 13 of 13 `ok`.
+3. Replay: **passes** (`checks/replay-check.txt`, `replay_check.py`). Both commands exited 0.
+
+   | build | task | task's wrong note in the hook pack | its label | seeded wrong-note lines, of them `reverted` | Phase 0's line |
+   |---|---|---|---|---|---|
+   | P0 | `relay-quote-split` | `summary` | none | 6, 0 | yes |
+   | P0 | `relay-bus-resubscribe` | `summary` | none | 5, 0 | yes |
+   | P0 | `relay-tax-with-rate` | `summary` | none | 8, 0 | yes |
+   | P1 | `relay-quote-split` | `handle` | `reverted` | 3, 3 | yes |
+   | P1 | `relay-bus-resubscribe` | `handle` | `reverted` | 2, 2 | yes |
+   | P1 | `relay-tax-with-rate` | `summary` | `reverted` | 4, 4 | yes |
+
+   Reported, not conditions: on build P1 Phase 1 moves two of the three tasks' own wrong notes
+   to the `handle` tier (cut to about 70 characters), and `relay-tax-with-rate`'s stays at
+   `summary`. P1's hook pack shows fewer of the eight seeded wrong notes (3, 2, 4 lines against
+   6, 5, 8). The pre-read answer for the task's file (`first-packs.md`, last column) carries the
+   wrong note only for `relay-bus-resubscribe` on P1 ("tallyho/events.py: yes"). In the pack at
+   task start, `relay-tax-with-rate`'s note is absent on both builds, as in M0's replay. The
+   revert's own note ("merge … reverted by bench-merger …") is a record in the hook pack of both
+   builds, labelled `open` on P1.
+4. One `av` per command (`checks/isolation.txt`): as `benchagent`, P0's command finds
+   `/m1/P0/bin/av` (`021ad167…`) and P1's `/m1/P1/bin/av` (`eeb89199…`); `av record --help`
+   names `--supersedes` on both; the other build's `av` is refused on each; `/m1/H`,
+   `/m1/results`, `/m1/tree-h`, `/m0`, `/bench` and `/b2` are refused.
+5. Isolation: the modes above hold (`checks/isolation.txt`). The replays' repositories
+   (`fp<pid>-…`) stay in both databases and their workspaces under `ws-p0` and `ws-p1`; every
+   session imports and seeds a repository of its own (`b<run id>-<task>-av-<rep>`), as in M0.
+

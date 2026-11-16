@@ -1,8 +1,0 @@
-scholion-bench: --agent-user benchagent: refusing to run.
-As user benchagent (uid 999) a session could:
-  enter /m0/bench-work/runs/smokea (an earlier run's sessions)
-Close each of them to that user. For a directory only the harness needs, `chmod 700` on it (or on the top of a mounted bench tree) is enough: root still reads it. The daemon's workspace root needs `chmod 711`.
-An earlier run's directory under /m0/bench-work/runs is open to that user (a run keeps its own open only while it runs; one left open was left by a run that was killed or by an older harness). Once no run is using it, close it, or remove it if it is empty:
-  chmod 700 /m0/bench-work/runs/smokea
-The harness does not do this itself: another run may be using it, and its sessions need to enter it.
-exit=1

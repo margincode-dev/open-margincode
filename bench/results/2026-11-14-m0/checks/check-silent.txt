@@ -1,5 +1,0 @@
-ok  pool: the 10 notes of notes-wrong.toml, unchanged and in order
-ok  bus-resubscribe: note of 188 characters; dead edit matches=True, good edit matches=False
-ok  order-merge: note of 195 characters; dead edit matches=True, good edit matches=False
-ok  tax-with-rate: note of 199 characters; dead edit matches=True, good edit matches=False
-silent set ok

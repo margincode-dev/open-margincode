@@ -130,6 +130,8 @@ run to an Anthropic key (amendment 1). Command 3 was stopped before it started.
   ("of 30 valid sessions, … accepted at least 27") applied to that table is "the guard holds".
   The script is left as committed. The test before the run used stage 2's data, which has no
   guard, so the bug did not show.
+  The fix landed later, in its own pull request (branch `m0-analyze-guard-fix`): `decision()`
+  now reads the guard from all rows, and on these rows the script prints "Guard holds: 29 of 30".
 - **A leak scan ran once too early**, while the guard was at 16 of 30. It read no accepted
   count, and its output was discarded. The committed scan ran after the guard's last session.
 - **The DeepSeek run's deviations**: the owner waived the floor, and the preflight refused twice

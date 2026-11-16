@@ -140,7 +140,7 @@ def gate(rows: list) -> bool:
     return ok
 
 
-def decision(rows: list, t: dict) -> None:
+def decision(rows: list, t: dict, guard_rows: list) -> None:
     (bn, bk, bw), (pn, pk, pw) = t["av-before"], t["av-phase0"]
     print("### Decision by the pre-registered rule (primary: av-phase0 against av-before)\n")
     per_task = all(len(arm(rows, a, x)[1]) >= 10 for a in ("av-before", "av-phase0")
@@ -157,7 +157,7 @@ def decision(rows: list, t: dict) -> None:
     else:
         print(f"- **Not shown at this size**: av-phase0 {pk}/{pn} ({fmt_iv(pw)}), av-before "
               f"{bk}/{bn} ({fmt_iv(bw)}).\n")
-    _, gv, gk, gw = arm(rows, "guard")
+    _, gv, gk, gw = arm(guard_rows, "guard")
     if len(gv) < 30:
         print(f"- **Guard not assessed**: {len(gv)} valid sessions of 30.\n")
     else:
@@ -318,7 +318,7 @@ def main() -> None:
         return
     print("### The guard (ten true-lesson tasks, N = 0)\n")
     accepted_table(rows, ["guard"])
-    decision(m0, t)
+    decision(m0, t, rows)
     without_exposed(m0)
     per_task(m0)
     superseded(m0)

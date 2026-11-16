@@ -251,6 +251,14 @@ pub fn ws_dir(e: &Env, task: &Value) -> PathBuf {
         .join(task["task"]["slug"].as_str().unwrap())
 }
 
+/// The `.av-task` in `task`'s workspace, parsed (F14: the daemon writes it).
+pub fn task_file(e: &Env, task: &Value) -> Value {
+    let path = ws_dir(e, task).join(".av-task");
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+    serde_json::from_str(&text).unwrap()
+}
+
 pub fn id(task: &Value) -> String {
     task["task"]["id"].as_str().unwrap().to_owned()
 }

@@ -23,6 +23,7 @@ mod reindex;
 mod remote;
 mod routing_api;
 mod serve;
+mod task_file;
 mod ui;
 mod wiring;
 mod worker;

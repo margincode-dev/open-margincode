@@ -1771,3 +1771,31 @@ async fn only_a_start_that_gave_a_task_still_open_is_handed_back() {
     let after = started(&e, &s, 73, json!({})).await;
     assert!(after.starts_with("No task is waiting"), "{after}");
 }
+
+// F14: the daemon writes `.av-task` into a workspace it hands out, so hooks and `av` commands in
+// a workspace started over MCP find their task (only the CLI wrote it before).
+
+#[tokio::test(flavor = "multi_thread")]
+async fn start_task_over_mcp_writes_the_task_file() {
+    let e = env().await;
+    let s = connect(&e, "claude-code").await;
+    let said = text(
+        &tool(
+            &e,
+            &s,
+            "start_task",
+            json!({"repo": "demo", "title": "Louder", "goal": "Make hello louder"}),
+        )
+        .await,
+    );
+    let line = said.lines().find(|l| l.starts_with("task: ")).unwrap();
+    let (task, slug) = line["task: ".len()..].split_once(" (").unwrap();
+    let t = json!({"task": {"id": task, "slug": slug.trim_end_matches(')')}});
+    let tf = task_file(&e, &t);
+    assert_eq!(tf["task"], task, "{tf}");
+    assert_eq!(tf["session"], s.as_str(), "the MCP session: {tf}");
+    assert_eq!(tf["generation"], 1, "{tf}");
+    // Claude Code's hooks act as `agent`, not as its MCP name: a file naming the owner would
+    // fence the owner's own writes from its workspace
+    assert!(tf.get("agent").is_none(), "names no agent: {tf}");
+}

@@ -468,16 +468,17 @@ async fn start_task(State(st): State<AppState>, Json(req): Json<StartTask>) -> A
         .map_err(|e| AvError::Store(format!("start queue closed: {e}")))?;
     let made = {
         let st = st.clone();
-        let (repo, title, goal, agent) = (
+        let (repo, title, goal, agent, session) = (
             req.repo.clone(),
             req.title.clone(),
             req.goal.clone(),
             req.agent.clone(),
+            req.session.clone(),
         );
         let pack_mode = req.pack_mode;
         tokio::spawn(async move {
             let _turn = turn;
-            create_started(&st, repo, title, goal, agent, pack_mode).await
+            create_started(&st, repo, title, goal, agent, session, pack_mode).await
         })
     };
     let task = made
@@ -538,6 +539,7 @@ pub(crate) async fn create_started(
     title: String,
     goal: String,
     agent: String,
+    session: String,
     pack_mode: PackMode,
 ) -> Result<Task> {
     crate::disk::ensure_room(st).await?;
@@ -553,10 +555,13 @@ pub(crate) async fn create_started(
     if pack_mode != PackMode::Full {
         st.store.set_pack_mode(task.id, pack_mode).await?;
     }
-    if let Err(e) = prepare_workspace(st, &task).await {
-        let _ = st.store.set_status(task.id, TaskStatus::Abandoned).await;
-        return Err(e);
-    }
+    let dir = match prepare_workspace(st, &task).await {
+        Ok(dir) => dir,
+        Err(e) => {
+            let _ = st.store.set_status(task.id, TaskStatus::Abandoned).await;
+            return Err(e);
+        }
+    };
     let summary = clip_chars(goal.lines().next().unwrap_or("").trim(), 200);
     // the body only carries what the summary does not
     let body = if goal.trim() == summary {
@@ -579,10 +584,12 @@ pub(crate) async fn create_started(
     st.store
         .renew_lease(task.id, task.generation, st.lease_secs)
         .await?;
+    crate::task_file::write(st, &dir, &task.id.to_string(), session, task.generation);
     Ok(task)
 }
 
-async fn prepare_workspace(st: &AppState, task: &Task) -> Result<()> {
+/// Makes the task's workspace; answers its path in this process.
+async fn prepare_workspace(st: &AppState, task: &Task) -> Result<std::path::PathBuf> {
     let info = st.vcs.create_workspace(&task.repo, &task.slug).await?;
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)
@@ -591,7 +598,7 @@ async fn prepare_workspace(st: &AppState, task: &Task) -> Result<()> {
     crate::disk::seed_dependencies(st, task);
     // Overlay on main: O empty when B = T; reconcile fills changed(B, T) when main moved.
     init_task_overlay(st, &task.repo, &task.slug, &info.base_change).await?;
-    Ok(())
+    Ok(info.path)
 }
 
 fn task_id(id: Uuid) -> TaskId {

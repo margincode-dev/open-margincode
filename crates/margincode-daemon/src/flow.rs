@@ -1372,6 +1372,7 @@ pub(crate) async fn claim_as(
     let _guard = st.lock_task(id).await;
     let task = st.store.claim_task(id, agent, st.lease_secs).await?;
     reconcile_task_overlay(st, &task).await?;
+    let session = hand_out(st, &task);
     let bundle = st
         .packer
         .handoff_bundle(BundleRequest {
@@ -1382,7 +1383,7 @@ pub(crate) async fn claim_as(
         .await?;
     Ok(json!({
         "generation": task.generation,
-        "session": Uuid::new_v4().to_string(),
+        "session": session,
         "task": task,
         "bundle": bundle,
     }))
@@ -1420,6 +1421,7 @@ pub(crate) async fn resume_as(
     }
     let task = st.store.get_task(id).await?;
     reconcile_task_overlay(st, &task).await?;
+    let session = hand_out(st, &task);
     let bundle = st
         .packer
         .handoff_bundle(BundleRequest {
@@ -1430,10 +1432,24 @@ pub(crate) async fn resume_as(
         .await?;
     Ok(json!({
         "generation": task.generation,
-        "session": Uuid::new_v4().to_string(),
+        "session": session,
         "task": task,
         "bundle": bundle,
     }))
+}
+
+/// A claimed or resumed task's new session, written with its generation into the workspace's
+/// `.av-task` (F14).
+fn hand_out(st: &AppState, task: &Task) -> String {
+    let session = Uuid::new_v4().to_string();
+    crate::task_file::write(
+        st,
+        &st.to_local_path(&task.workspace_path),
+        &task.id.to_string(),
+        session.clone(),
+        task.generation,
+    );
+    session
 }
 
 fn short(hex: &str) -> &str {

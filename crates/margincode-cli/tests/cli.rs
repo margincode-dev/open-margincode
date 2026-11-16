@@ -5814,3 +5814,61 @@ fn a_review_that_names_no_verdict_is_refused_and_touches_nothing_else() {
     ));
     assert!(listed.contains(&vd), "{listed}");
 }
+
+/// F14: a task started over MCP has a `.av-task` the daemon wrote, so `av` and the hooks in its
+/// workspace find the task with no `--task`. As `av init --for claude` sets it up: no
+/// `X-Av-Agent` (the MCP session is named after the client, `claude-code`) and no `AV_AGENT`
+/// (the CLI and hooks act as `agent`); the owner's writes must not be refused as "claim lost".
+#[test]
+fn validate_finds_a_task_started_over_mcp() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    let mcp = format!("{}/mcp", d.url);
+    let init = ureq::post(&mcp)
+        .set("accept", "application/json, text/event-stream")
+        .send_json(
+            serde_json::json!({"jsonrpc": "2.0", "id": 0, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                       "clientInfo": {"name": "claude-code", "version": "1"}}}),
+        )
+        .unwrap();
+    let session = init.header("mcp-session-id").unwrap().to_owned();
+    ureq::post(&mcp)
+        .set("mcp-session-id", &session)
+        .set("accept", "application/json, text/event-stream")
+        .send_json(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+        .unwrap();
+    let r: serde_json::Value = ureq::post(&mcp)
+        .set("mcp-session-id", &session)
+        .set("accept", "application/json, text/event-stream")
+        .send_json(
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "start_task", "arguments":
+                {"repo": "demo", "title": "Over MCP", "goal": "Make hello louder"}}}),
+        )
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let ws = d.ws.join("demo/over-mcp");
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    let edited = av(&d, &ws, &["hook", "post-edit"]);
+    assert!(edited.status.success(), "{}", err(&edited));
+    assert!(!err(&edited).contains("claim lost"), "{}", err(&edited));
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(
+        status.contains("changed (1): app/greeter.py"),
+        "the hook's checkpoint landed: {status}"
+    );
+    let passed = ok(av(&d, &ws, &["validate", "--", "true"]));
+    assert!(passed.contains("validation passed"), "{passed}");
+}

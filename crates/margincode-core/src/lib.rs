@@ -3,6 +3,7 @@ pub mod history;
 pub mod lifecycle;
 pub mod routing;
 pub mod standing;
+pub mod taskfile;
 mod traits;
 mod types;
 

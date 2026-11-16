@@ -1086,11 +1086,20 @@ async fn start_from_backlog(
     }
     let task = {
         let st = st.clone();
-        let (item, agent) = (item.clone(), agent.to_owned());
+        let (item, agent, session) = (item.clone(), agent.to_owned(), b.session.clone());
         tokio::spawn(async move {
             let _turn = turn;
-            match create_started(&st, item.repo, item.title, item.goal, agent, PackMode::Full).await
-            {
+            let made = create_started(
+                &st,
+                item.repo,
+                item.title,
+                item.goal,
+                agent,
+                session,
+                PackMode::Full,
+            )
+            .await;
+            match made {
                 Ok(task) => {
                     st.store.link_backlog_task(item.id, task.id).await?;
                     Ok(task)

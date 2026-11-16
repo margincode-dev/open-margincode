@@ -2088,3 +2088,188 @@ async fn a_merge_guard_can_refuse_an_accept_and_the_item_stays_proposed() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(guard.0.lock().unwrap().len(), 2);
 }
+
+// F14: every route that hands out a workspace writes its `.av-task`: the task, a session and the
+// generation, no agent (the daemon does not know the name the hooks there act as).
+
+#[tokio::test]
+async fn a_task_started_from_the_backlog_gets_its_task_file() {
+    let e = env().await;
+    three_agents(&e).await;
+    post_for(&e, "louder hello", &["code"], "claude").await;
+    let (status, t) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["from"], "backlog", "{t}");
+    let tf = task_file(&e, &t);
+    assert_eq!(tf["task"], t["task"]["id"], "{tf}");
+    assert_eq!(tf["session"], "s-next", "{tf}");
+    assert_eq!(tf["generation"], 1, "{tf}");
+    assert!(tf.get("agent").is_none(), "{tf}");
+}
+
+#[tokio::test]
+async fn a_claimed_task_gets_a_fresh_task_file_of_its_new_generation() {
+    let e = env().await;
+    let t = start_task(&e, "Louder").await;
+    assert_eq!(task_file(&e, &t)["generation"], 1);
+    record_decision(&e, &t).await;
+    let (status, b) = handoff(&e, &t, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    // the previous owner's, as the CLI and its Stop hook leave it
+    std::fs::write(
+        ws_dir(&e, &t).join(".av-task"),
+        json!({"task": id(&t), "session": "old", "generation": 1, "agent": "claude",
+               "continue_session": "cc-1", "continues": 3})
+        .to_string(),
+    )
+    .unwrap();
+    let (status, c) = claim(&e, &t, "codex").await;
+    assert_eq!(status, StatusCode::OK, "{c}");
+    let tf = task_file(&e, &t);
+    assert!(tf.get("agent").is_none(), "{tf}");
+    assert_eq!(tf["generation"], c["generation"], "{tf}");
+    assert_eq!(tf["generation"], 2, "{tf}");
+    assert_eq!(tf["session"], c["session"], "the claim's session: {tf}");
+    assert!(tf.get("continues").is_none(), "counters start afresh: {tf}");
+    assert!(tf.get("continue_session").is_none(), "{tf}");
+}
+
+#[tokio::test]
+async fn a_task_sent_back_to_its_owner_gets_a_fresh_task_file() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let _ = std::fs::remove_file(ws_dir(&e, &t).join(".av-task"));
+    let (status, r) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["from"], "changes_requested", "{r}");
+    let tf = task_file(&e, &t);
+    assert!(tf.get("agent").is_none(), "{tf}");
+    assert_eq!(tf["generation"], 1, "{tf}");
+    assert_eq!(tf["session"], r["session"], "{tf}");
+}
+
+#[tokio::test]
+async fn a_resume_keeps_what_the_task_file_already_holds() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    // as the CLI and the Stop hook leave it
+    let file = ws_dir(&e, &t).join(".av-task");
+    std::fs::write(
+        &file,
+        json!({"task": id(&t), "session": "old", "generation": 1, "agent": "claude",
+               "continue_session": "cc-1", "continues": 3, "nudged_session": "cc-1"})
+        .to_string(),
+    )
+    .unwrap();
+    let (status, r) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["from"], "changes_requested", "{r}");
+    let tf = task_file(&e, &t);
+    assert_eq!(tf["session"], r["session"], "a new session: {tf}");
+    assert_eq!(tf["continues"], 3, "the Stop hook's cap still counts: {tf}");
+    assert_eq!(tf["continue_session"], "cc-1", "{tf}");
+    assert_eq!(tf["nudged_session"], "cc-1", "{tf}");
+    assert_eq!(tf["agent"], "claude", "the CLI's name stays: {tf}");
+    assert_eq!(tf["generation"], 1, "{tf}");
+}
+
+#[tokio::test]
+async fn a_review_offer_leaves_the_owners_task_file_alone() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let before = task_file(&e, &t);
+    let (status, r) = next(&e, "grok").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["from"], "review", "{r}");
+    assert_eq!(
+        task_file(&e, &t),
+        before,
+        "a reviewer must not fence the owner"
+    );
+}
+
+#[tokio::test]
+async fn a_task_file_the_daemon_cannot_write_does_not_fail_the_claim() {
+    let e = env().await;
+    let t = start_task(&e, "Louder").await;
+    record_decision(&e, &t).await;
+    let (status, b) = handoff(&e, &t, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let file = ws_dir(&e, &t).join(".av-task");
+    let _ = std::fs::remove_file(&file);
+    std::fs::create_dir(&file).unwrap();
+    std::fs::write(file.join("keep"), "x").unwrap();
+    let (status, c) = claim(&e, &t, "codex").await;
+    assert_eq!(status, StatusCode::OK, "{c}");
+    assert_eq!(c["generation"], 2, "{c}");
+    assert!(file.join("keep").is_file(), "left as it was");
+}
+
+/// A link planted at `.av-task` is not read through (it could block the claim or fill memory):
+/// the resume writes a fresh file in its place and leaves the link's target alone.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_at_the_task_file_is_not_followed() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let (status, b) = task_op(
+        &e,
+        &id(&t),
+        "review",
+        json!({"reviewer": "grok", "verdict": "request_changes",
+               "findings": [{"summary": "say why it shouts"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    let elsewhere = tempfile::TempDir::new().unwrap();
+    let target = elsewhere.path().join("planted");
+    let planted = json!({"task": id(&t), "session": "x", "generation": 1, "agent": "mallory",
+                         "continues": 7})
+    .to_string();
+    std::fs::write(&target, &planted).unwrap();
+    let file = ws_dir(&e, &t).join(".av-task");
+    let _ = std::fs::remove_file(&file);
+    std::os::unix::fs::symlink(&target, &file).unwrap();
+    let (status, r) = next(&e, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    assert_eq!(r["from"], "changes_requested", "{r}");
+    assert!(
+        !std::fs::symlink_metadata(&file)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    let tf = task_file(&e, &t);
+    assert!(
+        tf.get("agent").is_none(),
+        "nothing read through the link: {tf}"
+    );
+    assert!(tf.get("continues").is_none(), "{tf}");
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        planted,
+        "the target is untouched"
+    );
+}

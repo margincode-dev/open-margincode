@@ -169,6 +169,20 @@ Every claim increments the task's *generation* and starts a new session. A write
 older generation (`X-Av-Generation`, which the CLI takes from `.av-task`) is refused with "claim
 lost". Writes under the current generation renew the lease.
 
+**`.av-task`.** The daemon writes this file into a workspace whenever it hands one out: a start
+(over HTTP or MCP), a start from the backlog, a claim and a resume. It holds the task, a
+session (a start's caller's, over MCP the MCP session; a claim's or a resume's new one) and the
+generation, so hooks and `av` commands run anywhere in the workspace find their task without
+`--task`. The daemon's file names no agent, since it does not know the name `av` and the hooks
+act as there (Claude Code's hooks act as `agent`, its MCP session as `claude-code`); the CLI
+writes its own name when it starts or takes a task (`av task start`, `av claim`, `av next`), and
+a file naming another agent makes `av` send generation 0, refused as "claim lost". So after a
+claim over MCP, a previous owner's hooks and `av` commands still running in that directory write
+under the new generation and are accepted (the MCP tools of its session are still fenced). A
+resume keeps what the file held for the same generation and changes only its session. A review
+offered by `next` leaves the file as it is. Snapshots and patches never include it. A write the
+daemon cannot make is logged and does not fail the start or claim.
+
 ### Invariants
 
 - Postgres is the source of truth. Qdrant is derived and can always be rebuilt (`margincode reindex`).

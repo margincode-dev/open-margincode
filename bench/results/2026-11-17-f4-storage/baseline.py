@@ -4,11 +4,14 @@ Per run: wall time of `av task start` (client), the start's `workspace:ready` ev
 files, bytes, count_ms), and the wall time of `av checkpoint` after changing three files. Each task
 is abandoned afterwards. Raw lines go to stdout as JSON, one per run.
 
-Usage: python baseline.py [runs] [dir to start from]; AV_URL names the daemon.
+Usage: python baseline.py [runs] [dir to start from]; AV_URL names the daemon. With AV_CHECKOUT_ROOT
+set, each start is `av task start --checkout <root>/run-N` (layout b: the client works in its own
+checkout, so the start also times that clone) and the checkout is removed after the abandon.
 """
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -21,6 +24,7 @@ URL = os.environ.get("AV_URL", "http://127.0.0.1:7420")
 REPO = "open-margincode"
 RUNS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 CWD = sys.argv[2] if len(sys.argv) > 2 else "."
+CHECKOUTS = os.environ.get("AV_CHECKOUT_ROOT")
 env = dict(os.environ, AV_AGENT="claude-opus")
 
 
@@ -47,14 +51,16 @@ rows = []
 for i in range(1, RUNS + 1):
     since = head()
     t0 = time.monotonic()
-    out = av(["task", "start", "--repo", REPO, "--title", f"F4 baseline run {i}",
-              "--goal", "F4 baseline: measure one start, then abandon (no change kept)"],
-             cwd=CWD)
+    args = ["task", "start", "--repo", REPO, "--title", f"F4 baseline run {i}",
+            "--goal", "F4 baseline: measure one start, then abandon (no change kept)"]
+    if CHECKOUTS:
+        args += ["--checkout", os.path.join(CHECKOUTS, f"run-{i}")]
+    out = av(args, cwd=CWD)
     start_s = time.monotonic() - t0
     if out.returncode != 0:
         print(json.dumps({"run": i, "error": out.stderr.strip()[-400:]}), flush=True)
         continue
-    ws = re.search(r"^workspace: (.+)$", out.stdout, re.M).group(1).strip()
+    ws = re.search(r"^(?:workspace|checkout): (.+)$", out.stdout, re.M).group(1).strip()
     task = re.search(r"^task: ([0-9a-f-]{36})", out.stdout, re.M).group(1)
     ready = [e for e in events_for(task, since) if e["kind"] == "workspace:ready"]
     p = ready[0]["payload"] if ready else {}
@@ -65,6 +71,8 @@ for i in range(1, RUNS + 1):
     ck = av(["checkpoint"], cwd=ws)
     checkpoint_s = time.monotonic() - t1
     ab = av(["abandon"], cwd=ws)
+    if CHECKOUTS:
+        shutil.rmtree(ws, ignore_errors=True)
     row = {"run": i, "task": task, "start_s": round(start_s, 2), "ms": p.get("ms"),
            "overlay_ms": p.get("overlay_ms"), "count_ms": p.get("count_ms"),
            "files": p.get("files"), "bytes": p.get("bytes"),

@@ -551,6 +551,45 @@ The daemon does not reach GitHub, and `main` is protected: push the backup to a 
 `git -C D:/avexport/NAME.git push https://github.com/OWNER/REPO.git main:refs/heads/av/NAME`, then open a
 pull request from that branch.
 
+### Workspaces on a volume (Windows)
+
+On a bind mount every file of a new workspace is written across into Windows: a start of this
+repository took 93 s there, 87 s of it the copy, and a checkpoint 3.1 s. With the workspaces on a
+Docker volume and the agent working in its own checkout, the same start took 15.9 s, of which
+the daemon's part is under a second, and a checkpoint 0.6 s (five starts each,
+`bench/results/2026-11-17-f4-storage/`). The rest of the start is `git` writing the checkout on
+Windows.
+
+Put the daemon's workspaces inside the store volume, which `store-init` hands to the daemon's
+user. In an override file:
+
+```yaml
+services:
+  daemon:
+    environment:
+      AV_WS_ROOT: /store/ws        # ext4 in Docker's VM, not the bind mount
+      AV_WS_HOST_ROOT: /store/ws   # Windows cannot open it: agents work in checkouts
+```
+
+Each agent then works in a checkout on Windows, which `av` keeps in step with the daemon's
+workspace ("An agent on another host"): its checkpoints go to the daemon as patches.
+
+```powershell
+av task start --repo NAME --title "..." --goal "..." --checkout D:/work/my-task
+av next --checkout D:/work/next-task      # a start, a claim, a handoff or a task sent back
+av remote clone <task-id> D:/work/a-task  # a task that exists; MCP start_task answers with
+                                          # the daemon's path, so an MCP agent clones after it
+```
+
+`--checkout` refuses a directory that is not empty before it takes any work. A review offered by
+`av next` is printed as without it: the reviewer reads the task by id. Builds in the checkout are
+the client's own (`target/` stays out of every change). To build in the daemon's workspace
+instead, run the container on the store volume as the daemon's user (`--user UID:GID`), or the
+daemon cannot remove the `target/` it leaves when it reclaims the workspace.
+
+The numbers above come from a daemon started with `docker run` and `AV_WS_ROOT` inside its data
+volume; the override is the same setting for the Compose stack.
+
 ### Docker Desktop memory on Windows
 
 Docker Desktop runs in a WSL 2 VM that by default may grow to half the machine's RAM and keeps
@@ -845,6 +884,7 @@ av target done ship-v1 --repo pantry       # also: drop, reopen
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
 av next --take review,merge                # only reviews and merges (--take work: never reviews)
+av next --checkout ~/src/next-job          # work in a checkout there (a daemon on another host)
 av handoff --done … --remaining … --needs image   # hand off to an agent that has the tag
 av --agent grok watch -- grok -p "take your next av job"   # start grok only when work fits it
 ```

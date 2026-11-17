@@ -5546,6 +5546,117 @@ fn task_start_with_checkout_makes_the_checkout_instead_of_using_the_workspace() 
     assert!(d.ws.join("demo/far-away/app/far.py").exists());
 }
 
+fn posted_for_muse() -> (Daemon, TempDir) {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "muse", "--can", "code", "--cost", "1"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+            "--reserve",
+            "0",
+        ],
+    ));
+    (d, scratch)
+}
+
+#[test]
+fn next_with_checkout_makes_the_checkout_instead_of_using_the_workspace() {
+    let (d, scratch) = posted_for_muse();
+    let got = ok(av_as(
+        &d,
+        scratch.path(),
+        "muse",
+        &["next", "--checkout", "mine"],
+    ));
+    let dir = scratch.path().join("mine");
+    assert!(got.starts_with("checkout: mine"), "{got}");
+    assert!(got.contains("## Task"), "{got}");
+    assert!(dir.join("app/greeter.py").exists());
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["agent"], "muse", "{file}");
+    assert_eq!(file["generation"], 1, "{file}");
+    assert!(file["remote"].is_object(), "{file}");
+    std::fs::write(dir.join("app/far.py"), "F = 1\n").unwrap();
+    ok(av_as(&d, &dir, "muse", &["checkpoint"]));
+    assert!(d.ws.join("demo/improve-greeting/app/far.py").exists());
+}
+
+#[test]
+fn a_claim_with_checkout_works_under_the_claims_generation() {
+    let (d, ws, scratch) = started();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "grok", "--best", "image", "--cost", "2"],
+    ));
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "decision",
+            "--summary",
+            "shout in hello",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "handoff",
+            "--done",
+            "nothing yet",
+            "--remaining",
+            "draw the logo",
+            "--needs",
+            "image",
+        ],
+    ));
+    let got = ok(av_as(
+        &d,
+        scratch.path(),
+        "grok",
+        &["next", "--checkout", "logo"],
+    ));
+    assert!(got.contains("generation: 2"), "{got}");
+    assert!(got.contains("Remaining: draw the logo"), "{got}");
+    let dir = scratch.path().join("logo");
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".av-task")).unwrap()).unwrap();
+    assert_eq!(file["generation"], 2, "{file}");
+    std::fs::write(dir.join("logo.txt"), "o\n").unwrap();
+    ok(av_as(&d, &dir, "grok", &["checkpoint"]));
+    assert!(ws.join("logo.txt").exists());
+}
+
+#[test]
+fn next_with_a_checkout_dir_that_is_not_empty_takes_nothing() {
+    let (d, scratch) = posted_for_muse();
+    std::fs::create_dir(scratch.path().join("mine")).unwrap();
+    std::fs::write(scratch.path().join("mine/keep.txt"), "mine\n").unwrap();
+    let o = av_as(&d, scratch.path(), "muse", &["next", "--checkout", "mine"]);
+    assert!(!o.status.success(), "{}", out(&o));
+    assert!(err(&o).contains("not empty"), "{}", err(&o));
+    let queued = ok(av(&d, scratch.path(), &["backlog", "--state", "queued"]));
+    assert!(queued.contains("Improve greeting"), "{queued}");
+}
+
 /// `av` as `agent` with its own `$AV_HOME`, so a run's directory is the test's.
 fn av_home(d: &Daemon, home: &Path, agent: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_av"))

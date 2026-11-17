@@ -469,6 +469,10 @@ enum Cmd {
         /// back, abandoned and conflicted tasks). Repeat or comma-separate; default everything.
         #[arg(long, value_delimiter = ',')]
         take: Vec<String>,
+        /// Work in a checkout in DIR on this host instead of the daemon's workspace, as `task
+        /// start --checkout` does. A review is printed as without it.
+        #[arg(long, value_name = "DIR")]
+        checkout: Option<PathBuf>,
     },
     /// Run an agent command whenever work fits --agent: looks every --every seconds without taking
     /// anything, then runs the command (with AV_AGENT and AV_URL set, and AV_HOOK_WAIT_SECS=0 unless
@@ -1620,6 +1624,9 @@ fn run(cli: Cli) -> Result<()> {
                     checkout,
                 },
         } => {
+            if let Some(dir) = checkout {
+                remote::check_empty(dir)?;
+            }
             let session = cli
                 .session
                 .clone()
@@ -2969,7 +2976,11 @@ fn run(cli: Cli) -> Result<()> {
             budget,
             wait,
             take,
+            checkout,
         } => {
+            if let Some(dir) = checkout {
+                remote::check_empty(dir)?;
+            }
             let session = cli
                 .session
                 .clone()
@@ -3014,8 +3025,6 @@ fn run(cli: Cli) -> Result<()> {
                 .iter()
                 .any(|from| r["from"] == *from);
             let workspace = PathBuf::from(s(&task["workspace_path"]));
-            // a claim starts a fresh session; the owner name is the profile's, with its aliases
-            let (agent, aliases) = taskfile::owned_by(&client, task);
             let session = if handoff {
                 s(&r["session"]).to_owned()
             } else {
@@ -3026,23 +3035,30 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 task["generation"].as_i64()
             };
-            write_taskfile(
-                &workspace,
-                &TaskFile {
-                    task: s(&task["id"]).to_owned(),
-                    session: session.clone(),
-                    generation,
-                    agent,
-                    aliases,
-                    last_checkpoint_ms: None,
-                    nudged_session: None,
-                    told_session: None,
-                    continue_session: None,
-                    continues: 0,
-                    remote: None,
-                },
-            );
-            println!("workspace: {}", workspace.display());
+            if let Some(dir) = checkout {
+                remote::clone(&client, s(&task["id"]), dir, &session)?;
+                println!("checkout: {}", dir.display());
+            } else {
+                // a claim starts a fresh session; the owner name is the profile's, with its aliases
+                let (agent, aliases) = taskfile::owned_by(&client, task);
+                write_taskfile(
+                    &workspace,
+                    &TaskFile {
+                        task: s(&task["id"]).to_owned(),
+                        session: session.clone(),
+                        generation,
+                        agent,
+                        aliases,
+                        last_checkpoint_ms: None,
+                        nudged_session: None,
+                        told_session: None,
+                        continue_session: None,
+                        continues: 0,
+                        remote: None,
+                    },
+                );
+                println!("workspace: {}", workspace.display());
+            }
             println!("task: {} ({})", s(&task["id"]), s(&task["slug"]));
             println!("session: {session}");
             if handoff {

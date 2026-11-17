@@ -61,6 +61,35 @@ All five checkpoints and abandons succeeded.
 - A checkpoint of three small files takes 3.1 s: jj snapshots the workspace, which also walks
   the bind mount.
 
+## Layout (b): workspaces on a volume, the client in its own checkout
+
+Measured the same day for the Windows recipe (`docs/reference.md`, "Workspaces on a volume"),
+with `av next --checkout` in the same change. A second daemon from the same image, on another
+port, with its workspace root inside its data volume (ext4 in Docker's VM) instead of a bind
+mount, imported `main` at `719761f` (5,174 files and 57.8 MB in a workspace). The client starts
+each task with `--checkout`, so `av task start` also makes the Windows checkout (`av remote
+clone`), and edits and checkpoints there (the checkpoint goes to the daemon as a patch):
+
+```bash
+AV_URL=http://127.0.0.1:7421 AV_CHECKOUT_ROOT=<an empty Windows folder> python baseline.py 5 .
+```
+
+`volume-checkout.jsonl` holds the raw lines. Median / worst of 5:
+
+| | (a) bind mount | (b) volume + checkout |
+|---|---|---|
+| `av task start`, client wall time | 92.99 / 93.45 s | 15.88 / 16.65 s |
+| workspace copy (`ms`) | 86,633 / 87,282 ms | 376 / 407 ms |
+| counting the workspace (`count_ms`) | 3,591 / 3,825 ms | 8 / 8 ms |
+| `av checkpoint` of 3 changed files | 3.13 / 3.32 s | 0.60 / 0.86 s |
+
+- The copy is 230 times faster on the volume: the bind mount's per-file cost was the start.
+- Of the 15.9 s left, the daemon's part is under a second. Timed apart once: a start without
+  `--checkout` 0.58 s, the whole tree as a patch (`GET /v1/tasks/{id}/patch`) 0.63 s, and
+  `av remote clone` 13.4 s, so about 12.8 s is git on Windows writing the 5,174 files of the new
+  checkout. That is now the cost to cut; sparse workspaces cut it too.
+- With the copy this cheap, the count stays inline.
+
 ## What it means for the plan
 
 The storage PRs that follow (workspaces on a volume, sparse workspaces, copying outside the lock)

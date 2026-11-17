@@ -189,7 +189,6 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(12)]
 }
 
-/// Names the task's owner in `.av-task`, not the cloner: a clone does not take the claim.
 /// Checked before a start or a claim too, so a bad DIR takes no work.
 pub fn check_empty(dir: &Path) -> Result<()> {
     if dir.exists() && std::fs::read_dir(dir).map_err(local)?.next().is_some() {
@@ -198,6 +197,7 @@ pub fn check_empty(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Names the task's owner in `.av-task`, not the cloner: a clone does not take the claim.
 pub fn clone(client: &Client, task: &str, dir: &Path, session: &str) -> Result<Value> {
     let r = client.get(&format!("/v1/tasks/{task}"), &[])?;
     let t = &r["task"];

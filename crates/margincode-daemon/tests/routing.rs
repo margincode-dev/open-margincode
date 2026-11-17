@@ -2214,3 +2214,153 @@ async fn a_link_at_the_task_file_is_not_followed() {
         "the target is untouched"
     );
 }
+
+// ---- F12: a backlog item whose task was abandoned ----
+
+/// muse takes the item titled `title` and abandons its task; returns the item and the task.
+async fn take_and_abandon(e: &Env, title: &str) -> (Value, Value) {
+    put_agent(e, "muse", &[], &["code"], 1).await;
+    let item = post_item(e, "demo", title, &[], 0).await;
+    let (status, t) = next(e, "muse").await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["from"], "backlog", "{t}");
+    let (status, b) = task_op(e, &id(&t), "abandon", json!({"agent": "muse"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    (item, t)
+}
+
+async fn requeue(e: &Env, item: &Value) -> (StatusCode, Value) {
+    let item_id = item["id"].as_str().unwrap();
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/backlog/{item_id}/requeue"),
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn an_item_whose_task_was_abandoned_can_be_requeued_or_dropped() {
+    let e = env().await;
+    let (item, t) = take_and_abandon(&e, "louder hello").await;
+    let listed = backlog(&e, "").await;
+    assert_eq!(listed[0]["state"], "taken");
+    assert_eq!(listed[0]["task_status"], "abandoned", "{}", listed[0]);
+
+    let (status, body) = requeue(&e, &item).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["state"], "queued", "{body}");
+    assert_eq!(body["task_id"], Value::Null, "{body}");
+    assert_eq!(body["taken_by"], Value::Null, "{body}");
+    assert_eq!(body["title"], "louder hello", "the title is kept: {body}");
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    let requeued: Vec<&Value> = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| v["kind"] == "backlog:requeued")
+        .collect();
+    assert_eq!(requeued.len(), 1, "{events}");
+    assert_eq!(requeued[0]["task_id"], t["task"]["id"], "{events}");
+    assert_eq!(requeued[0]["payload"]["abandoned_task"], t["task"]["id"]);
+    assert_eq!(requeued[0]["payload"]["backlog_id"], item["id"]);
+
+    let (status, again) = next(&e, "muse").await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["from"], "backlog", "{again}");
+    assert_eq!(again["task"]["title"], "louder hello", "{again}");
+    assert_ne!(again["task"]["id"], t["task"]["id"], "a new task: {again}");
+    let listed = backlog(&e, "").await;
+    assert_eq!(listed[0]["task_id"], again["task"]["id"]);
+    assert_eq!(listed[0]["task_status"], "open", "{}", listed[0]);
+
+    let (_, second) = take_and_abandon(&e, "quieter hello").await;
+    let second_item = backlog(&e, "")
+        .await
+        .into_iter()
+        .find(|i| i["task_id"] == second["task"]["id"])
+        .unwrap();
+    let second_id = second_item["id"].as_str().unwrap();
+    let (status, body) = call(&e.app, "DELETE", &format!("/v1/backlog/{second_id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(backlog(&e, "?state=dropped").await.len(), 1);
+    let (status, body) = requeue(&e, &second_item).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "a dropped item stays dropped: {body}"
+    );
+}
+
+#[tokio::test]
+async fn an_item_whose_task_is_open_is_still_refused() {
+    let e = env().await;
+    put_agent(&e, "muse", &[], &["code"], 1).await;
+    let item = post_item(&e, "demo", "louder hello", &[], 0).await;
+    let (_, t) = next(&e, "muse").await;
+    assert_eq!(t["from"], "backlog", "{t}");
+    let item_id = item["id"].as_str().unwrap();
+
+    let (status, body) = requeue(&e, &item).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (status, body) = call(&e.app, "DELETE", &format!("/v1/backlog/{item_id}"), None).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let listed = backlog(&e, "").await;
+    assert_eq!(listed[0]["state"], "taken");
+    assert_eq!(listed[0]["task_id"], t["task"]["id"]);
+
+    let (status, body) = requeue(&e, &post_item(&e, "demo", "queued", &[], 0).await).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "a queued item is not requeued: {body}"
+    );
+    let (status, _) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog/00000000-0000-0000-0000-000000000000/requeue",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn an_item_whose_task_is_in_review_is_refused() {
+    let e = env().await;
+    put_agent(&e, "claude", &["code"], &[], 4).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &[]).await;
+    let item = backlog(&e, "")
+        .await
+        .into_iter()
+        .find(|i| i["task_id"] == t["task"]["id"])
+        .unwrap();
+    let item_id = item["id"].as_str().unwrap();
+    let (status, body) = requeue(&e, &item).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (status, body) = call(&e.app, "DELETE", &format!("/v1/backlog/{item_id}"), None).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(backlog(&e, "?state=taken").await.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_requeue_wakes_an_agent_waiting_for_work() {
+    let e = env_no_tick().await;
+    let (item, _) = take_and_abandon(&e, "draw it").await;
+    let app = e.app.clone();
+    let waiting = tokio::spawn(async move { next_waiting(&app, "muse", 30).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let requeued = std::time::Instant::now();
+    let (status, body) = requeue(&e, &item).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = waiting.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["task"]["title"], "draw it", "{body}");
+    // without a wake it would answer at its 30 s deadline; the margin is for a slow start
+    assert!(
+        requeued.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        requeued.elapsed()
+    );
+}

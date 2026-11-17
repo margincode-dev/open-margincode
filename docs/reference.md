@@ -835,6 +835,7 @@ av post --repo pantry --title "Price labels" --goal "..." --target ship-v1   # c
 av backlog target ITEM ship-v1                                   # or link an item later (no target: unlink)
 av post --repo pantry --title "Cache labels" --goal "..." --propose --why "may not pay off"   # waits for a human
 av backlog accept ITEM                                           # queue a proposal (av backlog drop ITEM: no)
+av backlog requeue ITEM                                          # its task was abandoned: queue it again, for a new task
 av repo settings pantry --agent-posts propose                    # every agent's post is a proposal
 av target list --repo pantry               # each active target: merged/items, working, queued, due
 av target done ship-v1 --repo pantry       # also: drop, reopen
@@ -892,7 +893,11 @@ unsure). `next` never offers a proposed item and does not count it as queued; `P
 /v1/backlog/{id}/accept` (`{by}`, `av backlog accept`) makes it `queued` (a `backlog:accepted`
 event; waiting `next` calls wake as for a post), and `DELETE /v1/backlog/{id}` (`av backlog drop`)
 drops it. Accepting an item that is not proposed is a 422, as is an accept the extension's guard
-refuses. An accepted item's reserve window starts when it is accepted, and it ranks as that new.
+refuses. Abandoning a task leaves its item `taken` (`av backlog` prints `taken (task abandoned)`;
+`GET /v1/backlog` gives each item's `task_status`): `POST /v1/backlog/{id}/requeue` (`av backlog
+requeue`) puts it back to `queued` with no task, under the same title, for the next `next`, and
+`av backlog drop` drops it; both are a 422 while its task is not abandoned. An accepted item's
+reserve window starts when it is accepted, and it ranks as that new.
 The repo setting `agent_posts` (`PUT /v1/repos/{name}/settings`, `av repo settings NAME
 --agent-posts queue|propose`; default `queue`) decides what becomes of an agent's post: with
 `propose`, every post by an agent lands as `proposed` whatever it asked. A post is an agent's when

@@ -313,8 +313,8 @@ pub trait IntentStore: Send + Sync {
     ) -> Result<Vec<crate::routing::BacklogEntry>>;
     /// One backlog row. `NotFound` for an unknown id.
     async fn get_backlog(&self, id: uuid::Uuid) -> Result<crate::routing::BacklogEntry>;
-    /// Withdraws a queued or proposed item. `NotFound` for an unknown id, `IllegalState` unless
-    /// it is queued or proposed.
+    /// Withdraws a queued or proposed item, or a taken one whose task was abandoned. `NotFound`
+    /// for an unknown id, `IllegalState` otherwise.
     async fn drop_backlog(&self, id: uuid::Uuid) -> Result<()>;
     /// Queues a proposed item, accepted by `by`. `NotFound` for an unknown id, `IllegalState`
     /// unless it is proposed (of racing callers exactly one succeeds).

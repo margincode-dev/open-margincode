@@ -55,7 +55,8 @@ fn task_from_row(r: &PgRow) -> Result<Task> {
 }
 
 /// Columns of `backlog` aliased `b`. `waiting_on`: titles of the items in `after_ids` whose task
-/// is not merged (an item nobody took, or one dropped, has no task and so keeps it waiting).
+/// is not merged (an item nobody took has no task, and a dropped one never gets a merged one, so
+/// both keep it waiting).
 const BACKLOG_COLS: &str = "b.id, b.repo, b.title, b.goal, b.needs, b.prefer, b.priority, \
     b.reserve_secs, b.created_at, b.state, b.task_id, b.taken_by, b.taken_at, b.posted_by, \
     b.after_ids, \
@@ -65,6 +66,10 @@ const BACKLOG_COLS: &str = "b.id, b.repo, b.title, b.goal, b.needs, b.prefer, b.
              '{}') AS waiting_on, \
     b.target_id, (SELECT g.title FROM targets g WHERE g.id = b.target_id) AS target, \
     b.why, b.accepted_by, b.accepted_at";
+
+/// A backlog row `b` that was taken and whose task was abandoned.
+const TASK_ABANDONED: &str = "(b.state = 'taken' AND EXISTS
+    (SELECT 1 FROM tasks t WHERE t.id = b.task_id AND t.status = 'abandoned'))";
 
 fn backlog_from_row(r: &PgRow) -> Result<BacklogEntry> {
     let state: String = r.try_get("state").map_err(serr)?;
@@ -316,6 +321,52 @@ pub struct TaskSummary {
 }
 
 impl PgStore {
+    /// Puts a taken item whose task was abandoned back to `queued` with no task, so `next` starts
+    /// a new task from it. Also returns the abandoned task, which the item no longer names.
+    pub async fn requeue_backlog(&self, id: Uuid) -> Result<(BacklogEntry, TaskId)> {
+        let row = sqlx::query(&format!(
+            "WITH old AS (SELECT id, task_id FROM backlog WHERE id = $1 FOR UPDATE)
+             UPDATE backlog AS b SET state = 'queued', task_id = NULL, taken_by = NULL,
+                 taken_at = NULL
+             FROM old
+             WHERE b.id = old.id AND {TASK_ABANDONED}
+             RETURNING {BACKLOG_COLS}, old.task_id AS abandoned_task"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        match row {
+            Some(row) => Ok((
+                backlog_from_row(&row)?,
+                TaskId(row.try_get("abandoned_task").map_err(serr)?),
+            )),
+            None => Err(backlog_refusal(
+                &self.pool,
+                id,
+                "only a taken item whose task was abandoned can be requeued",
+            )
+            .await),
+        }
+    }
+
+    /// The status of each of `ids` that names a task.
+    pub async fn task_statuses(&self, ids: &[Uuid]) -> Result<HashMap<Uuid, String>> {
+        let rows = sqlx::query("SELECT id, status FROM tasks WHERE id = ANY($1)")
+            .bind(ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(serr)?;
+        rows.iter()
+            .map(|r| {
+                Ok((
+                    r.try_get("id").map_err(serr)?,
+                    r.try_get("status").map_err(serr)?,
+                ))
+            })
+            .collect()
+    }
+
     /// Tasks newest first, optionally of one repo and one status, with how many records each has.
     pub async fn list_tasks(
         &self,
@@ -1210,9 +1261,10 @@ impl IntentStore for PgStore {
     }
 
     async fn drop_backlog(&self, id: Uuid) -> Result<()> {
-        let n = sqlx::query(
-            "UPDATE backlog SET state = 'dropped' WHERE id = $1 AND state IN ('queued', 'proposed')",
-        )
+        let n = sqlx::query(&format!(
+            "UPDATE backlog b SET state = 'dropped'
+             WHERE b.id = $1 AND (b.state IN ('queued', 'proposed') OR {TASK_ABANDONED})"
+        ))
         .bind(id)
         .execute(&self.pool)
         .await
@@ -1222,7 +1274,7 @@ impl IntentStore for PgStore {
             return Err(backlog_refusal(
                 &self.pool,
                 id,
-                "only a queued or proposed item can be dropped",
+                "only a queued or proposed item, or one whose task was abandoned, can be dropped",
             )
             .await);
         }
@@ -1277,7 +1329,7 @@ impl IntentStore for PgStore {
             return Err(backlog_refusal(
                 &self.pool,
                 id,
-                "only a taken item without a task can be requeued",
+                "only a taken item without a task can be put back",
             )
             .await);
         }

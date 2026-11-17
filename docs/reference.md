@@ -1342,6 +1342,41 @@ It is removed with the workspace.
 `--keep-work` is given (see [bench/README.md](../bench/README.md)). The jj store and
 Postgres are not garbage-collected. `av up` moves a `daemon.log` over 50 MB to `daemon.log.1`.
 
+### Paths left out of task workspaces (`.av/sparse`)
+
+A repo can keep large paths that tasks rarely touch (result archives, fixtures, vendored data)
+out of its task workspaces' files. Commit `.av/sparse`, one path prefix per line:
+
+```text
+# kept out of task workspaces
+bench/results/
+bench/retrieval/results/
+```
+
+The listed paths stay in every commit, `main` included; they are only not written to a task
+workspace's disk, so a start writes fewer files. jj's sparse patterns do this
+(`margincode-vcs`, `sparse.rs`), set before the workspace's first checkout. The list is read from
+the workspace's own commit: a path taken off it is written from the next snapshot on; a path
+added to it is left off the disk of new and restored workspaces, while an open one keeps the
+files it has (its edits and deletions there are still recorded). With no list, an
+empty one or one with a line that is not a path in the repo (an absolute path, `..`, or `.av`,
+`.jj`, `.git`), every file is written, as before.
+
+Nothing an agent writes is lost by it:
+- a file written anywhere, a new top-level one or one under a listed path, is snapshotted (the
+  patterns are worked out again from the commit and the disk before each snapshot);
+- a listed file the agent writes back is recorded as its edit, and a file it wrote under a
+  listed path and then deleted is recorded as deleted;
+- `av sync` writes what `main` added outside the list, and any conflicted file, listed or not,
+  with its markers;
+- a remote checkpoint (`av task start --checkout`, `av remote clone`) holds every file, and its
+  patch may change or delete a listed file: the daemon reads that file from the workspace's
+  commit.
+
+A listed file is not on disk, so an agent in the daemon's workspace cannot delete it (take
+the path off the list first); one in a checkout can. The client's own checkout is still the
+whole tree: `av remote clone` writes every file.
+
 ## Test
 
 ```bash

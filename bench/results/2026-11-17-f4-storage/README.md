@@ -87,7 +87,9 @@ AV_URL=http://127.0.0.1:7421 AV_CHECKOUT_ROOT=<an empty Windows folder> python b
 - Of the 15.9 s left, the daemon's part is under a second. Timed apart once: a start without
   `--checkout` 0.58 s, the whole tree as a patch (`GET /v1/tasks/{id}/patch`) 0.63 s, and
   `av remote clone` 13.4 s, so about 12.8 s is git on Windows writing the 5,174 files of the new
-  checkout. That is now the cost to cut; sparse workspaces cut it too.
+  checkout. That is now the cost to cut. Sparse workspaces (`.av/sparse`) do not cut it by
+  themselves: they leave paths off the daemon's workspace, and the client's checkout is still
+  cloned from the whole tree (corrected; this line said they did).
 - With the copy this cheap, the count stays inline.
 
 ## What it means for the plan

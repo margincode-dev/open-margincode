@@ -32,6 +32,7 @@ fn config(db: &TestDb, dir: &std::path::Path, token: Option<&str>) -> Config {
         lease_secs: 1800,
         attention: Default::default(),
         build_cache: true,
+        exec_bit: Default::default(),
         ws_retain_secs: Some(3600),
         disk_min_free_bytes: 0,
         build_budget_bytes: 0,

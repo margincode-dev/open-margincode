@@ -5,7 +5,7 @@ use margincode_core::{AvError, Result};
 use margincode_index::PgIndex;
 use margincode_semantic::{Embedder, OllamaEmbedder, QdrantIndex, TeiEmbedder};
 use margincode_store::PgStore;
-use margincode_vcs::JjVcs;
+use margincode_vcs::{ExecBit, JjVcs};
 
 use crate::AppState;
 use crate::embed_choice::{
@@ -69,6 +69,9 @@ pub struct Config {
     /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): lean cargo settings and a shared
     /// dependency cache for a repo with a root `Cargo.toml` (`build_cache`, `deps_cache`).
     pub build_cache: bool,
+    /// `AV_EXEC_BIT` (default `auto`; `respect`, `ignore`): whether a snapshot records a workspace
+    /// file's executable bit. `ignore` keeps each file's mode from the repo.
+    pub exec_bit: ExecBit,
     /// `AV_BACKUP_REMOTES`: whitespace-separated `repo=url` pairs, pushed after every merge.
     /// `POST /v1/repos/{name}/backup` sets one at runtime.
     pub backup_remotes: Vec<(String, String)>,
@@ -191,6 +194,7 @@ impl Config {
                 })?,
             },
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
+            exec_bit: parse_exec_bit(get("AV_EXEC_BIT").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
             token,
         })
@@ -313,6 +317,17 @@ fn parse_switch(name: &str, value: Option<&str>) -> Result<bool> {
     }
 }
 
+fn parse_exec_bit(value: Option<&str>) -> Result<ExecBit> {
+    match value.map(str::trim) {
+        None | Some("") => Ok(ExecBit::default()),
+        Some(v) => v.parse().map_err(|_| {
+            AvError::Invalid(format!(
+                "AV_EXEC_BIT must be auto, respect or ignore, got {v}"
+            ))
+        }),
+    }
+}
+
 /// `repo=url` pairs separated by whitespace.
 fn parse_backup_remotes(value: Option<&str>) -> Result<Vec<(String, String)>> {
     value
@@ -375,7 +390,9 @@ pub fn embed_authorization(api_key: Option<&str>) -> Option<String> {
 pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     let store = Arc::new(PgStore::connect_with(database_url, cfg.pg_max_connections).await?);
     let index = Arc::new(PgIndex::new(store.pool().clone()).with_max_fanout(cfg.index_max_fanout));
-    let vcs = Arc::new(JjVcs::new(cfg.store_root.clone(), cfg.ws_root.clone()));
+    let vcs = Arc::new(
+        JjVcs::new(cfg.store_root.clone(), cfg.ws_root.clone()).with_exec_bit(cfg.exec_bit),
+    );
     let state = AppState::new(
         vcs,
         store,
@@ -465,6 +482,15 @@ mod tests {
         assert!(!parse_switch("X", Some("0")).unwrap());
         assert!(!parse_switch("X", Some(" FALSE ")).unwrap());
         assert!(parse_switch("X", Some("maybe")).is_err());
+    }
+
+    #[test]
+    fn exec_bit_is_auto_unless_set() {
+        assert_eq!(parse_exec_bit(None).unwrap(), ExecBit::Auto);
+        assert_eq!(parse_exec_bit(Some(" ")).unwrap(), ExecBit::Auto);
+        assert_eq!(parse_exec_bit(Some("ignore")).unwrap(), ExecBit::Ignore);
+        assert_eq!(parse_exec_bit(Some("RESPECT")).unwrap(), ExecBit::Respect);
+        assert!(parse_exec_bit(Some("off")).is_err());
     }
 
     #[test]

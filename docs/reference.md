@@ -431,6 +431,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_BUILD_CACHE_MAX_GB` | `0` | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it av removes finished tasks' `target/`, then idle ones, then the deps cache (see [Disk](#disk-what-agents-create-and-what-av-reclaims)); `0` turns it off |
 | `AV_BUILD_IDLE_SECS` | `1800` | over the build budget, an unfinished (open, handed-off, in-review or conflicted) task's `target/` is removed only when nothing in it changed for this long |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos |
+| `AV_EXEC_BIT` | `auto` | whether a snapshot records a workspace file's executable bit: `auto` (as jj does: when the filesystem can hold it), `respect`, or `ignore` (each file keeps its mode from the repo, a new file is not executable, and checkouts write no executable bit). Set `ignore` when workspaces are edited from Windows through a Docker Desktop bind mount, where every file Windows creates reads as executable in the container |
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
@@ -496,6 +497,7 @@ Defaults (override with environment variables before `up`):
 | `AV_BUILD_IDLE_SECS` | `1800` | over the build budget, an unfinished (open, handed-off, in-review or conflicted) task's `target/` is removed only when nothing in it changed for this long. |
 | `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`, `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS` | `7200`, `3600`, `3600`, 512 MiB, `86400` | when `GET /v1/attention` lists a waiting task or a footprint (see [Needs attention](#needs-attention-get-v1attention)). |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
+| `AV_EXEC_BIT` | `auto` | whether a snapshot records a workspace file's executable bit: `auto` (as jj does: when the filesystem can hold it), `respect`, or `ignore` (each file keeps its mode from the repo, a new file is not executable, and checkouts write no executable bit). Set `ignore` when workspaces are edited from Windows through a Docker Desktop bind mount, where every file Windows creates reads as executable in the container. |
 | `AV_INDEX_MAX_FANOUT` | (none) | a call whose bare name more than N other symbols define (`new`, `get`) links to none of them in the code graph. Cuts the edges of big repos (tokio: 71% at 64) without a measured loss in packs (`bench/results/2026-11-03-e1-fanout-cap/`). Set it before importing: stored edges keep the cap they were built with, and `reindex` skips unchanged files. |
 
 ### Docker Desktop without WSL integration
@@ -507,7 +509,10 @@ Docker's VM). Keep the workspace and import folders on a Windows drive and give 
 ```bash
 export AV_WS_ROOT=/mnt/c/Users/me/avws       AV_WS_MOUNT='C:\Users\me\avws'
 export AV_IMPORT_ROOT=/mnt/c/Users/me/avsrc  AV_IMPORT_MOUNT='C:\Users\me\avsrc'
+export AV_EXEC_BIT=ignore
 ```
+
+On such a mount every file Windows creates reads as executable in the container, so without `AV_EXEC_BIT=ignore` each file a task writes from Windows is committed as `100755`.
 
 `docker.exe` also does not see WSL env vars unless they are listed in `WSLENV` (for example
 `WSLENV=UID:GID:HOME:AV_WS_MOUNT:...`), cannot find `docker-credential-desktop` unless `PATH/l` is
@@ -524,6 +529,7 @@ git init --bare D:/avexport/NAME.git
 $env:AV_WS_ROOT = 'D:/avws'            # becomes AV_WS_HOST_ROOT, the path clients work in
 $env:AV_WS_MOUNT = 'D:/avws'           # /ws, writable
 $env:AV_IMPORT_MOUNT = 'D:/avsrc'      # /import, read-only
+$env:AV_EXEC_BIT = 'ignore'           # files Windows creates read as executable in /ws
 ```
 
 The bundled compose file has no `/export` mount and does not pass `AV_BACKUP_REMOTES`, and a value set

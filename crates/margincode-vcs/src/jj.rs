@@ -71,6 +71,45 @@ enum WcAt {
     Is,
 }
 
+/// Whether a snapshot records a file's executable bit as the workspace has it (jj's
+/// `working-copy.exec-bit-change`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExecBit {
+    /// Respect it, unless the workspace's filesystem cannot hold it.
+    #[default]
+    Auto,
+    Respect,
+    /// Keep each file's mode from the repo (a new file is not executable), and check files out
+    /// without the bit. For workspaces edited from Windows through a Docker Desktop bind mount,
+    /// where every file the host creates reads as executable.
+    Ignore,
+}
+
+impl ExecBit {
+    fn as_jj(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Respect => "respect",
+            Self::Ignore => "ignore",
+        }
+    }
+}
+
+impl std::str::FromStr for ExecBit {
+    type Err = AvError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "respect" => Ok(Self::Respect),
+            "ignore" => Ok(Self::Ignore),
+            v => Err(AvError::Invalid(format!(
+                "exec bit must be auto, respect or ignore, got {v}"
+            ))),
+        }
+    }
+}
+
 fn verr<E: std::fmt::Display>(e: E) -> AvError {
     AvError::Vcs(e.to_string())
 }
@@ -78,6 +117,7 @@ fn verr<E: std::fmt::Display>(e: E) -> AvError {
 struct Inner {
     store_root: PathBuf,
     ws_root: PathBuf,
+    exec_bit: ExecBit,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     loaders: Mutex<HashMap<String, RepoLoader>>,
 }
@@ -93,10 +133,19 @@ impl JjVcs {
             inner: Arc::new(Inner {
                 store_root,
                 ws_root,
+                exec_bit: ExecBit::default(),
                 locks: Mutex::new(HashMap::new()),
                 loaders: Mutex::new(HashMap::new()),
             }),
         }
+    }
+
+    /// Set before the `JjVcs` is cloned or used.
+    pub fn with_exec_bit(mut self, exec_bit: ExecBit) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_exec_bit on a JjVcs already cloned")
+            .exec_bit = exec_bit;
+        self
     }
 
     /// Runs `f` on a blocking thread holding the per-repo lock (jj-lib futures are driven with `pollster`).
@@ -134,11 +183,15 @@ impl JjVcs {
     }
 }
 
-fn settings() -> Result<UserSettings> {
+fn settings(exec_bit: ExecBit) -> Result<UserSettings> {
     let mut config = StackedConfig::with_defaults();
     let layer = ConfigLayer::parse(
         ConfigSource::User,
-        "user.name = \"Margincode\"\nuser.email = \"margincode@localhost\"\n",
+        &format!(
+            "user.name = \"Margincode\"\nuser.email = \"margincode@localhost\"\n\
+             working-copy.exec-bit-change = \"{}\"\n",
+            exec_bit.as_jj()
+        ),
     )
     .map_err(verr)?;
     config.add_layer(layer);
@@ -250,9 +303,12 @@ impl Inner {
         if !path.is_dir() {
             return Err(AvError::NotFound(format!("repo {repo}")));
         }
-        let loader =
-            RepoLoader::init_from_file_system(&settings()?, &path, &default_backend_factories())
-                .map_err(verr)?;
+        let loader = RepoLoader::init_from_file_system(
+            &settings(self.exec_bit)?,
+            &path,
+            &default_backend_factories(),
+        )
+        .map_err(verr)?;
         map.insert(repo.to_owned(), loader.clone());
         Ok(loader)
     }
@@ -278,7 +334,7 @@ impl Inner {
                 loader.store().clone(),
                 root.to_path_buf(),
                 root.join(".jj").join("working_copy"),
-                &settings()?,
+                &settings(self.exec_bit)?,
             )
             .map_err(verr)?;
         let ws = Workspace::new(root, self.jj_repo_path(repo), working_copy, loader.clone())
@@ -344,7 +400,7 @@ impl Inner {
         std::fs::write(dir.join("trunk"), &trunk).map_err(verr)?;
 
         let (_ws, repo_ro) = block_on(Workspace::init_external_git(
-            &settings()?,
+            &settings(self.exec_bit)?,
             &dir.join("main"),
             &git_dir,
         ))
@@ -576,8 +632,9 @@ impl Inner {
             None => store.empty_merged_tree(),
         };
         // the style the working copy writes conflicts in, so a patch shows what a workspace has
-        let style: ConflictMarkerStyle =
-            settings()?.get("ui.conflict-marker-style").map_err(verr)?;
+        let style: ConflictMarkerStyle = settings(self.exec_bit)?
+            .get("ui.conflict-marker-style")
+            .map_err(verr)?;
         block_on(async {
             let mut stream = from_tree.diff_stream(&to_tree, &EverythingMatcher);
             let mut diffs = vec![];

@@ -616,3 +616,88 @@ async fn diff_patch_between_two_heads_applies_with_git() {
             .is_empty()
     );
 }
+
+/// A repo holding a plain `a.py` and an executable `run.sh`, imported with `exec_bit`.
+#[cfg(unix)]
+async fn exec_env(exec_bit: margincode_vcs::ExecBit) -> (Env, std::path::PathBuf) {
+    let src = TempDir::new().unwrap();
+    git(src.path(), &["init", "-q", "-b", "main"]);
+    std::fs::write(src.path().join("a.py"), "def a():\n    return 1\n").unwrap();
+    std::fs::write(src.path().join("run.sh"), "#!/bin/sh\necho hi\n").unwrap();
+    git(src.path(), &["add", "-A"]);
+    git(src.path(), &["update-index", "--chmod=+x", "run.sh"]);
+    git(src.path(), &["commit", "-q", "-m", "init"]);
+    let store = TempDir::new().unwrap();
+    let ws = TempDir::new().unwrap();
+    let vcs =
+        JjVcs::new(store.path().to_path_buf(), ws.path().to_path_buf()).with_exec_bit(exec_bit);
+    let main = vcs.init_repo("demo", src.path()).await.unwrap();
+    let w = vcs.create_workspace("demo", "modes").await.unwrap();
+    let e = Env {
+        _src: src,
+        _store: store,
+        _ws: ws,
+        vcs,
+        main,
+    };
+    (e, w.path)
+}
+
+#[cfg(unix)]
+fn chmod(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// What a Windows-created file looks like on a Docker Desktop bind mount: every file reads 777.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn ignored_exec_bit_keeps_each_files_mode_from_the_repo() {
+    let (e, dir) = exec_env(margincode_vcs::ExecBit::Ignore).await;
+    std::fs::write(dir.join("a.py"), "def a():\n    return 2\n").unwrap();
+    chmod(&dir.join("a.py"), 0o777);
+    std::fs::write(dir.join("run.sh"), "#!/bin/sh\necho bye\n").unwrap();
+    chmod(&dir.join("run.sh"), 0o644);
+    std::fs::write(dir.join("new.py"), "x = 1\n").unwrap();
+    chmod(&dir.join("new.py"), 0o777);
+    let head = e.vcs.snapshot("demo", "modes").await.unwrap();
+    let diff = String::from_utf8(
+        e.vcs
+            .diff_patch("demo", Some(&e.main), &head)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!diff.contains("old mode"), "{diff}");
+    assert!(diff.contains("new file mode 100644"), "{diff}");
+    assert!(diff.contains(" 100755\n--- a/run.sh"), "{diff}");
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_bit_changes_are_recorded_by_default() {
+    let (e, dir) = exec_env(margincode_vcs::ExecBit::default()).await;
+    chmod(&dir.join("a.py"), 0o755);
+    std::fs::write(dir.join("new.sh"), "#!/bin/sh\n").unwrap();
+    chmod(&dir.join("new.sh"), 0o755);
+    let head = e.vcs.snapshot("demo", "modes").await.unwrap();
+    let diff = String::from_utf8(
+        e.vcs
+            .diff_patch("demo", Some(&e.main), &head)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(diff.contains("old mode 100644\nnew mode 100755"), "{diff}");
+    assert!(diff.contains("new file mode 100755"), "{diff}");
+}
+
+#[test]
+fn exec_bit_parses_the_three_settings() {
+    use margincode_vcs::ExecBit;
+    assert_eq!("auto".parse::<ExecBit>().unwrap(), ExecBit::Auto);
+    assert_eq!(" Ignore ".parse::<ExecBit>().unwrap(), ExecBit::Ignore);
+    assert_eq!("respect".parse::<ExecBit>().unwrap(), ExecBit::Respect);
+    assert!("off".parse::<ExecBit>().is_err());
+    assert_eq!(ExecBit::default(), ExecBit::Auto);
+}

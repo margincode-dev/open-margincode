@@ -1,4 +1,4 @@
 mod jj;
 pub mod patch;
 
-pub use jj::JjVcs;
+pub use jj::{ExecBit, JjVcs};

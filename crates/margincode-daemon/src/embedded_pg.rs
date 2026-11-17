@@ -96,11 +96,32 @@ impl EmbeddedPg {
 }
 
 fn failed(what: &str, dir: &Path, e: impl std::fmt::Display) -> AvError {
-    AvError::Store(format!(
-        "embedded postgres: could not {what} {}: {e} (Postgres refuses to run as root; \
-         AV_DATABASE_URL uses another server instead)",
+    AvError::Store(failure(what, dir, e, running_as_root()))
+}
+
+/// Says root only to root: anyone else would be sent after the wrong cause.
+fn failure(what: &str, dir: &Path, e: impl std::fmt::Display, root: bool) -> String {
+    let root_hint = if root {
+        "Postgres refuses to run as root; "
+    } else {
+        ""
+    };
+    format!(
+        "embedded postgres: could not {what} {}: {e} ({root_hint}AV_DATABASE_URL uses another \
+         server instead)",
         dir.display()
-    ))
+    )
+}
+
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    // SAFETY: geteuid has no preconditions and cannot fail
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+fn running_as_root() -> bool {
+    false
 }
 
 fn tail(path: &Path, n: usize) -> String {
@@ -123,4 +144,19 @@ fn ensure_utc_zone(installation_dir: &Path) {
         zones.join("UCT")
     };
     let _ = std::fs::copy(src, utc);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_root_hint_is_given_only_to_root() {
+        let dir = Path::new("/home/me/.margincode/pg");
+        let as_root = failure("set up", dir, "initdb failed", true);
+        let as_user = failure("set up", dir, "initdb failed", false);
+        assert!(as_root.contains("refuses to run as root"), "{as_root}");
+        assert!(!as_user.contains("root"), "{as_user}");
+        assert!(as_user.contains("AV_DATABASE_URL"), "{as_user}");
+    }
 }

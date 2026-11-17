@@ -544,6 +544,9 @@ av init                                             # path, which the daemon can
 export AV_AGENT=claude   # the agent named in .av-task; another name is refused, none only warns
 ```
 
+To run the repo's tests in a container against a task's workspace, see "Running the bar in a container"
+in `CONTRIBUTING.md`.
+
 The daemon does not reach GitHub, and `main` is protected: push the backup to a branch from Windows git,
 `git -C D:/avexport/NAME.git push https://github.com/OWNER/REPO.git main:refs/heads/av/NAME`, then open a
 pull request from that branch.

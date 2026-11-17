@@ -90,13 +90,19 @@ fn unprivileged() -> Option<(u32, u32)> {
     entry("postgres").or_else(|| entry("nobody"))
 }
 
+/// Whether the tests run as root (the effective user).
 #[cfg(unix)]
-fn is_root() -> bool {
+pub fn is_root() -> bool {
     use std::os::unix::fs::MetadataExt;
     // the owner of a file this process just made is its effective user
     tempfile::tempfile()
         .and_then(|f| f.metadata())
         .is_ok_and(|m| m.uid() == 0)
+}
+
+#[cfg(not(unix))]
+pub fn is_root() -> bool {
+    false
 }
 
 pub(crate) struct Server {

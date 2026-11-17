@@ -189,14 +189,20 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(12)]
 }
 
+/// Checked before a start or a claim too, so a bad DIR takes no work.
+pub fn check_empty(dir: &Path) -> Result<()> {
+    if dir.exists() && std::fs::read_dir(dir).map_err(local)?.next().is_some() {
+        return Err(local(format!("{} exists and is not empty", dir.display())));
+    }
+    Ok(())
+}
+
 /// Names the task's owner in `.av-task`, not the cloner: a clone does not take the claim.
 pub fn clone(client: &Client, task: &str, dir: &Path, session: &str) -> Result<Value> {
     let r = client.get(&format!("/v1/tasks/{task}"), &[])?;
     let t = &r["task"];
     let id = t["id"].as_str().unwrap_or(task).to_owned();
-    if dir.exists() && std::fs::read_dir(dir).map_err(local)?.next().is_some() {
-        return Err(local(format!("{} exists and is not empty", dir.display())));
-    }
+    check_empty(dir)?;
     std::fs::create_dir_all(dir).map_err(local)?;
     // git runs in `dir`, so every path handed to it (the separate index) must not be relative
     let dir = &std::path::absolute(dir).map_err(local)?;

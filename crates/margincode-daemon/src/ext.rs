@@ -1,19 +1,10 @@
-//! Extension points for code built on top of the daemon: extra routes (`router_with`), typed
-//! services kept in `AppState` (`with_extension`), the event feed in process
-//! (`subscribe_events`), a guard the lifecycle asks before an approval or a merge
-//! (`MergeGuard`, which also sees a submit with the paths it changes, every review verdict
-//! before it is written, and the acceptance of a proposed backlog item), extra MCP tools
-//! (`AppState::with_mcp_tools`), a sink for the usage agents report (`UsageSink`), a hook that
-//! adds to a checkpoint's answer what it knows about the new head (`CheckpointHook`), a writer of
-//! agent profiles (`AppState::put_profile`), and migrations of the extension's own tables in its own Postgres schema
-//! (`AppState::migrate_extension`, then `AppState::pool` for its queries). The daemon alone uses
-//! none of them: no extensions, a guard that allows everything the lifecycle rules allow, and a
-//! checkpoint hook that adds nothing.
+//! Extension points for code built on the daemon, which starts through `run_with` (`serve.rs`): its `customize`
+//! step gets the built `AppState`, adds the points below and returns it with its extra routes. The daemon alone uses
+//! none of them (`AllowAll`, `NoCheckpointHook`, `NoUsage`, no extensions).
 //!
-//! A binary built on the daemon starts through `run_with` (`serve.rs`): the same start-up as
-//! `margincode-daemon`, with a `customize` step that gets the built `AppState`, adds the points above
-//! and returns it with its extra routes. `AppState::shutdown` is a handle that turns `true` when
-//! the daemon stops, for the background tasks `customize` starts.
+//! Points: `router_with` (routes), `with_extension` (typed services), `subscribe_events`, `MergeGuard`,
+//! `with_mcp_tools`, `UsageSink`, `CheckpointHook`, `put_profile`, and `migrate_extension` then `pool` for the
+//! extension's own tables. `AppState::shutdown` turns `true` when the daemon stops, for `customize`'s background tasks.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -27,7 +18,6 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-/// Services of an extension, one per type.
 #[derive(Clone, Default)]
 pub(crate) struct Extensions(Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>);
 
@@ -112,7 +102,6 @@ pub trait MergeGuard: Send + Sync {
     async fn check(&self, action: Guarded<'_>) -> Result<(), String>;
 }
 
-/// The daemon's own guard: the lifecycle rules are all there is.
 pub struct AllowAll;
 
 #[async_trait]
@@ -143,7 +132,6 @@ pub trait CheckpointHook: Send + Sync {
     ) -> Result<Value, String>;
 }
 
-/// The daemon's own hook: nothing is added.
 pub struct NoCheckpointHook;
 
 #[async_trait]
@@ -158,9 +146,7 @@ impl CheckpointHook for NoCheckpointHook {
     }
 }
 
-/// `answer` plus what the hook adds for this checkpoint (see [`CheckpointHook`]): the hook's
-/// keys the answer lacks. A hook that fails, or answers something other than an object, is
-/// logged and adds nothing.
+/// `answer` plus the hook's keys that it lacks; a hook that fails or answers a non-object adds nothing.
 pub(crate) async fn with_hook(
     hook: &dyn CheckpointHook,
     task: &Task,
@@ -186,7 +172,6 @@ pub(crate) async fn with_hook(
     answer
 }
 
-/// Runs an extension's MCP tool.
 #[async_trait]
 pub trait ToolHandler: Send + Sync {
     /// `agent` is the calling session's agent name, `args` the arguments, already checked against
@@ -220,7 +205,6 @@ impl ExtTool {
         }
     }
 
-    /// The `tools/list` entry.
     pub(crate) fn definition(&self) -> Value {
         serde_json::json!({"name": self.name, "description": self.description,
                            "inputSchema": self.input_schema})
@@ -253,7 +237,6 @@ pub trait UsageSink: Send + Sync {
     async fn report(&self, report: UsageReport) -> Result<(), String>;
 }
 
-/// The daemon's own sink: reports are accepted and nothing is stored.
 pub struct NoUsage;
 
 #[async_trait]

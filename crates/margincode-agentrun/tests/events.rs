@@ -1,6 +1,3 @@
-//! The stream-json parser (moved from `margincode-bench`; its other tests still run there through
-//! the re-export).
-
 use margincode_agentrun::events::{Usage, parse_stream};
 
 const STREAM: &str = r#"{"type":"system","subtype":"init","cwd":"/w"}

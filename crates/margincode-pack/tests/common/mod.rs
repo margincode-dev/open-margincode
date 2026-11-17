@@ -212,7 +212,6 @@ pub fn req(task: &Task, budget: u32, session: &str) -> PackRequest {
     }
 }
 
-/// First `prefix` + `n` chars id token found in `text`, e.g. `rec:1a2b3c4d`.
 pub fn find_id(text: &str, prefix: &str) -> Option<String> {
     let start = text.find(prefix)?;
     let rest = &text[start + prefix.len()..];

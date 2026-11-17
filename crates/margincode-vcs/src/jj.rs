@@ -165,8 +165,7 @@ const PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// Longest the fetch of `advance_trunk` may take before its git process is killed.
 const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// A remote URL or path as git's argument: never one git could read as an option or a command
-/// (`ext::`). `verb` says what for, in the error.
+/// Rejects a remote git could read as an option or a command (`ext::`).
 fn remote_arg<'a>(remote_url: &'a str, verb: &str) -> Result<&'a str> {
     let url = remote_url.trim();
     if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
@@ -177,7 +176,6 @@ fn remote_arg<'a>(remote_url: &'a str, verb: &str) -> Result<&'a str> {
     Ok(url)
 }
 
-/// A branch name checked by `check_backup_branch` and by git itself; returns `refs/heads/<b>`.
 fn branch_ref(git_dir: &Path, branch: &str) -> Result<String> {
     margincode_core::check_backup_branch(branch)?;
     let full = format!("refs/heads/{branch}");
@@ -243,7 +241,6 @@ impl Inner {
         self.repo_dir(repo).join("main").join(".jj").join("repo")
     }
 
-    /// The repo's shared loader, opened on first use.
     fn loader(&self, repo: &str) -> Result<RepoLoader> {
         let mut map = self.loaders.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(l) = map.get(repo) {
@@ -393,8 +390,6 @@ impl Inner {
         })
     }
 
-    /// Adds the jj workspace `slug` at its directory (which must not exist) with its working-copy
-    /// commit placed at `commit` as `at` says, and writes that commit's files there.
     fn create_workspace_at(
         &self,
         repo: &str,
@@ -547,8 +542,8 @@ impl Inner {
         Ok(ChangeId(head.hex()))
     }
 
-    /// Plan 14: writes what `patch` does into the workspace's files (deletions first). Every
-    /// file of the patch is worked out against the files on disk before any is written.
+    /// Writes what `patch` does into the workspace's files (deletions first). Every file of the
+    /// patch is worked out against the files on disk before any is written.
     fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> Result<Vec<String>> {
         Self::task_workspace(slug)?;
         let dir = self.ws_dir(repo, slug);
@@ -573,7 +568,6 @@ impl Inner {
         Ok(applied.into_iter().map(|a| a.path).collect())
     }
 
-    /// Plan 14: `from` (the empty tree when `None`) to `to` as a git-format patch.
     fn diff_patch(&self, repo: &str, from: Option<&ChangeId>, to: &ChangeId) -> Result<Vec<u8>> {
         let store = self.store(repo)?;
         let to_tree = self.commit(&store, to)?.tree();
@@ -666,8 +660,7 @@ impl Inner {
     }
 }
 
-/// One side of a path for a patch, as a workspace would hold it: conflicts with their markers,
-/// a symlink as its target. A submodule (or a tree) is not part of a patch.
+/// A path's side as a workspace holds it: conflicts with markers, a symlink as its target.
 async fn blob_of(
     store: &Arc<Store>,
     path: &RepoPath,
@@ -782,7 +775,6 @@ fn set_executable(_file: &Path, _exec: bool) -> Result<()> {
     Ok(())
 }
 
-/// Removes the directories above `file` that a deletion left empty, up to (not including) `root`.
 fn prune_empty_dirs(root: &Path, file: &Path) {
     let mut dir = file.parent();
     while let Some(d) = dir {
@@ -793,7 +785,6 @@ fn prune_empty_dirs(root: &Path, file: &Path) {
     }
 }
 
-/// Paths of the conflicted files in `tree`.
 fn conflict_paths(tree: &MergedTree) -> Vec<String> {
     let mut paths: Vec<String> = tree
         .conflicts()
@@ -962,7 +953,6 @@ impl Inner {
         Ok(out)
     }
 
-    /// Points trunk at `target`, exports it to the bare git dir and commits the operation.
     fn move_trunk(
         &self,
         repo: &str,
@@ -1196,7 +1186,6 @@ impl Vcs for JjVcs {
             let mut names = Vec::new();
             for entry in std::fs::read_dir(&root).map_err(verr)? {
                 let entry = entry.map_err(verr)?;
-                // a repo is a directory with a jj repo in its default workspace
                 if entry.path().join("main/.jj/repo").is_dir()
                     && let Some(n) = entry.file_name().to_str()
                 {

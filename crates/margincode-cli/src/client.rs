@@ -38,7 +38,6 @@ impl fmt::Display for CliError {
     }
 }
 
-/// This build's version, compared with the daemon's `X-Av-Version`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Characters of a plain-text error body shown in the message (a proxy's HTML page can be long).
@@ -49,9 +48,7 @@ pub type Result<T> = std::result::Result<T, CliError>;
 pub struct Client {
     base: String,
     agent: ureq::Agent,
-    /// `Authorization: Bearer …` on every request when set.
     token: Option<String>,
-    /// The version warning is printed once per process.
     warned: std::cell::Cell<bool>,
 }
 
@@ -80,8 +77,7 @@ impl Client {
         self.post_as(path, body, None)
     }
 
-    /// `post` made under claim `generation` (`X-Av-Generation`); the daemon refuses it once the
-    /// task has been claimed again.
+    /// The daemon refuses it once the task has been claimed again.
     pub fn post_as(&self, path: &str, body: &Value, generation: Option<i64>) -> Result<Value> {
         let mut req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
         if let Some(g) = generation {
@@ -90,8 +86,7 @@ impl Client {
         self.finish(path, req.send_json(body))
     }
 
-    /// `post` of a claim or `next`, asking the daemon to name the owner in the `.av-task` it hands
-    /// out (`X-Av-Name-Owner`, T1a), as this process then writes it too.
+    /// Asks the daemon to name the owner in the `.av-task` it hands out (`X-Av-Name-Owner`).
     pub fn post_naming_owner(&self, path: &str, body: &Value) -> Result<Value> {
         let req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
         self.finish(path, req.set("x-av-name-owner", "1").send_json(body))
@@ -147,7 +142,6 @@ impl Client {
         self.finish(path, req.send_bytes(body))
     }
 
-    /// `get` of a raw body with the response headers named in `want`, in that order.
     pub fn get_bytes_with(
         &self,
         path: &str,
@@ -174,7 +168,6 @@ impl Client {
         }
     }
 
-    /// `get` of a raw (non-JSON) body.
     pub fn get_bytes(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<u8>> {
         let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
         for (k, v) in query {
@@ -191,7 +184,6 @@ impl Client {
         }
     }
 
-    /// Warn once on stderr when the daemon (`X-Av-Version`) is another build than this av.
     fn check_version(&self, resp: &ureq::Response) {
         if let Some(v) = resp.header("x-av-version")
             && v != VERSION
@@ -219,8 +211,7 @@ impl Client {
                 .map_err(|e| CliError::Local(format!("bad response from daemon: {e}"))),
             Err(ureq::Error::Status(status, resp)) => {
                 let daemon = resp.header("x-av-version").map(str::to_owned);
-                // Not every error is the daemon's JSON: axum answers a path or body it cannot
-                // parse (`/v1/backlog/not-a-uuid/accept`) in plain text, which says what is wrong.
+                // axum answers a path or body it cannot parse in plain text, which says what is wrong.
                 let text = resp.into_string().unwrap_or_default();
                 let body = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
                 let plain = text.trim();

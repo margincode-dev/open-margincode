@@ -99,10 +99,8 @@ pub struct NewVerdict<'a> {
     pub dream: Option<Uuid>,
 }
 
-/// A record a dream may look at, with what the worklist's ranking needs.
 pub struct DreamCandidate {
     pub record: Record,
-    /// Whether any verdict was ever written on it.
     pub had_verdict: bool,
     /// The highest score at which a review run that finished (`done`) was handed it and wrote
     /// no verdict on it; `None` when no run did.
@@ -264,7 +262,6 @@ impl PgStore {
         }
     }
 
-    /// Whether the dream is running and inside its lease.
     pub fn dream_live(d: &Dream) -> bool {
         d.status == "running" && d.lease_expires > Utc::now()
     }
@@ -532,7 +529,6 @@ impl PgStore {
             .collect()
     }
 
-    /// An event of `repo` by its id, if there is one.
     pub async fn event_in_repo(&self, repo: &str, id: i64) -> Result<bool> {
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM events WHERE id = $1 AND repo = $2)")
             .bind(id)

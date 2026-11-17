@@ -16,7 +16,6 @@ const UP_TIMEOUT: Duration = Duration::from_secs(180);
 /// The daemon stops its Postgres before it exits.
 const DOWN_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// `$AV_HOME`, else `~/.margincode` (the daemon uses the same default).
 pub fn av_home() -> PathBuf {
     margincode_agentrun::slots::av_home()
 }
@@ -44,7 +43,6 @@ fn healthy(client: &Client) -> bool {
     client.get_text("/healthz").is_ok()
 }
 
-/// Port of a daemon URL on this machine; `None` for any other host.
 fn local_port(url: &str) -> Option<u16> {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split('/').next().unwrap_or_default();
@@ -55,7 +53,6 @@ fn local_port(url: &str) -> Option<u16> {
     matches!(host, "localhost" | "127.0.0.1" | "[::1]").then_some(port)
 }
 
-/// `margincode-daemon`: `$AV_DAEMON_BIN`, else next to this executable, else on `PATH`.
 fn daemon_bin() -> Result<PathBuf> {
     if let Some(bin) = env_path("AV_DAEMON_BIN") {
         return Ok(bin);
@@ -82,7 +79,6 @@ fn daemon_bin() -> Result<PathBuf> {
         })
 }
 
-/// Starts a daemon for `url` in the background unless one already answers there.
 pub fn up(client: &Client, url: &str) -> Result<()> {
     if healthy(client) {
         println!("daemon already running at {url} (dashboard: {url}/ui)");
@@ -162,11 +158,8 @@ pub fn up(client: &Client, url: &str) -> Result<()> {
     Ok(())
 }
 
-/// `daemon.log` larger than this moves to `daemon.log.1` when `av up` starts a daemon.
 const LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Moves `path` to `<path>.1` (replacing an older one) when it is larger than `max` bytes; says
-/// whether it did. A missing log is not an error.
 fn rotate_log(path: &Path, max: u64) -> std::io::Result<bool> {
     match std::fs::metadata(path) {
         Ok(m) if m.len() > max => {
@@ -185,7 +178,6 @@ fn rotate_log(path: &Path, max: u64) -> std::io::Result<bool> {
     }
 }
 
-/// The last 20 lines written to the log since `offset`.
 fn log_tail(path: &Path, offset: u64) -> String {
     let text = std::fs::read(path).unwrap_or_default();
     let new = String::from_utf8_lossy(text.get(offset as usize..).unwrap_or_default()).into_owned();
@@ -193,7 +185,6 @@ fn log_tail(path: &Path, offset: u64) -> String {
     lines[lines.len().saturating_sub(20)..].join("\n")
 }
 
-/// Stops the daemon `av up` started.
 pub fn down(client: &Client, url: &str) -> Result<()> {
     let pid_path = av_home().join("daemon.pid");
     let Ok(text) = std::fs::read_to_string(&pid_path) else {
@@ -262,7 +253,6 @@ fn signal(pid: &str, _sig: &str) -> Result<()> {
     )))
 }
 
-/// A repo name from a directory name: one path component of letters, digits, `.`, `_`, `-`.
 pub fn repo_name(dir: &Path) -> String {
     let raw = dir
         .file_name()
@@ -286,7 +276,6 @@ pub fn repo_name(dir: &Path) -> String {
     }
 }
 
-/// `av init`: daemon up (when it is local), this git repository added, `agents` wired.
 /// `mcp_json` is the file for [`Agent::McpJson`]; `agent_name` is written as `X-Av-Agent`.
 pub fn init(
     client: &Client,
@@ -434,8 +423,7 @@ fn stop_hook() -> Value {
     h
 }
 
-/// Merges the `SessionStart`, `PreToolUse`, `PostToolUse` and `Stop` hooks into Claude Code's settings,
-/// replacing earlier Margincode hooks; the previous file is kept as `settings.json.bak`.
+/// Replaces earlier Margincode hooks; the previous file is kept as `settings.json.bak`.
 pub fn install_claude_hooks(path: &Path) -> Result<()> {
     let mut settings: Value = match std::fs::read_to_string(path) {
         Ok(text) => serde_json::from_str(&text).map_err(|e| {
@@ -504,7 +492,6 @@ pub fn install_claude_hooks(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `path` is `~/.claude/settings.json`: the home directory, when the parent is `.claude`.
 fn claude_config_home(path: &Path) -> Option<PathBuf> {
     let dir = path.parent()?;
     if dir.file_name().and_then(|s| s.to_str()) != Some(".claude") {
@@ -513,8 +500,7 @@ fn claude_config_home(path: &Path) -> Option<PathBuf> {
     dir.parent().map(PathBuf::from)
 }
 
-/// Whether `~/.claude/settings.json` already loads an av hook. Grok reads that file, so a second
-/// copy in `~/.grok/hooks` would fire twice.
+/// Grok reads that file, so a second copy in `~/.grok/hooks` would fire twice.
 fn claude_settings_have_ours(path: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
@@ -551,7 +537,6 @@ pub fn install_grok_hooks(home_dir: &Path, claude_in_this_run: bool) -> Result<b
     Ok(true)
 }
 
-/// Merges `add` into a hooks JSON file, replacing earlier Margincode entries for those events.
 fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
     let mut settings: Value = match std::fs::read_to_string(path) {
         Ok(text) => serde_json::from_str(&text).map_err(|e| {
@@ -593,8 +578,7 @@ fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
     agents::write_with_backup(path, &text)
 }
 
-/// Removes our hook entries from `path`. Deletes the file when that leaves nothing else.
-/// A missing file is fine. A file that is not JSON is left as it is.
+/// Deletes the file when nothing else is left; a missing or non-JSON file is left as it is.
 fn strip_our_hooks_file(path: &Path) -> Result<()> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -638,12 +622,10 @@ fn strip_our_hooks_file(path: &Path) -> Result<()> {
     std::fs::write(path, text).map_err(|e| local(format!("cannot write {}: {e}", path.display())))
 }
 
-/// The global `--agent` when neither it nor `AV_AGENT` is given.
 pub const DEFAULT_AGENT: &str = "agent";
 
-/// Registers the MCP server with Claude Code (user scope) when its CLI is installed; otherwise
-/// prints the command. `agent` is sent as `X-Av-Agent`, so MCP calls are made under the name
-/// `av next` and the hooks use, not under Claude Code's client name.
+/// `agent` is sent as `X-Av-Agent`, so MCP calls are made under the name `av next` and the hooks
+/// use, not under Claude Code's client name.
 fn claude_mcp(mcp_url: &str, token: Option<&str>, agent: Option<&str>) {
     let mut args = vec![
         "mcp".to_owned(),
@@ -718,7 +700,6 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let log = dir.path().join("daemon.log");
         let old = dir.path().join("daemon.log.1");
-        // no log yet: nothing to do
         assert!(!rotate_log(&log, 10).unwrap());
 
         std::fs::write(&log, "small").unwrap();
@@ -776,8 +757,6 @@ mod tests {
                 .unwrap()
                 .contains("av hook stop")
         );
-        // The Stop hook waits up to AV_HOOK_WAIT_SECS; its timeout must be above that, and av init
-        // must not drop the one install.sh set.
         let timeout = stop[1]["hooks"][0]["timeout"].as_u64().unwrap();
         assert_eq!(timeout, crate::hook::stop_timeout_secs());
         assert_eq!(crate::hook::stop_timeout_for(600), 660);
@@ -825,7 +804,6 @@ mod tests {
         assert_eq!(crate::hook::stop_timeout_for(600), 660);
         assert!(v["hooks"].get("PreToolUse").is_none(), "{v}");
         assert_eq!(v["hooks"]["Stop"].as_array().unwrap().len(), 1);
-        // a hook the user added in the same file stays
         let path = dir.path().join(".grok/hooks/av.json");
         let mut edited = v.clone();
         edited["hooks"]["Notification"] =
@@ -861,7 +839,6 @@ mod tests {
                 .unwrap()
                 .contains("\"model\"")
         );
-        // this init is about to install Claude's hooks, so it does not write the grok file
         let bare = tempfile::tempdir().unwrap();
         assert!(!install_grok_hooks(bare.path(), true).unwrap());
         assert!(!bare.path().join(".grok/hooks/av.json").exists());

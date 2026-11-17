@@ -1,17 +1,12 @@
-//! `.av-task`: the definition is `margincode_core::taskfile`, shared with the daemon (F14).
-
 pub use margincode_core::taskfile::*;
 
 use serde_json::Value;
 
 use crate::client::Client;
 
-/// The owner a file the CLI writes names (`task`'s `owner_agent`, the daemon's name for it: a
-/// profile's name an alias resolved to, or an alias the task was started or claimed under), with
-/// the other names its profile goes by (`other_names`), as the daemon's `owner_of` writes them
-/// (T1a): a process acting under any of the owner's names holds the claim, and one acting under
-/// another name does not. Names nobody when the profiles cannot be read: an owner named without
-/// its other names could be fenced.
+/// The owner a file the CLI writes names, with its profile's other names, as the daemon's
+/// `owner_of` writes them. Names nobody when the profiles cannot be read: an owner named
+/// without its other names could be fenced.
 pub fn owned_by(client: &Client, task: &Value) -> (Option<String>, Vec<String>) {
     let Some(owner) = task["owner_agent"]
         .as_str()

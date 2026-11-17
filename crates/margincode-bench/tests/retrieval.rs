@@ -15,8 +15,6 @@ const GREETER_FIX: &str = "from app.util import format_name\n\n\nclass Greeter:\
 const UTIL: &str = "def format_name(n):\n    return n.strip().title()\n";
 const BILLING: &str = "def invoice_total(lines):\n    return sum(l.amount for l in lines)\n\n\ndef apply_discount(total, pct):\n    return total * (1 - pct / 100)\n";
 
-/// base: greeter, util, billing. fix: `Greeter.hello` gains a "!" and a test file appears.
-/// Then a docs-only commit. Returns (base, fix).
 fn repo(dir: &Path) -> (String, String) {
     git(dir, &["init", "-q", "-b", "main"]);
     std::fs::create_dir_all(dir.join("app")).unwrap();

@@ -27,8 +27,10 @@ enum FakeKind {
     /// One vector per input. Each vector is `[index, 0.5, 1.5]`.
     Mirror,
     /// First request returns `first_dim`; later requests return `later_dim`.
-    DimThen { first_dim: usize, later_dim: usize },
-    /// Always one vector, however many inputs were posted.
+    DimThen {
+        first_dim: usize,
+        later_dim: usize,
+    },
     OneVector,
 }
 

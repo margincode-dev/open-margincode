@@ -24,7 +24,6 @@ const AGENT: &str = "scale-agent";
 const CODE_EXT: &[&str] = &["py", "rs", "ts", "tsx"];
 
 pub struct ScaleArgs {
-    /// The repo's name in the daemon.
     pub name: String,
     /// The clone, as this process sees it.
     pub repo: PathBuf,
@@ -34,9 +33,7 @@ pub struct ScaleArgs {
     pub agents: Vec<usize>,
     pub samples: usize,
     pub reps: usize,
-    /// Reads the daemon's resident memory from `/proc` when given.
     pub daemon_pid: Option<u32>,
-    /// Reads the database size with `psql` when given.
     pub database_url: Option<String>,
 }
 
@@ -149,7 +146,6 @@ fn is_code(path: &str) -> bool {
         .is_some_and(|(_, ext)| CODE_EXT.contains(&ext))
 }
 
-/// `n` paths spread evenly over `files` (deterministic).
 fn spread(files: &[String], n: usize) -> Vec<String> {
     if files.is_empty() || n == 0 {
         return vec![];
@@ -174,7 +170,6 @@ fn with_content(repo: &Path, files: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The comment marker for a source file's language.
 fn comment(path: &str) -> &'static str {
     if path.ends_with(".py") { "#" } else { "//" }
 }
@@ -208,7 +203,6 @@ fn append_line(ws: &Path, path: &str, text: &str) -> Result<()> {
     writeln!(f, "{} {text}", comment(path)).map_err(|e| format!("{path}: {e}"))
 }
 
-/// The latencies, and the directory that holds the repo's workspaces.
 fn latency(
     d: &Daemon,
     a: &ScaleArgs,
@@ -260,7 +254,6 @@ fn latency(
     Ok((t.stats(), ws_root))
 }
 
-/// One agent's whole task, from start to merge.
 fn agent_task(
     d: &Daemon,
     a: &ScaleArgs,
@@ -370,7 +363,6 @@ fn memory(pid: u32) -> (Option<u64>, Option<u64>) {
     (field("VmRSS:"), field("VmHWM:"))
 }
 
-/// Disk used under `dir`, in MB (`du`).
 fn disk_mb(dir: &Path) -> Option<f64> {
     let out = Command::new("du").arg("-sk").arg(dir).output().ok()?;
     let kb: f64 = String::from_utf8_lossy(&out.stdout)

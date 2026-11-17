@@ -122,7 +122,6 @@ pub(crate) fn overlay_head(task: &Task) -> &ChangeId {
     }
 }
 
-/// True when the overlay's `main_at` lags `main`'s indexed tip (or either is missing).
 pub(crate) async fn overlay_needs_reconcile(
     state: &AppState,
     repo: &str,
@@ -221,7 +220,6 @@ pub(crate) async fn replace_task_overlay(
     Ok(warnings)
 }
 
-/// Rebuilds a task's overlay after undo/revert restored its scope.
 pub(crate) async fn rebuild_task_overlay(state: &AppState, task: &Task) -> Result<()> {
     replace_task_overlay(state, &task.repo, &task.slug, overlay_head(task)).await?;
     Ok(())

@@ -1,9 +1,6 @@
-//! E1 as a CI regression gate: the pack's retrieval scores on a small checked-in repository
-//! (`bench/retrieval/ci/`) may not fall below checked-in floors. It runs the real `retrieval::run`
-//! against a real daemon, the same scorer as the full benchmark, with no semantic layer (a hash
-//! embedder carries no meaning, so it would only add noise). So it guards the lexical, structural
-//! and budgeting parts of the packer, not the embedding model. `bench/retrieval/README.md` says
-//! how to update the floors.
+//! CI regression gate: the pack's retrieval scores on the checked-in `bench/retrieval/ci/` repository may not fall
+//! below checked-in floors. No semantic layer (a hash embedder carries no meaning), so it guards the lexical,
+//! structural and budgeting parts of the packer only; `bench/retrieval/README.md` says how to update the floors.
 
 use std::path::{Path, PathBuf};
 
@@ -17,8 +14,7 @@ use tempfile::TempDir;
 /// the packer moves several tasks at once.
 const MARGIN: f64 = 0.03;
 
-/// Tight on purpose: the fixture is 12 small files, so from about 1000 tokens everything fits and
-/// any ranking scores 1.0.
+/// Tight on purpose: in this 12-file fixture everything fits from about 1000 tokens and any ranking scores 1.0.
 const BUDGETS: [u32; 3] = [300, 450, 600];
 
 /// Each mean over the 9 fixture tasks as measured when the gate was added, minus `MARGIN`,
@@ -50,8 +46,6 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// Builds the fixture repo: one base commit, and per task a fix commit (the task's patch) on its
-/// own branch off the base. Returns the tasks.
 fn tasks(dir: &Path) -> Vec<RetrievalTask> {
     let ci = ci_dir();
     copy_tree(&ci.join("repo"), dir);

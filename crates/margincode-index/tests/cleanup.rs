@@ -80,7 +80,6 @@ async fn drop_scope_removes_symbols_but_not_parse_cache_entries() {
         chunks,
         "one vector delete per chunk"
     );
-    // dropping a scope that does not exist is fine
     idx.drop_scope("demo", "nothing").await.unwrap();
 }
 

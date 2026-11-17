@@ -1,5 +1,4 @@
-//! Migrations of code built on the daemon (an extension): they run in the extension's own schema
-//! with their own `_sqlx_migrations`, so their numbers never meet the daemon's.
+//! Extension migrations run in the extension's own schema with their own `_sqlx_migrations`.
 
 use margincode_core::AvError;
 use margincode_store::PgStore;

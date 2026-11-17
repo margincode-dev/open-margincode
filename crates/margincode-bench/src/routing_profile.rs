@@ -144,8 +144,7 @@ struct Rated<'a> {
     cost: Option<u64>,
 }
 
-/// One decision per agent that appears, for every tag that appears. Missing pairs count as
-/// no trials (inconclusive).
+/// One decision per agent for every tag that appears; missing pairs count as no trials (inconclusive).
 pub fn decide(cells: &[Cell]) -> Vec<CellDecision> {
     let mut tags: Vec<&str> = cells.iter().map(|c| c.tag.as_str()).collect();
     tags.sort_by(|a, b| tag_rank(a).cmp(&tag_rank(b)).then(a.cmp(b)));
@@ -230,8 +229,7 @@ fn why_inconclusive(cells: &[Cell], tag: &str, agent: &str) -> String {
     }
 }
 
-/// `av agent set` lines for agents whose every cell is conclusive, and a `#` note for the rest.
-/// Notes are not commands. Order is by agent name; tags follow [`TAG_ORDER`].
+/// `av agent set` lines for agents whose every cell is conclusive, and a `#` note for the rest (notes are not commands).
 pub fn commands(cells: &[Cell], decisions: &[CellDecision]) -> Vec<String> {
     let mut agents: Vec<&str> = decisions.iter().map(|d| d.agent.as_str()).collect();
     agents.sort_unstable();
@@ -294,7 +292,6 @@ fn wilson_cell(cell: Option<&Cell>) -> String {
     }
 }
 
-/// The table, then the commands. Field rules are the leading `#` lines.
 pub fn render(cells: &[Cell]) -> String {
     let decisions = decide(cells);
     let mut rows: Vec<[String; 8]> = vec![];

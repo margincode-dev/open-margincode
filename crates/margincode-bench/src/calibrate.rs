@@ -5,16 +5,12 @@
 use crate::Result;
 use crate::stats::median;
 
-/// One pack: its cl100k count and the input tokens a probe call with it measured (overhead
-/// included).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Probe {
     pub cl100k: u64,
     pub measured_with_overhead: u64,
 }
 
-/// `(measured - overhead) / cl100k` per pack, skipping packs that measure nothing above the
-/// overhead or have no tokens (their ratio is undefined).
 pub fn ratios(probes: &[Probe], overhead: u64) -> Vec<f64> {
     probes
         .iter()
@@ -25,7 +21,6 @@ pub fn ratios(probes: &[Probe], overhead: u64) -> Vec<f64> {
         .collect()
 }
 
-/// The median ratio, rounded up to two decimals.
 pub fn recommended_factor(probes: &[Probe], overhead: u64) -> Result<f64> {
     let r = ratios(probes, overhead);
     let m = median(&r)
@@ -33,7 +28,6 @@ pub fn recommended_factor(probes: &[Probe], overhead: u64) -> Result<f64> {
     Ok((m * 100.0 - 1e-9).ceil() / 100.0)
 }
 
-/// `(tiktoken estimate - measured) / measured`, `None` when nothing was measured.
 pub fn estimate_error(cl100k: u64, measured: u64) -> Option<f64> {
     (measured > 0).then(|| (cl100k as f64 - measured as f64) / measured as f64)
 }

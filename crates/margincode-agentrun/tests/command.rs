@@ -228,7 +228,6 @@ sleep 60"#,
     );
 }
 
-/// The output of `id FLAG [USER]`, as a number.
 fn id(args: &[&str]) -> Option<u32> {
     let out = std::process::Command::new("id").args(args).output().ok()?;
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()

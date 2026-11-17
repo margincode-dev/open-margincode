@@ -1,5 +1,3 @@
-//! The `repos` table: every imported repo, where it came from and when it was added.
-
 use margincode_core::*;
 use margincode_store::PgStore;
 use margincode_testutil::TestDb;
@@ -21,7 +19,6 @@ async fn repos_are_listed_by_name_and_a_second_register_keeps_the_first_source()
     assert_eq!(names, ["alpha", "zeta"]);
     assert_eq!(repos[0].git_source, None);
     assert_eq!(repos[1].git_source.as_deref(), Some("/src/zeta"));
-    // a backfill that does know the source fills in a missing one
     store
         .register_repo("alpha", Some("/src/alpha"))
         .await

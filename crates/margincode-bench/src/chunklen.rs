@@ -30,8 +30,6 @@ pub const KS: [usize; 3] = [8, 20, 40];
 /// A gold symbol longer than this is "long": the cap in force when this was measured.
 pub const LONG: usize = 2000;
 
-// ---------------------------------------------------------------- arms
-
 /// How a symbol's chunk becomes the text(s) that are embedded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Arm {
@@ -163,8 +161,6 @@ pub fn windows(header: &str, body: &str, size: usize, overlap: usize) -> Vec<Str
     }
     out
 }
-
-// ---------------------------------------------------------------- symbols
 
 /// One symbol's chunk, as the index would build it (the first symbol of each `(path, qname)`).
 #[derive(Debug, Clone)]
@@ -319,8 +315,6 @@ pub fn files_at(repo: &Path, rev: &str) -> Result<BTreeMap<String, Vec<u8>>> {
     Ok(files)
 }
 
-// ---------------------------------------------------------------- embedders
-
 /// An embedding endpoint, called the way `margincode-semantic` calls it.
 #[derive(Debug, Clone)]
 pub enum Endpoint {
@@ -451,8 +445,6 @@ impl Endpoint {
         }
     }
 }
-
-// ---------------------------------------------------------------- vector cache
 
 type Key = [u8; 16];
 
@@ -600,8 +592,6 @@ fn normalized(v: &[f32]) -> Vec<f32> {
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
-
-// ---------------------------------------------------------------- scoring
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Metrics {
@@ -923,8 +913,6 @@ fn measure_tokens(
     }
     Ok(out)
 }
-
-// ---------------------------------------------------------------- report
 
 fn mean(v: &[f64]) -> f64 {
     if v.is_empty() {

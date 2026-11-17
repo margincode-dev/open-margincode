@@ -32,7 +32,6 @@ fn git(dir: &Path, args: &[&str]) {
     );
 }
 
-/// A real daemon on an ephemeral port, in its own thread/runtime; dropped = shut down cleanly.
 struct Daemon {
     url: String,
     ws: PathBuf,
@@ -56,7 +55,6 @@ fn start_daemon() -> Daemon {
     start_daemon_with(None)
 }
 
-/// A daemon that requires `token` (`AV_TOKEN`) when it is set.
 fn start_daemon_with(token: Option<&str>) -> Daemon {
     let token = token.map(str::to_owned);
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -163,7 +161,6 @@ fn ok(o: Output) -> String {
     out(&o)
 }
 
-/// Daemon + registered repo + started task; returns (daemon, workspace dir, scratch cwd).
 fn started() -> (Daemon, PathBuf, TempDir) {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();
@@ -399,7 +396,6 @@ fn record_json_checks_every_item_before_sending_any() {
     );
 }
 
-/// The `rec:<8 hex>` handle in a `recorded rec:… (kind)` line.
 fn recorded_handle(line: &str) -> String {
     let at = line.find("rec:").unwrap_or_else(|| panic!("{line}"));
     line[at..at + 12].to_owned()
@@ -455,13 +451,11 @@ fn record_supersedes_corrects_a_record_of_another_task() {
         line.trim(),
         format!("recorded {fixed} (note), supersedes {wrong}")
     );
-    // the correction took the old record's anchor, and the old record is no longer shown
     let md = ok(av(&d, &ws, &["context", "--budget", "3000", "--fresh"]));
     assert!(md.contains("caching hello works with a ttl"), "{md}");
     assert!(md.contains("anchors: app/greeter.py"), "{md}");
     assert!(!md.contains("can never work"), "{md}");
 
-    // per entry in the batch form too
     let batch = format!(
         r#"[{{"kind": "note", "summary": "the ttl is 60 seconds", "supersedes": "{fixed}"}}]"#
     );
@@ -472,7 +466,6 @@ fn record_supersedes_corrects_a_record_of_another_task() {
         "{line}"
     );
 
-    // a refusal says why, and names the record to correct instead
     let again = av(
         &d,
         &ws,
@@ -574,7 +567,6 @@ fn show_diff_and_path_log_read_without_a_workspace() {
     )
     .unwrap();
     ok(av(&d, &ws, &["checkpoint"]));
-    // From outside any workspace: everything is read from the daemon.
     let main = ok(av(
         &d,
         scratch.path(),
@@ -710,7 +702,6 @@ fn a_required_check_scoped_to_every_path_gets_a_hint() {
             ],
         ))
     };
-    // `**` makes a docs-only change pay for the whole check: say so where it is set
     let out = add("**");
     assert!(out.contains("(required, check)"), "{out}");
     assert!(
@@ -718,7 +709,6 @@ fn a_required_check_scoped_to_every_path_gets_a_hint() {
         "{out}"
     );
     assert!(out.contains("--scope 'crates/**'"), "{out}");
-    // a scoped check gets no hint
     let out = add("app/**");
     assert!(!out.contains("hint:"), "{out}");
 }
@@ -757,9 +747,7 @@ fn validate_expands_crates_in_a_check_and_prints_what_ran() {
     );
 }
 
-/// A `CARGO_TARGET_DIR` from the user's environment would make every task workspace of a repo
-/// build into one dir, where `cargo test` runs another task's test binary (Plan 12). In a cargo
-/// workspace `av validate` points the command and the checks at the workspace's own `target/`.
+/// A `CARGO_TARGET_DIR` from the user's environment would share one build dir across task workspaces; `av validate` points it at the workspace's own `target/`.
 #[test]
 fn validate_builds_a_cargo_workspace_into_its_own_target_dir() {
     let (d, ws, scratch) = started();
@@ -907,8 +895,6 @@ fn runner_checks_main_and_log_shows_the_result() {
     assert!(health.contains("red"), "{health}");
 }
 
-/// Starts a task as `dev`, writes `path`, and takes it through validate, review (by `rev`)
-/// and merge. Returns the task id.
 fn merge_change(d: &Daemon, scratch: &Path, title: &str, path: &str, text: &str) -> String {
     let started = ok(av_as(
         d,
@@ -1229,9 +1215,8 @@ fn handoff_then_claim_moves_the_workspace_to_the_new_agent() {
     assert_eq!(file["agent"], "codex", "{file}");
     assert_ne!(file["session"], old_session, "a claim starts a new session");
 
-    // names fence only when both sides are known (T1a): another named agent is refused, with
-    // both names; the previous owner here had no name, so it cannot be told from codex's own
-    // unnamed hooks, and is let through with a warning (F5)
+    // another named agent is refused, with both names; an unnamed one cannot be told from codex's
+    // own unnamed hooks, so it is let through with a warning
     let other = av_as(&d, &ws, "claude", &["checkpoint"]);
     assert!(!other.status.success(), "{}", out(&other));
     assert!(
@@ -1310,7 +1295,6 @@ fn repo_backup_branch_names_where_main_is_pushed() {
         status.contains(&format!("backup: {url} (branch av-main)")),
         "{status}"
     );
-    // --branch without a remote to set is refused
     let out = av(
         &d,
         scratch.path(),
@@ -1347,7 +1331,6 @@ fn repo_advance_takes_main_back_from_the_remote() {
     let same = ok(av(&d, scratch.path(), &["repo", "advance", "demo"]));
     assert!(same.trim().starts_with("main up to date at "), "{same}");
 
-    // a pull request merged on the remote
     let clone = TempDir::new().unwrap();
     git(clone.path(), &["clone", "-q", url, "."]);
     std::fs::write(
@@ -1366,7 +1349,6 @@ fn repo_advance_takes_main_back_from_the_remote() {
         ],
     ));
     assert!(moved.contains("main fast-forwarded"), "{moved}");
-    // --advance without a remote to set is refused
     let out = av(&d, scratch.path(), &["repo", "backup", "demo", "--advance"]);
     assert!(!out.status.success());
 }
@@ -1624,7 +1606,6 @@ fn install_sh_sets_the_stop_hook_timeout_above_the_keep_busy_wait() {
     assert_eq!(timeout_after(None), (serde_json::json!(660), true));
     assert_eq!(timeout_after(Some("30")), (serde_json::json!(90), true));
     assert_eq!(timeout_after(Some("0")), (serde_json::json!(60), true));
-    // not a number: refused, and nothing is written
     let (t, ok) = timeout_after(Some("soon"));
     assert!(!ok && t.is_null(), "{t}");
 }
@@ -1681,8 +1662,6 @@ fn av_wrap_writes_context_runs_the_command_and_checkpoints() {
     );
 }
 
-/// The wrapped agent's cargo builds go to the task workspace's own `target/`, also from a
-/// subdirectory and whatever `CARGO_TARGET_DIR` the caller had (Plan 12 Task 3).
 #[test]
 fn av_wrap_points_cargo_at_the_workspaces_own_target_dir() {
     let (d, ws, scratch) = started();
@@ -1766,7 +1745,6 @@ fn hook_session_start_after_compaction_starts_a_new_session() {
     );
     assert!(pack.contains("## Task"), "{pack}");
 
-    // a new Claude Code process got none of what `av next` printed under the task's session
     let resumed = run("resume");
     assert_eq!(session(&ws), compacted);
     assert!(resumed.contains("sent earlier"), "{resumed}");
@@ -1780,9 +1758,7 @@ fn av_stdin(d: &Daemon, cwd: &Path, args: &[&str], stdin: &str) -> Output {
     av_stdin_env(&d.url, cwd, &[], args, stdin)
 }
 
-/// `av_stdin` with extra environment. `AV_AGENT` and Grok's hook variables are cleared first,
-/// so a value in `env` is the only way they are set. `AV_HOOK_WAIT_SECS=0` keeps a later
-/// keep-busy wait from stalling tests that do not opt in.
+/// `av_stdin` with extra environment; `AV_AGENT`, Grok's hook variables and the keep-busy wait are off unless `env` sets them.
 fn av_stdin_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str], stdin: &str) -> Output {
     use std::io::Write as _;
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
@@ -1867,10 +1843,8 @@ fn hook_pre_read_adds_what_other_tasks_recorded_about_the_file() {
         ctx.contains("`av record --supersedes <id>`"),
         "says how to correct a wrong one: {ctx}"
     );
-    // once per session: the same read again adds nothing
     let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
     assert_eq!((ok(o).as_str()), "");
-    // a file nobody recorded anything about adds nothing either
     let input =
         serde_json::json!({"tool_input": {"file_path": ws.join("app/util.py")}}).to_string();
     let o = av_stdin(&d, &ws, &["hook", "pre-read"], &input);
@@ -1910,7 +1884,6 @@ fn stop_input(ws: &Path, session: &str, active: bool) -> String {
 #[test]
 fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
     let (d, ws, _scratch) = started();
-    // nothing changed: nothing to ask
     assert_eq!(
         ok(av_stdin(
             &d,
@@ -1958,7 +1931,6 @@ fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
         )),
         ""
     );
-    // once the change is explained, nobody is asked
     ok(av(
         &d,
         &ws,
@@ -1983,11 +1955,7 @@ fn hook_stop_asks_once_per_session_to_record_unexplained_changes() {
     );
 }
 
-// ---- Plan 11: a scratch dir per task, and the footprint of what a session adds
-
-/// A temp `HOME`, `TMPDIR` and `AV_HOME` for footprint tests, the env file, and a `PATH` of
-/// one empty dir (`bin`): the hooks look for `docker` there, so a test puts a fake one in it,
-/// and the host's real docker (CI runners have one) is never seen.
+/// A temp `HOME`, `TMPDIR` and `AV_HOME` with a `PATH` of one empty dir (`bin`), so a test's fake `docker` goes there and the host's real one is never seen.
 struct Footprint {
     home: TempDir,
     tmp: TempDir,
@@ -2059,7 +2027,6 @@ impl Footprint {
         );
     }
 
-    /// What the fake docker was asked, one call per line.
     #[cfg(unix)]
     fn docker_log(&self) -> String {
         std::fs::read_to_string(self.bin.path().join("docker.log")).unwrap_or_default()
@@ -2071,14 +2038,12 @@ impl Footprint {
     }
 }
 
-/// The task id of the workspace `ws` (its `.av-task`).
 fn task_id_of(ws: &Path) -> String {
     let tf: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
     tf["task"].as_str().unwrap().to_owned()
 }
 
-/// The `AV_DOCKER_LABELS` line the session-start hook writes for the task of `ws` as `agent`.
 fn labels_line(ws: &Path, agent: &str) -> String {
     format!(
         "export AV_DOCKER_LABELS='--label av.task={} --label av.agent={agent}'\n",
@@ -2115,12 +2080,10 @@ fn hook_session_start_gives_the_task_a_scratch_dir_and_snapshots_the_footprint()
     );
     let scratch = d.ws.join("demo/.scratch/improve-greeting");
     assert!(scratch.is_dir());
-    // the labels are exported whether or not docker is on PATH (plain assignments only)
     assert_eq!(
         std::fs::read_to_string(&fp.env_file).unwrap(),
         format!("export AV_SCRATCH='{}'\n", scratch.display()) + &labels_line(&ws, "agent")
     );
-    // without docker on PATH the pack says nothing about containers
     assert!(!printed.contains("AV_DOCKER_LABELS"), "{printed}");
     let snap: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(fp.snapshot("cc-fp")).unwrap()).unwrap();
@@ -2136,15 +2099,10 @@ fn hook_session_start_gives_the_task_a_scratch_dir_and_snapshots_the_footprint()
     );
 }
 
-/// With a target dir in the user's environment, the session's own cargo builds go to the
-/// `target/` of whichever task workspace a command runs in: the Stop hook keeps one session going
-/// from task to task, so the env file computes it per command (Plan 12 Task 3).
 #[cfg(unix)]
 #[test]
 fn hook_session_start_points_cargo_at_the_current_workspaces_own_target_dir() {
-    // the session starts in a task that is no cargo workspace (a Python one)
     let (d, ws, scratch) = started();
-    // a second task of the repo, a cargo workspace, as the Stop hook would hand the session next
     ok(av(
         &d,
         scratch.path(),
@@ -2178,7 +2136,6 @@ fn hook_session_start_points_cargo_at_the_current_workspaces_own_target_dir() {
         file.starts_with(&format!("export AV_SCRATCH='{}'\n", av_scratch.display())),
         "{file}"
     );
-    // what a Bash command sees, run where the agent is
     let seen = |cwd: &Path| -> String {
         let o = Command::new("bash")
             .arg("-c")
@@ -2209,8 +2166,6 @@ fn hook_session_start_points_cargo_at_the_current_workspaces_own_target_dir() {
     );
 }
 
-/// Without a target dir in the user's environment cargo already builds into the workspace's
-/// `target/`, and the env file stays plain assignments (PowerShell reads only those).
 #[test]
 fn hook_session_start_leaves_cargo_alone_when_no_target_dir_is_set() {
     let (d, ws, _scratch) = started();
@@ -2233,9 +2188,6 @@ fn hook_session_start_leaves_cargo_alone_when_no_target_dir_is_set() {
     );
 }
 
-/// Everything a session starts through docker carries `av.task` and `av.agent` labels, so the
-/// footprint can count it and `av gc --containers` can remove it: the hook exports the flags
-/// and, with docker on PATH, tells the agent in one line.
 #[cfg(unix)]
 #[test]
 fn hook_session_start_exports_docker_labels_and_says_so_when_docker_is_on_path() {
@@ -2262,7 +2214,6 @@ fn hook_session_start_exports_docker_labels_and_says_so_when_docker_is_on_path()
         "{line}"
     );
     assert!(line.contains("av gc --containers"), "{line}");
-    // session-start runs one read-only listing: the ids of the containers there now
     assert_eq!(fp.docker_log(), "ps -aq --no-trunc\n");
 }
 
@@ -2303,7 +2254,6 @@ fn hook_stop_blocks_once_when_a_session_left_a_big_build_outside_the_workspace()
             && reason.contains("$AV_SCRATCH"),
         "{reason}"
     );
-    // once per session
     let o = ok(av_stdin_env(
         &d.url,
         &ws,
@@ -2312,7 +2262,6 @@ fn hook_stop_blocks_once_when_a_session_left_a_big_build_outside_the_workspace()
         &hook_input(&ws, "Stop", "cc-big"),
     ));
     assert_eq!(o, "");
-    // and the daemon was told
     let disk: serde_json::Value = ureq::get(&format!("{}/v1/disk", d.url))
         .call()
         .unwrap()
@@ -2331,8 +2280,6 @@ fn hook_stop_blocks_once_when_a_session_left_a_big_build_outside_the_workspace()
     );
 }
 
-/// Canned docker answers for the task of `ws`: one running and one exited container, one
-/// image and one volume, all labelled `av.task=<its id>`, in the formats `av` asks for.
 #[cfg(unix)]
 fn fake_task_containers(fp: &Footprint, ws: &Path) {
     let task = task_id_of(ws);
@@ -2351,9 +2298,6 @@ fn fake_task_containers(fp: &Footprint, ws: &Path) {
     fp.docker_answers("volumes", &format!("av-pgdata\t{task}\n"));
 }
 
-/// With docker on PATH, the Stop hook counts what carries the task's label and blocks once per
-/// session while any of it still runs. It names the running ones and never stops them itself;
-/// everything found goes to the daemon with the footprint.
 #[cfg(unix)]
 #[test]
 fn hook_stop_blocks_once_while_the_tasks_containers_run_and_reports_them() {
@@ -2400,7 +2344,6 @@ fn hook_stop_blocks_once_while_the_tasks_containers_run_and_reports_them() {
             "the hook never removes anything: {log}"
         );
     }
-    // once per session
     let o = ok(av_stdin_env(
         &d.url,
         &ws,
@@ -2409,7 +2352,6 @@ fn hook_stop_blocks_once_while_the_tasks_containers_run_and_reports_them() {
         &hook_input(&ws, "Stop", "cc-ctr"),
     ));
     assert_eq!(o, "");
-    // and the daemon has the whole list
     let disk: serde_json::Value = ureq::get(&format!("{}/v1/disk", d.url))
         .call()
         .unwrap()
@@ -2437,7 +2379,6 @@ fn hook_stop_blocks_once_while_the_tasks_containers_run_and_reports_them() {
         serde_json::json!([{"name": "av-pgdata"}]),
         "{disk}"
     );
-    // `av disk` shows them under the session
     let text = ok(av(&d, &ws, &["disk"]));
     assert!(
         text.contains("containers  av-build (running, 12MB (virtual 1.2GB)), av-db (exited, 0B (virtual 400MB))"),
@@ -2450,8 +2391,6 @@ fn hook_stop_blocks_once_while_the_tasks_containers_run_and_reports_them() {
     assert!(text.contains("volumes     av-pgdata"), "{text}");
 }
 
-/// `AV_FOOTPRINT_CONTAINERS` is how many labelled containers may still run at a stop (default
-/// 0). Under it nothing blocks, but the daemon is still told what runs.
 #[cfg(unix)]
 #[test]
 fn hook_stop_allows_running_containers_up_to_av_footprint_containers() {
@@ -2488,11 +2427,6 @@ fn hook_stop_allows_running_containers_up_to_av_footprint_containers() {
     );
 }
 
-/// The second net under the labels: a container the session started without
-/// `$AV_DOCKER_LABELS` is new since session start (`docker ps -aq --no-trunc` then) and carries no
-/// `av.task` label. The Stop hook reports it under `containers.unlabelled`, counts a running one
-/// with the task's own, and blocks once saying to add the labels next time. One there at session
-/// start, the task's labelled one and another task's are not reported as unlabelled.
 #[cfg(unix)]
 #[test]
 fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
@@ -2562,7 +2496,6 @@ fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
             "the hook never removes anything: {log}"
         );
     }
-    // once per session
     let o = ok(av_stdin_env(
         &d.url,
         &ws,
@@ -2571,7 +2504,6 @@ fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
         &hook_input(&ws, "Stop", "cc-stray"),
     ));
     assert_eq!(o, "");
-    // the daemon has them as sent: the labelled one once, under containers
     let disk: serde_json::Value = ureq::get(&format!("{}/v1/disk", d.url))
         .call()
         .unwrap()
@@ -2593,7 +2525,6 @@ fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
         .map(|c| c["name"].as_str().unwrap())
         .collect();
     assert_eq!(labelled, ["av-build"], "{disk}");
-    // `av disk` shows them under the session
     let text = ok(av(&d, &ws, &["disk"]));
     assert!(
         text.contains("unlabelled  stray-redis (running), stray-tmp (exited)"),
@@ -2601,8 +2532,6 @@ fn hook_stop_reports_containers_started_without_labels_and_blocks_once() {
     );
 }
 
-/// A running unlabelled container counts toward `AV_FOOTPRINT_CONTAINERS` with the task's
-/// labelled ones: one labelled may run, and one more without labels blocks.
 #[cfg(unix)]
 #[test]
 fn hook_stop_counts_running_unlabelled_containers_with_the_tasks_own() {
@@ -2642,8 +2571,6 @@ fn hook_stop_counts_running_unlabelled_containers_with_the_tasks_own() {
     );
 }
 
-/// Without the ids from session start (docker was not on PATH then) nothing can be told new,
-/// so no container is reported as unlabelled and the stop is not blocked for one.
 #[cfg(unix)]
 #[test]
 fn hook_stop_reports_no_unlabelled_containers_without_the_session_start_ids() {
@@ -2674,9 +2601,6 @@ fn hook_stop_reports_no_unlabelled_containers_without_the_session_start_ids() {
     );
 }
 
-/// `av gc --containers`: what merged and abandoned tasks left in docker goes (stopped
-/// containers, dangling images, volumes with their label); open and unknown tasks' things stay;
-/// a running container is listed, never stopped. `--dry-run` only lists.
 #[cfg(unix)]
 #[test]
 fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
@@ -2714,7 +2638,6 @@ fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
     );
     fp.docker_answers("volumes", &format!("b-vol\t{merged}\na-vol\t{open}\n"));
 
-    // dry run: the plan as JSON, nothing removed
     let o = ok(av_env(
         &d.url,
         scratch.path(),
@@ -2757,7 +2680,6 @@ fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
         assert!(!log.contains(verb), "a dry run removes nothing: {log}");
     }
 
-    // the real thing
     let text = ok(av_env(
         &d.url,
         scratch.path(),
@@ -2794,7 +2716,6 @@ fn gc_containers_removes_what_finished_tasks_left_and_lists_what_runs() {
     ] {
         assert!(!log.contains(never), "{never:?} in\n{log}");
     }
-    // without docker on PATH the flag says so and the rest of gc still runs
     let fp2 = Footprint::new();
     let o = av_env(
         &d.url,
@@ -2851,8 +2772,6 @@ fn hook_stop_is_silent_outside_a_task_and_when_the_daemon_is_down() {
     assert_eq!(out(&o), "");
 }
 
-// ---- keep agents busy: the Stop hook continues when av has fitting work
-
 /// Puts one item with no tag requirements in the backlog, so any agent fits it.
 fn post_item(d: &Daemon, scratch: &Path, title: &str) {
     ok(av(
@@ -2889,7 +2808,6 @@ fn hook_stop_blocks_when_work_is_queued_and_the_reason_names_it() {
         reason.ends_with("call start_task with no title"),
         "{reason}"
     );
-    // the hook only looked: the item is still queued
     let backlog = ok(av(&d, &ws, &["backlog"]));
     assert!(backlog.contains("Fix the README typos"), "{backlog}");
     assert!(!backlog.contains("taken"), "{backlog}");
@@ -2922,7 +2840,6 @@ fn a_proposed_item_is_listed_with_its_why_and_accepted() {
         backlog.contains("proposed by agent: unsure it pays off"),
         "{backlog}"
     );
-    // a stop hook finds no work in a proposal
     let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "1")], "cc-1", false);
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "");
@@ -2932,7 +2849,6 @@ fn a_proposed_item_is_listed_with_its_why_and_accepted() {
     let backlog = ok(av(&d, &ws, &["backlog", "--state", "queued"]));
     assert!(backlog.contains("Cache packs"), "{backlog}");
 
-    // the repo proposes agents' posts
     let set = ok(av(
         &d,
         scratch.path(),
@@ -2981,9 +2897,7 @@ fn hook_stop_picks_up_work_that_arrives_during_the_wait() {
     assert!(v["reason"].as_str().unwrap().contains("Late job"), "{v}");
 }
 
-/// F39: the Stop hook reads `.av-task` when it starts and writes its count back after the wait.
-/// A claim made while it waits rewrites the file under the new generation; the hook's write must
-/// not put the previous owner's generation back, or the new owner is refused as "claim lost".
+/// The hook's write of its count after the wait must not put the previous owner's generation back, or the new owner is refused as "claim lost".
 #[test]
 fn a_stop_hook_that_waited_through_a_claim_leaves_the_new_owners_task_file() {
     let (d, ws, scratch) = started();
@@ -3044,8 +2958,7 @@ fn a_stop_hook_that_waited_through_a_claim_leaves_the_new_owners_task_file() {
     ok(av_as(&d, &ws, "codex", &["checkpoint"]));
 }
 
-/// The cap is checked again on the file as it is after the wait: another Stop of the same session
-/// may have counted the last continue meanwhile.
+/// The cap is checked again on the file after the wait: another Stop of the same session may have counted the last continue.
 #[test]
 fn a_stop_hook_checks_the_cap_again_after_its_wait() {
     let (d, ws, scratch) = started();
@@ -3113,9 +3026,7 @@ fn hook_stop_continues_at_most_max_continues_times_per_session() {
         "the cap of 2 is reached: let it stop"
     );
     assert!(!blocked("cc-cap", true), "and it stays reached");
-    // the count is per session
     assert!(blocked("cc-other", false), "a new session starts at zero");
-    // the count lives in the task file, not in the environment
     let tf = std::fs::read_to_string(ws.join(".av-task")).unwrap();
     assert!(tf.contains("continues"), "{tf}");
 }
@@ -3156,8 +3067,6 @@ fn hook_stop_outside_a_task_stays_silent_even_with_work_queued() {
     assert_eq!((out(&o).as_str(), err(&o).as_str()), ("", ""));
 }
 
-/// An agent reads `av record --help` before it writes: the summary limit is there, for
-/// `--summary` and for the entries of `--json`.
 #[test]
 fn record_help_states_the_summary_limit() {
     let dir = tempfile::tempdir().unwrap();
@@ -3201,7 +3110,6 @@ fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
         )),
         "{v}"
     );
-    // a single block per stop: the next Stop is the one that sees the waiting work
     let second = stop_with(&d, &ws, &env, "cc-1", true);
     let v: serde_json::Value = serde_json::from_str(&out(&second)).unwrap();
     assert!(
@@ -3213,10 +3121,6 @@ fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
     );
 }
 
-/// The task was started as `agent`. A Stop hook that acts as someone else is fenced at the
-/// checkpoint (`claim lost` on stderr). One that acts as the owner checkpoints quietly.
-/// Whether `av hook stop` acted as someone other than the task's owner `claude`: it then tells
-/// the session that `claude` owns the task (once per session, so each call has its own).
 fn stop_claims(d: &Daemon, ws: &Path, env: &[(&str, &str)], args: &[&str]) -> bool {
     static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3238,9 +3142,7 @@ fn stop_claims(d: &Daemon, ws: &Path, env: &[(&str, &str)], args: &[&str]) -> bo
 
 #[test]
 fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise() {
-    // the file names `claude`: a hook under another name is told so (T1a)
     let (d, ws, _scratch) = started_as("claude");
-    // Grok sets one of these on the hook process. Neither --agent nor AV_AGENT is set.
     assert!(
         stop_claims(&d, &ws, &[("GROK_HOOK_EVENT", "Stop")], &["hook", "stop"]),
         "GROK_HOOK_EVENT should act as grok, not the task owner"
@@ -3249,12 +3151,10 @@ fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise(
         stop_claims(&d, &ws, &[("GROK_SESSION_ID", "sess")], &["hook", "stop"]),
         "GROK_SESSION_ID alone should act as grok"
     );
-    // Claude Code sets neither, so the hook has no name, and no name is never fenced.
     assert!(
         !stop_claims(&d, &ws, &[], &["hook", "stop"]),
         "without a Grok variable the hook is unnamed (the owner's own, as far as av can tell)"
     );
-    // An explicit name wins over the Grok environment.
     assert!(
         !stop_claims(
             &d,
@@ -3284,8 +3184,6 @@ fn hook_stop_acts_as_grok_when_grok_runs_it_and_as_the_claude_default_otherwise(
     );
 }
 
-/// The name the hook sends to `next` is the one that matters: an image item fits grok and not
-/// the Claude default (`agent`, no profile). `--agent` and `AV_AGENT` still win.
 #[test]
 fn hook_stop_offers_grok_the_image_work_and_not_the_claude_default() {
     let (d, ws, scratch) = started();
@@ -3331,7 +3229,6 @@ fn hook_stop_offers_grok_the_image_work_and_not_the_claude_default() {
         via_session.contains("Draw the logo"),
         "GROK_SESSION_ID: {via_session}"
     );
-    // still only a look: the item stays queued
     let backlog = ok(av(&d, &ws, &["backlog"]));
     assert!(backlog.contains("Draw the logo"), "{backlog}");
     assert!(!backlog.contains("taken"), "{backlog}");
@@ -3369,7 +3266,6 @@ fn hook_stop_offers_grok_the_image_work_and_not_the_claude_default() {
     );
 }
 
-/// `av` with extra environment (HOME, PATH, AV_HOME, ...) on top of `av_with`'s.
 fn av_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
     cmd.current_dir(cwd)
@@ -3404,7 +3300,6 @@ fn init_adds_the_repo_and_wires_claude_code() {
     let home = TempDir::new().unwrap();
     let bin = TempDir::new().unwrap();
     let log = home.path().join("claude.log");
-    // a fake `claude`: logs its arguments; `mcp get av` succeeds once `mcp add` ran
     write_script(
         &bin.path().join("claude"),
         &format!(
@@ -3455,7 +3350,6 @@ fn init_adds_the_repo_and_wires_claude_code() {
     assert!(again.contains("repo demo already added"), "{again}");
     assert!(again.contains("already configured"), "{again}");
 
-    // with --agent, Claude Code's MCP calls carry the name `av next` and the hooks use
     let home2 = TempDir::new().unwrap();
     let log2 = home2.path().join("claude.log");
     write_script(
@@ -3500,7 +3394,6 @@ fn init_adds_the_repo_and_wires_claude_code() {
     )
     .unwrap();
     assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 1);
-    // the repo works like one added with `av repo add`
     ok(av(
         &d,
         d.src.as_path(),
@@ -3549,7 +3442,6 @@ fn init_wires_codex_grok_and_gemini_through_mcp() {
         cursor["mcpServers"]["av"]["headers"]["X-Av-Agent"],
         "cursor"
     );
-    // naming only other agents leaves Claude Code alone
     assert!(!home.path().join(".claude").exists());
 }
 
@@ -3559,7 +3451,6 @@ fn init_installs_grok_hooks_unless_claude_settings_already_load_them() {
     let home = TempDir::new().unwrap();
     let bin = TempDir::new().unwrap();
     let log = home.path().join("claude.log");
-    // a fake `claude`, so this test does not call the real CLI
     write_script(
         &bin.path().join("claude"),
         &format!(
@@ -3641,7 +3532,6 @@ fn init_installs_grok_hooks_unless_claude_settings_already_load_them() {
             .contains("mcp_servers")
     );
 
-    // Installing Claude's hooks afterwards removes the grok copy.
     let claude = ok(av_env(&d.url, &d.src, &env, &["init", "--name", "demo"]));
     assert!(claude.contains("Claude Code hooks:"), "{claude}");
     assert!(!hooks_path.exists(), "both files would fire the Stop hook");
@@ -3771,7 +3661,6 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// A stand-in daemon: answers /healthz on AV_LISTEN, writes the env it got, exits on SIGTERM.
 const FAKE_DAEMON: &str = r#"#!/usr/bin/env python3
 import http.server, os, signal, sys
 host, port = os.environ["AV_LISTEN"].rsplit(":", 1)
@@ -3886,9 +3775,6 @@ fn up_refuses_a_remote_daemon_url() {
     assert!(err(&o).contains("this machine"), "{}", err(&o));
 }
 
-/// What an agent CLI does with the config `av init --for` wrote: find the `av` server's URL and
-/// headers the way that CLI documents it, expanding `${AV_TOKEN}` (or Codex's
-/// `bearer_token_env_var`) from the environment.
 fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, String)>) {
     let expand = |v: &str| {
         v.replace("${AV_TOKEN}", token)
@@ -3947,7 +3833,6 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
     }
 }
 
-/// A minimal MCP client over streamable HTTP, as the agent CLIs speak it.
 struct McpClient {
     url: String,
     headers: Vec<(String, String)>,
@@ -4052,7 +3937,6 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
             status.contains(&format!("\"owner_agent\": \"{agent}\"")),
             "{agent}: {status}"
         );
-        // the agent edits its workspace, as it would with its own file tools
         std::fs::write(
             Path::new(ws.trim()).join("app/greeter.py"),
             format!("# {agent}\nclass Greeter:\n    def hello(self):\n        return 'HELLO'\n"),
@@ -4068,8 +3952,6 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         assert!(submitted.contains("in_review"), "{agent}: {submitted}");
     }
 }
-
-// ---- Plan 8 Task 7: agent profiles, the backlog and `av next`
 
 fn daemon_with_repo() -> (Daemon, TempDir) {
     let d = start_daemon();
@@ -4140,7 +4022,6 @@ fn agent_rm_removes_a_profile_and_force_clears_one_that_owns_work() {
         scratch.path(),
         &["agent", "set", "agent", "--can", "code", "--cost", "3"],
     ));
-    // the default agent owns this task, so its profile stays until --force
     ok(av(
         &d,
         scratch.path(),
@@ -4197,7 +4078,6 @@ fn post_after_shows_waiting_on_in_the_backlog() {
         .find(|l| l.contains("Stop hook  ") || l.ends_with("Stop hook"))
         .unwrap();
     assert!(!line.contains("waiting on"), "{list}");
-    // an item that does not exist is refused
     let refused = post("Third", &["--after", "no-such-item"]);
     assert!(!refused.status.success(), "{}", out(&refused));
 }
@@ -4274,7 +4154,6 @@ fn next_starts_the_task_writes_the_task_file_and_prints_the_pack() {
         serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
     assert_eq!(file["agent"], "muse", "{file}");
     assert_eq!(file["generation"], 1, "{file}");
-    // the task file is enough for the next commands
     let status = ok(av_as(&d, &ws, "muse", &["status"]));
     assert!(status.contains("owner muse"), "{status}");
 }
@@ -4402,7 +4281,6 @@ fn a_handoff_with_needs_is_taken_by_next_as_the_agent_that_fits() {
     ));
     assert!(handed.contains("handed_off"), "{handed}");
 
-    // the alias resolves to the profile, so the task is owned by `grok`
     let got = ok(av_as(&d, scratch.path(), "grok-shell-av", &["next"]));
     assert!(got.contains("generation: 2"), "{got}");
     assert!(got.contains("Remaining: draw the logo"), "{got}");
@@ -4430,7 +4308,6 @@ fn repo_list_names_the_imported_repos() {
 #[test]
 fn next_offers_another_agents_task_for_review_and_writes_no_task_file() {
     let (d, scratch) = daemon_with_repo();
-    // the default agent starts and submits a task; grok, asking next, is offered its review
     let started = ok(av(
         &d,
         scratch.path(),
@@ -4477,9 +4354,6 @@ fn next_offers_another_agents_task_for_review_and_writes_no_task_file() {
     assert!(!other.path().join(".av-task").exists());
 }
 
-// ---- Plan 9 Task 8: av watch ----
-
-/// A daemon with claude (code) and grok (image) profiles and one image item queued.
 fn image_item_queued() -> (Daemon, TempDir) {
     let (d, scratch) = daemon_with_repo();
     for (name, best) in [("claude", "code"), ("grok", "image")] {
@@ -4531,7 +4405,6 @@ fn watch_runs_the_command_only_when_work_fits() {
     ));
     assert!(dir.path().join("ran").exists(), "{got}");
     assert!(got.contains("watch: backlog demo/Draw the logo"), "{got}");
-    // the peek took nothing: the item is still queued for grok's agent to take
     let queued = ok(av(&d, dir.path(), &["backlog", "--state", "queued"]));
     assert!(queued.contains("Draw the logo"), "{queued}");
 }
@@ -4557,10 +4430,7 @@ fn watch_passes_the_agent_name_and_daemon_url() {
     assert_eq!(who.trim(), format!("grok {}", d.url));
 }
 
-/// T2: since every workspace has a task file (#24), the Stop hook of a headless agent `av watch`
-/// started waited up to `AV_HOOK_WAIT_SECS` (600 s) for more work, holding its slot. `av watch`
-/// is the loop that waits, so it turns the hook's wait off for its command, unless its own
-/// environment sets the variable.
+/// A headless agent's Stop hook would wait up to `AV_HOOK_WAIT_SECS` holding its slot; `av watch` is the waiting loop, so it turns that off for its command unless its environment sets it.
 #[test]
 fn watch_turns_the_stop_hook_wait_off_for_its_command() {
     let (d, _scratch) = image_item_queued();
@@ -4636,7 +4506,6 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
     let (d, _scratch) = image_item_queued();
     let dir = TempDir::new().unwrap();
     let home = TempDir::new().unwrap();
-    // the first watch takes the only slot and holds it while its agent runs
     let mut first = watch_in(
         &d,
         dir.path(),
@@ -4663,7 +4532,6 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
         );
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    // another watch on the same host finds no free slot and does not start its agent
     let o = watch_in(
         &d,
         dir.path(),
@@ -4687,7 +4555,6 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
         "{}",
         out(&o)
     );
-    // the env var does the same as the flag
     let o = watch_in(
         &d,
         dir.path(),
@@ -4698,7 +4565,6 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
     .output()
     .unwrap();
     assert!(!dir.path().join("second").exists(), "{}", out(&o));
-    // once the first agent is done its slot is free again
     assert!(first.wait().unwrap().success());
     ok(watch_in(
         &d,
@@ -4748,8 +4614,6 @@ fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
         );
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    // without --once it waits for the slot instead of giving up, and its agent starts only
-    // after the first one is done
     let o = watch_in(
         &d,
         dir.path(),
@@ -4774,7 +4638,6 @@ fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
     assert!(first.wait().unwrap().success());
 }
 
-/// Holds build slot 0 of `home`, as another `av validate` on the host would while it builds.
 fn hold_build_slot(home: &Path) -> std::fs::File {
     std::fs::create_dir_all(home.join("builds")).unwrap();
     let f = std::fs::OpenOptions::new()
@@ -4837,8 +4700,6 @@ fn validate_waits_for_a_free_build_slot_on_the_host() {
         );
     }
 }
-
-// ---- Plan 10 A3: targets
 
 #[test]
 fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
@@ -4903,7 +4764,6 @@ fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
     assert!(targets.contains("0/2 merged"), "{targets}");
     assert!(targets.contains("due 2026-12-01"), "{targets}");
 
-    // unlink one, then close the target: it leaves the default (active) list
     ok(av(&d, dir, &["backlog", "target", &id]));
     let targets = ok(av(&d, dir, &["target", "list", "--repo", "demo"]));
     assert!(targets.contains("0/1 merged"), "{targets}");
@@ -4917,7 +4777,6 @@ fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
     let all = ok(av(&d, dir, &["target", "list", "--repo", "demo", "--all"]));
     assert!(all.contains("done"), "{all}");
 
-    // a closed target takes no items, until it is reopened
     let refused = av(
         &d,
         dir,
@@ -4940,10 +4799,6 @@ fn targets_are_added_listed_closed_and_counted_in_the_backlog() {
     ));
 }
 
-// ---- Plan 11: av disk and av gc ----
-
-/// A stand-in daemon that answers every request with `body` (200, JSON) and keeps each request
-/// it got as "METHOD PATH BODY".
 struct Canned {
     url: String,
     seen: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -5046,8 +4901,6 @@ fn disk_shows_workspaces_caches_and_what_sessions_left_outside() {
 const DISK_FS: &str = r#"{"fs_free_bytes": 53687091200, "fs_total_bytes": 214748364800,
  "min_free_bytes": 21474836480, "below_floor": false, "build_budget_bytes": 0}"#;
 
-/// `av disk --fs` asks for the filesystem numbers only (`?fs=1`, no walk on the daemon) and
-/// prints the one line; `--json` passes the answer through.
 #[test]
 fn disk_fs_prints_only_the_filesystem_line() {
     let c = canned(DISK_FS);
@@ -5109,7 +4962,6 @@ fn gc_dry_run_says_what_it_would_remove() {
     assert!(!sent.contains("retain_secs"), "{sent}");
 }
 
-/// A stand-in daemon that answers every request with `status_line` and an `X-Av-Version` header.
 fn canned_daemon(status_line: &'static str, body: &'static str, version: &'static str) -> String {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -5245,8 +5097,6 @@ fn repo_add_mines_history_and_why_names_the_mined_commit() {
     );
 }
 
-/// `started()` plus a decision of the task on the greeter, an edit to it, and a note another
-/// task (codex's) anchored to the same file. Returns (daemon, workspace, scratch, task id).
 fn notes_fixture() -> (Daemon, PathBuf, TempDir, String) {
     let (d, ws, scratch) = started();
     let other = ok(av_as(
@@ -5330,7 +5180,6 @@ fn notes_renders_the_task_records_and_what_others_recorded_about_its_files() {
         md.contains("`app/greeter.py`") && md.contains("hello must stay pure"),
         "the other task's note on the changed file: {md}"
     );
-    // by slug from anywhere, the same block
     let by_slug = ok(av(&d, scratch.path(), &["notes", "improve-greeting"]));
     assert_eq!(by_slug, md);
     let by_repo_slug = ok(av(&d, scratch.path(), &["notes", "demo/improve-greeting"]));
@@ -5353,7 +5202,6 @@ fn notes_renders_the_task_records_and_what_others_recorded_about_its_files() {
 #[test]
 fn notes_exit_codes() {
     let (d, ws, scratch, _) = notes_fixture();
-    // 1: an unknown task, a slug no task has, no task here, a daemon that is down
     let o = av(
         &d,
         scratch.path(),
@@ -5369,16 +5217,12 @@ fn notes_exit_codes() {
     let o = av_with("http://127.0.0.1:1", &ws, &["notes"]);
     assert_eq!(o.status.code(), Some(1));
     assert!(err(&o).contains("cannot reach"), "{}", err(&o));
-    // 2: usage
     let o = av(&d, &ws, &["notes", "--format", "yaml"]);
     assert_eq!(o.status.code(), Some(2));
     let o = av(&d, &ws, &["notes", "--gh-repo", "o/r"]);
     assert_eq!(o.status.code(), Some(2), "--gh-repo needs --pr");
 }
 
-/// A fake `gh`: logs each call's argv to `<dir>/calls` and its stdin to `<dir>/stdin-<n>`
-/// (`n` counts from 0); `api --paginate` prints `<dir>/comments` (default `[]`), `pr view`
-/// prints 42, and with `<dir>/fail` present every call fails.
 fn fake_gh(dir: &Path) -> PathBuf {
     let script = dir.join("gh");
     std::fs::write(
@@ -5485,15 +5329,13 @@ fn notes_pr_posts_once_then_updates_the_same_comment_in_place() {
     assert!(updated.contains("tried a --loud flag"), "{updated}");
     assert_eq!(updated.matches(&format!("task={id}")).count(), 1);
 
-    // gh failing is exit 1, with gh's message
     std::fs::write(ghd.path().join("fail"), "").unwrap();
     let o = av_gh(&d, &ws, &gh, &["notes", "--pr", "7"]);
     assert_eq!(o.status.code(), Some(1));
     assert!(err(&o).contains("Bad credentials"), "{}", err(&o));
 }
 
-// --- Plan 14: a checkout on another host. A second directory stands in for the other host: it
-// shares nothing with the daemon's workspace but the HTTP API.
+// A second directory stands in for the other host: it shares only the HTTP API with the daemon's workspace.
 
 fn task_of(ws: &Path) -> String {
     let file = std::fs::read_to_string(ws.join(".av-task")).unwrap();
@@ -5501,7 +5343,6 @@ fn task_of(ws: &Path) -> String {
     json["task"].as_str().unwrap().to_owned()
 }
 
-/// `started()`, plus a remote checkout of its task in a directory of its own.
 fn cloned() -> (Daemon, PathBuf, TempDir, PathBuf) {
     let (d, ws, _scratch) = started();
     let task = task_of(&ws);
@@ -5536,7 +5377,6 @@ fn a_checkout_on_another_host_checkpoints_through_a_patch() {
         .chain([0])
         .collect();
     std::fs::write(dir.join("logo.bin"), &img).unwrap();
-    // build output and the task file stay out of the patch, as they stay out of a snapshot
     std::fs::create_dir_all(dir.join("target/debug")).unwrap();
     std::fs::write(dir.join("target/debug/big"), [0u8; 64]).unwrap();
 
@@ -5545,7 +5385,6 @@ fn a_checkout_on_another_host_checkpoints_through_a_patch() {
         cp.contains("changed (4): README.md, app/greeter.py, app/wave.py, logo.bin"),
         "{cp}"
     );
-    // it landed in the daemon's workspace, and the daemon's snapshot holds it
     assert_eq!(
         std::fs::read_to_string(ws.join("app/greeter.py")).unwrap(),
         louder
@@ -5562,7 +5401,6 @@ fn a_checkout_on_another_host_checkpoints_through_a_patch() {
     let st = ok(av(&d, &dir, &["status"]));
     assert!(st.contains("app/wave.py"), "{st}");
 
-    // the next checkpoint sends only what changed since
     std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 2\n").unwrap();
     let cp = ok(av(&d, &dir, &["checkpoint"]));
     assert!(cp.contains("app/wave.py"), "{cp}");
@@ -5571,8 +5409,6 @@ fn a_checkout_on_another_host_checkpoints_through_a_patch() {
         "def wave():\n    return 2\n"
     );
 
-    // someone checkpoints on the daemon's host; the checkout's next checkpoint is refused as
-    // stale, pulls, and goes through with both changes
     std::fs::write(ws.join("app/other.py"), "X = 1\n").unwrap();
     ok(av(&d, &ws, &["checkpoint"]));
     std::fs::write(dir.join("app/wave.py"), "def wave():\n    return 3\n").unwrap();
@@ -5587,7 +5423,6 @@ fn a_checkout_on_another_host_checkpoints_through_a_patch() {
         std::fs::read_to_string(ws.join("app/wave.py")).unwrap(),
         "def wave():\n    return 3\n"
     );
-    // a pull with nothing new says so
     let p = ok(av(&d, &dir, &["remote", "pull"]));
     assert!(p.contains("up to date"), "{p}");
 }
@@ -5614,7 +5449,6 @@ fn a_pull_that_meets_a_local_edit_of_the_same_lines_leaves_markers() {
         text.contains("<<<<<<<") && text.contains("name.upper()") && text.contains("'!'"),
         "{text}"
     );
-    // resolved by hand, the checkpoint goes through
     let both = "class Greeter:\n    def hello(self, name):\n        return name.upper() + '!'\n";
     std::fs::write(dir.join("app/greeter.py"), both).unwrap();
     ok(av(&d, &dir, &["checkpoint"]));
@@ -5659,7 +5493,6 @@ fn task_start_with_checkout_makes_the_checkout_instead_of_using_the_workspace() 
             "--goal",
             "g",
             "--checkout",
-            // relative to where `av` runs, as typed
             "mine",
         ],
     ));
@@ -5669,8 +5502,6 @@ fn task_start_with_checkout_makes_the_checkout_instead_of_using_the_workspace() 
     ok(av(&d, &dir, &["checkpoint"]));
     assert!(d.ws.join("demo/far-away/app/far.py").exists());
 }
-
-// ---- hivemind Phase 2: av dream, av verdict ----
 
 /// `av` as `agent` with its own `$AV_HOME`, so a run's directory is the test's.
 fn av_home(d: &Daemon, home: &Path, agent: &str, args: &[&str]) -> Output {
@@ -5688,7 +5519,6 @@ fn av_home(d: &Daemon, home: &Path, agent: &str, args: &[&str]) -> Output {
         .unwrap()
 }
 
-/// A daemon whose repo has one decision about the greeter, written on a task.
 fn decision_recorded() -> (Daemon, TempDir) {
     let (d, ws, _scratch) = started();
     ok(av(
@@ -5709,8 +5539,6 @@ fn decision_recorded() -> (Daemon, TempDir) {
     (d, TempDir::new().unwrap())
 }
 
-/// A dreaming agent without a model: it disputes the first record of its bundle. Its first
-/// quote is not in the file; told what was refused, it quotes the file.
 const FAKE_DREAMER: &str = r#"
 test -f DREAM.md || exit 9
 echo "$AV_DREAM_MODE $AV_REPO $AV_DREAM_ROUND $AV_AGENT" >> rounds
@@ -5719,13 +5547,11 @@ if [ -f refused.json ]; then quote='def hello(self, name):'; else quote='this li
 printf '{"verdicts": [{"record": "%s", "verdict": "disputed", "reason": "hello returns the name as given", "evidence": [{"code": "app/greeter.py", "quote": "%s"}]}]}' "$rec" "$quote" > verdicts.json
 "#;
 
-/// A verifying agent without a model: it agrees with the first verdict, with its own quote.
 const FAKE_VERIFIER: &str = r#"
 vd=$(grep -o 'vd:[0-9a-f]*' bundle.json | head -1)
 printf '{"reviews": [{"verdict": "%s", "agree": true, "evidence": [{"code": "app/greeter.py", "quote": "class Greeter:"}]}]}' "$vd" > reviews.json
 "#;
 
-/// The one run directory under `home/dreams` that `keep` accepts: (the run's id, its path).
 fn run_dir(home: &Path, keep: impl Fn(&Path) -> bool) -> (String, PathBuf) {
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(home.join("dreams"))
         .unwrap()
@@ -5774,7 +5600,6 @@ fn dream_posts_what_its_agent_wrote_and_a_verify_run_makes_it_effective() {
         "dreamer",
         &["dream", "--repo", "demo", "--", "sh", "-c", FAKE_DREAMER],
     ));
-    // the first quote was refused, and the agent was run once more to correct it
     assert!(got.contains("refused: evidence[0]"), "{got}");
     assert!(got.contains("disputed -> vd:"), "{got}");
     assert!(got.contains("done: 1 proposed, 0 refused"), "{got}");
@@ -5810,7 +5635,6 @@ fn dream_posts_what_its_agent_wrote_and_a_verify_run_makes_it_effective() {
         "{one}"
     );
 
-    // the second look, by another agent's run
     let got = ok(av_home(
         &d,
         home,
@@ -5834,7 +5658,6 @@ fn dream_posts_what_its_agent_wrote_and_a_verify_run_makes_it_effective() {
         &["verdict", "list", "--repo", "demo"],
     ));
     assert!(listed.contains(&format!("{vd}  effective")), "{listed}");
-    // nothing is left to verify
     let got = ok(av_home(
         &d,
         home,
@@ -5868,7 +5691,6 @@ fn a_dream_whose_agent_fails_posts_nothing_and_frees_its_area() {
     ));
     assert!(listed.contains("no verdicts in demo"), "{listed}");
 
-    // an agent that writes no file fails its run too
     let o = av_home(
         &d,
         home,
@@ -5880,7 +5702,6 @@ fn a_dream_whose_agent_fails_posts_nothing_and_frees_its_area() {
         "{}",
         err(&o)
     );
-    // neither run holds the repository: the next one starts
     let got = ok(av_home(
         &d,
         home,
@@ -5914,7 +5735,6 @@ fn a_person_accepts_rejects_and_retracts_verdicts_and_undoes_a_run() {
     };
     let got = dream(home);
     let vd = word_after(&got, "vd:").to_owned();
-    // without --agent the reviewer is a person
     let line = ok(av(&d, home, &["verdict", "reject", &vd]));
     assert!(line.contains(&format!("{vd}  rejected")), "{line}");
     let again = av(&d, home, &["verdict", "accept", &vd]);
@@ -5956,7 +5776,6 @@ fn a_review_that_names_no_verdict_is_refused_and_touches_nothing_else() {
         &["dream", "--repo", "demo", "--", "sh", "-c", FAKE_DREAMER],
     ));
     let vd = word_after(&got, "vd:").to_owned();
-    // the agent's text is a path segment and nothing more
     let script = r#"printf '{"reviews": [{"verdict": "../../repos/demo/dreams", "agree": true, "evidence": [{"code": "app/greeter.py", "quote": "class Greeter:"}]}, {"agree": true}]}' > reviews.json"#;
     let got = ok(av_home(
         &d,
@@ -6086,7 +5905,6 @@ fn the_stop_hook_does_not_offer_a_session_its_own_task_for_review() {
         stopped, "",
         "the session was offered its own task: {stopped}"
     );
-    // the review is still offered to an agent that is not its owner
     let other = ok(av_stdin_env(
         &d.url,
         &ws,
@@ -6097,9 +5915,6 @@ fn the_stop_hook_does_not_offer_a_session_its_own_task_for_review() {
     assert!(other.contains("a review is waiting"), "{other}");
 }
 
-// T1a: names fence only when both sides are known.
-
-/// An MCP session on `d`, named by `X-Av-Agent: name`; returns (its endpoint, its session id).
 fn mcp_named(d: &Daemon, name: &str) -> (String, String) {
     let mcp = format!("{}/mcp", d.url);
     let init = ureq::post(&mcp)
@@ -6135,7 +5950,6 @@ fn mcp_tool(mcp: &(String, String), name: &str, args: serde_json::Value) -> serd
     r
 }
 
-/// A task `owner` started with the CLI (its `.av-task` names `owner`), with a record.
 fn started_as(owner: &str) -> (Daemon, PathBuf, TempDir) {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();
@@ -6201,7 +6015,6 @@ fn a_named_previous_owner_is_fenced_after_a_claim_over_mcp() {
     assert!(claimed.to_string().contains("generation: 2"), "{claimed}");
     let before = task_now(&d, &task);
 
-    // the previous owner edits on; its hook must land nothing and tell it
     std::fs::write(ws.join("app/greeter.py"), "def hello():\n    return 'HI'\n").unwrap();
     let o = av_stdin_env(
         &d.url,
@@ -6223,20 +6036,16 @@ fn a_named_previous_owner_is_fenced_after_a_claim_over_mcp() {
     let told = out(&o);
     assert!(told.contains("additionalContext"), "{told}");
     assert!(told.contains("`grok` now owns this task"), "{told}");
-    // and the installed hook script passes that answer on to Claude Code
     let input = hook_input(&ws, "PostToolUse", "cc-1");
     let told = out(&post_edit_script(&d, &ws, "claude", &input));
     assert!(told.contains("`grok` now owns this task"), "{told}");
 
-    // its CLI is refused before any request, with both names
     let o = av_as(&d, &ws, "claude", &["checkpoint"]);
     assert!(!o.status.success(), "{}", out(&o));
     let said = err(&o);
     assert!(said.contains("grok") && said.contains("claude"), "{said}");
     assert_eq!(task_now(&d, &task)["head_change"], before["head_change"]);
 
-    // its Stop hook says so once per session, a stop that a block continued too, and then lets
-    // it stop: queued work is not offered to it on the new owner's file
     post_item(&d, &ws, "Fix the README typos");
     let stop = |session: &str| {
         let o = stop_with(
@@ -6251,14 +6060,12 @@ fn a_named_previous_owner_is_fenced_after_a_claim_over_mcp() {
     };
     assert!(stop("cc-1").contains("`grok` now owns this task"));
     assert!(stop("cc-1").is_empty(), "told twice");
-    // and the new owner's own record nudge is not spent by that mark
     let file: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
     assert!(file.get("nudged_session").is_none(), "{file}");
     assert!(file.get("continue_session").is_none(), "{file}");
 
-    // a validation is an attestation: it checkpoints nothing, and the daemon records it at the
-    // head as it is, so over the edits the fence kept out it is refused and the head stays
+    // a validation checkpoints nothing and is recorded at the head as it is, so over the edits the fence kept out it is refused
     let o = av_as(&d, &ws, "claude", &["validate", "--", "true"]);
     assert!(err(&o).contains("without a checkpoint"), "{}", err(&o));
     assert!(!o.status.success(), "{}", out(&o));
@@ -6269,12 +6076,9 @@ fn a_named_previous_owner_is_fenced_after_a_claim_over_mcp() {
     );
     assert_eq!(task_now(&d, &task)["head_change"], before["head_change"]);
 
-    // the new owner is not fenced
     ok(av_as(&d, &ws, "grok", &["checkpoint"]));
 }
 
-/// An owner that took its task under an alias (`av watch --agent opus` sets `AV_AGENT=opus`;
-/// `next` resolves it to the profile `claude-opus`) holds the claim in its workspace.
 #[test]
 fn an_owner_under_an_alias_is_not_fenced() {
     let d = start_daemon();
@@ -6316,8 +6120,6 @@ fn an_owner_under_an_alias_is_not_fenced() {
     ok(av_as(&d, &ws, "claude-opus", &["checkpoint"]));
 }
 
-/// F5: a command with no agent name in a named owner's workspace is that owner's own (its hooks,
-/// a terminal without `AV_AGENT`); it is accepted, with a warning.
 #[test]
 fn an_unnamed_command_is_not_refused_in_a_named_owners_workspace() {
     let (d, ws, _scratch) = started_as("claude");
@@ -6331,8 +6133,6 @@ fn an_unnamed_command_is_not_refused_in_a_named_owners_workspace() {
     );
 }
 
-/// A validation is an attestation, not an owner's write: a named reviewer may run it in the
-/// owner's workspace.
 #[test]
 fn a_reviewer_can_validate_in_the_owners_workspace() {
     let (d, ws, _scratch) = started_as("claude");
@@ -6342,13 +6142,10 @@ fn a_reviewer_can_validate_in_the_owners_workspace() {
     let head = task_now(&d, &task)["head_change"].clone();
     let passed = ok(av_as(&d, &ws, "reviewer", &["validate", "--", "true"]));
     assert!(passed.contains("validation passed"), "{passed}");
-    // recorded at the owner's head, which it does not move
     assert_eq!(task_now(&d, &task)["head_change"], head);
     assert!(passed.contains(&head.as_str().unwrap()[..12]), "{passed}");
 }
 
-/// A remote checkout names the task's owner, not whoever ran `av remote clone`: a reviewer's clone
-/// is fenced like the reviewer, and the owner's own clone holds the claim.
 #[test]
 fn a_remote_clone_names_the_owner() {
     let (d, ws, _scratch) = started_as("claude");
@@ -6375,7 +6172,6 @@ fn a_remote_clone_names_the_owner() {
         "{}",
         err(&o)
     );
-    // nor attest it: the command would run on files the daemon's head does not hold
     let o = av_as(&d, &dir, "grok", &["validate", "--", "true"]);
     assert!(
         !o.status.success() && err(&o).contains("remote checkout"),
@@ -6436,8 +6232,6 @@ fn an_owner_that_started_under_an_alias_goes_by_its_profiles_names() {
     );
 }
 
-/// `integrations/claude-code/hooks/post-edit.sh` with `stdin`, as `agent`, with this build's `av`
-/// first on `PATH`.
 fn post_edit_script(d: &Daemon, ws: &Path, agent: &str, stdin: &str) -> Output {
     use std::io::Write as _;
     let bin = Path::new(env!("CARGO_BIN_EXE_av"))
@@ -6470,9 +6264,7 @@ fn post_edit_script(d: &Daemon, ws: &Path, agent: &str, stdin: &str) -> Output {
     child.wait_with_output().unwrap()
 }
 
-/// `av claim` has the daemon name the claimant in the file it hands out (`X-Av-Name-Owner`), so
-/// the new generation is never on disk unnamed for a named previous owner to read and write
-/// under before this process writes the file itself. A thread reads the file throughout.
+/// The daemon names the claimant in the file it hands out, so the new generation is never on disk unnamed for a named previous owner to write under.
 #[test]
 fn av_claims_new_generation_is_never_on_disk_unnamed() {
     use std::sync::Arc;

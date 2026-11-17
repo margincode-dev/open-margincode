@@ -26,7 +26,6 @@ use crate::Result;
 use crate::runner::{Daemon, RunConfig, Seeded, seed_store};
 use crate::spec::{TaskSpec, git_in};
 
-/// The file's format. A file of another version is refused.
 pub const VERSION: u32 = 1;
 
 /// A review run is handed at most this many records (the daemon's `WORKLIST_MAX`).
@@ -54,7 +53,6 @@ impl RecKey {
     }
 }
 
-/// What a [`RecKey`] is matched by.
 type Ident = (String, String, Option<usize>, usize);
 
 /// An event as it is found again: its kind, the role of its task (none for an event of no
@@ -71,14 +69,12 @@ pub struct EventKey {
 pub struct FrozenReview {
     pub reviewer: String,
     pub agree: bool,
-    /// As the run gave it, with records, events and the run's commit renamed (module doc).
     pub evidence: Vec<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrozenVerdict {
     pub record: RecKey,
-    /// The record's place in the task's pool, when it is one of the pool's notes.
     pub note: Option<usize>,
     /// That note's pair, its `no_commit` (a wrong note) and its `noise`, for the tally.
     pub pair: Option<String>,
@@ -86,13 +82,11 @@ pub struct FrozenVerdict {
     pub wrong: bool,
     #[serde(default)]
     pub noise: bool,
-    /// `confirmed`, `disputed`, `duplicate` or `outdated`.
     pub verdict: String,
     pub reason: String,
     pub canonical: Option<RecKey>,
     pub evidence: Vec<Value>,
-    /// The verdict's state after both passes: `effective`, `rejected` or `proposed`. A replay
-    /// must end in the same one.
+    /// The verdict's state after both passes (`effective`, `rejected` or `proposed`); a replay must end in the same one.
     pub state: String,
     pub review: Option<FrozenReview>,
 }
@@ -123,7 +117,6 @@ pub struct Tally {
     pub handed: usize,
     #[serde(default)]
     pub undecided: usize,
-    /// How many wrong notes and true lessons were among the handed records.
     #[serde(default)]
     pub handed_wrong: usize,
     #[serde(default)]
@@ -131,9 +124,7 @@ pub struct Tally {
 }
 
 impl Tally {
-    /// Every wrong note and every true lesson was handed to a review run: stage A's bars are
-    /// read on all of them. One a run was handed and left out is undecided (reported, and read
-    /// by the bars as what it ended: not disputed); one no run was handed is not covered.
+    /// Every wrong note and true lesson was handed to a review run, so the bars read all of them. One handed and left out is undecided (read as not disputed); one never handed is not covered.
     pub fn all_handed(&self) -> bool {
         self.handed_wrong == self.wrong_notes && self.handed_true == self.true_notes
     }
@@ -141,8 +132,7 @@ impl Tally {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrozenTask {
-    /// `pair: summary` of every note of the pool, in order: a replay refuses another pool (a
-    /// different `--noise` or `--noise-seed`).
+    /// `pair: summary` of every note of the pool, in order: a replay refuses another pool (a different `--noise` or `--noise-seed`).
     pub pool: Vec<String>,
     pub wrong_reverted: bool,
     pub dreamer: String,
@@ -225,14 +215,11 @@ fn pool_of(spec: &TaskSpec) -> Vec<String> {
         .collect()
 }
 
-/// The agents of the two passes and how they run.
 #[derive(Debug, Clone)]
 pub struct FreezeArgs {
-    /// The name the review pass dreams as, and its command (run with `sh -c` in the run's
-    /// directory, beside `DREAM.md` and `bundle.json`).
+    /// The review pass's agent name and its command (run with `sh -c` in the run's directory, beside `DREAM.md` and `bundle.json`).
     pub dreamer: String,
     pub dream_cmd: String,
-    /// The name and command of the verify pass: another agent.
     pub verifier: String,
     pub verify_cmd: String,
     /// `av dream --limit`; the daemon's default when `None`.
@@ -241,16 +228,12 @@ pub struct FreezeArgs {
     pub fix_rounds: u32,
     /// How many times the review run and then the verify run are made (at least 1). Stage B's
     /// one verified pass is 1; stage A's is 3, the plan's three review and three verify runs.
-    /// Not a promise that every record is looked at: a judged record stays on the worklist, so
+    /// Not a promise that every record is looked at:
     /// [`Tally::judged_wrong`] and [`Tally::judged_true`] say what the rounds reached.
     /// Ignored with `until_empty`.
     pub rounds: u32,
-    /// Stage A, the plan's "each time until the worklist is empty": review runs back to back,
-    /// with no verify run between them (a record with a proposed verdict is on no review run's
-    /// list, the daemon's rule, so each run is handed what no run has judged yet), until a run
-    /// is handed no record no earlier run was handed: the worklist is empty, or holds only
-    /// what the agent left undecided. Then verify runs until none waits for a review or a run
-    /// reviews nothing. [`Tally::all_handed`] says whether every note was reached.
+    /// Review runs back to back until a run is handed no record no earlier run was handed (a record with a proposed verdict is on no review list, the daemon's rule),
+    /// then verify runs until none waits for a review or a run reviews nothing. [`Tally::all_handed`] says whether every note was reached.
     pub until_empty: bool,
     /// The most runs of each pass `until_empty` makes (a cap on the money a loop can spend).
     pub max_runs: u32,
@@ -259,7 +242,6 @@ pub struct FreezeArgs {
     pub home: PathBuf,
 }
 
-/// What [`crate::report::Meta::memory`] says for a run made with `cfg`.
 pub fn memory_of(cfg: &RunConfig) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut parts = vec![];
@@ -281,7 +263,6 @@ pub fn memory_of(cfg: &RunConfig) -> Result<String> {
     })
 }
 
-/// The ids a seeded store gave its records and events, and their keys.
 struct Names {
     records: HashMap<String, RecKey>,
     by_key: HashMap<Ident, String>,
@@ -399,9 +380,8 @@ fn ordinal(n: usize) -> String {
     format!("#{}", n + 1)
 }
 
-/// A quote's evidence as the file keeps it: records and events by key, the run's own commit
-/// dropped (a quote without one is checked at the run's commit). A commit of the task's own
-/// repository stays; any other is refused, since no other seed has it.
+/// A quote's evidence as the file keeps it: records and events by key, the run's own commit dropped (a quote without one is checked at the run's commit).
+/// A commit of the task's own repository stays; any other is refused, since no other seed has it.
 fn freeze_evidence(e: &Value, names: &Names, run_commit: &str, spec: &TaskSpec) -> Result<Value> {
     if e.get("code").is_some() {
         let mut out = e.clone();
@@ -435,7 +415,6 @@ fn freeze_evidence(e: &Value, names: &Names, run_commit: &str, spec: &TaskSpec) 
     Err(format!("evidence the harness does not know: {e}"))
 }
 
-/// The other way: evidence a replay's run can post.
 fn thaw_evidence(e: &Value, names: &Names) -> Result<Value> {
     if let Some(key) = e.get("record_key") {
         let key: RecKey = serde_json::from_value(key.clone()).map_err(|e| e.to_string())?;
@@ -474,7 +453,6 @@ fn thaw_all(evidence: &[Value], names: &Names) -> Result<Vec<Value>> {
     evidence.iter().map(|e| thaw_evidence(e, names)).collect()
 }
 
-/// Runs `av dream` (`verify`: `--verify`) on `repo` as `agent`.
 fn av_dream(cfg: &RunConfig, args: &FreezeArgs, repo: &str, verify: bool) -> Result<()> {
     let (agent, cmd) = if verify {
         (&args.verifier, &args.verify_cmd)
@@ -526,7 +504,6 @@ fn av_dream(cfg: &RunConfig, args: &FreezeArgs, repo: &str, verify: bool) -> Res
     Ok(())
 }
 
-/// Freezes one task: a store seeded as `name`, both passes, and what they ended with.
 pub fn freeze(
     spec: &TaskSpec,
     cfg: &RunConfig,
@@ -667,8 +644,7 @@ pub fn freeze(
     })
 }
 
-/// The records handed to `repo`'s review runs, read from the `bundle.json` that `av dream` keeps
-/// in each run's directory under `home`.
+/// The records handed to `repo`'s review runs, read from the `bundle.json` that `av dream` keeps in each run's directory under `home`.
 fn handed_records(home: &Path, repo: &str) -> Result<std::collections::BTreeSet<String>> {
     let mut out = std::collections::BTreeSet::new();
     let dir = home.join("dreams");
@@ -737,8 +713,7 @@ fn until_nothing_new(
     Ok(args.max_runs)
 }
 
-/// Counts notes, not verdicts: after several rounds a note can have more than one verdict, and
-/// the newest effective one is what packs read (the daemon's rule), so that one decides.
+/// Counts notes, not verdicts: after several rounds a note can have several, and the newest effective one is what packs read (the daemon's rule), so that decides.
 /// `verdicts` are in the order they were proposed.
 pub fn tally(spec: &TaskSpec, verdicts: &[FrozenVerdict]) -> Tally {
     let effective = |v: &&FrozenVerdict| v.state == "effective";
@@ -778,7 +753,6 @@ pub fn tally(spec: &TaskSpec, verdicts: &[FrozenVerdict]) -> Tally {
     }
 }
 
-/// Writes `task`'s verdicts and reviews into the store just seeded as `repo` (module doc).
 pub fn replay(
     task: &FrozenTask,
     spec: &TaskSpec,
@@ -796,9 +770,8 @@ pub fn replay(
         .map(|v| names.id_of(&v.record))
         .collect::<Result<_>>()?;
 
-    // A record with a proposed verdict is on no review run's list (the daemon's rule), so the
-    // verdicts go in waves, as the rounds made them: a record's first verdict in wave 0, its
-    // second in wave 1, and so on, each wave proposed and then reviewed before the next.
+    // A record with a proposed verdict is on no review run's list (the daemon's rule), so verdicts go in waves as the rounds made them: a record's first verdict in wave 0,
+    // its second in wave 1, and so on, each wave proposed and then reviewed before the next.
     let n = task.verdicts.len();
     let mut wave = vec![0usize; n];
     let mut seen: HashMap<&str, usize> = HashMap::new();
@@ -814,7 +787,6 @@ pub fn replay(
     }
     let made: Vec<String> = made.into_iter().map(Option::unwrap_or_default).collect();
 
-    // every verdict ends where it ended when it was frozen
     for (v, id) in task.verdicts.iter().zip(&made) {
         let now = daemon.get(&format!("/v1/verdicts/{id}"))?;
         if now["verdict"]["state"] != v.state.as_str() {
@@ -827,8 +799,6 @@ pub fn replay(
     Ok(())
 }
 
-/// One wave of [`replay`]: its verdicts proposed (as many review runs as it takes to be handed
-/// every record), then the ones the frozen dream reviewed, reviewed.
 #[allow(clippy::too_many_arguments)]
 fn replay_wave(
     task: &FrozenTask,
@@ -909,7 +879,6 @@ fn replay_wave(
         }
     }
 
-    // the verify pass, for this wave's verdicts the frozen one reviewed
     let id_of = |i: usize| made[i].clone().unwrap_or_default();
     let mut waiting: Vec<usize> = (0..task.verdicts.len())
         .filter(|&i| wave[i] == w && task.verdicts[i].review.is_some())

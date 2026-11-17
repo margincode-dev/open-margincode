@@ -1,5 +1,3 @@
-//! Scoring (Plan 1 weights; Plan 2 adds a semantic term and re-balances).
-
 use std::time::Duration;
 
 use margincode_core::RecordKind;
@@ -10,14 +8,11 @@ pub const W_RECENCY: f32 = 0.15;
 pub const W_KIND: f32 = 0.20;
 /// Added to records anchored directly on a seed symbol. Outside the weights, which sum to 1.
 pub const SEED_BONUS: f32 = 1.0;
-/// Per-collection cap for `Semantic::search` and for new semantic or lexical code items at the
-/// smallest budgets; `candidate_limit` raises it with the budget.
+/// Per-collection cap for `Semantic::search` and for new semantic or lexical code items at the smallest budgets.
 pub const SEMANTIC_LIMIT: usize = 8;
-/// Upper bound of `candidate_limit`.
 pub const MAX_CANDIDATES: usize = 40;
-/// Reciprocal rank fusion (handoff A1): a code hit counts as similarity
-/// `RRF_SIM * (RRF_K + 1) / (RRF_K + 1 + rank)` from each search that found it (lexical BM25,
-/// semantic), so the top hit of one search is `RRF_SIM` and a symbol both find adds up both.
+/// A code hit counts as similarity `RRF_SIM * (RRF_K + 1) / (RRF_K + 1 + rank)` from each search that found
+/// it (lexical BM25, semantic), so one search's top hit is `RRF_SIM` and a symbol both find adds up both.
 pub const RRF_SIM: f32 = 0.75;
 pub const RRF_K: f32 = 60.0;
 
@@ -26,8 +21,8 @@ pub fn rrf_sim(rank: usize) -> f32 {
     RRF_SIM * (RRF_K + 1.0) / (RRF_K + 1.0 + rank as f32)
 }
 
-/// How many semantic and lexical code candidates a pack of `budget` tokens considers: about one
-/// per 250 tokens, so a larger budget is filled rather than left empty (Plan 6, E1).
+/// Semantic and lexical code candidates a pack of `budget` tokens considers: about one per 250 tokens, so a
+/// larger budget is filled rather than left empty.
 pub fn candidate_limit(budget: u32) -> usize {
     (budget as usize / 250).clamp(SEMANTIC_LIMIT, MAX_CANDIDATES)
 }
@@ -56,11 +51,9 @@ pub const GOAL_LEADS: usize = 2;
 /// about 1.42 and may sort below an unchanged record anchored on a seed symbol (1.58 to 2.0 for
 /// a note, decision or attempt just written). See `assemble::lead_goal_matches`.
 pub const GOAL_LEAD_SCORE: f32 = 1.0 + SEED_BONUS;
-/// Semantic search is abandoned this long after it starts.
 pub const SEMANTIC_TIMEOUT: Duration = Duration::from_millis(150);
 /// Hop distance assigned to anything not connected to the seeds.
 pub const FAR_HOPS: u8 = 3;
-/// Score of a record that belongs to the task itself but carries no anchors.
 pub const RECENCY_HALF_LIFE_DAYS: f64 = 30.0;
 
 pub fn kind_priority(kind: RecordKind) -> f32 {
@@ -108,18 +101,16 @@ pub fn code_score(hops: u8, semantic: f32) -> f32 {
     W_STRUCT * structural(hops) + W_SEM * clamp_sim(semantic) + W_RECENCY + W_KIND * 0.5
 }
 
-/// `0.5 + W_SEM * clamp(semantic)`. Exactly `0.5` when `semantic` is 0.
 pub fn convention_score(semantic: f32) -> f32 {
     0.5 + W_SEM * clamp_sim(semantic)
 }
 
 /// Code in test files is rarely what an agent needs first; it is ranked down, never dropped.
 pub const TEST_CODE_FACTOR: f32 = 0.6;
-/// Records whose anchored code changed since they were written rank lower (Plan 2b).
+/// Records whose anchored code changed since they were written rank lower.
 pub const CHANGED_FACTOR: f32 = 0.7;
-/// Records mined from git history (`margincode_core::history::MINED_AUTHOR`) rank below what agents
-/// wrote: a commit message says what changed more often than why, and on import every one of
-/// them is brand new, so recency alone would put them first.
+/// Records mined from git history (`margincode_core::history::MINED_AUTHOR`) rank below what agents wrote: a
+/// commit message says what changed more than why, and on import all are brand new, so recency would put them first.
 pub const MINED_FACTOR: f32 = 0.5;
 /// Another task's intent restates that task's goal, which is often worded like ours, so
 /// semantic search ranks it high; it is rarely what an agent needs, so it ranks lower.
@@ -165,8 +156,8 @@ pub fn is_test_code(path: &str, name: &str, start_line: u32, src: Option<&str>) 
         .any(|l| l.starts_with("#[") && l.contains("test") && !l.starts_with("#[cfg(not(test"))
 }
 
-/// Whether the 1-based `line` falls inside an inline `#[cfg(test)] mod NAME { ... }`. A
-/// `#[cfg(test)]` on a `mod NAME;` declaration, an import or anything else gates no block.
+/// Whether the 1-based `line` is inside an inline `#[cfg(test)] mod NAME { ... }`; on a `mod NAME;`, an import or
+/// anything else the attribute gates no block.
 fn in_cfg_test_module(lines: &[&str], line: u32) -> bool {
     let at = line.saturating_sub(1) as usize;
     let mut i = 0;
@@ -220,7 +211,6 @@ fn in_cfg_test_module(lines: &[&str], line: u32) -> bool {
     false
 }
 
-/// `mod NAME {` (any visibility), as opposed to `mod NAME;`.
 fn is_inline_mod(line: &str) -> bool {
     let mut words = line.split_whitespace();
     let mut w = words.next();
@@ -230,8 +220,7 @@ fn is_inline_mod(line: &str) -> bool {
     w == Some("mod") && line.contains('{')
 }
 
-/// The characters of a line that are code: string literals, char literals and `//` comments are
-/// dropped, so a brace inside them does not count.
+/// A line's code characters: string and char literals and `//` comments are dropped so a brace in them does not count.
 fn code_chars(line: &str) -> impl Iterator<Item = char> + '_ {
     let mut chars = line.chars().peekable();
     let mut in_str = false;

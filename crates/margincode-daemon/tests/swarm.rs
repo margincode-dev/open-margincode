@@ -27,8 +27,6 @@ async fn start_as(e: &Env, title: &str, agent: &str) -> Value {
     body
 }
 
-/// One agent's whole run: start, edit its own file plus the shared `app/util.py`, record,
-/// checkpoint, read context, submit. Returns the task.
 async fn agent_run(e: &Env, n: usize) -> Value {
     let agent = format!("agent-{n}");
     let t = start_as(e, &format!("swarm {n}"), &agent).await;
@@ -100,7 +98,6 @@ async fn swarm_of_agents_runs_start_to_submit_concurrently() {
         // no other agent's file leaked into this workspace
         assert_eq!(changed.len(), 2, "{got}");
     }
-    // The event feed saw every agent's start and submit, with ids in commit order.
     let (_, feed) = call(
         &e.app,
         "GET",
@@ -185,7 +182,6 @@ async fn concurrent_checkpoints_of_one_task_keep_the_newest_head() {
     let t = start_task(&e, "busy").await;
     let ws = ws_dir(&e, &t);
     let tid = id(&t);
-    // Writers interleave with each other's snapshots: write, checkpoint, write again, ...
     const WRITERS: usize = 4;
     const ROUNDS: usize = 4;
     const N: usize = WRITERS * ROUNDS;
@@ -363,8 +359,7 @@ async fn a_slow_checkpoint_never_overwrites_a_newer_head() {
     );
 }
 
-/// Timing only (`--ignored --nocapture`): import a 300-file repo, then six agents start, edit,
-/// checkpoint and read context at once. Compare the printed numbers before and after a change.
+/// Timing only (`--ignored --nocapture`): compare the printed numbers before and after a change.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore]
 async fn bench_swarm_on_a_300_file_repo() {
@@ -448,8 +443,6 @@ async fn bench_swarm_on_a_300_file_repo() {
     );
 }
 
-/// Several agents race to claim one handed-off task while its previous owner keeps writing under
-/// its old generation: one claimant wins, and no write of the old owner lands after the claim.
 #[tokio::test(flavor = "multi_thread")]
 async fn racing_claims_have_one_winner_and_fence_the_old_owner() {
     let e = env().await;
@@ -509,14 +502,11 @@ async fn racing_claims_have_one_winner_and_fence_the_old_owner() {
     }
 }
 
-/// A `CodeIndex` whose `ensure_overlay` is slow, and which counts how many run at once.
-/// Start used to clone the whole index; now it only opens an overlay — the start queue still
-/// serializes that work.
+/// A `CodeIndex` whose `ensure_overlay` is slow and counts how many run at once (the start queue serializes them).
 struct SlowOverlay {
     inner: Arc<dyn CodeIndex>,
     running: std::sync::atomic::AtomicUsize,
     most: std::sync::atomic::AtomicUsize,
-    /// How long each overlay open takes.
     delay: Duration,
 }
 
@@ -764,8 +754,6 @@ async fn a_start_whose_client_leaves_while_queued_leaves_no_task_behind() {
     assert_eq!(titles, ["first"], "{tasks}");
 }
 
-// ---- Plan 8 Task 6: five agents with different profiles pull one mixed backlog
-
 async fn set_profile(e: &Env, name: &str, best: &[&str], can: &[&str], cost: i32) {
     let (status, body) = call(
         &e.app,
@@ -800,7 +788,6 @@ async fn post_items(e: &Env, tag: &str, n: usize, reserve: i64) {
     }
 }
 
-/// An agent that keeps pulling until `next` has nothing for it; returns the titles it got.
 async fn pull_all(e: &Env, agent: &str) -> Vec<String> {
     let mut got = Vec::new();
     loop {
@@ -840,7 +827,6 @@ async fn five_agents_pull_a_mixed_backlog_and_each_item_goes_to_its_best_agent()
     eprintln!("20 items pulled by 5 agents in {:?}", started.elapsed());
 
     let by = |name: &str| &got[agents.iter().position(|a| *a == name).unwrap()];
-    // every item went to the agent it ranks first on
     assert_eq!(by("grok").len(), 5);
     assert_eq!(count(by("grok"), "image"), 5);
     assert_eq!(by("claude").len(), 5);
@@ -853,7 +839,6 @@ async fn five_agents_pull_a_mixed_backlog_and_each_item_goes_to_its_best_agent()
     // gemini is ranked first on nothing, so inside the reserve windows it gets nothing
     assert!(by("gemini").is_empty(), "{:?}", by("gemini"));
 
-    // each item was taken exactly once, and every taken item has its own task
     let (_, list) = call(&e.app, "GET", "/v1/backlog?state=taken", None).await;
     let items = list["items"].as_array().unwrap();
     assert_eq!(items.len(), 20);
@@ -896,11 +881,8 @@ async fn when_the_best_agent_stops_pulling_the_others_finish_the_work() {
     assert_eq!(left.len(), 2, "{left:?}");
     assert!(left.iter().all(|t| t.starts_with("image")));
 
-    // grok comes back and finishes the images
     assert_eq!(pull_all(&e, "grok").await.len(), 2);
 }
-
-// ---- Plan 9 Task 9: agents that only loop on `next` take a backlog all the way to merged
 
 /// What one looping agent saw: the tasks it worked on, the ones it reviewed (with their owners),
 /// and how many times it called `next`.
@@ -1014,7 +996,6 @@ async fn swarm_loop_runs_backlog_to_merged() {
         started.elapsed()
     );
 
-    // every backlog item became a task, and every task was merged
     let (_, list) = call(&e.app, "GET", "/v1/backlog?state=taken", None).await;
     let items = list["items"].as_array().unwrap();
     assert_eq!(items.len(), 4, "{list}");
@@ -1026,7 +1007,6 @@ async fn swarm_loop_runs_backlog_to_merged() {
     // claude handed its first code task off untagged: grok finished it
     assert_eq!(claude.worked.len(), 1, "{claude:?}");
     assert_eq!(grok.worked.len(), 3, "{grok:?}");
-    // each submitted task was reviewed exactly once, never by its owner
     let mut reviewed: Vec<&str> = claude
         .reviewed
         .iter()

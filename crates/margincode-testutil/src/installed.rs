@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 
 use sqlx::{Connection, PgConnection};
 
-/// The programs a server needs.
 const NEEDED: [&str; 3] = ["initdb", "postgres", "pg_ctl"];
 
 fn usable(bin: &Path) -> bool {
@@ -53,7 +52,6 @@ pub fn installed_bin() -> Option<PathBuf> {
     ])
 }
 
-/// Among the entries `<root>/<prefix><version>` that hold a usable `bin`, the highest version.
 fn newest_under(roots: &[(&str, &str)]) -> Option<PathBuf> {
     let mut found: Vec<(u32, PathBuf)> = vec![];
     for (root, prefix) in roots {
@@ -101,7 +99,6 @@ fn is_root() -> bool {
         .is_ok_and(|m| m.uid() == 0)
 }
 
-/// A running server and the directory it lives in.
 pub(crate) struct Server {
     pub url: String,
     bin: PathBuf,

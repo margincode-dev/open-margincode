@@ -37,15 +37,12 @@ pub const RECLAIM_TICK: Duration = Duration::from_secs(60);
 
 /// `<ws_root>/<repo>/.scratch/<slug>`: a task's temporary files, removed with its workspace.
 const SCRATCH: &str = ".scratch";
-/// `<ws_root>/<repo>/.cache`: a cache every workspace of a repo shares (none is written today;
-/// Plan 11's shared cargo target lived here and `av gc --build-cache` still removes one).
+/// `<ws_root>/<repo>/.cache`: a repo's shared cache; `av gc --build-cache` still removes an old shared cargo target here.
 const BUILD_CACHE: &str = ".cache";
-/// `<ws_root>/<repo>/<slug>/target`: a task's own build output (cargo's default target dir;
-/// Plan 12), counted apart so storage per task is a number of its own.
+/// `<ws_root>/<repo>/<slug>/target`: a task's own build output.
 const BUILD_DIR: &str = "target";
 
-/// The free-space floor: its size in bytes (0 = off), since when the disk has been below it, and
-/// one lock, so a burst of task starts on a full disk runs one reclaim rather than one each.
+/// One lock, so a burst of task starts on a full disk runs one reclaim rather than one each.
 #[derive(Clone, Default)]
 pub(crate) struct Floor {
     min_free: Arc<AtomicU64>,
@@ -62,7 +59,6 @@ impl Floor {
         self.min_free.load(Ordering::Relaxed)
     }
 
-    /// Records whether the disk is below the floor now; when it is, says since when.
     fn mark(&self, low: bool) -> Option<DateTime<Utc>> {
         let mut since = self.low_since.lock().unwrap_or_else(|e| e.into_inner());
         if low {
@@ -74,10 +70,7 @@ impl Floor {
     }
 }
 
-/// The build budget (`AV_BUILD_CACHE_MAX_GB`): the most build output one repo keeps, in bytes
-/// (0 = off), how long an unfinished task's `target/` must be untouched before it may go, what
-/// the last enforcement left over budget, and one lock, so the tick and `POST /v1/gc` never
-/// enforce at once.
+/// One lock, so the tick and `POST /v1/gc` never enforce at once.
 #[derive(Clone)]
 pub(crate) struct Budget {
     max: Arc<AtomicU64>,
@@ -133,7 +126,6 @@ impl Budget {
         kept.values().cloned().collect()
     }
 
-    /// The repos the last enforcement left over budget; none while the budget is off.
     pub(crate) fn over(&self) -> Vec<Over> {
         if self.bytes() == 0 {
             return Vec::new();
@@ -154,7 +146,6 @@ pub(crate) struct Over {
     pub(crate) since: DateTime<Utc>,
 }
 
-/// The disk under `ws_root` is below the floor.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Low {
     pub(crate) free: u64,
@@ -164,7 +155,6 @@ pub(crate) struct Low {
 }
 
 impl Low {
-    /// Why a new task is refused: the floor and the free bytes, and what still works.
     fn reason(&self) -> String {
         format!(
             "{} ({} bytes) free under the workspace root is below the floor AV_DISK_MIN_FREE_GB, \
@@ -179,8 +169,8 @@ impl Low {
     }
 }
 
-/// Free and total bytes of the filesystem holding `path` (or its nearest existing ancestor):
-/// `statvfs`, free being what an unprivileged process may still write. `None` when unknown.
+/// (free, total) bytes of the filesystem holding `path` or its nearest existing ancestor; free is
+/// what an unprivileged process may write. `None` when unknown.
 #[cfg(unix)]
 // the field types differ by platform (u32 block counts on macOS)
 #[allow(clippy::useless_conversion)]
@@ -270,8 +260,6 @@ pub(crate) async fn relieve(st: &AppState) -> Option<Low> {
     Some(low)
 }
 
-/// Before a new task workspace is made: room for it, or `InsufficientStorage` (HTTP 507) naming
-/// the floor and the free bytes.
 pub(crate) async fn ensure_room(st: &AppState) -> Result<()> {
     match relieve(st).await {
         None => Ok(()),
@@ -286,7 +274,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/footprint", post(post_footprint))
 }
 
-/// Most footprint reports kept.
 const FOOTPRINTS: usize = 200;
 
 pub(crate) type Footprints = Arc<Mutex<VecDeque<Footprint>>>;
@@ -297,8 +284,7 @@ pub(crate) struct Added {
     pub(crate) bytes: u64,
 }
 
-/// What one session added outside any task workspace (the Stop hook's diff against its start).
-/// The daemon only shows it: the paths are the agent's or the human's to remove.
+/// What one session added outside any task workspace; the daemon only shows it, never removes it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Footprint {
     pub(crate) session: String,
@@ -306,7 +292,6 @@ pub(crate) struct Footprint {
     pub(crate) agent: Option<String>,
     #[serde(default)]
     pub(crate) task: Option<String>,
-    /// The task's slug, looked up by the daemon when `task` names one it knows.
     #[serde(default)]
     pub(crate) slug: Option<String>,
     #[serde(default)]
@@ -317,13 +302,11 @@ pub(crate) struct Footprint {
     pub(crate) total_bytes: u64,
     #[serde(default = "Utc::now")]
     pub(crate) at: chrono::DateTime<Utc>,
-    /// The containers, images and volumes carrying the task's `av.task` label, as the hook's
-    /// `docker` listed them (`{containers, images, volumes}`); kept as sent, never acted on.
+    /// `{containers, images, volumes}` carrying the task's `av.task` label, as the hook listed them; never acted on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) containers: Option<Value>,
 }
 
-/// Keeps a session's report (replacing its earlier one), newest first, at most `FOOTPRINTS`.
 async fn post_footprint(
     State(st): State<AppState>,
     Json(mut f): Json<Footprint>,
@@ -349,16 +332,13 @@ async fn post_footprint(
     Ok(Json(json!({"kept": kept.len()})))
 }
 
-/// What a reclaim removed (or, in a dry run, would remove) and what it kept.
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct Reclaimed {
     reclaimed: Vec<Gone>,
     freed_bytes: u64,
-    /// Merged and abandoned tasks whose workspace is younger than the retention.
     kept: Vec<Kept>,
     #[serde(skip_serializing_if = "Option::is_none")]
     build_cache_bytes: Option<u64>,
-    /// What the build budget removed (or would), when it is on.
     #[serde(skip_serializing_if = "Option::is_none")]
     build_budget: Option<Enforced>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -400,8 +380,7 @@ fn ended(status: TaskStatus) -> bool {
     matches!(status, TaskStatus::Merged | TaskStatus::Abandoned)
 }
 
-/// `ws_root` joined with `parts`, each a plain name (no separators, never `.` or `..`): nothing
-/// the daemon deletes is outside `ws_root`.
+/// `ws_root` joined with plain names (no separators, never `.` or `..`): nothing the daemon deletes is outside `ws_root`.
 pub(crate) fn under_ws_root(st: &AppState, parts: &[&str]) -> Result<PathBuf> {
     let mut path = st.ws_root.clone();
     for part in parts {
@@ -446,10 +425,8 @@ async fn measure(p: PathBuf) -> u64 {
         .unwrap_or(0)
 }
 
-/// Files with more than one link already counted in one `GET /v1/disk` (device, inode).
 type Seen = Arc<Mutex<HashSet<(u64, u64)>>>;
 
-/// `(device, inode)` of a file other paths link to too; `None` for a file with one link.
 #[cfg(unix)]
 fn shared_inode(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
@@ -493,7 +470,6 @@ async fn measure_once(p: PathBuf, skip: Option<PathBuf>, seen: &Seen) -> u64 {
         .unwrap_or(0)
 }
 
-/// `<ws_root>/<repo>/.cache/deps-target` (Plan 12 Task 5, `deps_cache.rs`).
 fn deps_cache_dir(st: &AppState, repo: &str) -> Result<PathBuf> {
     under_ws_root(st, &[repo, BUILD_CACHE, crate::deps_cache::DIR])
 }
@@ -502,9 +478,8 @@ fn deps_cache_dir(st: &AppState, repo: &str) -> Result<PathBuf> {
 const RECLAIM: &str = "reclaim";
 const SEED: &str = "seed";
 
-/// A fresh staging dir `<repo>/.cache/<kind>/<slug>-<ms>-<n>`: on the workspaces' filesystem, so
-/// a `target/` moves there or back with one rename (instant on any mount, where copying the
-/// thousands of files a Rust build holds takes a minute on Docker Desktop's).
+/// A staging dir `<repo>/.cache/<kind>/<slug>-<ms>-<n>` on the workspaces' filesystem, so a `target/`
+/// moves with one rename (copying its thousands of files takes a minute on Docker Desktop).
 fn staging(st: &AppState, repo: &str, kind: &str, slug: &str) -> Result<PathBuf> {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -574,7 +549,6 @@ fn reclaimed_payload(task: &Task, bytes: u64, cached: u64, reason: Option<&str>)
     payload
 }
 
-/// The background half of `retire_build`.
 async fn finish_retire(st: &AppState, task: &Task, aside: PathBuf, reason: Option<&str>) {
     let bytes = measure(aside.clone()).await;
     let cached_bytes = match deps_cache_dir(st, &task.repo) {
@@ -686,7 +660,6 @@ async fn remove_tree(p: PathBuf) -> Result<()> {
     .map_err(|e| AvError::Vcs(e.to_string()))?
 }
 
-/// The names of the directories in `dir` that do not start with `.`, sorted.
 fn plain_dirs(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map(|entries| {
@@ -702,8 +675,7 @@ fn plain_dirs(dir: &Path) -> Vec<String> {
     names
 }
 
-/// Removes the workspace and scratch dir of `task` (the caller holds its `lock_task`); `None` when
-/// neither is on disk. A dry run only measures.
+/// The caller holds `task`'s `lock_task`; a dry run only measures.
 async fn reclaim_locked(st: &AppState, task: &Task, dry_run: bool) -> Result<Option<Gone>> {
     let dir = under_ws_root(st, &[&task.repo, &task.slug])?;
     let scratch = under_ws_root(st, &[&task.repo, SCRATCH, &task.slug])?;
@@ -870,12 +842,8 @@ pub(crate) async fn reclaim_task(st: &AppState, task: &Task) -> (&'static str, &
     }
 }
 
-/// Re-creates the workspace of `task` at its head when it was reclaimed (an undo or revert
-/// returns a merged task to work). Says what happened: `kept` (it was there) or `restored`.
-///
-/// The store is left as it is: the workspace comes back at the same path with the head as its
-/// working-copy commit, so the stored path, base and head all still hold (`set_workspace` would
-/// reset the head to the base and lose the approval made at it).
+/// Re-creates a reclaimed workspace at its head: `kept` if there, else `restored`. The store is left
+/// alone: `set_workspace` would reset the head to the base and lose the approval made at it.
 pub(crate) async fn ensure_workspace(st: &AppState, task: &Task) -> Result<&'static str> {
     let dir = under_ws_root(st, &[&task.repo, &task.slug])?;
     if exists(&dir) {
@@ -888,10 +856,7 @@ pub(crate) async fn ensure_workspace(st: &AppState, task: &Task) -> Result<&'sta
     Ok("restored")
 }
 
-/// The daemon's reclaim loop: every `reclaim_tick`, removes the workspaces past `ws_retain`, then
-/// reclaims more while the disk is below the free-space floor (`relieve`), then holds each repo
-/// to its build budget (`enforce_budget`). `None` (nothing started) when the retention is
-/// `never` and the floor and the budget are off.
+/// The reclaim loop; `None` when the retention is `never` and the floor and the budget are off.
 pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()>> {
     if state.ws_retain.is_none() && state.floor.bytes() == 0 && state.budget.bytes() == 0 {
         return None;
@@ -916,7 +881,6 @@ pub(crate) fn spawn_sweep(state: &AppState) -> Option<tokio::task::JoinHandle<()
     }))
 }
 
-/// One pass of the sweep.
 pub(crate) async fn sweep_once(st: &AppState, retain: u64) -> Result<()> {
     let r = reclaim_with(st, Some(retain), false, false, false).await?;
     if !r.reclaimed.is_empty() {
@@ -929,9 +893,6 @@ pub(crate) async fn sweep_once(st: &AppState, retain: u64) -> Result<()> {
     Ok(())
 }
 
-// ---- the build budget (`AV_BUILD_CACHE_MAX_GB`) ----
-
-/// One task workspace's `target/`, as the build budget sees it.
 struct Built {
     slug: String,
     bytes: u64,
@@ -940,7 +901,6 @@ struct Built {
     touched: Option<std::time::SystemTime>,
 }
 
-/// The newest modification time of `p` and its entries down to depth 2.
 fn newest_mtime(p: &Path) -> Option<std::time::SystemTime> {
     fn walk(p: &Path, depth: u8, newest: &mut Option<std::time::SystemTime>) {
         let Ok(meta) = std::fs::symlink_metadata(p) else {
@@ -966,10 +926,8 @@ async fn touched(target: PathBuf) -> Option<std::time::SystemTime> {
         .unwrap_or(None)
 }
 
-/// A repo's build output as the budget counts it: its `.cache/` (but build output already on its
-/// way out in `.cache/reclaim/`) and every workspace's `target/`. The cache is measured first, so
-/// a file the deps cache links into a `target/` counts once, under the cache, as `GET /v1/disk`
-/// counts it.
+/// The cache is measured first, so a file the deps cache links into a `target/` counts once, under
+/// it, as `GET /v1/disk` counts it; `.cache/reclaim/` (build output on its way out) is left out.
 async fn build_usage(st: &AppState, repo: &str) -> Result<(u64, Vec<Built>)> {
     let seen: Seen = Arc::default();
     let repo_dir = under_ws_root(st, &[repo])?;
@@ -992,7 +950,6 @@ async fn build_usage(st: &AppState, repo: &str) -> Result<(u64, Vec<Built>)> {
     Ok((cache_bytes, built))
 }
 
-/// A repo's build output in bytes as the budget counts it, when the budget is on.
 pub(crate) async fn budget_usage(st: &AppState, repo: &str) -> Option<u64> {
     if st.budget.bytes() == 0 {
         return None;
@@ -1001,14 +958,11 @@ pub(crate) async fn budget_usage(st: &AppState, repo: &str) -> Option<u64> {
     Some(cache + built.iter().map(|b| b.bytes).sum::<u64>())
 }
 
-/// What one enforcement of the build budget removed (or, in a dry run, would remove).
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct Enforced {
-    /// Per repo.
     budget_bytes: u64,
     removed: Vec<Evicted>,
     freed_bytes: u64,
-    /// Repos still over afterwards: only `target/`s touched within `AV_BUILD_IDLE_SECS` remain.
     over: Vec<Over>,
 }
 
@@ -1021,7 +975,6 @@ struct Evicted {
     slug: Option<String>,
     status: Option<String>,
     bytes: u64,
-    /// For `idle`: how long nothing in it changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     idle_secs: Option<u64>,
 }
@@ -1235,8 +1188,6 @@ impl DiskQuery {
     }
 }
 
-/// The filesystem holding `ws_root` (null where not measured), the floor (0 = off) and the
-/// build budget (0 = off): measured by `fs_space` alone, so it costs no directory walk.
 fn fs_fields(st: &AppState) -> serde_json::Map<String, Value> {
     let fs = fs_space(&st.ws_root);
     let below = below_floor(st).is_some();
@@ -1245,7 +1196,6 @@ fn fs_fields(st: &AppState) -> serde_json::Map<String, Value> {
         ("fs_total_bytes", json!(fs.map(|(_, total)| total))),
         ("min_free_bytes", json!(st.floor.bytes())),
         ("below_floor", json!(below)),
-        // AV_BUILD_CACHE_MAX_GB, per repo (0 = off)
         ("build_budget_bytes", json!(st.budget.bytes())),
     ]
     .into_iter()
@@ -1253,9 +1203,8 @@ fn fs_fields(st: &AppState) -> serde_json::Map<String, Value> {
     .collect()
 }
 
-/// Every repo's workspaces (with their task's status, how long it has had it, and whether a
-/// reclaim would remove it), scratch, build cache and store, with totals. With `?fs=1` only
-/// `fs_fields`: no store query and no walk (Margincode Cloud's `disk_low` alert asks every 60 s).
+/// With `?fs=1` only `fs_fields`: no store query and no walk (Margincode Cloud's `disk_low` alert
+/// asks every 60 s).
 async fn disk(State(st): State<AppState>, Query(q): Query<DiskQuery>) -> ApiResult<Value> {
     if q.fs_only()? {
         return Ok(Json(Value::Object(fs_fields(&st))));

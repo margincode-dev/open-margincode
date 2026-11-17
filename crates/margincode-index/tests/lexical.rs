@@ -1,4 +1,4 @@
-//! Lexical code search (Plan 6): goal words find code chunks without the semantic layer.
+//! Lexical code search: goal words find code chunks without the semantic layer.
 
 use margincode_core::SymbolId;
 use margincode_index::{CodeIndex, PgIndex, ScopeView};
@@ -137,8 +137,7 @@ async fn index(files: &[(&str, &str)]) -> (TestDb, PgIndex) {
     (db, idx)
 }
 
-/// Okapi BM25 (as E1's `bm25_symbols` baseline): a term in a short chunk counts for more than the
-/// same term in a long one.
+/// Okapi BM25: a term in a short chunk counts for more than the same term in a long one.
 #[tokio::test]
 async fn short_chunks_beat_long_ones_with_the_same_term() {
     let filler: String = (0..60).map(|i| format!("    w{i} = other_{i}\n")).collect();
@@ -205,8 +204,7 @@ async fn equal_scores_keep_symbol_order() {
 }
 
 /// Unlike `ts_rank`, BM25 counts how often a term occurs (up to saturation): a function that is
-/// about the term beats a tiny one that mentions it once (E1: ripgrep's `Ignore.add_parents`
-/// ranked 43rd under `ts_rank`, behind one-line flags).
+/// about the term beats a tiny one that mentions it once.
 #[tokio::test]
 async fn using_a_term_often_beats_mentioning_it_once() {
     let body: String = (0..8)

@@ -10,8 +10,6 @@ use margincode_bench::runner::{
 use margincode_bench::spec::{TaskSpec, load_spec};
 use tempfile::TempDir;
 
-/// A fake `claude`: checks its working directory, runs the SessionStart and PostToolUse hooks
-/// from `--settings`, edits `calc.py` (unless FAKE_MODE=nofix) and prints a canned transcript.
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 echo "$PWD" >> "$FAKE_MARKER"
 echo "$PATH" > "$FAKE_MARKER.path"
@@ -45,7 +43,6 @@ echo "{\"type\":\"assistant\",\"message\":{\"id\":\"m1\",\"content\":[{\"type\":
 echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"total_cost_usd\":${FAKE_COST:-0.25},\"usage\":{\"input_tokens\":10,\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":50,\"output_tokens\":20}}"
 "#;
 
-/// A fake `av` for the hooks: prints a pack for session-start, nothing for post-edit.
 pub const FAKE_AV: &str = "#!/bin/sh\ncat > /dev/null\n[ \"$2\" = session-start ] && echo '## Task (fake pack)'\nexit 0\n";
 
 pub fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -441,8 +438,6 @@ fn a_wrong_token_aborts_before_spending() {
     assert!(!f.marker.exists());
 }
 
-// ---- E4 knowledge relay: what an earlier agent learned reaches each arm by its own channel ----
-
 const RELAY_NOTES: &str = r#"
 [[note]]
 pair = "calc-add"
@@ -630,8 +625,6 @@ fn a_no_commit_note_is_in_notes_md_and_in_no_commit_message() {
     );
 }
 
-/// A note kept off the git log (`no_commit`) is still what the `av` arm's agent is handed: a
-/// record of the earlier task. Only the commit message is left out.
 #[test]
 fn a_no_commit_note_is_a_record_in_the_av_arm_and_in_no_commit_message() {
     let _g = serial();
@@ -687,8 +680,6 @@ fn a_no_commit_note_is_a_record_in_the_av_arm_and_in_no_commit_message() {
     );
 }
 
-/// Plan 16 M1: with `wrong_reverted` the wrong note is a reverted task's record (its standing
-/// says so), the other note stays an open task's, and the agent's task starts on the base tree.
 #[test]
 fn a_wrong_note_can_be_seeded_as_the_record_of_a_reverted_task() {
     let _g = serial();
@@ -734,9 +725,8 @@ fn a_wrong_note_can_be_seeded_as_the_record_of_a_reverted_task() {
     assert_eq!(standing("README"), "open");
 }
 
-/// A dream agent that runs no model (`sh` and `jq`): the review pass disputes the wrong note,
-/// quoting code at the run's commit, the merge event of its reverted task and the note itself,
-/// and confirms the other; the verify pass agrees with the dispute and not with the rest.
+/// A dream agent without a model (`sh` and `jq`): the review pass disputes the wrong note and confirms the other; the
+/// verify pass agrees only with the dispute.
 const FAKE_DREAMER: &str = r#"set -e
 if [ "$AV_DREAM_MODE" = review ]; then
   jq '.dream.worklist.commit as $c | {verdicts: [.items[] |
@@ -755,9 +745,6 @@ else
 fi
 "#;
 
-/// Plan 16 M2 stage B: `dream-freeze` runs the real `av dream` twice on a seeded store and
-/// keeps what the passes ended with; a session of the dreamed arm gets the same verdicts and
-/// reviews in its own, freshly seeded store, with every quote checked again.
 #[test]
 fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     let _g = serial();
@@ -788,7 +775,6 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     std::fs::write(&p, text).unwrap();
     f.spec = load_spec(&p).unwrap();
 
-    // freeze: the real av runs the two passes
     let agent = format!("sh {}", dir.path().join("dreamer.sh").display());
     let args = dreamed::FreezeArgs {
         dreamer: "dreamer".into(),
@@ -883,7 +869,6 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     };
     std::fs::write(&file, serde_json::to_string_pretty(&frozen).unwrap()).unwrap();
 
-    // a session of the dreamed arm: its own store, with the same verdicts in the same states
     f.cfg.dreamed = Some(file.clone());
     let o = run_session(&f.spec, Arm::Av, 1, "dr", &f.cfg).unwrap();
     assert!(o.valid, "{o:?}");
@@ -915,7 +900,6 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
             ("disputed".to_owned(), "effective".to_owned())
         ]
     );
-    // the wrong note is read with its dispute
     let search = get(&format!("{}/v1/repos/{repo}/search?q=stands", d.url));
     let rec = search["records"]
         .as_array()
@@ -926,23 +910,19 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         .unwrap();
     assert_eq!(rec["verdict"]["kind"], "disputed", "{rec}");
 
-    // another pool is refused, not replayed onto the wrong notes
     let mut other = f.spec.clone();
     other.relay_notes[0].summary.push_str(" (edited)");
     let err = frozen.task(&other, true).unwrap_err();
     assert!(err.contains("another pool"), "{err}");
-    // and so is a run without the reverted task the file's records belong to
     let err = frozen.task(&f.spec, false).unwrap_err();
     assert!(err.contains("frozen with --wrong-reverted"), "{err}");
-    // and the run's meta says which memory it started from
     let memory = dreamed::memory_of(&f.cfg).unwrap();
     assert!(
         memory.starts_with("wrong-reverted, dreamed sha256:"),
         "{memory}"
     );
 
-    // stage A's rounds: the review and verify runs twice. The second round judges every record
-    // again, so the wrong note has two disputes and is still one wrong note disputed
+    // the second round judges every record again: two disputes, still one wrong note disputed
     let twice = dreamed::FreezeArgs {
         rounds: 2,
         home: dir.path().join("home2"),
@@ -975,7 +955,6 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
             handed_true: 1,
         }
     );
-    // and its replay gives each record's verdicts their own runs, oldest first
     let file2 = dir.path().join("dreamed-2.json");
     let frozen2 = dreamed::Frozen {
         version: dreamed::VERSION,
@@ -1014,7 +993,6 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     );
     assert!(t3.tally.all_handed());
     assert!(t3.verdicts.iter().all(|v| v.state != "proposed"), "{t3:#?}");
-    // its replay
     let file3 = dir.path().join("dreamed-3.json");
     let frozen3 = dreamed::Frozen {
         version: dreamed::VERSION,
@@ -1046,7 +1024,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     let t4 = dreamed::freeze(&f.spec, &freeze_cfg, &daemon, "frozen-calc-4", &skip).unwrap();
     assert_eq!((t4.review_runs, t4.verify_runs), (4, 2), "{t4:#?}");
     assert_eq!((t4.tally.judged_wrong, t4.tally.judged_true), (1, 0));
-    // the plan's undecided share: handed to a review run, and left out of every one
+    // undecided: handed to a review run, and left out of every one
     assert_eq!((t4.tally.handed, t4.tally.undecided), (3, 1));
     assert!(t4.tally.all_handed(), "undecided is reported, not a gap");
 
@@ -1216,7 +1194,6 @@ fn claude_runs_with_the_stop_hook_wait_off() {
     assert_eq!(std::fs::read_to_string(&seen).unwrap().trim(), "wait=0");
 }
 
-/// `f` with its spec reloaded so it prepends `dirs` to the agent's PATH.
 fn with_path_prepend(mut f: Fixture, dirs: &[&Path]) -> Fixture {
     let dir = TempDir::new().unwrap();
     let p = dir.path().join("calc-task.toml");
@@ -1259,7 +1236,6 @@ fn without_path_prepend_the_agents_path_is_inherited_unchanged() {
     assert_eq!(path.trim_end(), std::env::var("PATH").unwrap());
 }
 
-/// A fake `grok`: records argv, fixes `calc.py`, prints one `--output-format json` object.
 const FAKE_GROK: &str = r#"#!/bin/sh
 : > "$FAKE_GROK_ARGS"
 for a in "$@"; do
@@ -1325,9 +1301,6 @@ fn grok_session_parses_usage_and_does_not_pass_a_budget_flag() {
     assert_eq!(u.input + u.cache_read + u.output, 12855 + 8832 + 1975);
 }
 
-// ---- E4 at scale: `--noise N` irrelevant notes, the same in the notes and av arms ----
-
-/// `relay_fixture` with `n` noise notes added the way `run --noise` adds them.
 fn noisy_relay_fixture(n: usize) -> Fixture {
     let mut f = relay_fixture("fix");
     let mut specs = vec![f.spec.clone()];
@@ -1336,7 +1309,6 @@ fn noisy_relay_fixture(n: usize) -> Fixture {
     f
 }
 
-/// The summary of each `## ` section of a NOTES.md: the first non-empty line after its heading.
 fn notes_md_summaries(md: &str) -> Vec<String> {
     let mut out = vec![];
     let mut lines = md.lines();

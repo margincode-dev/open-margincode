@@ -1,5 +1,3 @@
-//! Result rows (`rows.jsonl`) and the Markdown report.
-
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
@@ -17,7 +15,6 @@ pub enum Status {
     Ok,
     /// Ran but does not count (setup failed, hooks never fired, workspace mismatch, …).
     Invalid,
-    /// Not launched: the budget would have been exceeded.
     SkippedBudget,
 }
 
@@ -29,7 +26,6 @@ pub struct Row {
     pub status: Status,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// `verify_cmd` exited 0 after the session.
     #[serde(default)]
     pub success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,8 +36,7 @@ pub struct Row {
     /// Money spent, whether or not the session counts.
     #[serde(default)]
     pub cost_usd: f64,
-    /// cl100k tokens of what the arm's channel hands over before the agent starts: `NOTES.md` in
-    /// `notes`, the pack the av task starts with (`pack.md`) in the av arms (E4 at scale).
+    /// cl100k tokens handed over before the agent starts: `NOTES.md` in `notes`, the start pack (`pack.md`) in the av arms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_tokens: Option<u64>,
 }
@@ -59,33 +54,24 @@ pub struct Meta {
     /// Arguments the session-start hook ran with beyond its budget; empty = its defaults.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hook_args: Vec<String>,
-    /// E4 at scale: the irrelevant notes `run --noise N` added to every relay task; `None` when
-    /// none were.
+    /// Irrelevant notes `run --noise N` added to every relay task; `None` when none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise: Option<usize>,
-    /// The seed the noise notes were generated with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise_seed: Option<u64>,
-    /// The user the agent CLI ran as when it was isolated from the grading files and from other
-    /// sessions (`run --agent-user`), or `none`. Results from before the option have no value,
-    /// which reads as `none`. `orchestrate::run` writes it from the run's configuration.
+    /// The user the agent CLI ran as under `run --agent-user`, or `none`; absent in older results (reads as `none`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_isolation: Option<String>,
-    /// The store the av arms started from (Plan 16): `raw`, or `wrong-reverted`
-    /// (`--wrong-reverted`) and `dreamed sha256:<hex>` (`--dreamed`, the file's hash) joined by
-    /// `, `. Results from before the options have no value, which reads as `raw`.
-    /// `orchestrate::run` writes it from the run's configuration.
+    /// The store the av arms started from: `raw`, or `wrong-reverted` and `dreamed sha256:<hex>` joined by `, `; absent in older results (reads as `raw`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
 }
 
 impl Meta {
-    /// `none`, or the agent user's name.
     pub fn isolation(&self) -> &str {
         self.agent_isolation.as_deref().unwrap_or("none")
     }
 
-    /// `raw`, or what [`Meta::memory`] says.
     pub fn memory(&self) -> &str {
         self.memory.as_deref().unwrap_or("raw")
     }
@@ -347,7 +333,6 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     out
 }
 
-/// E4 at scale: how much each arm's memory weighs, for the run's noise level.
 fn memory_section(out: &mut String, rows: &[Row], arms: &[&str], noise: usize) {
     let _ = writeln!(out, "\n## Memory at scale (noise {noise})\n");
     let _ = writeln!(

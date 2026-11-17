@@ -1,13 +1,9 @@
-//! Token-budget allocation: split a budget across sections, give every item a handle, then upgrade the
-//! best-scored items to richer tiers.
-
 use margincode_core::{AgentFamily, Tier};
 
 use crate::tokens::estimate_tokens;
 
 /// Share of the requested budget the pack may actually use (10% safety margin).
 const SAFETY_PERCENT: u64 = 90;
-/// At most this many omitted handles are listed.
 const MAX_OMITTED_LINES: usize = 20;
 /// Rough cost of one omitted-handle line, used to size the reserve for the omitted list.
 const OMITTED_LINE_TOKENS: u32 = 12;
@@ -35,7 +31,6 @@ impl Section {
         Section::ConventionsLive,
     ];
 
-    /// The group key a section's items fill under when they have no `Item::group`.
     pub fn key(self) -> &'static str {
         match self {
             Section::Task => "task",
@@ -110,7 +105,6 @@ impl Item {
         self
     }
 
-    /// How this item sorts against another of equal score.
     pub(crate) fn tie_key(&self) -> (std::borrow::Cow<'_, str>, &str) {
         let key = match (&self.order, &self.source) {
             (Some(k), _) => k.as_str().into(),
@@ -155,7 +149,6 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
         omitted: vec![],
         used: 0,
     };
-    // Hard inclusion: reserve handles for required items first, best score first.
     let mut req: Vec<usize> = (0..priced.len())
         .filter(|&i| priced[i].item.required)
         .collect();
@@ -178,7 +171,6 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
     let budget = budget - reserved_cost;
     out.used += reserved_cost;
 
-    // an item whose group has no share can never be chosen
     out.omitted.extend((0..priced.len()).filter(|&i| {
         let key = priced[i].item.group_key();
         !shares.iter().any(|(k, _)| k == key)
@@ -198,12 +190,11 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
         });
         let mut remaining = (budget as u64 * u64::from(*share) / 100) as u32 + carry;
 
-        // Phase A: every item that fits gets a handle.
         let mut kept: Vec<(usize, Tier)> = vec![];
         for &i in &idxs {
             let c = priced[i].costs[Tier::Handle as usize];
             if reserved.contains(&i) {
-                kept.push((i, Tier::Handle)); // already paid for
+                kept.push((i, Tier::Handle));
             } else if priced[i].item.required {
                 out.omitted.push(i); // required, but not even its handle fit the whole budget
             } else if c <= remaining {
@@ -213,7 +204,6 @@ fn fill(priced: &[Priced], budget: u32, shares: &[(String, u8)]) -> Fill {
                 out.omitted.push(i);
             }
         }
-        // Phase B: upgrade in score order to the richest tier that still fits.
         for (i, tier) in &mut kept {
             for candidate in [Tier::Full, Tier::Summary] {
                 let (cur, cand) = (

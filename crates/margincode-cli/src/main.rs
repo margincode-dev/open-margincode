@@ -807,7 +807,7 @@ fn bisect(
         &[("limit", limit_s.as_str())],
     )?;
     let mut commits: Vec<Value> = log["commits"].as_array().cloned().unwrap_or_default();
-    commits.reverse(); // oldest first
+    commits.reverse();
     if commits.is_empty() {
         return Err(CliError::Local("main has no history".into()));
     }
@@ -1221,9 +1221,9 @@ fn write_taskfile(workspace: &std::path::Path, tf: &TaskFile) {
         if there.generation > tf.generation {
             return;
         }
-        // the daemon already named the owner of this hand-out (`X-Av-Name-Owner`, T1a): its file
-        // stands, and the hooks' marks a Stop may have set since are kept; the fewer writes here,
-        // the fewer chances to put an older generation back over a claim that lands meanwhile
+        // the daemon already named the owner of this hand-out (`X-Av-Name-Owner`): its file stands,
+        // and the hooks' marks a Stop may have set since are kept; fewer writes here means fewer
+        // chances to put an older generation back over a claim that lands meanwhile
         if there.generation == tf.generation && there.agent.is_some() {
             return;
         }
@@ -1807,7 +1807,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             );
             // A check scoped to every path runs for every task: a docs-only change pays the full
-            // build (dogfood run 1 paid 20 GB and 10 min for one). Say so once, where it is set.
+            // build. Say so once, where it is set.
             if *required && check.is_some() && matches_everything(scope) {
                 println!(
                     "hint: scope {scope:?} matches every path, so this check runs for every \n                     change; scope it to the paths it tests (e.g. --scope 'crates/**') and a \n                     change outside them skips it"
@@ -1948,7 +1948,6 @@ fn run(cli: Cli) -> Result<()> {
                 body["retain_secs"] = json!(r);
             }
             let mut r = client.post("/v1/gc", &body)?;
-            // the daemon never runs docker: the CLI does, for the tasks the daemon says ended
             if *containers {
                 match containers::docker() {
                     Some(docker) => r["containers"] = containers::gc(&client, &docker, *dry_run),
@@ -2114,7 +2113,6 @@ fn run(cli: Cli) -> Result<()> {
             let mut checks = vec![];
             let mut checks_failed = false;
             for c in wanted["checks"].as_array().into_iter().flatten() {
-                // `{crates}`: the packages the change can affect (Plan 12 Task 2)
                 let expanded = crates_scope::expand(s(&c["command"]), &root, &changed);
                 let cmd = expanded.as_str();
                 let (exit, out) = run_capturing(
@@ -2783,7 +2781,6 @@ fn run(cli: Cli) -> Result<()> {
                 } else {
                     String::new()
                 };
-                // a proposal says who proposed it and why
                 let proposed = if i["state"] == "proposed" {
                     let why = i["why"]
                         .as_str()
@@ -3033,7 +3030,6 @@ fn run(cli: Cli) -> Result<()> {
             println!("session: {session}");
             if handoff {
                 println!("generation: {}\n", r["generation"]);
-                // a conflicted task, or one sent back with requested changes, says what to do first
                 if let Some(todo) = r["next"].as_str() {
                     println!("{todo}\n");
                 }

@@ -7,7 +7,6 @@ use serde_json::Value;
 
 use crate::footprint::human;
 
-/// Paths of one session's footprint shown; the rest are counted.
 const TOP_PATHS: usize = 5;
 
 fn s(v: &Value) -> &str {
@@ -18,7 +17,6 @@ fn bytes(v: &Value) -> String {
     human(v.as_u64().unwrap_or(0))
 }
 
-/// `45s`, `12m`, `3h`, `5d`.
 pub fn age(secs: u64) -> String {
     match secs {
         s if s < 60 => format!("{s}s"),
@@ -28,7 +26,6 @@ pub fn age(secs: u64) -> String {
     }
 }
 
-/// `GET /v1/disk` for people.
 pub fn render_disk(v: &Value) -> String {
     let mut o = String::new();
     let retain = match v["retain_secs"].as_u64() {
@@ -164,8 +161,6 @@ pub fn render_disk(v: &Value) -> String {
     o
 }
 
-/// `GET /v1/disk?fs=1` (`av disk --fs`) for people: the free-space line and, when a budget is
-/// set, the build budget.
 pub fn render_disk_fs(v: &Value) -> String {
     let mut o =
         free_space(v).unwrap_or_else(|| "disk: this daemon does not report free space".into());
@@ -180,9 +175,6 @@ pub fn render_disk_fs(v: &Value) -> String {
     o
 }
 
-/// A footprint's `containers` section (what carried the task's label when the session stopped,
-/// and the containers it started without one), one line each for containers, images, volumes and
-/// unlabelled containers; none when it has none.
 fn containers_lines(c: &Value) -> Vec<String> {
     let list = |key: &str, show: &dyn Fn(&Value) -> String| -> Option<String> {
         let items: Vec<String> = c[key].as_array()?.iter().map(show).collect();
@@ -241,7 +233,6 @@ fn free_space(v: &Value) -> Option<String> {
     Some(line)
 }
 
-/// `POST /v1/gc` for people.
 pub fn render_gc(v: &Value) -> String {
     let mut o = String::new();
     let dry = v["dry_run"].as_bool() == Some(true);
@@ -318,7 +309,6 @@ pub fn render_gc(v: &Value) -> String {
     o
 }
 
-/// The `containers` part of `av gc --containers` (`containers::gc`) for people.
 fn render_containers_gc(c: &Value) -> String {
     let mut o = String::new();
     let dry = c["dry_run"].as_bool() == Some(true);
@@ -459,7 +449,6 @@ mod tests {
         assert!(out.contains("AV_WS_RETAIN_SECS=never"), "{out}");
         assert!(out.contains("AV_BUILD_CACHE=off"), "{out}");
         assert!(!out.contains("postgres"), "{out}");
-        // a daemon that does not report the filesystem gets no disk line
         assert!(!out.contains("disk:"), "{out}");
     }
 

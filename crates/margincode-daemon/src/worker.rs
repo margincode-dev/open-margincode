@@ -1,4 +1,4 @@
-//! Outbox worker: drains Postgres `outbox` rows into the vector index (Plan 2 Task 6).
+//! Outbox worker: drains Postgres `outbox` rows into the vector index.
 
 use std::sync::Arc;
 
@@ -9,7 +9,6 @@ use margincode_index::CodeIndex;
 use margincode_semantic::{Embedder, UpsertPoint, VectorIndex};
 use margincode_store::PgStore;
 
-/// Rows claimed per `drain_once`.
 const BATCH: i64 = 32;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -100,7 +99,6 @@ impl OutboxWorker {
         Ok(())
     }
 
-    /// Delete and supersede rows; upserts go through `upsert_all`.
     async fn apply(&self, r: &OutboxRow) -> Result<()> {
         let row = &r.row;
         match row.op {

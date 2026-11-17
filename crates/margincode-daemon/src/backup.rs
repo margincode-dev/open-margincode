@@ -1,7 +1,7 @@
-//! Git backup push (Plan 3 Task 6). A merge never waits on or fails because of the backup: it
+//! Git backup push. A merge never waits on or fails because of the backup: it
 //! starts a push in the background, and failures are stored and retried with backoff.
 //!
-//! Plan 15: trunk can also advance from the remote. `POST /v1/repos/{name}/trunk/advance`
+//! Trunk can also advance from the remote. `POST /v1/repos/{name}/trunk/advance`
 //! fetches the remote's `main` (or a named branch) and fast-forwards trunk to it when it descends
 //! from trunk, so pull requests merged on the remote come back; a backup with `advance` set does
 //! that before each push.
@@ -19,7 +19,6 @@ use serde_json::json;
 use crate::AppState;
 use crate::error::{ApiError, ApiResult};
 
-/// The longest wait between two attempts.
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// How often the retry loop looks for due repos.
 pub const BACKUP_TICK: Duration = Duration::from_secs(5);
@@ -37,7 +36,6 @@ pub fn backoff(failures: u32) -> Duration {
 /// race on the stored state.
 static PUSH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Pushes `repo`'s trunk to its remote now, if one is set, and stores the outcome.
 pub(crate) async fn run_backup(st: &AppState, repo: &str) -> Result<BackupState> {
     let _guard = PUSH_LOCK.lock().await;
     let state = st.pg.backup_state(repo).await?;
@@ -73,7 +71,6 @@ pub(crate) async fn run_backup(st: &AppState, repo: &str) -> Result<BackupState>
     }
 }
 
-/// `run_backup` in the background (after a merge or undo): the caller does not wait.
 pub(crate) fn spawn_backup(st: &AppState, repo: &str) {
     let (st, repo) = (st.clone(), repo.to_owned());
     tokio::spawn(async move {
@@ -83,7 +80,6 @@ pub(crate) fn spawn_backup(st: &AppState, repo: &str) {
     });
 }
 
-/// One pass of the retry loop: pushes every repo whose next attempt is due. Returns how many.
 pub async fn backup_tick(st: &AppState) -> Result<usize> {
     let due = st.pg.due_backups().await?;
     for repo in &due {
@@ -117,7 +113,7 @@ pub(crate) struct BackupBody {
     /// The remote branch main is pushed to; leave it out for the trunk's own name.
     #[serde(default)]
     branch: Option<String>,
-    /// Advance trunk from the remote's `main` before each push (Plan 15); left out = off.
+    /// Advance trunk from the remote's `main` before each push; left out = off.
     #[serde(default)]
     advance: bool,
 }
@@ -148,7 +144,6 @@ pub(crate) async fn set_backup(
     Ok(Json(state))
 }
 
-/// Pushes now and returns the outcome (also what the retry loop would do once due).
 pub(crate) async fn push_backup(
     State(st): State<AppState>,
     Path(repo): Path<String>,

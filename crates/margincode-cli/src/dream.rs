@@ -17,8 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::client::{CliError, Client, Result};
 use margincode_agentrun::slots;
 
-/// What the dreaming agent reads. Its hash is stored on the run, so a result can be traced to
-/// the instructions that produced it.
+/// What the dreaming agent reads; its hash is stored on the run, so a result traces to its instructions.
 pub const INSTRUCTIONS: &str = include_str!("../../../integrations/dream/DREAM.md");
 
 pub fn instructions_sha() -> String {
@@ -37,15 +36,12 @@ pub struct Dream<'a> {
     pub verify: bool,
     pub area: Option<&'a str>,
     pub limit: Option<u32>,
-    /// How often the agent is run again on what the daemon refused.
     pub fix_rounds: u32,
-    /// The agent command is killed after this long.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub timeout: Duration,
     /// Agents allowed to run at once on this host; `None` = no limit.
     pub max_agents: Option<u32>,
     pub slots_dir: PathBuf,
-    /// `$AV_HOME/dreams`.
     pub dreams_dir: PathBuf,
     pub cmd: &'a [String],
 }
@@ -55,7 +51,6 @@ impl Dream<'_> {
         if self.verify { "verify" } else { "review" }
     }
 
-    /// The file the agent writes, and the key of its list.
     fn output(&self) -> (&'static str, &'static str) {
         if self.verify {
             ("reviews.json", "reviews")
@@ -77,7 +72,6 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(8)]
 }
 
-/// The agent's list from its output file: `{"<key>": [...]}` or the bare list.
 fn read_list(path: &Path, key: &str) -> Result<Vec<Value>> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| local(format!("the agent wrote no {}: {e}", path.display())))?;
@@ -89,7 +83,6 @@ fn read_list(path: &Path, key: &str) -> Result<Vec<Value>> {
         .ok_or_else(|| local(format!("{}: expected {{\"{key}\": [...]}}", path.display())))
 }
 
-/// What the daemon refused, to hand back to the agent.
 struct Refused {
     item: Value,
     why: String,
@@ -141,7 +134,6 @@ fn run_agent(_: &Dream, _: &Path, _: &str, _: u32) -> Result<bool> {
     ))
 }
 
-/// Posts a review run's verdicts in one call; prints each answer and returns the refused.
 fn post_verdicts(client: &Client, id: &str, items: &[Value]) -> Result<Vec<Refused>> {
     if items.is_empty() {
         return Ok(vec![]);
@@ -174,7 +166,6 @@ fn post_verdicts(client: &Client, id: &str, items: &[Value]) -> Result<Vec<Refus
     Ok(refused)
 }
 
-/// Posts a verify run's reviews, one call each; prints each answer and returns the refused.
 fn post_reviews(client: &Client, d: &Dream, id: &str, items: &[Value]) -> Result<Vec<Refused>> {
     let mut refused = vec![];
     for item in items {
@@ -266,7 +257,7 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
         d.cmd.join(" ")
     );
 
-    let mut waiting: Option<Vec<Refused>> = None; // refused by the round before
+    let mut waiting: Option<Vec<Refused>> = None;
     let mut refused_total = 0;
     for round in 1..=d.fix_rounds + 1 {
         if !run_agent(d, &dir, id, round).map_err(fail)? {
@@ -334,7 +325,6 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     Ok(true)
 }
 
-/// `vd:1a2b3c4d  proposed  disputed  rec:5e6f7a8b  by dreamer  the reason`.
 pub fn verdict_line(v: &Value) -> String {
     let s = |k: &str| v[k].as_str().unwrap_or_default();
     let mut line = format!(
@@ -351,7 +341,6 @@ pub fn verdict_line(v: &Value) -> String {
     line
 }
 
-/// One verdict in full, with the record it judges (`GET /v1/verdicts/{id}`).
 pub fn verdict_text(r: &Value) -> String {
     let v = &r["verdict"];
     let rec = &r["record"];

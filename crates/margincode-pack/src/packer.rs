@@ -14,7 +14,6 @@ use crate::ledger::{collapse_sent, delivered};
 use crate::render::{claim_shown, fit, render, skeleton_text};
 use crate::tokens::estimate_tokens;
 
-/// Longest code excerpt returned by `expand`.
 const MAX_EXPAND_LINES: usize = 400;
 
 #[derive(Debug, Clone)]
@@ -30,20 +29,17 @@ pub struct PackRequest {
     /// Include the Map section (file skeletons and the repo layout). An agent that lists files
     /// itself, or finds them from the code items' paths, can do without it.
     pub map: bool,
-    /// At most this many code items, the best scored. Every item a pack names is a file an agent
-    /// may open, so a long list of weak candidates costs reads, not just pack tokens.
+    /// At most this many code items, the best scored: each is a file an agent may open, so weak ones cost reads.
     pub max_code: Option<usize>,
 }
 
-/// How much of each code item a pack may show.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeDetail {
     /// Up to the source excerpt.
     #[default]
     Full,
-    /// Up to path, lines and signature. For agents that must read a file before editing it
-    /// (Claude Code), a body in the pack is only sent a second time when they do.
+    /// Up to path, lines and signature, for agents that must read a file before editing it (a body would be sent twice).
     Signatures,
 }
 
@@ -84,11 +80,9 @@ pub struct RecordsAt {
 /// Most tokens `records_at` returns: it rides along with a file read, so it stays a few lines.
 pub const RECORDS_AT_TOKENS: u32 = 400;
 
-/// The last line of a `records_at` answer, once per session: the records are other agents'
-/// claims, and a wrong one is corrected, not followed (`render::CORRECT_HINT` says why).
+/// Last line of a `records_at` answer, once per session: the records are others' claims, to be corrected, not followed.
 const RECORDS_AT_HINT: &str =
     "Check them against the code; correct wrong ones with `av record --supersedes <id>`.";
-/// The session ledger's entry for `RECORDS_AT_HINT` having been sent.
 const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
@@ -168,13 +162,8 @@ impl Packer {
         }
 
         let foreign = std::mem::take(&mut gathered.foreign);
-        // The line about correcting records is paid for only by a pack that may print it, by
-        // `render`'s own condition: another task's record shown as more than a back-reference.
-        // A record this session was sent in full can only be referred back to, so it keeps no
-        // room for the line. Which candidates are chosen, and at which tier, is not known yet:
-        // a record that is then left out, or shown as a back-reference though a fuller tier was
-        // left, has still kept the room (about 25 tokens that go unused). That is accepted: the
-        // cost of the line has to be known before items are allocated.
+        // Room for the correction line is kept only when `render` may print it (another task's record shown as more than a
+        // back-reference). Tiers are not chosen yet, so a record later left out still keeps ~25 tokens: accepted, the cost must be known first.
         let claims = gathered
             .items
             .iter()
@@ -188,8 +177,7 @@ impl Packer {
         let mut chosen = alloc.chosen;
         let mut omitted_total = alloc.omitted_total;
 
-        // The allocator budgets item text; headings and footer are budgeted via `skeleton`, and the
-        // whole is re-measured here. If it is still over (tiny budgets), drop the lowest-ranked items.
+        // Headings and footer are budgeted via `skeleton`; re-measure the whole and drop the lowest-ranked items if a tiny budget is still exceeded.
         let (markdown, tokens) = fit(
             &mut chosen,
             &mut omitted_total,
@@ -438,7 +426,6 @@ impl Packer {
                     margincode_core::RecordKind::Intent | margincode_core::RecordKind::Validation
                 )
         });
-        // a duplicate of a record that is shown, or one the code has outgrown, is left out
         let origins = crate::assemble::Origins::load(&*self.store, recs.iter()).await?;
         recs.retain(|r| !origins.hidden(r, task.id));
         // agents' records first, then what was mined from git history; within each, what matches
@@ -491,7 +478,6 @@ impl Packer {
                 .iter()
                 .any(|&r| correctable(r) && !is_sent(&short_id("rec", &r.id.0)));
         let (mut lines, mut ids) = (vec![], vec![]);
-        // whether a record shown is one the reader may supersede (not a review or a handoff)
         let mut shows_correctable = false;
         for rec in recs {
             let (id, texts) = record_texts(rec, false, false, origins.whence(rec, task.id));
@@ -529,8 +515,8 @@ impl Packer {
     }
 
     /// How well each of `recs` matches the goal of `task`, for ordering them: its words, and
-    /// embedding similarity when the semantic layer answers in time (it is not waited for, and
-    /// its failure only leaves the words). All 0.0 for a task without a goal.
+    /// embedding similarity when the semantic layer answers within `SEMANTIC_TIMEOUT` (a timeout
+    /// or failure only leaves the words). All 0.0 for a task without a goal.
     async fn goal_relevance(
         &self,
         task: &margincode_core::Task,

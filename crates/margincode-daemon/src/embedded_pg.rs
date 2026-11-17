@@ -1,6 +1,5 @@
-//! Lite mode: with no `AV_DATABASE_URL`, the daemon runs its own user-space Postgres, so a laptop
-//! needs neither Docker nor a database server. Data, password and (unless a local installation is
-//! given) the Postgres binaries live under one directory, `$AV_HOME/pg` by default.
+//! Lite mode: with no `AV_DATABASE_URL` the daemon runs its own user-space Postgres under `$AV_HOME/pg`, so a laptop
+//! needs neither Docker nor a database server.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -104,7 +103,6 @@ fn failed(what: &str, dir: &Path, e: impl std::fmt::Display) -> AvError {
     ))
 }
 
-/// The last `n` lines of a log file, or nothing when it cannot be read.
 fn tail(path: &Path, n: usize) -> String {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();

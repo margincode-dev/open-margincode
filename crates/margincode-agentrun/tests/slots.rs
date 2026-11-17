@@ -40,7 +40,6 @@ fn wait_for_returns_once_a_slot_frees_and_says_so_once() {
     );
     assert_eq!(said, 1);
     release.join().unwrap();
-    // a free slot is taken at once, without a word
     let dir = TempDir::new().unwrap();
     let mut said = 0;
     slots::wait_for(dir.path(), 1, Duration::from_millis(50), || said += 1).unwrap();

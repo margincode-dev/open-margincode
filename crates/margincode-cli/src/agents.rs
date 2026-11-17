@@ -89,8 +89,7 @@ pub fn install_grok(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     edit_toml(path, |doc| {
         let mut server = toml_edit::Table::new();
         server["url"] = toml_edit::value(mcp_url);
-        // Grok sends `grok-shell-av` as its client name; the header names it for routing (checked
-        // against Grok Build 1.0.70, bench/results/2026-10-31-routing-grok/conformance.md).
+        // Grok sends `grok-shell-av` as its client name; the header names it for routing.
         let mut headers = toml_edit::InlineTable::new();
         if token {
             headers.insert("Authorization", "Bearer ${AV_TOKEN}".into());

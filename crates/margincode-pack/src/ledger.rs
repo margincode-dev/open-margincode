@@ -1,5 +1,3 @@
-//! Session ledger: remember what each agent session has already been sent.
-
 use std::collections::HashMap;
 
 use margincode_core::Tier;
@@ -10,9 +8,8 @@ pub(crate) fn sent_line(id: &str) -> String {
     format!("- ↩ {id} (sent earlier)")
 }
 
-/// For items already sent at tier `p`, every tier up to `p` becomes a one-line back-reference, so the
-/// allocator accounts for the real (small) cost and never "upgrades" into text the agent already has.
-/// A higher tier whose text is the same as tier `p`'s (code with no body to add) collapses too.
+/// Tiers up to the one already sent (and higher ones with the same text) become a back-reference, so the
+/// allocator prices them small and never "upgrades" into text the agent already has.
 pub(crate) fn collapse_sent(items: &mut [Item], sent: &HashMap<String, Tier>) {
     for item in items {
         if let Some(prior) = sent.get(&item.id) {

@@ -8,8 +8,7 @@ use margincode_core::*;
 use margincode_index::{CodeIndex, ScopeView};
 use margincode_pack::{CodeDetail, Pack, PackRequest, Packer, estimate_tokens};
 
-/// Scripted `Semantic`. `calls` counts `search` invocations. Like the real one, each kind of hit
-/// answers at most `limit`, best first.
+/// Scripted `Semantic` (`calls` counts searches); like the real one, each kind of hit answers at most `limit`, best first.
 struct FakeSemantic {
     hits: Vec<SemanticHit>,
     fail: bool,
@@ -476,7 +475,6 @@ async fn the_goal_is_not_stated_twice() {
         "goal line only; the identical intent record is redundant:\n{}",
         pack.markdown
     );
-    // a genuinely different intent record is kept
     fx.store
         .add_record(record(
             fx.task.id,
@@ -1042,7 +1040,6 @@ async fn pack_returns_receipt_and_manifest_lists_every_chosen_item() {
         sum += it["tokens"].as_u64().unwrap();
     }
     assert!(sum as u32 <= pack.tokens, "{sum} > {}", pack.tokens);
-    // the changed function is a seed and says so
     assert!(
         items
             .iter()
@@ -1138,8 +1135,6 @@ async fn required_convention_survives_a_150_token_budget() {
     );
 }
 
-// ---- Plan 2b Task 4: charged expand ----
-
 #[tokio::test]
 async fn expand_is_charged_to_the_session_and_reported_in_packs() {
     let fx = fixture().await;
@@ -1152,7 +1147,6 @@ async fn expand_is_charged_to_the_session_and_reported_in_packs() {
         .await
         .unwrap();
     assert!(a.tokens > 0 && a.session_expand_tokens == u64::from(a.tokens));
-    // repeat expands are charged again (Review Focus 4)
     let b = fx
         .packer
         .expand_charged(fx.task.id, &sym, "ex", None)
@@ -1161,7 +1155,6 @@ async fn expand_is_charged_to_the_session_and_reported_in_packs() {
     assert_eq!(b.session_expand_tokens, u64::from(a.tokens) * 2);
     let pack = fx.packer.build(req(&fx.task, 600, "ex")).await.unwrap();
     assert_eq!(pack.session_expand_tokens, u64::from(a.tokens) * 2);
-    // other sessions are not charged
     let other = fx.packer.build(req(&fx.task, 600, "other")).await.unwrap();
     assert_eq!(other.session_expand_tokens, 0);
 }
@@ -1444,7 +1437,6 @@ async fn a_pack_without_the_map_leaves_out_the_repo_layout() {
     assert!(without.markdown.contains("## Code"), "{}", without.markdown);
 }
 
-/// The `- sym:` lines of a pack's Code section, in order.
 fn code_lines(md: &str) -> Vec<&str> {
     let code = md.split("## Code").nth(1).unwrap_or("");
     let code = code.split("\n## ").next().unwrap_or("");
@@ -1562,8 +1554,6 @@ async fn a_type_that_tops_the_text_hits_does_not_pull_in_everything_that_uses_it
         "a type's neighbours are everything that uses it: no guess to expand from:\n{md}"
     );
 }
-
-// ---- a module-qualified goal and a link through a constant (found by the site's replay) ----
 
 const SHOP: &[(&str, &str)] = &[
     (
@@ -1801,14 +1791,12 @@ async fn records_at_does_not_wait_for_a_slow_semantic_layer() {
 /// cap is twice the code cap (`score::record_hit_limit`): 48 at 6,000, 64 at 8,000.
 const RECORD_HITS: usize = 32;
 
-/// The lines of one `## ` section of a pack.
 fn section<'a>(md: &'a str, heading: &str) -> &'a str {
     let start = pos(md, heading) + heading.len();
     let rest = &md[start..];
     &rest[..rest.find("\n## ").unwrap_or(rest.len())]
 }
 
-/// The `rec:` ids of a section's record lines, in order.
 fn record_ids(section: &str) -> Vec<String> {
     section
         .lines()
@@ -2025,10 +2013,6 @@ async fn a_record_mined_from_git_history_does_not_lead_even_when_it_matches_best
     );
 }
 
-// ---- what the review of the goal leads found (bench/results/2026-11-first-pack/README.md,
-// "Found in review" and the follow-up under it) ----
-
-/// Why each chosen item of a pack is in it, by item id: the `reason` in its receipt.
 async fn reasons(fx: &Fx, pack: &Pack) -> std::collections::HashMap<String, String> {
     let id = pack.receipt.clone().expect("pack carries a receipt id");
     let r = fx.store.get_receipt(&id[4..]).await.unwrap();
@@ -2155,7 +2139,6 @@ async fn seed_attempt_and_three_notes(fx: &Fx) -> (Record, Vec<Record>) {
     (attempt, notes)
 }
 
-/// A semantic layer that answers with three notes as record hits, at these similarities.
 fn notes_as_hits(notes: &[Record], similarity: [f32; 3]) -> Arc<FakeSemantic> {
     Arc::new(FakeSemantic {
         hits: vec![
@@ -2173,14 +2156,12 @@ fn notes_as_hits(notes: &[Record], similarity: [f32; 3]) -> Arc<FakeSemantic> {
 async fn exactly_two_records_lead_and_the_third_best_match_keeps_its_own_rank() {
     let fx = fixture().await;
     let (attempt, notes) = seed_attempt_and_three_notes(&fx).await;
-    // three records match the goal, each a little less than the one before
     let sem = notes_as_hits(&notes, [0.9, 0.8, 0.7]);
     let pack = packer_with(&fx, sem)
         .build(req(&fx.task, 4000, "two-leads"))
         .await
         .unwrap();
     let md = &pack.markdown;
-    // the two best lead, then what is anchored on the changed symbol, then the third match
     let want = [&notes[0], &notes[1], &attempt, &notes[2]].map(short);
     let ids = record_ids(section(md, "## Decisions & dead ends"));
     assert_eq!(ids, want, "{md}");
@@ -2194,9 +2175,8 @@ async fn exactly_two_records_lead_and_the_third_best_match_keeps_its_own_rank() 
 async fn a_tie_that_the_cut_would_split_promotes_neither_record_and_a_tie_above_it_both() {
     let fx = fixture().await;
     let (attempt, notes) = seed_attempt_and_three_notes(&fx).await;
-    // The second and third match equally well. Which of the two leads could only be decided by
-    // something that says nothing about the task (a record id, the order they were written
-    // in), so neither does (`relevance::leads`).
+    // The second and third match equally well; which leads could only be decided by something that says nothing
+    // about the task (a record id, write order), so neither does (`relevance::leads`).
     let sem = notes_as_hits(&notes, [0.9, 0.8, 0.8]);
     let pack = packer_with(&fx, sem)
         .build(req(&fx.task, 4000, "lead-tie"))
@@ -2211,8 +2191,7 @@ async fn a_tie_that_the_cut_would_split_promotes_neither_record_and_a_tie_above_
     assert_eq!(why[&short(&notes[1])], "semantic", "{why:?}");
     assert_eq!(why[&short(&notes[2])], "semantic", "{why:?}");
 
-    // The first and second match equally well and the third less: that tie is above the cut,
-    // so both lead.
+    // A tie above the cut: both lead.
     let sem = notes_as_hits(&notes, [0.9, 0.9, 0.7]);
     let pack = packer_with(&fx, sem)
         .build(req(&fx.task, 4000, "lead-pair"))
@@ -2265,16 +2244,11 @@ async fn a_superseded_record_hit_takes_no_place_under_the_record_hit_cap() {
     );
 }
 
-// ---- records are claims that can be corrected ----
-
-/// What a pack prints under its records heading when it shows another task's record.
 const CORRECT_HINT: &str = "Claims by earlier agents: check against the code; correct wrong ones \
                             with `av record --supersedes rec:…`";
-/// What `records_at` (the pre-read hook) ends with, once per session.
 const RECORDS_AT_HINT: &str =
     "Check them against the code; correct wrong ones with `av record --supersedes <id>`.";
 
-/// A record of another task, anchored to `path`.
 async fn earlier_record(fx: &Fx, kind: RecordKind, summary: &str, path: &str) -> Record {
     let other = fx
         .store
@@ -2337,7 +2311,6 @@ async fn a_pack_that_shows_another_tasks_record_says_a_wrong_one_can_be_correcte
 #[tokio::test]
 async fn a_pack_without_a_correctable_record_of_another_task_does_not_say_it() {
     let fx = fixture().await;
-    // the task's own record
     fx.store
         .add_record(record(
             fx.task.id,
@@ -2448,7 +2421,6 @@ async fn records_at_says_once_per_session_that_a_wrong_record_can_be_corrected()
         estimate_tokens(&first.markdown, AgentFamily::default())
             <= margincode_pack::RECORDS_AT_TOKENS
     );
-    // another file in the same session: its records, and not the line again
     let second = at("app/util.py", Some("jit")).await;
     assert!(
         second.markdown.contains("shared with goodbye"),
@@ -2497,7 +2469,6 @@ async fn records_at_says_once_per_session_that_a_wrong_record_can_be_corrected()
     );
 }
 
-/// A pack without its footer (`tokens: N/B` and what was omitted).
 fn above_footer(md: &str) -> &str {
     md.rsplit_once("\ntokens: ").map_or(md, |(body, _)| body)
 }
@@ -2670,8 +2641,6 @@ async fn records_at_keeps_no_room_for_a_line_no_record_there_can_use() {
         later.markdown
     );
 }
-
-// ---- standing: what became of the task a record comes from ----
 
 /// Another task with one decision anchored on `Greeter.hello`, left in `status` (through a
 /// merge and its revert for `reverted`).

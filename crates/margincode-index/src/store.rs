@@ -14,12 +14,9 @@ use uuid::Uuid;
 
 use crate::extract::{Symbol, SymbolKind, extract};
 
-/// Path segments that are never indexed.
 const IGNORED_SEGMENTS: [&str; 4] = ["node_modules", ".venv", "target", ".git"];
-/// Neighbor walks are capped at this many hops.
 const MAX_HOPS: u8 = 2;
-/// Chunk text kept for embedding (and for lexical code search), counted in Unicode scalars.
-/// `bench/retrieval/results/2026-11-14-chunk-length` measures other lengths.
+/// Chunk text kept for embedding and lexical code search, counted in Unicode scalars.
 pub const MAX_EMBED_CHARS: usize = 2000;
 
 fn ierr(e: sqlx::Error) -> AvError {
@@ -59,7 +56,6 @@ pub struct CodeChunk {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnchorResolution {
-    /// The anchored symbol exists.
     Symbol(SymbolId),
     /// The file exists but the anchor's symbol is absent (renamed/removed) or the anchor named no symbol.
     PathOnly(String),
@@ -120,7 +116,6 @@ pub trait CodeIndex: Send + Sync {
     async fn set_scope_change(&self, repo: &str, scope: &str, change: &ChangeId) -> Result<()>;
     /// Inserts `scope_overlays(repo, scope, main_at)` when missing. Does not touch overlay paths.
     async fn ensure_overlay(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()>;
-    /// The `main_at` recorded for this overlay, if any.
     async fn overlay_main_at(&self, repo: &str, scope: &str) -> Result<Option<ChangeId>>;
     async fn set_overlay_main_at(&self, repo: &str, scope: &str, main_at: &ChangeId) -> Result<()>;
     /// Paths currently in the overlay (including tombstones).
@@ -179,7 +174,6 @@ pub trait CodeIndex: Send + Sync {
     /// absent.
     async fn in_degree(&self, view: &ScopeView, ids: &[SymbolId])
     -> Result<HashMap<SymbolId, u32>>;
-    /// The (repo, scope) a symbol belongs to, if it exists.
     async fn symbol_scope(&self, id: SymbolId) -> Result<Option<(String, String)>>;
     /// Removes a whole scope (symbols, edges, chunks, file hashes, its overlay row and recorded
     /// change) and enqueues a vector delete per code chunk. The parse cache stays
@@ -325,8 +319,8 @@ impl PgIndex {
         Ok(true)
     }
 
-    /// Indexes `files` into `(repo, scope)`. When `write_edges` is false (overlay writes), stored
-    /// `symbol_refs` are skipped — view neighbors compute edges 2 and 3 at read time.
+    /// Skips stored `symbol_refs` when `write_edges` is false (overlay writes): view neighbors
+    /// compute those edges at read time.
     async fn index_paths_inner(
         &self,
         repo: &str,
@@ -336,8 +330,8 @@ impl PgIndex {
         write_edges: bool,
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<IndexStats> {
-        // A fixed number of statements per call, however many files and symbols: starting a task
-        // indexed the whole repo into its scope, so per-symbol round trips dominated.
+        // A fixed number of statements per call, however many files and symbols: per-symbol round
+        // trips dominated.
         let mut stats = IndexStats::default();
         let mut tx = self.pool.begin().await.map_err(ierr)?;
         forget_scope_change(&mut tx, repo, scope).await?;
@@ -494,7 +488,7 @@ impl PgIndex {
         .await
         .map_err(ierr)?;
 
-        // A repeated qname in one file keeps its first symbol, as the per-row insert did.
+        // A repeated qname in one file keeps its first symbol.
         let mut first: HashMap<(&str, &str), (&Symbol, &[u8])> = HashMap::new();
         for (p, bytes, _, ss) in &parsed {
             for s in ss {
@@ -638,7 +632,7 @@ fn degree_of_weights() -> String {
 /// CTEs `view_syms`, `overlay_syms` and `pairs` (src, dst) for an overlay view; binds `$1` repo,
 /// `$2` scope, `$3` masked paths. Pairs: (1) main→main stored refs with both ends unmasked;
 /// (2) out-edges of overlay symbols via their refs[]; (3) in-edges onto overlay symbols via view
-/// refs. Stored task-scope symbol_refs are ignored (Task 4 stops writing them).
+/// refs. Stored task-scope `symbol_refs` are ignored.
 ///
 /// With `max_fanout`, a full index of the view's tree would link a name only if at most that
 /// many other symbols define it, counted in the view. The stored edges were capped by main's
@@ -1029,7 +1023,6 @@ impl CodeIndex for PgIndex {
         if paths.is_empty() {
             return Ok(());
         }
-        // Same as remove_paths: drop symbols and file rows so the path leaves O.
         self.remove_paths(repo, scope, paths).await
     }
 
@@ -1319,9 +1312,9 @@ impl CodeIndex for PgIndex {
         if words.is_empty() {
             return Ok(vec![]);
         }
-        // Okapi BM25 (k1 = 1.2, b = 0.75, as E1's bm25_symbols): a term's count in the chunk is the
-        // number of its positions, and a chunk's length is its number of distinct words (cheap,
-        // and the same measure for the average). Ties go by path, line, then id.
+        // Okapi BM25 (k1 = 1.2, b = 0.75): a term's count in the chunk is the number of its positions,
+        // a chunk's length its number of distinct words (cheap, and the same measure for the average).
+        // Ties go by path, line, then id.
         let rows: Vec<(i64, f64)> = match &mask {
             None => {
                 sqlx::query_as(

@@ -1,6 +1,4 @@
-//! One benchmark session in one arm: prepare the working directory, run the agent CLI, verify.
-//! Claude Code is the default. Grok is `grok -p … --output-format json --always-approve
-//! --max-turns N --cwd`, with no `--max-budget-usd` (the turn cap stands in for it).
+//! One benchmark session in one arm: prepare the working directory, run the agent CLI (Claude Code, or Grok), verify.
 //! Nothing here touches the source repo except `git clone` from it and `git show`.
 
 use std::os::unix::fs::MetadataExt;
@@ -23,17 +21,14 @@ use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Arm {
-    /// E4 control: the base tree without anything the earlier agent learned (no relay commits,
-    /// no notes, no records).
+    /// E4 control: the base tree without relay commits, notes or records.
     Cold,
     /// Plain git checkout, no av.
     Baseline,
-    /// As `Baseline`, plus a `NOTES.md` of what earlier agents learned (E4; `CLAUDE.md` points
-    /// at it).
+    /// As `Baseline`, plus a `NOTES.md` of what earlier agents learned (E4; `CLAUDE.md` points at it).
     Notes,
     /// av workspaces, records, hooks and MCP, but packs reduced to the Task section.
     AvNoPacks,
-    /// Full av.
     Av,
 }
 
@@ -83,7 +78,6 @@ impl Arm {
     }
 }
 
-/// Which agent CLI a session runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Vendor {
     #[default]
@@ -105,18 +99,16 @@ pub struct RunConfig {
     /// Throwaway copies and per-session files go under here (`~/bench-work`).
     pub work_root: PathBuf,
     pub claude_bin: String,
-    /// The `grok` binary when [`Vendor`] is `Grok`.
     pub grok_bin: String,
-    /// Claude Code, or Grok. Grok is never passed `--max-budget-usd`.
     pub vendor: Vendor,
-    /// The `av` CLI the hooks run.
     pub av_bin: String,
     /// The bench daemon (av arms only).
     pub av_url: Option<String>,
     pub av_token: Option<String>,
-    /// Host directory the bench daemon imports from, and the same directory as the daemon sees
-    /// it (`/import` in the bench compose stack; the host path itself for a host daemon).
+    /// Host directory the bench daemon imports from.
     pub import_dir: PathBuf,
+    /// The same directory as the daemon sees it (`/import` in the bench compose stack; the host
+    /// path itself for a host daemon).
     pub import_mount: String,
     pub allowed_tools: Vec<String>,
     pub permission_mode: String,
@@ -126,23 +118,17 @@ pub struct RunConfig {
     pub claude_home: Option<PathBuf>,
     /// Token budget of the session-start pack.
     pub hook_budget: u32,
-    /// Run the av arms even when the bench daemon has no semantic layer (packs then have no
-    /// semantic code search, which undersells av).
+    /// Run the av arms even without a semantic layer (packs then have no semantic code search, which undersells av).
     pub allow_no_semantic: bool,
-    /// How long to wait for a new repo's embeddings to drain before its session starts.
     pub index_wait_secs: u64,
-    /// Give the av arms the av MCP server as well as the hooks. Off measures the shipped
-    /// Claude Code integration (`integrations/claude-code`), which is hooks only.
+    /// Give the av arms the av MCP server too; off measures the shipped hooks-only Claude Code integration (`integrations/claude-code`).
     pub av_mcp: bool,
-    /// `--code` for the session-start hook (`full` or `signatures`); `None` = the hook's default.
     pub hook_code: Option<String>,
-    /// More arguments for the session-start hook, e.g. `--no-map`, `--max-code=3`.
     pub hook_args: Vec<String>,
     /// Also install the just-in-time hooks in the av arms: `PreToolUse` on reads and edits
     /// (`av hook pre-read`: other tasks' records about the file) and `Stop` (`av hook stop`).
     pub jit_hooks: bool,
-    /// Cost sessions from their token usage at these prices instead of Claude Code's
-    /// `total_cost_usd`, and do not pass `--max-budget-usd` (it is in Claude prices).
+    /// Cost sessions from token usage at these prices, not Claude Code's `total_cost_usd`, and do not pass `--max-budget-usd` (it is in Claude prices).
     pub prices: Option<crate::metrics::Prices>,
     /// Keep each session's clone after verify. Off: a valid session's clone is removed (the
     /// git arms' `ws`, the av arms' import copy) and an av task is abandoned, so the bench
@@ -152,17 +138,14 @@ pub struct RunConfig {
     /// Start the agent CLI as this user, which can read only its own working copy
     /// (`run --agent-user`, see `isolate`). `None`: as this process's own user, as before.
     pub agent_user: Option<AgentUser>,
-    /// The bench daemon's workspace root as this process sees it (`AV_WS_ROOT`). Only read with
-    /// `agent_user` and an av arm: the preflight looks at it before the first session.
+    /// The bench daemon's workspace root as this process sees it (`AV_WS_ROOT`); only read with `agent_user` and an av arm (the preflight looks at it).
     pub av_ws_root: Option<PathBuf>,
     /// Plan 16 Phase 1 (M1): seed the pool's `no_commit` notes (the wrong-lesson pool's wrong
     /// notes) as the records of an earlier task whose merge was then reverted, so their
     /// standing is `reverted`; the other notes stay the records of an open earlier task.
     /// Off: every note is the open task's, as before.
     pub wrong_reverted: bool,
-    /// Plan 16 M2 stage B: a file `margincode-bench dream-freeze` wrote. Each av session's store
-    /// gets that file's verdicts and reviews for its task once it is seeded, before the agent's
-    /// task starts ([`crate::dreamed::replay`]). `None`: the raw store, as before.
+    /// A file `margincode-bench dream-freeze` wrote: each av session's store gets its task's verdicts and reviews once seeded ([`crate::dreamed::replay`]). `None`: the raw store.
     pub dreamed: Option<PathBuf>,
 }
 
@@ -180,8 +163,7 @@ pub struct RunOutcome {
     pub wall_secs: f64,
     pub claude_killed: bool,
     pub claude_exit: Option<i32>,
-    /// cl100k tokens of `NOTES.md` (`notes`) or of the pack the av task starts with (`pack.md`,
-    /// av arms), measured before the session; `None` in the other arms.
+    /// cl100k tokens of `NOTES.md` (`notes`) or of the pack the av task starts with (`pack.md`), measured before the session; `None` in the other arms.
     #[serde(default)]
     pub memory_tokens: Option<u64>,
 }
@@ -236,9 +218,7 @@ fn git_ok(dir: &Path, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-/// `dest` = the tree of `rev` as a single orphan commit `base` on branch `bench`, with no other
-/// refs, no remote, no reflog and no unreachable objects: neither arm can read the real fix or
-/// earlier approaches from history.
+/// `dest` = the tree of `rev` as a single orphan commit `base` on branch `bench`, with no other refs, remote, reflog or unreachable objects: neither arm can read the real fix or earlier approaches from history.
 pub fn scrubbed_copy(repo: &Path, rev: &str, dest: &Path) -> Result<()> {
     let commit = resolve_rev(repo, rev)?;
     if dest.exists() {
@@ -445,7 +425,6 @@ pub fn seed_store(
     Ok((src, seeded))
 }
 
-/// Starts an earlier task as `agent`: (id, generation).
 fn earlier_task(daemon: &Daemon, repo: &str, agent: &str, title: &str) -> Result<(String, i64)> {
     let started = daemon.post(
         "/v1/tasks",
@@ -463,9 +442,7 @@ fn earlier_task(daemon: &Daemon, repo: &str, agent: &str, title: &str) -> Result
 /// The file the reverted task adds and its revert removes again, so trunk's tree is the base's.
 pub const REVERTED_FILE: &str = "AV_BENCH_REVERTED.md";
 
-/// Takes the task through submit, a passing validation, approval and merge, then reverts the
-/// merge: its records' standing becomes `reverted`. Its change is one new file
-/// ([`REVERTED_FILE`]), so after the revert trunk has the base's tree again.
+/// Takes the task through submit, validation, approval and merge, then reverts it, so its records' standing becomes `reverted` (the revert restores the base's tree).
 fn reverted_task(daemon: &Daemon, task: &str, generation: i64) -> Result<()> {
     let t = daemon.get(&format!("/v1/tasks/{task}"))?;
     let ws = PathBuf::from(
@@ -510,7 +487,6 @@ fn reverted_task(daemon: &Daemon, task: &str, generation: i64) -> Result<()> {
     Ok(())
 }
 
-/// Every file of `rev` exists in `dir` with the same bytes.
 pub fn tree_matches(repo: &Path, rev: &str, dir: &Path) -> Result<()> {
     let names = git_in(
         repo,
@@ -538,7 +514,6 @@ pub fn tree_matches(repo: &Path, rev: &str, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The bench daemon's HTTP API.
 pub struct Daemon {
     url: String,
     token: Option<String>,
@@ -588,8 +563,7 @@ impl Daemon {
         self.call(r, Some(body))
     }
 
-    /// Imports a repo and waits for it: the import runs as a job on the daemon, so no request
-    /// timeout limits how large the repo may be.
+    /// Imports a repo and waits for it: a daemon job, so no request timeout limits the repo's size.
     pub fn add_repo(&self, name: &str, git_source: &str) -> Result<Value> {
         self.post(
             "/v1/repos",
@@ -640,7 +614,6 @@ struct AvTask {
     source: PathBuf,
     /// `(pair, record id)` of every relay note seeded as a record, in pool order.
     seeded: Vec<(String, String)>,
-    /// The pack the daemon answered the task start with (what `pack.md` holds).
     start_pack: Value,
 }
 
@@ -665,9 +638,7 @@ fn start_av_task(
             &seeded,
         )?;
     }
-    // The start pack is only kept for calibration (`pack.md`), so it goes to a session of its
-    // own: under the agent's session the ledger would mark everything as sent, and the agent's
-    // first pack would be nothing but back-references.
+    // the start pack is only kept for calibration (`pack.md`), so it goes to a session of its own: under the agent's, the ledger would mark everything as sent and the agent's first pack would be only back-references
     let session = uuid::Uuid::new_v4().to_string();
     let pack_mode = if arm == Arm::AvNoPacks {
         "task_only"
@@ -711,8 +682,7 @@ fn start_av_task(
     })
 }
 
-/// With a semantic layer, waits until the repo's embeddings are in the vector index, so the
-/// session's first pack can use semantic search; without one, refuses unless allowed.
+/// With a semantic layer, waits until the repo's embeddings are in the vector index so the first pack can use semantic search; without one, refuses unless allowed.
 fn wait_for_index(daemon: &Daemon, repo: &str, cfg: &RunConfig) -> Result<()> {
     let start = Instant::now();
     loop {
@@ -740,7 +710,6 @@ fn wait_for_index(daemon: &Daemon, repo: &str, cfg: &RunConfig) -> Result<()> {
     }
 }
 
-/// Each `[[dead_end]]` becomes an `attempt` record anchored to the base files its glob matches.
 fn seed_dead_ends(spec: &TaskSpec, daemon: &Daemon, task: &str, generation: i64) -> Result<()> {
     if spec.dead_ends.is_empty() {
         return Ok(());
@@ -777,11 +746,9 @@ fn seed_dead_ends(spec: &TaskSpec, daemon: &Daemon, task: &str, generation: i64)
     Ok(())
 }
 
-/// What the hooks themselves write (`hook-count`, `pre-read.out`), by name.
 const HOOK_FILES: [&str; 2] = ["hook-count", "pre-read.out"];
 
-/// The session's settings file. The hook commands write `HOOK_FILES` into `hook_dir`, which
-/// must be a directory the user the agent CLI runs as can write to.
+/// The session's settings file. The hook commands write `HOOK_FILES` into `hook_dir`, which the agent CLI's user must be able to write.
 fn settings(arm: Arm, cfg: &RunConfig, hook_dir: &Path) -> Value {
     if !arm.uses_av() {
         return json!({});
@@ -843,9 +810,7 @@ fn invalid(mut o: RunOutcome, reason: String) -> RunOutcome {
     o
 }
 
-/// Runs one session. `Err` means the run as a whole should stop (the daemon is down, the
-/// workspace does not match the base tree): nothing was spent on this session. A session that
-/// ran but must not count comes back `valid: false`.
+/// `Err` stops the whole run (daemon down, workspace does not match the base tree) with nothing spent on this session; a session that ran but must not count is `valid: false`.
 pub fn run_session(
     spec: &TaskSpec,
     arm: Arm,
@@ -1124,14 +1089,11 @@ const HOME_ENV: [&str; 5] = [
     "XDG_RUNTIME_DIR",
 ];
 
-/// What a session lends the agent user (`--agent-user`), taken back when the agent is done and,
-/// through `Drop`, however the session ends: a session that stops half way must not leave the
-/// next one a directory to read.
+/// What a session lends the agent user, taken back when the agent is done and, through `Drop`, however the session ends: a half-run session must not leave the next one a directory to read.
 struct Lent<'a> {
     user: &'a AgentUser,
     /// Handed to the user for the session: the working copy, its config dir, its home.
     trees: Vec<PathBuf>,
-    /// Directories the user passes through during the session, closed to it afterwards.
     close: Vec<PathBuf>,
     taken_back: bool,
 }
@@ -1146,8 +1108,6 @@ impl<'a> Lent<'a> {
         }
     }
 
-    /// Kills what the user still runs, then makes every tree root's alone and closes the
-    /// directories.
     fn take_back(&mut self) -> Result<()> {
         self.user.kill_processes()?;
         for tree in &self.trees {
@@ -1173,9 +1133,7 @@ impl Drop for Lent<'_> {
     }
 }
 
-/// With an agent user, the daemon's workspace is lent to it for the session. That needs the
-/// workspace where the preflight looked (under `av_ws_root`) and a daemon that runs as root, so
-/// that it still snapshots a workspace whose files are another user's.
+/// With an agent user, the daemon's workspace is lent to it for the session; needs the workspace under `av_ws_root` and a daemon that runs as root, so it still snapshots a workspace whose files are another user's.
 fn daemon_workspace_can_be_lent(workspace: &Path, cfg: &RunConfig) -> Result<()> {
     let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
     if let Some(root) = &cfg.av_ws_root
@@ -1210,9 +1168,7 @@ fn test_dest(workspace: &Path, rel: &str, user: Option<&AgentUser>) -> Result<Pa
     }
 }
 
-/// After verify: the git arms' clone goes; an av task's import copy goes and the task is
-/// abandoned, so the bench daemon's retention reclaims its workspace. Failures are warnings:
-/// the session's result already stands.
+/// After verify: the git arms' clone goes; an av task's import copy goes and the task is abandoned, so the daemon's retention reclaims its workspace. Failures are warnings: the result already stands.
 fn remove_work(workspace: &Path, av_task: Option<&AvTask>, daemon: Option<&Daemon>) {
     let remove = |p: &Path| {
         if p.exists()
@@ -1300,8 +1256,7 @@ fn claude_command(
     bench_env(cmd, cfg, AGENT)
 }
 
-/// `grok -p <prompt> --output-format json --always-approve --max-turns N --cwd <dir>`.
-/// No `--max-budget-usd` and no `--confirm`: vendors without a budget flag are capped by turns.
+/// `grok -p <prompt> --output-format json --always-approve --max-turns N --cwd <dir>`; no `--max-budget-usd` and no `--confirm` (vendors without a budget flag are capped by turns).
 fn grok_command(spec: &TaskSpec, cfg: &RunConfig, paths: &SessionPaths<'_>) -> AgentCommand {
     let cmd = AgentCommand::new(&cfg.grok_bin)
         .arg("-p")
@@ -1330,9 +1285,7 @@ fn json_u64(v: &Value) -> u64 {
         .unwrap_or(0)
 }
 
-/// Grok `--output-format json` is one JSON object (`usage.input_tokens`,
-/// `usage.cache_read_input_tokens`, `usage.output_tokens`, `total_cost_usd`, `num_turns`).
-/// `usage.reasoning_tokens` is ignored: [`Usage`] has no field for it.
+/// Grok's one JSON object (`usage.*`, `total_cost_usd`, `num_turns`); `usage.reasoning_tokens` is ignored: [`Usage`] has no field for it.
 pub fn parse_grok(text: &str) -> ParsedSession {
     let mut s = ParsedSession::default();
     let Ok(v) = serde_json::from_str::<Value>(text.trim()) else {
@@ -1359,7 +1312,6 @@ pub fn parse_grok(text: &str) -> ParsedSession {
     s
 }
 
-/// Claude's stream-json, or Grok's one JSON object, as a [`ParsedSession`].
 pub fn parse_session(vendor: Vendor, text: &str) -> ParsedSession {
     match vendor {
         Vendor::Claude => crate::events::parse_stream(text),
@@ -1370,7 +1322,6 @@ pub fn parse_session(vendor: Vendor, text: &str) -> ParsedSession {
 /// Where one record stands in one pack.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Standing {
-    /// `handle`, `summary` or `full` when the pack shows the record.
     pub tier: Option<String>,
     /// Its 1-based place in the pack's list of omitted items, when it is only listed there.
     pub omitted_at: Option<usize>,
@@ -1401,11 +1352,9 @@ impl Standing {
     }
 }
 
-/// What the pre-read hook answers for one file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreRead {
     pub path: String,
-    /// Records in the answer.
     pub records: usize,
     /// Whether the lesson of the task is one of them.
     pub lesson: bool,
@@ -1424,11 +1373,9 @@ pub struct FirstPack {
     pub at_start: Standing,
     /// The pack the session-start hook prints, once the repo's outbox has drained.
     pub at_hook: Standing,
-    /// The pre-read hook's answer for each of the task's `relevant_files`, in that order, under
-    /// the hook pack's session (so a record the pack showed is not repeated).
+    /// The pre-read hook's answer for each of the task's `relevant_files`, in that order, under the hook pack's session (so a shown record is not repeated).
     pub pre_read: Vec<PreRead>,
-    /// How many of the task's `relevant_files` the hook pack names: records must not be bought
-    /// with the code the agent needs.
+    /// How many of the task's `relevant_files` the hook pack names: records must not be bought with the code the agent needs.
     #[serde(default)]
     pub files_named: usize,
     #[serde(default)]
@@ -1444,7 +1391,6 @@ impl FirstPack {
     }
 }
 
-/// Where `lesson` stands in `pack`, read from the pack's receipt, which is kept as `keep`.
 fn standing(daemon: &Daemon, pack: &Value, lesson: &str, keep: &Path) -> Result<Standing> {
     let md = pack["markdown"].as_str().unwrap_or_default();
     let listed: Vec<&str> = pack["omitted"]
@@ -1598,7 +1544,6 @@ pub fn first_pack(spec: &TaskSpec, run_id: &str, cfg: &RunConfig) -> Result<Firs
     Ok(out)
 }
 
-/// Where `first_pack` writes for one task.
 pub fn first_pack_dir(cfg: &RunConfig, run_id: &str, task: &str) -> PathBuf {
     cfg.work_root
         .join("runs")
@@ -1606,7 +1551,6 @@ pub fn first_pack_dir(cfg: &RunConfig, run_id: &str, task: &str) -> PathBuf {
         .join(format!("{task}-first-pack"))
 }
 
-/// `first-packs.md`: one line per task, and how many tasks each channel gave their lesson.
 pub fn first_packs_report(rows: &[FirstPack], noise: usize) -> String {
     let mut out = format!(
         "# First packs: is the task's own lesson in them?\n\nNoise notes: {noise}. Tasks: {}. \

@@ -15,7 +15,6 @@ pub struct MineArgs {
     /// What to write as each task's `repo_path` (e.g. `~/eval-repos/click`).
     pub repo_path: String,
     pub prefix: String,
-    /// `git log --since` (e.g. `2026-06-01`).
     pub since: Option<String>,
     pub max_files: usize,
     pub max_lines: usize,
@@ -39,7 +38,6 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// The commit message as a goal: trailers, sign-offs and URLs dropped, blank runs collapsed.
 pub fn goal_from_message(subject: &str, body: &str) -> String {
     history::clean_message(subject, body, MAX_GOAL)
 }

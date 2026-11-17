@@ -1,6 +1,3 @@
-//! Plan 10 A3: the office (`GET /v1/office`) and agents' timelines
-//! (`GET /v1/agents/{name}/timeline`), read by the dashboard.
-
 use crate::common::*;
 
 async fn put_agent(e: &Env, name: &str, cost: i32) {
@@ -86,14 +83,12 @@ async fn a_timeline_lists_what_an_agent_did_newest_first() {
         assert!(k.contains(&want), "{want} missing from {k:?}");
     }
     assert!(!k.contains(&"merged"), "grok merged it, not claude: {k:?}");
-    // newest first: the submit came after the start
     let pos = |kind: &str| k.iter().position(|x| *x == kind).unwrap();
     assert!(pos("submit") < pos("started"), "{k:?}");
     let ats: Vec<&str> = mine.iter().map(|i| i["at"].as_str().unwrap()).collect();
     let mut sorted = ats.clone();
     sorted.sort_by(|a, b| b.cmp(a));
     assert_eq!(ats, sorted);
-    // each entry names its task
     assert!(
         mine.iter()
             .all(|i| i["slug"] == t["task"]["slug"] && i["repo"] == "demo")
@@ -106,7 +101,6 @@ async fn a_timeline_lists_what_an_agent_did_newest_first() {
     assert!(theirs.contains("approve"), "{theirs}");
     assert!(theirs.contains("validation"), "{theirs}");
 
-    // limit and repo
     assert_eq!(timeline(&e, "claude", "?limit=2").await.len(), 2);
     assert!(timeline(&e, "claude", "?repo=other").await.is_empty());
     assert!(timeline(&e, "nobody", "").await.is_empty());
@@ -164,7 +158,6 @@ async fn the_office_shows_each_agent_at_work_or_idle() {
     assert_eq!(grok["state"], "idle", "{grok}");
     assert!(grok["last"].is_null());
 
-    // submitted work waits for review: the owner is idle with it in `in_review`
     edit_greeter(&e, &t);
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -173,7 +166,6 @@ async fn the_office_shows_each_agent_at_work_or_idle() {
     assert_eq!(claude["state"], "idle", "{claude}");
     assert_eq!(claude["in_review"][0]["slug"], t["task"]["slug"]);
 
-    // `next` reserves the review for grok: grok is reviewing it
     let (status, body) = call(
         &e.app,
         "POST",
@@ -206,8 +198,6 @@ async fn an_agent_without_a_profile_shows_and_a_task_past_its_lease_is_quiet() {
     assert!(claude["profile"].is_null());
     assert_eq!(claude["state"], "quiet", "{claude}");
 }
-
-// ---- needs attention (`GET /v1/attention`, Plan 15 Phase 2) ----
 
 /// Every threshold at zero: anything in a waiting status is stuck at once.
 fn no_patience() -> margincode_daemon::AttentionLimits {
@@ -245,7 +235,6 @@ fn item<'a>(body: &'a Value, kind: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no {kind} in {body}"))
 }
 
-/// `agent` starts a task, writes `text` to the greeter, records a decision and submits it.
 async fn submitted_as(e: &Env, agent: &str, title: &str, text: &str) -> Value {
     let (status, t) = call(
         &e.app,
@@ -271,7 +260,6 @@ async fn submitted_as(e: &Env, agent: &str, title: &str, text: &str) -> Value {
     t
 }
 
-/// grok validates and approves the task.
 async fn approve_as_grok(e: &Env, t: &Value) {
     let task = id(t);
     let (status, b) = call(
@@ -331,7 +319,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     let e = env_with(|s| s.with_lease_secs(0).with_attention(no_patience())).await;
     put_agent(&e, "grok", 2).await;
 
-    // conflicted: codex's change to the same lines merges first, claude's then conflicts
     let loud = "class Greeter:\n    def hello(self, name):\n        return name.upper()\n";
     let shout = "class Greeter:\n    def hello(self, name):\n        return name + \"!\"\n";
     let mine = submitted_as(&e, "claude", "Make hello loud", loud).await;
@@ -342,7 +329,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     let b = merge_as_grok(&e, &mine).await;
     assert_eq!(b["status"], "conflicted", "{b}");
 
-    // main red: the post-merge check of main's newest commit failed
     let (status, log) = call(&e.app, "GET", "/v1/repos/demo/log?limit=1", None).await;
     assert_eq!(status, StatusCode::OK, "{log}");
     let main = log["commits"][0]["change"].as_str().unwrap().to_owned();
@@ -355,12 +341,10 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     .await;
     assert_eq!(status, StatusCode::OK, "{b}");
 
-    // a review nobody gave, then an approval nobody merged
     let twice = "class Greeter:\n    def hello(self, name):\n        return name * 2\n";
     let waiting = submitted_as(&e, "claude", "Wait for review", twice).await;
     let approved = submitted_as(&e, "claude", "Approved only", loud).await;
     approve_as_grok(&e, &approved).await;
-    // a handoff nobody claimed
     let handed = start_task(&e, "Hand me off").await;
     edit_greeter(&e, &handed);
     record_decision(&e, &handed).await;
@@ -368,7 +352,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     assert_eq!(status, StatusCode::OK, "{b}");
     // an open task nobody wrote to for a whole lease (the lease is 0 s)
     let quiet = start_task(&e, "Nobody writes").await;
-    // a backlog item no profile fits
     let (status, b) = call(
         &e.app,
         "POST",
@@ -380,7 +363,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{b}");
-    // a target past its due day
     let (status, b) = call(
         &e.app,
         "POST",
@@ -389,7 +371,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{b}");
-    // a session that left a big build outside any workspace
     let (status, b) = call(
         &e.app,
         "POST",
@@ -473,7 +454,6 @@ async fn attention_lists_each_stuck_situation_worst_first() {
     assert_eq!(f["agent"], "claude");
     assert_eq!(f["slug"], quiet["task"]["slug"]);
 
-    // every repo when none is named; an unknown repo is a 404
     assert_eq!(attn_kinds(&attention(&e, "").await), attn_kinds(&a));
     let (status, _) = call(&e.app, "GET", "/v1/attention?repo=nope", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -503,7 +483,6 @@ async fn attention_lists_proposals_waiting_for_a_human() {
     assert_eq!(it["title"], "Cache packs");
     assert_eq!(it["detail"], "proposed by claude: unsure it pays off");
 
-    // accepted: no longer waiting for anyone
     let uri = format!("/v1/backlog/{}/accept", p["id"].as_str().unwrap());
     let (status, b) = call(&e.app, "POST", &uri, Some(json!({"by": "vinh"}))).await;
     assert_eq!(status, StatusCode::OK, "{b}");
@@ -520,7 +499,6 @@ async fn attention_waits_out_its_thresholds() {
     let (status, b) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{b}");
     start_task(&e, "Still writing").await;
-    // untagged work and no profiles anywhere: any agent takes it
     let (status, b) = call(
         &e.app,
         "POST",

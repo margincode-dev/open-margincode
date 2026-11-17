@@ -1,5 +1,3 @@
-//! Markdown rendering of an allocation.
-
 use std::collections::HashSet;
 
 use margincode_core::{AgentFamily, Tier};
@@ -23,7 +21,6 @@ pub(crate) fn push_section(out: &mut String, heading: &str, items: &[&(Item, Tie
     push_section_noted(out, heading, None, items, always);
 }
 
-/// `push_section` with a line of `note` between the heading and the items.
 fn push_section_noted(
     out: &mut String,
     heading: &str,
@@ -64,8 +61,7 @@ pub(crate) fn claim_shown(item: &Item, foreign: &HashSet<String>, tier: Option<T
     }
 }
 
-/// `foreign`: ids of the History items that are another task's records the reader may supersede
-/// (`Gathered::foreign`).
+/// `foreign`: ids of History items that are another task's supersedable records (`Gathered::foreign`).
 pub(crate) fn render(
     chosen: &[(Item, Tier)],
     foreign: &HashSet<String>,
@@ -130,7 +126,6 @@ pub(crate) fn render(
     out
 }
 
-/// `tokens: N/B` and the list of omitted handles.
 pub(crate) fn push_footer(
     out: &mut String,
     omitted: &[String],
@@ -153,9 +148,8 @@ pub(crate) fn push_footer(
     }
 }
 
-/// Renders `chosen` with `render(chosen, omitted_total, tokens)` until the stated token count is
-/// the measured one, dropping the lowest-ranked items (hard constraints last) while the text is
-/// over `budget`. Returns the text and its tokens; `("", 0)` if nothing fits.
+/// Renders until the stated token count is the measured one, dropping the lowest-ranked items (hard
+/// constraints last) while over `budget`. Returns the text and tokens; `("", 0)` if nothing fits.
 pub(crate) fn fit(
     chosen: &mut Vec<(Item, Tier)>,
     omitted_total: &mut usize,
@@ -168,7 +162,6 @@ pub(crate) fn fit(
         if tokens <= budget {
             return (md, tokens);
         }
-        // drop the lowest-ranked item that is not a hard constraint
         let victim = chosen
             .iter()
             .rposition(|(i, _)| !i.required)
@@ -266,7 +259,6 @@ mod tests {
         assert!(claim_shown(&items[1], &foreign, None));
         assert!(!claim_shown(&items[1], &foreign, Some(Tier::Summary)));
         assert!(claim_shown(&items[1], &foreign, Some(Tier::Full)));
-        // not another task's supersedable record
         assert!(!claim_shown(&items[2], &foreign, None));
         assert!(!claim_shown(&items[2], &foreign, Some(Tier::Full)));
     }

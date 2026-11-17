@@ -1,5 +1,3 @@
-//! E4 at scale: the deterministic irrelevant notes `run --noise N` adds to the relay arms.
-
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -8,8 +6,6 @@ use margincode_bench::noise::{Anchor, add_noise, anchors_at, generate, interleav
 use margincode_bench::spec::{RelayNote, TaskSpec, load_spec};
 use tempfile::TempDir;
 
-/// A small package: one module with a function, a class and a method, a file with no symbols,
-/// a test file and a README.
 fn package_repo(dir: &Path) -> String {
     git(dir, &["init", "-q", "-b", "main"]);
     std::fs::create_dir_all(dir.join("pkg")).unwrap();
@@ -166,7 +162,6 @@ summary = "Swapping the operands of the subtraction does not fix add()."
 body = "Tried it first."
 "#;
 
-/// Two relay tasks on the same repo and base, sharing one pool.
 fn relay_specs(dir: &Path) -> Vec<TaskSpec> {
     let repo = dir.join("repo");
     std::fs::create_dir_all(&repo).unwrap();

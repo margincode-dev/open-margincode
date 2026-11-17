@@ -1,6 +1,3 @@
-//! `scale` (Plan 6 E2) against a real daemon on a small repo: every phase runs, every agent's
-//! task merges, and the report says so.
-
 use crate::common::*;
 use margincode_bench::runner::Daemon;
 use margincode_bench::scale::{self, ScaleArgs};

@@ -1,6 +1,5 @@
 //! `.av-task`: written into a task's workspace so later commands (from any subdirectory) know the
-//! task. The daemon writes it when it hands a workspace out (a start, a claim, a resume), and the
-//! CLI when it starts or takes a task and in a remote checkout; both use this one definition.
+//! task. The daemon and the CLI share this one definition.
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +13,7 @@ pub struct TaskFile {
     pub session: String,
     /// The claim generation this workspace's owner writes under, and that owner. A later claim
     /// rewrites both. The CLI writes its own name; the daemon writes one only for an agent that
-    /// named itself (`X-Av-Agent`), else none (F14). `claim_of` says what a reader may send.
+    /// named itself (`X-Av-Agent`), else none. `claim_of` says what a reader may send.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -23,13 +22,12 @@ pub struct TaskFile {
     /// of them is the owner too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
-    /// When `av hook post-edit` last checkpointed (Unix ms), for its debounce.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_checkpoint_ms: Option<u64>,
     /// The agent session `av hook stop` last asked to record its changes; it asks once per session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nudged_session: Option<String>,
-    /// The agent session `av hook stop` last told that its claim was taken over (T1a); it tells
+    /// The agent session `av hook stop` last told that its claim was taken over; it tells
     /// once per session. Not `nudged_session`: a previous owner's mark must not stop the new
     /// owner's record nudge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,15 +38,14 @@ pub struct TaskFile {
     pub continue_session: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub continues: u32,
-    /// Plan 14: set in a checkout on another host than the daemon's (`av remote clone`), whose
+    /// Set in a checkout on another host than the daemon's (`av remote clone`), whose
     /// checkpoints go to the daemon as patches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<Remote>,
 }
 
 impl TaskFile {
-    /// The file of a workspace just handed out under `generation`, naming no agent and with
-    /// nothing else set (the daemon's, F14).
+    /// The file of a workspace just handed out under `generation`, naming no agent.
     pub fn new(task: String, session: String, generation: i64) -> Self {
         Self {
             task,
@@ -74,10 +71,8 @@ impl TaskFile {
     }
 }
 
-/// The name `av` and its hooks act as when nobody named them (no `--agent`, no `AV_AGENT`).
 pub const DEFAULT_AGENT: &str = "agent";
 
-/// What a reader of the file may write under (T1a).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Claim<'a> {
     /// The file's generation: the reader is the owner, or one of the two has no name.
@@ -89,7 +84,7 @@ pub enum Claim<'a> {
 
 /// The one rule for what a reader sends, given its explicit name (`None`: no `--agent`, no
 /// `AV_AGENT`, not a Grok hook). Names fence only when both sides are known: an unnamed reader
-/// cannot be told from the owner's own hooks (F5), and a file that names nobody cannot tell who
+/// cannot be told from the owner's own hooks, and a file that names nobody cannot tell who
 /// owns it. A reader named as the owner or one of its aliases holds the claim.
 pub fn claim_of<'a>(tf: &'a TaskFile, reader: Option<&str>) -> Claim<'a> {
     match (reader, tf.owner()) {
@@ -135,7 +130,6 @@ pub fn other_names<'a>(
     names
 }
 
-/// Where a remote checkout last agreed with the daemon.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Remote {
     /// The daemon's head (a change id) the checkout was last synced to.
@@ -148,7 +142,6 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-/// Nearest `.av-task` in `start` or any ancestor, with the directory that holds it.
 pub fn find(start: &Path) -> Option<(PathBuf, TaskFile)> {
     start.ancestors().find_map(|dir| {
         let text = std::fs::read_to_string(dir.join(NAME)).ok()?;
@@ -167,11 +160,10 @@ pub fn write(dir: &Path, tf: &TaskFile) -> std::io::Result<()> {
 /// `held`'s task and generation. Returns whether it wrote.
 ///
 /// For a process that read the file earlier and keeps its own fields there (the hooks' session,
-/// debounce stamp and counts): writing back the copy it read would undo a claim made since,
-/// putting the previous owner's generation back, and the new owner would be refused as "claim
-/// lost" (F39). A file that changed hands, or is gone or unreadable, is left alone. A claim that
-/// lands between this read and the write is still lost; that window is one small file's read
-/// and write.
+/// debounce stamp and counts): writing back its copy would undo a claim made since, and the new
+/// owner would be refused as "claim lost". A file that changed hands, or is gone or unreadable,
+/// is left alone. A claim that lands between this read and the write is still lost; that window
+/// is one small file's read and write.
 pub fn update(
     dir: &Path,
     held: &TaskFile,
@@ -222,13 +214,12 @@ mod tests {
     #[test]
     fn names_fence_only_when_both_sides_are_known() {
         let mut tf = TaskFile::new("t".into(), "s".into(), 3);
-        // a file that names nobody, or the default name: every reader holds the claim
         assert_eq!(claim_of(&tf, Some("grok")), Claim::Holds(Some(3)));
         tf.agent = Some(DEFAULT_AGENT.into());
         assert_eq!(claim_of(&tf, Some("grok")), Claim::Holds(Some(3)));
         tf.agent = Some("claude-opus".into());
         tf.aliases = vec!["opus".into()];
-        // an unnamed reader may be the owner's own hook (F5)
+        // an unnamed reader may be the owner's own hook
         assert_eq!(claim_of(&tf, None), Claim::Holds(Some(3)));
         assert_eq!(claim_of(&tf, Some("claude-opus")), Claim::Holds(Some(3)));
         assert_eq!(claim_of(&tf, Some("opus")), Claim::Holds(Some(3)));
@@ -241,7 +232,6 @@ mod tests {
         let grok: Vec<String> = Vec::new();
         let profiles = || [("claude-opus", opus.as_slice()), ("grok", grok.as_slice())];
         assert_eq!(other_names("claude-opus", profiles()), ["opus", "claude"]);
-        // a task started or claimed under an alias names the profile, and its other aliases
         assert_eq!(other_names("opus", profiles()), ["claude-opus", "claude"]);
         assert!(other_names("grok", profiles()).is_empty());
         assert!(other_names("codex", profiles()).is_empty());

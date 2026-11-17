@@ -75,7 +75,6 @@ impl<'a> Git<'a> {
         c
     }
 
-    /// Runs git; its stdout, or an error with its stderr.
     fn run(&self, args: &[&str]) -> Result<Vec<u8>> {
         let out = self
             .command(args)
@@ -95,7 +94,6 @@ impl<'a> Git<'a> {
         Ok(String::from_utf8_lossy(&self.run(args)?).trim().to_owned())
     }
 
-    /// `git apply ARGS` of `patch` (written to a file in `.git`); whether it applied, and stderr.
     fn apply(&self, args: &[&str], patch: &[u8]) -> Result<(bool, String)> {
         let file = self.dir.join(".git/av-apply.diff");
         std::fs::write(&file, patch).map_err(local)?;
@@ -115,7 +113,7 @@ impl<'a> Git<'a> {
     }
 }
 
-/// Holds the checkout's lock: hooks may checkpoint while a command does.
+/// Hooks may checkpoint while a command does.
 fn lock(dir: &Path) -> Result<std::fs::File> {
     let at = dir.join(".git/av-lock");
     margincode_agentrun::slots::wait_for(&at, 1, Duration::from_millis(100), || {})
@@ -142,8 +140,7 @@ fn fetch(
     Ok((bytes, head, headers.get(1).cloned().flatten()))
 }
 
-/// A commit of the checkout: `parent`'s files (none when `None`) with `patch` applied, built in a
-/// separate index. Warns when its tree is not the daemon's `tree`.
+/// Built in a separate index; warns when its tree is not the daemon's `tree`.
 fn commit_of(
     dir: &Path,
     parent: Option<&str>,
@@ -192,8 +189,7 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(12)]
 }
 
-/// `av remote clone`: makes `dir` a checkout of `task` at its head and writes its `.av-task`,
-/// naming the task's owner (not the cloner: a clone does not take the claim).
+/// Names the task's owner in `.av-task`, not the cloner: a clone does not take the claim.
 pub fn clone(client: &Client, task: &str, dir: &Path, session: &str) -> Result<Value> {
     let r = client.get(&format!("/v1/tasks/{task}"), &[])?;
     let t = &r["task"];
@@ -237,16 +233,13 @@ pub fn clone(client: &Client, task: &str, dir: &Path, session: &str) -> Result<V
     Ok(json!({"task": t, "head_change": head}))
 }
 
-/// What `pull` did.
 pub struct Pulled {
     pub head: String,
-    /// Whether the daemon's head had moved since the checkout's base.
     pub moved: bool,
     /// Files where the local edits and the daemon's changes met; they hold conflict markers.
     pub conflicts: Vec<String>,
 }
 
-/// `av remote pull`: moves the checkout onto the daemon's head, keeping its local edits.
 pub fn pull(client: &Client, dir: &Path) -> Result<Pulled> {
     let _lock = lock(dir)?;
     pull_locked(client, dir)
@@ -320,8 +313,7 @@ fn pull_locked(client: &Client, dir: &Path) -> Result<Pulled> {
     })
 }
 
-/// A checkpoint from a remote checkout: sends the patch, and on a stale base pulls and sends again
-/// once. Returns the daemon's answer, as a local checkpoint does.
+/// On a stale base it pulls and sends once more. Returns the daemon's answer.
 pub fn checkpoint(client: &Client, dir: &Path, generation: Option<i64>) -> Result<Value> {
     let _lock = lock(dir)?;
     let mut pulled = false;
@@ -402,8 +394,7 @@ pub fn checkpoint_task(
     )
 }
 
-/// Sends a remote checkout's edits before a command the daemon answers from its workspace
-/// (submit, record, handoff, sync). Does nothing elsewhere.
+/// Before a command the daemon answers from its workspace (submit, record, handoff, sync).
 pub fn push_if_remote(
     client: &Client,
     task: &str,

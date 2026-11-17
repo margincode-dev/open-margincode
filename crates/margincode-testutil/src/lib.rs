@@ -17,7 +17,6 @@ pub use installed::installed_bin;
 pub struct TestDb {
     pub url: String,
     _server: Option<PostgreSQL>,
-    /// A private server started from an installed PostgreSQL.
     _local: Option<installed::Server>,
     /// On a shared server: its URL and our database, dropped with us.
     shared: Option<(String, String)>,
@@ -63,7 +62,6 @@ impl TestDb {
         }
     }
 
-    /// A database on a private server started from the PostgreSQL binaries in `bin`.
     pub async fn on_installed(bin: &std::path::Path) -> TestDb {
         let server = installed::Server::start(bin).await;
         TestDb {
@@ -131,8 +129,6 @@ mod tests {
         assert_eq!(n, 42);
     }
 
-    /// With a PostgreSQL installed, a private server is started from it: no download, and
-    /// nothing is left behind when the `TestDb` goes.
     #[tokio::test]
     async fn an_installed_postgres_serves_a_private_database_and_leaves_nothing() {
         let Some(bin) = installed_bin() else {
@@ -154,7 +150,6 @@ mod tests {
             .unwrap();
         assert_eq!(tz, "UTC");
         drop(conn);
-        // two at once do not meet
         let other = TestDb::on_installed(&bin).await;
         assert_ne!(other.url, db.url);
         let mut conn = PgConnection::connect(&other.url).await.unwrap();

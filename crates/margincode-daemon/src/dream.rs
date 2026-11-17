@@ -24,10 +24,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::error::ApiResult;
 
-/// Records a dream is handed unless `limit` says otherwise, and the most it may ask for.
 const WORKLIST_DEFAULT: usize = 20;
 const WORKLIST_MAX: usize = 50;
-/// The newest live records the worklist is ranked over.
 const WORKLIST_SCAN: i64 = 400;
 /// Packs of this many days back count toward "shown".
 const SHOWN_DAYS: i32 = 30;
@@ -66,7 +64,6 @@ fn vd_handle(id: Uuid) -> String {
     format!("vd:{}", &id.simple().to_string()[..8])
 }
 
-/// A verdict as the API answers it: the row, its `vd:` handle and its record's `rec:` handle.
 fn verdict_json(v: &VerdictRow) -> Value {
     let mut out = json!(v);
     out["handle"] = json!(vd_handle(v.id));
@@ -80,12 +77,9 @@ async fn feed(st: &AppState, repo: &str, kind: &str, payload: Value) {
     }
 }
 
-/// The repo a record belongs to.
 async fn repo_of(st: &AppState, rec: &Record) -> Result<String> {
     Ok(st.store.get_task(rec.task_id).await?.repo)
 }
-
-// ---- starting a run: the worklist and the bundle ----
 
 #[derive(Deserialize)]
 struct StartBody {
@@ -347,8 +341,6 @@ async fn start(
     ))
 }
 
-// ---- evidence: every quote is found where it says it is ----
-
 enum Cited {
     Code,
     Record(RecordId),
@@ -439,8 +431,6 @@ async fn check_all(
     }
     Ok(cited)
 }
-
-// ---- proposing verdicts ----
 
 #[derive(Deserialize)]
 struct ProposeBody {
@@ -657,8 +647,6 @@ async fn propose(
                    "refused": results.len() - accepted})))
 }
 
-// ---- the second look ----
-
 #[derive(Deserialize)]
 struct ReviewBody {
     reviewer: String,
@@ -807,8 +795,6 @@ async fn retract(
         json!({"verdict": verdict_json(&st.pg.get_verdict(v.id).await?)}),
     ))
 }
-
-// ---- a run's end, and taking a whole run back ----
 
 async fn counts(st: &AppState, d: &Dream) -> Result<Value> {
     let mut by: HashMap<String, usize> = HashMap::new();

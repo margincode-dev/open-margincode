@@ -406,8 +406,6 @@ fn a_relay_report_compares_av_with_notes_and_says_how_the_notes_arrived() {
     );
 }
 
-// ---- E4 at scale ----
-
 fn noisy_rows() -> Vec<Row> {
     let mut rows = vec![];
     for rep in 1..=3 {
@@ -489,8 +487,6 @@ fn report_says_whether_the_agent_was_isolated() {
         ..meta()
     };
     assert!(render_report(&fixture_rows(), &not).contains(" · agent isolation: none · "));
-    // results from before the option: their meta.json still parses, reads as `none`, and the
-    // report is rendered as it was
     assert!(!render_report(&fixture_rows(), &meta()).contains("agent isolation"));
     let old: Meta = serde_json::from_str(
         r#"{"date":"d","claude_version":"c","av_rev":"r","models":[],"seed":1}"#,
@@ -519,7 +515,6 @@ fn a_run_writes_its_memory_and_refuses_to_resume_into_results_of_another() {
     let report = std::fs::read_to_string(s.out.join("report.md")).unwrap();
     assert!(!report.contains("memory:"), "{report}");
 
-    // the same directory, run again with the wrong notes seeded as reverted work
     let reverted = RunConfig {
         wrong_reverted: true,
         ..s.cfg.clone()
@@ -530,7 +525,6 @@ fn a_run_writes_its_memory_and_refuses_to_resume_into_results_of_another() {
         "{err}"
     );
 
-    // results from before the options count as raw: a run without them resumes
     let old = Meta {
         memory: None,
         ..written.clone()
@@ -538,7 +532,6 @@ fn a_run_writes_its_memory_and_refuses_to_resume_into_results_of_another() {
     std::fs::write(&meta_path, serde_json::to_vec(&old).unwrap()).unwrap();
     run(&s.specs, &a, &s.cfg).expect("resumes");
 
-    // a report of a run on another memory says so
     let dreamed = Meta {
         memory: Some("wrong-reverted, dreamed sha256:00ff".into()),
         ..written
@@ -567,7 +560,6 @@ fn a_run_writes_its_isolation_and_refuses_to_resume_into_results_of_another() {
             .contains(" · agent isolation: none · ")
     );
 
-    // the same directory, had its rows been made with the agent isolated
     let isolated = Meta {
         agent_isolation: Some("nobody".into()),
         ..written.clone()
@@ -579,7 +571,6 @@ fn a_run_writes_its_isolation_and_refuses_to_resume_into_results_of_another() {
         "{err}"
     );
 
-    // results from before the option were not isolated: a run without the flag resumes them
     let old = Meta {
         agent_isolation: None,
         memory: None,

@@ -16,10 +16,8 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// What a slot counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Agent CLIs running.
     Agents,
     /// Builds (validations: the command and the required checks) running.
     Builds,
@@ -42,7 +40,6 @@ impl Kind {
         })
     }
 
-    /// This host's slot dir: `dir_in(av_home())`.
     pub fn host_dir(self) -> PathBuf {
         self.dir_in(&av_home())
     }
@@ -54,7 +51,6 @@ impl Kind {
     }
 }
 
-/// A limit as written in an env var: `None` when unset or empty, else a count of at least 1.
 pub fn limit(value: Option<&str>) -> Result<Option<u32>, String> {
     match value.map(str::trim).filter(|v| !v.is_empty()) {
         None => Ok(None),
@@ -65,25 +61,20 @@ pub fn limit(value: Option<&str>) -> Result<Option<u32>, String> {
     }
 }
 
-/// The data directory's name in the user's home, and the one it had under the project's
-/// earlier name.
 pub const HOME_DIR: &str = ".margincode";
 pub const OLD_HOME_DIR: &str = ".scholion";
 
-/// av's own directory: `$AV_HOME`, else `.margincode` in the user's home (the daemon and the CLI
-/// use the same default). An install made under the earlier name keeps its `.scholion`: when
-/// that directory is there and `.margincode` is not, it is the one used, so an upgrade finds its
-/// data and never starts on an empty directory.
+/// av's own directory: `$AV_HOME`, else `.margincode` in the user's home. An install made under
+/// the earlier name keeps its `.scholion` while `.margincode` does not exist, so an upgrade never
+/// starts on an empty directory.
 pub fn av_home() -> PathBuf {
     av_home_from(|k| std::env::var_os(k))
 }
 
-/// `av_home` with the environment given, for tests.
 pub fn av_home_from(var: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     av_home_with(var, |p| p.is_dir())
 }
 
-/// `av_home` with the environment and the directories that exist given, for tests.
 pub fn av_home_with(
     var: impl Fn(&str) -> Option<OsString>,
     is_dir: impl Fn(&Path) -> bool,
@@ -105,7 +96,6 @@ pub fn home_dir() -> Option<PathBuf> {
     home_from(|k| std::env::var_os(k))
 }
 
-/// `home_dir` with the environment given, for tests.
 pub fn home_from(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     ["HOME", "USERPROFILE"]
         .into_iter()

@@ -1,6 +1,5 @@
-//! Plan 11: what a session leaves on disk outside any task workspace. `scan` finds the heavy
-//! directories (build output, dependencies, caches) under some roots and measures them; `diff`
-//! says which appeared or grew between two scans. Pure: no daemon, no hook input.
+//! What a session leaves on disk outside any task workspace: `scan` measures the heavy
+//! directories under some roots, `diff` says which appeared or grew. Pure: no daemon, no hook input.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,12 +23,10 @@ pub const HEAVY: &[&str] = &[
 /// How deep under a root a heavy directory is looked for (a root's children are depth 1).
 pub const MAX_DEPTH: usize = 4;
 
-/// Growth below this is not reported.
 pub const MIN_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scan {
-    /// Heavy directories with their size in bytes, sorted by path.
     pub dirs: Vec<(PathBuf, u64)>,
     /// The deadline passed before the scan ended: some directories are missing or undercounted.
     pub partial: bool,
@@ -39,9 +36,8 @@ fn excluded(path: &Path, exclude: &[PathBuf]) -> bool {
     exclude.iter().any(|ex| path.starts_with(ex))
 }
 
-/// Every heavy directory under `roots` (to `MAX_DEPTH`, never through a symlink, never inside
-/// `exclude`), each with its total size; a heavy directory is measured whole and not searched for
-/// more. Stops at `deadline` with `partial` set.
+/// Never through a symlink, never inside `exclude`; a heavy directory is measured whole and not
+/// searched for more. Stops at `deadline` with `partial` set.
 pub fn scan(roots: &[PathBuf], exclude: &[PathBuf], deadline: Instant) -> Scan {
     let mut found = BTreeMap::new();
     let mut partial = false;
@@ -174,7 +170,7 @@ mod tests {
         let r = root.path();
         file(&r.join("proj/target/debug/a"), 1000);
         file(&r.join("proj/target/debug/build/b"), 500); // inside a heavy dir: part of it
-        file(&r.join("a/b/c/node_modules/x.js"), 300); // depth 4
+        file(&r.join("a/b/c/node_modules/x.js"), 300);
         file(&r.join("a/b/c/d/target/deep"), 700); // depth 5: too deep
         file(&r.join("proj/src/main.rs"), 50); // not heavy
         file(&r.join("proj/__pycache__/m.pyc"), 900); // noise, not counted
@@ -229,11 +225,11 @@ mod tests {
             (PathBuf::from("/h/c/.venv"), 3 * MB),
         ];
         let after = vec![
-            (PathBuf::from("/h/a/target"), 30 * MB),      // grew 20
+            (PathBuf::from("/h/a/target"), 30 * MB),
             (PathBuf::from("/h/b/node_modules"), 5 * MB), // same
             (PathBuf::from("/h/c/.venv"), MB),            // shrank
-            (PathBuf::from("/h/d/dist"), 40 * MB),        // new
-            (PathBuf::from("/h/e/build"), MB / 2),        // new but tiny
+            (PathBuf::from("/h/d/dist"), 40 * MB),
+            (PathBuf::from("/h/e/build"), MB / 2), // new but tiny
         ];
         assert_eq!(
             diff(&before, &after),

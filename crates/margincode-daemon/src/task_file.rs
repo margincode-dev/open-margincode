@@ -1,18 +1,13 @@
-//! The `.av-task` the daemon writes into a workspace it hands out (F14): on a start, a start
-//! from the backlog, a claim and a resume, and into one an undo or a revert re-created (F40), so
-//! hooks and `av` commands in a workspace an agent got over MCP or HTTP find their task.
-//! Snapshots and patches leave the file out (`AGENT_IGNORES` in `margincode-vcs`). A failed write
-//! is logged and never fails the hand-out.
+//! The `.av-task` file the daemon writes into every workspace it hands out (start, claim, resume, and one re-created
+//! by an undo or revert), so hooks and `av` commands there find their task. Snapshots and patches leave it out
+//! (`AGENT_IGNORES` in `margincode-vcs`); a failed write is logged and never fails the hand-out.
 //!
-//! The file names its owner only when the agent named itself (`NamedByAgent`: an MCP session
-//! named by `X-Av-Agent`), with its profile's other names (`owner_of`, T1a), in the same write
-//! that hands out the generation: a reader that saw the new generation has seen the name too, so
-//! no named previous owner gets a write in under it. Otherwise it names
-//! none: the name `av` and the hooks there act as is unknown to the daemon (Claude Code's hooks
-//! act as `agent` while its MCP session is named after the client, `claude-code`), and a wrong
-//! name would fence the owner. Names fence only when both sides are known
-//! (`margincode_core::taskfile::claim_of`), so after a claim a previous owner with no name still
-//! writes under the new generation (the MCP tools of its session are still fenced). The CLI
+//! The file names its owner only when the agent named itself (`NamedByAgent`), with its profile's other names, in the
+//! same write that hands out the generation: a reader that saw the new generation has seen the name too, so no named
+//! previous owner gets a write in under it. Otherwise it names none: the name `av` and the hooks act as is unknown to
+//! the daemon (Claude Code's hooks act as `agent` while its MCP session is named `claude-code`), and a wrong name would
+//! fence the owner. Names fence only when both sides are known (`margincode_core::taskfile::claim_of`), so after a
+//! claim a previous owner with no name still writes under the new generation (its MCP tools are still fenced). The CLI
 //! writes its own name when it starts or takes a task.
 
 use std::io::{Read, Write};
@@ -76,22 +71,20 @@ fn try_write(
 
 /// A request's agent named itself (an MCP session named by `X-Av-Agent`), rather than being
 /// named after its client program: the workspace the request is handed then names its owner
-/// (`owner_of`, T1a). The MCP layer adds it to each in-process request of such a session.
+/// (`owner_of`). The MCP layer adds it to each in-process request of such a session.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NamedByAgent;
 
 /// The header a client sends on a claim or `next` to have the file it is handed name the owner,
 /// as `NamedByAgent` does: `av claim` and `av next` send it, since they write that same name
-/// into the file themselves once answered (T1a). Named in the daemon's own write, the new
+/// into the file themselves once answered. Named in the daemon's own write, the new
 /// generation is never on disk unnamed for a named previous owner to read.
 pub(crate) const NAME_OWNER_HEADER: &str = "x-av-name-owner";
 
-/// Whether this request's hand-out names its owner (`NamedByAgent` or `NAME_OWNER_HEADER`).
 pub(crate) fn names_owner(ext: &axum::http::Extensions, headers: &axum::http::HeaderMap) -> bool {
     ext.get::<NamedByAgent>().is_some() || headers.contains_key(NAME_OWNER_HEADER)
 }
 
-/// The owner a file names, with the other names it goes by.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Owner {
     pub(crate) name: String,

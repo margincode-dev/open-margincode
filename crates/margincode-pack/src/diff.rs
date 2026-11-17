@@ -1,9 +1,7 @@
-//! Text diffs between two versions of a file: unified diffs for readers, and a line-number-free
-//! patch signature that stays equal when the same change is rebased onto moved lines.
+//! Unified diffs, and a line-number-free patch signature that survives rebasing onto moved lines.
 
 use similar::{ChangeTag, TextDiff};
 
-/// Context lines around each hunk of a unified diff.
 const CONTEXT: usize = 3;
 
 /// A unified diff of `old` → `new` with `a/<path>` and `b/<path>` headers; empty when equal.
@@ -18,9 +16,8 @@ pub fn unified_diff(path: &str, old: &str, new: &str) -> String {
         .to_string()
 }
 
-/// The change from `base` to `head` as (removed, added) text per hunk, in order, without line
-/// numbers or context. Two patches with equal signatures make the same edits, wherever the
-/// edited lines sit in the file.
+/// (removed, added) text per hunk, without line numbers or context: equal signatures make the same
+/// edits wherever the edited lines sit.
 pub fn patch_signature(base: &str, head: &str) -> Vec<(String, String)> {
     let diff = TextDiff::from_lines(base, head);
     diff.grouped_ops(0)

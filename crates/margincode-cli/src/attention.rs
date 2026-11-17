@@ -1,5 +1,4 @@
-//! `av attention`: what needs a person or an agent now (`GET /v1/attention`), worst first, one
-//! line per item.
+//! `av attention`: what needs a person or an agent now, worst first, one line per item.
 
 use std::fmt::Write;
 
@@ -16,7 +15,6 @@ fn time(v: &Value) -> Option<DateTime<Utc>> {
     v.as_str()?.parse().ok()
 }
 
-/// `3 main_red            2h  demo/fix-login  pytest exited 1 on main · since @1a2b3c4d`.
 /// How long is reckoned on the daemon's clock (`generated_at`), so a skewed local clock does
 /// not change it.
 pub fn render(v: &Value) -> String {

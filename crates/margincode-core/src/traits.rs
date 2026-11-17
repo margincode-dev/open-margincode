@@ -37,14 +37,12 @@ pub trait Vcs: Send + Sync {
         Ok(out)
     }
 
-    /// The names of the imported repos, sorted.
     async fn list_repos(&self) -> Result<Vec<String>> {
         Err(AvError::Vcs(
             "list_repos is not supported by this Vcs".into(),
         ))
     }
 
-    /// The commit the trunk bookmark points at.
     async fn trunk(&self, _repo: &str) -> Result<ChangeId> {
         Err(AvError::Vcs("trunk is not supported by this Vcs".into()))
     }
@@ -73,7 +71,7 @@ pub trait Vcs: Send + Sync {
             "backup push is not supported by this Vcs".into(),
         ))
     }
-    /// Plan 15: fetches `branch` of `remote_url` into the repo's git dir (a private ref, never a
+    /// Fetches `branch` of `remote_url` into the repo's git dir (a private ref, never a
     /// local branch) and, when the fetched commit descends from trunk, moves trunk to it (and the
     /// exported git ref). Equal, behind or diverged changes nothing; see `Advance`.
     async fn advance_trunk(
@@ -166,7 +164,7 @@ pub trait Vcs: Send + Sync {
             "restore_workspace is not supported by this Vcs".into(),
         ))
     }
-    /// Plan 14, remote checkpoints: applies a git-format patch (`git diff --binary --full-index
+    /// Applies a git-format patch (`git diff --binary --full-index
     /// --no-renames`) to the files of task workspace `slug`, whole or not at all, and returns the
     /// paths it wrote or deleted, in patch order. It only writes files: no snapshot, no command.
     /// A malformed or unsafe patch, or one made against other content, is `Invalid`.
@@ -175,7 +173,7 @@ pub trait Vcs: Send + Sync {
             "apply_patch is not supported by this Vcs".into(),
         ))
     }
-    /// Plan 14: a git-format patch from `from` (`None`: the empty tree) to `to`, which `git apply`
+    /// A git-format patch from `from` (`None`: the empty tree) to `to`, which `git apply`
     /// accepts; conflicted files carry their markers, as in a workspace. Empty when equal.
     async fn diff_patch(
         &self,
@@ -187,14 +185,13 @@ pub trait Vcs: Send + Sync {
             "diff_patch is not supported by this Vcs".into(),
         ))
     }
-    /// Plan 14: the git tree id of `change`'s files (what `git write-tree` gives for the same
+    /// The git tree id of `change`'s files (what `git write-tree` gives for the same
     /// files). A conflicted tree has none: its jj tree ids joined by `+`, never 40 hex digits.
     async fn tree_id(&self, _repo: &str, _change: &ChangeId) -> Result<String> {
         Err(AvError::Vcs("tree_id is not supported by this Vcs".into()))
     }
 }
 
-/// `path` at `change`, or `None` when the change is absent or has no such file.
 async fn file_or_none<V: Vcs + ?Sized>(
     vcs: &V,
     repo: &str,
@@ -211,10 +208,8 @@ async fn file_or_none<V: Vcs + ?Sized>(
     }
 }
 
-/// Tasks, records, anchors, conventions and the per-session ledger.
 #[async_trait]
 pub trait IntentStore: Send + Sync {
-    /// Appends a review verdict bound to `head`.
     async fn add_verdict(
         &self,
         task: TaskId,
@@ -224,7 +219,6 @@ pub trait IntentStore: Send + Sync {
         base: Option<&ChangeId>,
         carried_from: Option<&ChangeId>,
     ) -> Result<()>;
-    /// The task's newest verdict at any head.
     async fn latest_verdict_any(&self, task: TaskId) -> Result<Option<VerdictRow>>;
     /// The newest verdict at `head` given in the task's current review round (after its latest
     /// `submit` event), with who gave it and when. A verdict from before a revert or a request for
@@ -234,9 +228,7 @@ pub trait IntentStore: Send + Sync {
     async fn human_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>>;
     /// Stores a check result for `change` (replacing an earlier run of the same command).
     async fn add_check(&self, repo: &str, check: &CheckRow) -> Result<()>;
-    /// The check results stored for any of `changes`.
     async fn checks_for(&self, repo: &str, changes: &[String]) -> Result<Vec<CheckRow>>;
-    /// A cached derived value (`kind` at `change` for `key`).
     async fn derived_get(
         &self,
         repo: &str,
@@ -269,7 +261,6 @@ pub trait IntentStore: Send + Sync {
     async fn get_task(&self, id: TaskId) -> Result<Task>;
     /// Every task with this slug, in any repo and any status, by repo.
     async fn tasks_with_slug(&self, slug: &str) -> Result<Vec<Task>>;
-    /// The task of `repo` with this slug.
     async fn task_by_slug(&self, repo: &str, slug: &str) -> Result<Task>;
     /// Also sets head = base.
     async fn set_status(&self, id: TaskId, status: TaskStatus) -> Result<()>;
@@ -295,10 +286,8 @@ pub trait IntentStore: Send + Sync {
     /// Records an imported repo. A second call never replaces a known `git_source`; it only
     /// fills in a missing one. A blank name is `Invalid`.
     async fn register_repo(&self, name: &str, git_source: Option<&str>) -> Result<()>;
-    /// Every recorded repo, by name.
     async fn list_repos(&self) -> Result<Vec<crate::types::RepoEntry>>;
 
-    // --- Plan 8: routing. Profiles, the backlog and the tags a handoff carries.
     /// Inserts or replaces the profile of `p.name`. Tags are stored lowercase; blank ones and a
     /// blank name are `Invalid`.
     async fn put_profile(&self, p: &crate::routing::Profile) -> Result<()>;
@@ -338,7 +327,6 @@ pub trait IntentStore: Send + Sync {
     async fn take_backlog(&self, id: uuid::Uuid, agent: &str) -> Result<bool>;
     /// Puts a taken item back in the queue, if no task was made for it yet.
     async fn untake_backlog(&self, id: uuid::Uuid) -> Result<()>;
-    /// Names the task made for a taken item.
     async fn link_backlog_task(&self, id: uuid::Uuid, task: TaskId) -> Result<()>;
     /// Counts a queued or taken item toward a target of its repo (`None` unlinks it). The target
     /// is an id or the slug of its title and must be active. `NotFound` for an unknown item or
@@ -349,7 +337,6 @@ pub trait IntentStore: Send + Sync {
         target: Option<&str>,
     ) -> Result<crate::routing::BacklogEntry>;
 
-    // --- Plan 10 A3: targets.
     /// A blank repo or title, or a title over 200 characters, is `Invalid`.
     async fn add_target(&self, t: crate::routing::NewTarget) -> Result<crate::routing::Target>;
     /// Oldest first, with each target's progress.
@@ -396,7 +383,7 @@ pub trait IntentStore: Send + Sync {
         lease_secs: u64,
     ) -> Result<Vec<crate::routing::Stale>>;
     /// Merged and abandoned tasks that entered that status at least `older_than_secs` ago, oldest
-    /// first: their workspaces may be reclaimed (Plan 11). Empty unless the store keeps events.
+    /// first: their workspaces may be reclaimed. Empty unless the store keeps events.
     async fn reclaimable_tasks(&self, _older_than_secs: u64) -> Result<Vec<Task>> {
         Ok(vec![])
     }
@@ -422,7 +409,6 @@ pub trait IntentStore: Send + Sync {
     async fn set_workspace(&self, id: TaskId, path: &Path, base: &ChangeId) -> Result<()>;
     async fn set_pack_mode(&self, id: TaskId, mode: PackMode) -> Result<()>;
     async fn set_head(&self, id: TaskId, head: &ChangeId, touched: &[String]) -> Result<()>;
-    /// Paths recorded by the last `set_head`, sorted.
     async fn touched_paths(&self, id: TaskId) -> Result<Vec<String>>;
     /// Other tasks of `repo` that are still in flight (open, handed off, in review or conflicted;
     /// not merged or abandoned) and whose last `set_head` touched any of `paths`.

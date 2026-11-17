@@ -175,13 +175,12 @@ pub struct Task {
     /// While in the future, only the owner works on an open task; after it, another agent may
     /// claim it. Renewed by the owner's fenced writes.
     pub lease_expires: Option<DateTime<Utc>>,
-    /// What this task's context packs contain.
     #[serde(default)]
     pub pack_mode: PackMode,
 }
 
 /// `TaskOnly` packs keep just the Task section: the av engine and workflow without the context
-/// compiler (the benchmark's `av_no_packs` arm, Plan 4).
+/// compiler (the benchmark's `av_no_packs` arm).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackMode {
@@ -246,7 +245,6 @@ pub struct HandoffState {
     pub done: String,
     #[serde(default)]
     pub remaining: String,
-    /// What is currently broken (failing tests, half-done edits).
     #[serde(default)]
     pub broken: String,
     #[serde(default)]
@@ -263,7 +261,6 @@ pub struct Record {
     pub body: String,
     pub change_id: Option<ChangeId>,
     pub supersedes: Option<RecordId>,
-    /// Set when a newer record supersedes this one (the record is then hidden from packs).
     pub superseded_by: Option<RecordId>,
     pub author_agent: String,
     pub anchors: Vec<Anchor>,
@@ -278,11 +275,11 @@ pub struct Convention {
     pub repo: String,
     pub scope_glob: String,
     pub text: String,
-    /// Hard constraint: never dropped from a pack by ranking (Plan 2b).
+    /// Hard constraint: never dropped from a pack by ranking.
     #[serde(default)]
     pub required: bool,
     /// For a required convention: a command whose exit 0 shows the change follows the rule.
-    /// `av validate` runs it; approval needs it to pass at the head (Plan 5).
+    /// `av validate` runs it; approval needs it to pass at the head.
     #[serde(default)]
     pub check_command: Option<String>,
 }
@@ -297,7 +294,7 @@ pub struct MergeState {
     pub conflicts: Vec<String>,
 }
 
-/// Result of merging a task into trunk (Plan 3 Task 5). A conflicted merge leaves trunk untouched.
+/// Result of merging a task into trunk. A conflicted merge leaves trunk untouched.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum MergeOutcome {
@@ -305,7 +302,7 @@ pub enum MergeOutcome {
     Conflicted { paths: Vec<String> },
 }
 
-/// Git backup of a repo's trunk (Plan 3 Task 6). `remote: None` = no backup configured.
+/// Git backup of a repo's trunk. `remote: None` = no backup configured.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BackupState {
     pub remote: Option<String>,
@@ -316,14 +313,13 @@ pub struct BackupState {
     /// Consecutive failed pushes since the last success.
     pub failures: u32,
     pub last_error: Option<String>,
-    /// When the next attempt is due; `None` = nothing pending.
     pub next_retry: Option<DateTime<Utc>>,
-    /// Plan 15: before each push, advance trunk from the remote's `main` (`Vcs::advance_trunk`).
+    /// Before each push, advance trunk from the remote's `main` (`Vcs::advance_trunk`).
     #[serde(default)]
     pub advance: bool,
 }
 
-/// Result of advancing trunk from a remote branch (Plan 15, `Vcs::advance_trunk`). Only
+/// Result of advancing trunk from a remote branch (`Vcs::advance_trunk`). Only
 /// `FastForwarded` changes anything.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -374,13 +370,12 @@ pub struct LogEntry {
     pub description: String,
 }
 
-/// One stored review verdict.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VerdictRow {
     pub reviewer: String,
     pub verdict: Verdict,
     pub head: ChangeId,
-    /// The task's base when the verdict was given (absent on rows older than Plan 5).
+    /// The task's base when the verdict was given (absent on older rows).
     pub base: Option<ChangeId>,
     /// For an approval carried by av: the human-approved head it was carried from.
     pub carried_from: Option<ChangeId>,
@@ -389,7 +384,6 @@ pub struct VerdictRow {
     pub at: Option<DateTime<Utc>>,
 }
 
-/// Per-repo policy (Plan 5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepoSettings {
     /// Files that may differ after a conflict resolution without a new review.
@@ -411,7 +405,6 @@ impl Default for RepoSettings {
     }
 }
 
-/// One post-merge check result on a commit of main (Plan 5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CheckRow {
     pub change: String,
@@ -469,7 +462,6 @@ pub struct SemanticHit {
     pub superseded: bool,
 }
 
-/// One item of a context receipt: what was sent, at which tier, and why.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReceiptItem {
     pub id: String,
@@ -482,7 +474,7 @@ pub struct ReceiptItem {
     pub tokens: u32,
 }
 
-/// The manifest of one context pack (Plan 2b): stored so a result can be traced to its inputs.
+/// The manifest of one context pack: stored so a result can be traced to its inputs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewReceipt {
     pub task_id: TaskId,
@@ -512,7 +504,6 @@ pub struct NewOutbox {
     pub text: Option<String>,
 }
 
-/// A claimed outbox row, including retry state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutboxRow {
     pub id: i64,
@@ -521,7 +512,6 @@ pub struct OutboxRow {
     pub row: NewOutbox,
 }
 
-/// One entry of an agent's timeline (`margincode_store::PgStore::agent_timeline`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelineItem {
     pub at: DateTime<Utc>,

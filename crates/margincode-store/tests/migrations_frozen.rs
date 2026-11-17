@@ -1,8 +1,6 @@
 //! Applied migrations must never change: sqlx stores each one's checksum, and a daemon whose
-//! migration file differs from the applied one refuses to start ("migration N was previously
-//! applied but has been modified"). This happened once, when a project-wide rename touched a
-//! comment in 0002. A new migration gets a new file and a new line here; an old one is never
-//! edited, not even a comment.
+//! migration file differs from the applied one refuses to start. A new migration gets a new file
+//! and a new line here; an old one is never edited, not even a comment.
 
 use sha2::{Digest, Sha256};
 

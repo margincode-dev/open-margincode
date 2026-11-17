@@ -1,5 +1,4 @@
-//! Medians and bootstrap confidence intervals, with a small deterministic PRNG (so reports and the
-//! arm order of a run are reproducible from `--seed`).
+//! Medians and bootstrap/Wilson intervals, with a small deterministic PRNG so reports and arm order are reproducible from `--seed`.
 
 /// xorshift64*: deterministic, good enough for shuffles and resampling.
 #[derive(Debug, Clone)]

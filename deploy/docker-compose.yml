@@ -24,7 +24,7 @@ services:
       retries: 20
 
   qdrant:
-    # Pinned on purpose; bump deliberately. (Unverified here: Docker was not available when this was written.)
+    # Pinned on purpose; bump deliberately.
     image: qdrant/qdrant:v1.13.6
     ports:
       - "127.0.0.1:${AV_QDRANT_PORT:-6333}:6333" # REST
@@ -38,8 +38,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Embedding server for the semantic layer. CPU image; the model downloads on first start.
-  # Pinned on purpose. (Unverified here: this tag was not pulled when this file was written.)
+  # CPU embedding server for the semantic layer; the model downloads on first start. Pinned on purpose.
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7.2
     command: ["--model-id", "BAAI/bge-small-en-v1.5", "--port", "80"]

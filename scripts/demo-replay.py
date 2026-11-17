@@ -106,8 +106,6 @@ def call(method, path, body=None, gen=None):
         return e.code, json.loads(e.read() or b"null")
 
 
-# ---- what the page shows: a board of tasks and the records ("margin") of each ----
-
 tasks: dict[str, dict] = {}  # full id -> {id, title, status, owner, records: [...]}
 steps: list[dict] = []
 ws_root = ""
@@ -208,7 +206,6 @@ def main():
          "av repo add shop ./shop", "POST", "/v1/repos", {"name": "shop", "git_source": src},
          show=lambda r: f"repo: {r['name']}\nindexed files: {r['indexed_files']}\nmain: {r['main_change'][:8]}")
 
-    # ---- Task 1: claude decides, hits a dead end, hands off ----
     t1 = start("claude", "Claude starts a task. It gets its own jj workspace and a first context pack.",
                "Bulk discount on cart totals",
                "Orders of 10+ units of one item get 5% off that line. Totals must still match invoices to the cent.",
@@ -245,7 +242,6 @@ def main():
           "questions": "Should the threshold be per line or per order? Spec says per line."},
          gen=g1, task=t1["id"], show=handed)
 
-    # ---- codex takes over ----
     def claimed(r):
         set_status(t1, r["task"]["status"], "codex")
         return f"owner: codex · generation {r['generation']} (claude's writes are now fenced off)\n\n{r['bundle']['markdown']}"
@@ -305,7 +301,6 @@ def main():
          "av merge", "POST", f"/v1/tasks/{t1['id']}/merge", {"agent": "codex"}, gen=g2, task=t1["id"],
          show=merged)
 
-    # ---- more agents, more tasks ----
     t2 = start("gemini", "Meanwhile Gemini starts a follow-up in its own workspace.",
                "Show the bulk discount on receipts", "Receipts list a 'bulk -5%' line under each discounted item.",
                "gemini-1", 2000)

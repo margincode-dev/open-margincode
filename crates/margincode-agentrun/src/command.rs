@@ -1,5 +1,3 @@
-//! Launching an agent CLI: the builder and what comes back.
-
 use std::ffi::OsString;
 use std::fs::File;
 use std::os::unix::process::CommandExt;
@@ -12,17 +10,14 @@ use std::time::{Duration, Instant};
 use crate::events::{ParsedSession, Usage, parse_stream};
 use crate::process::run_until;
 
-/// One environment change, applied in the order it was asked for.
 enum EnvOp {
     Set(OsString, OsString),
     Remove(OsString),
     Clear,
 }
 
-/// An agent CLI to run: program, arguments, working directory, environment, a deadline, and
-/// where its stdout (the event stream) and stderr go. Knows nothing about which CLI it is; the
-/// caller decides the arguments and the variables. `max_budget_usd` is the one flag it adds
-/// itself (`--max-budget-usd`, appended last), because every caller wants it the same way.
+/// An agent CLI to run. Knows nothing about which CLI it is; `max_budget_usd` is the one flag it
+/// adds itself (`--max-budget-usd`, appended last), because every caller wants it the same way.
 pub struct AgentCommand {
     program: OsString,
     args: Vec<OsString>,
@@ -37,7 +32,6 @@ pub struct AgentCommand {
     run_as: Option<(u32, u32)>,
 }
 
-/// What a finished (or killed) run left behind.
 #[derive(Debug, Clone)]
 pub struct RunResult {
     /// The exit code; `None` when it was killed (or ended by a signal).
@@ -46,9 +40,7 @@ pub struct RunResult {
     pub killed: bool,
     /// The stop flag was raised and its process group was killed, before the deadline.
     pub stopped: bool,
-    /// Wall time from spawn to exit or kill.
     pub wall: Duration,
-    /// The file the event stream was captured to.
     pub events_path: PathBuf,
     /// The session total, by `ParsedSession::total_usage`: the `result` event's usage when it has
     /// any, else the sum over the assistant messages (a killed stream).
@@ -98,7 +90,6 @@ impl AgentCommand {
         self
     }
 
-    /// Hides `key` from the child, even when this process has it set.
     pub fn env_remove(mut self, key: impl Into<OsString>) -> Self {
         self.env.push(EnvOp::Remove(key.into()));
         self
@@ -125,13 +116,11 @@ impl AgentCommand {
         self
     }
 
-    /// After this long the child's whole process group is killed.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
-    /// Where stdout, the event stream, is written (created or truncated).
     pub fn events_path(mut self, path: impl AsRef<Path>) -> Self {
         self.events_path = path.as_ref().to_path_buf();
         self
@@ -160,7 +149,6 @@ impl AgentCommand {
         self
     }
 
-    /// Runs the command to its end or its deadline, then reads the event stream it wrote.
     pub fn run(self) -> Result<RunResult, String> {
         let create = |p: &Path| File::create(p).map_err(|e| format!("{}: {e}", p.display()));
         let mut cmd = Command::new(&self.program);
@@ -173,7 +161,6 @@ impl AgentCommand {
         if let Some(dir) = &self.cwd {
             cmd.current_dir(dir);
         }
-        // the PATH the child gets, which path_prepend builds on
         let mut path = std::env::var_os("PATH");
         for op in &self.env {
             match op {

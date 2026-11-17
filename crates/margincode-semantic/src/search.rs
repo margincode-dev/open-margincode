@@ -6,7 +6,6 @@ use margincode_core::{
 use crate::embed::Embedder;
 use crate::vector::VectorIndex;
 
-/// Embeds a query and searches the three collections.
 pub struct SemanticSearch<E, V> {
     embedder: E,
     index: V,

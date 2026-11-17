@@ -1,5 +1,4 @@
-//! `AV_TOKEN` (Plan 3 Task 9): when set, every route but `/healthz` and `/ui` needs
-//! `Authorization: Bearer <token>`. Unset means open, as before.
+//! `AV_TOKEN`: when set, every route but `/healthz` and `/ui` needs `Authorization: Bearer <token>`; unset means open.
 
 use axum::Json;
 use axum::extract::{Request, State};

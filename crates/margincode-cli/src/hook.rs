@@ -1,6 +1,5 @@
-//! `av hook …` (Plan 3 Task 9): commands for agent hooks (Claude Code `SessionStart`,
-//! `PreToolUse`, `PostToolUse` and `Stop`). A hook must never break the agent, so every failure is one line on stderr and
-//! exit code 0, and a directory without a task is silent.
+//! `av hook …`: commands for agent hooks. A hook must never break the agent: every failure is one
+//! line on stderr and exit code 0, and a directory without a task is silent.
 
 use std::io::{IsTerminal, Read, Write as _};
 use std::path::{Path, PathBuf};
@@ -14,10 +13,8 @@ use crate::containers;
 use crate::footprint;
 use crate::taskfile::{self, TaskFile};
 
-/// `post-edit` checkpoints at most this often.
 const DEBOUNCE_MS: u64 = 2_000;
 
-/// The hook JSON Claude Code writes to stdin, if any.
 fn hook_input() -> Value {
     let stdin = std::io::stdin();
     let mut text = String::new();
@@ -27,8 +24,6 @@ fn hook_input() -> Value {
     serde_json::from_str(&text).unwrap_or(Value::Null)
 }
 
-/// Where to look for `.av-task`: the edited file's directory, else the session's `cwd` from the
-/// hook input, else the process's working directory.
 fn start_dir(input: &Value) -> Option<PathBuf> {
     if let Some(dir) = input["tool_input"]["file_path"]
         .as_str()
@@ -134,9 +129,9 @@ fn print_pack(
     }
 }
 
-/// `<ws_root>/<repo>/.scratch/<slug>` for the task workspace `dir`, created; the daemon removes
-/// it with the workspace. `None` when `dir` is not the task's workspace as the daemon knows it
-/// (a `.av-task` copied elsewhere), so nothing is created beside a directory av does not own.
+/// `<ws_root>/<repo>/.scratch/<slug>` for the task workspace `dir`, created. `None` when `dir`
+/// is not the workspace as the daemon knows it (a `.av-task` copied elsewhere): nothing is
+/// created beside a directory av does not own.
 fn scratch_dir(client: &Client, dir: &Path) -> Option<PathBuf> {
     let tf = taskfile::find(dir)?.1;
     let task = client.get(&format!("/v1/tasks/{}", tf.task), &[]).ok()?;
@@ -158,7 +153,6 @@ fn scratch_dir(client: &Client, dir: &Path) -> Option<PathBuf> {
     Some(scratch)
 }
 
-/// `'…'` for sh.
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -225,10 +219,8 @@ fn announce_scratch(scratch: &Path) {
     }
 }
 
-/// Exports `AV_DOCKER_LABELS` (`--label av.task=… --label av.agent=…`) to the session's later
-/// commands, so what the agent starts through docker is counted with the task and removed by
-/// `av gc --containers`. Always exported (a plain assignment, so PowerShell reads it too); said
-/// only when `docker` is on `PATH`, so a session without docker reads nothing about it.
+/// Always exported (a plain assignment, so PowerShell reads it too); said only when `docker` is
+/// on `PATH`, so a session without docker reads nothing about it.
 fn announce_labels(task: &str, agent: &str) {
     let exported = std::env::var_os("CLAUDE_ENV_FILE")
         .filter(|f| !f.is_empty())
@@ -261,7 +253,6 @@ fn announce_labels(task: &str, agent: &str) {
     );
 }
 
-/// `AV_FOOTPRINT=off` (or `0`, `false`, `no`) turns the footprint off.
 fn footprint_on() -> bool {
     !matches!(
         std::env::var("AV_FOOTPRINT")
@@ -279,7 +270,6 @@ fn env_dir(key: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// The home dir, the temp dir and `AV_FOOTPRINT_ROOTS` (the platform's path-list separator).
 fn footprint_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = crate::local::home_dir().into_iter().collect();
     roots.push(std::env::temp_dir());
@@ -306,7 +296,6 @@ fn footprint_deadline() -> Instant {
     Instant::now() + Duration::from_secs(env_number("AV_FOOTPRINT_SECS", 20))
 }
 
-/// `$AV_HOME/footprint/<session>.json`, the session id reduced to a safe file name.
 fn footprint_file(session: &str) -> PathBuf {
     let safe: String = session
         .chars()
@@ -350,11 +339,8 @@ fn paths_of(v: &Value) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// Session start: the heavy directories as they are now and, with `docker` on `PATH`, the id of
-/// every container then (`container_ids`, so the Stop hook can tell the ones started without
-/// `$AV_DOCKER_LABELS`), saved for the Stop hook. Only when the daemon answers (av is in use) and
-/// the footprint is on. Docker goes first, within the same deadline, so a long directory scan
-/// cannot crowd it out.
+/// Saved for the Stop hook; only when the daemon answers and the footprint is on. Docker goes
+/// first, within the same deadline, so a long directory scan cannot crowd it out.
 fn snapshot_footprint(client: &Client, session: &str, task_ws_root: Option<PathBuf>) {
     if !footprint_on() || client.get_text("/healthz").is_err() {
         return;
@@ -419,7 +405,6 @@ fn footprint_stop(
         footprint_deadline(),
     );
     let added = footprint::diff(&dirs_of(&snap["dirs"]), &after.dirs);
-    // in a task, with docker on PATH: what carries the task's label (containers are footprint)
     let containers = task
         .zip(containers::docker())
         .map(|((_, tf), docker)| {
@@ -429,7 +414,6 @@ fn footprint_stop(
             };
             let deadline = footprint_deadline();
             let mut report = containers::scan(&docker, scope, deadline);
-            // the second net: what this session started without $AV_DOCKER_LABELS
             if let Some(before) = snap["container_ids"].as_array() {
                 let before: Vec<String> = before
                     .iter()
@@ -543,7 +527,6 @@ fn containers_reason(
     text
 }
 
-/// Most paths the footprint block names.
 const FOOTPRINT_PATHS: usize = 5;
 
 fn footprint_reason(added: &[(PathBuf, u64)], total: u64, task_dir: Option<&Path>) -> String {
@@ -572,9 +555,8 @@ fn footprint_reason(added: &[(PathBuf, u64)], total: u64, task_dir: Option<&Path
     }
 }
 
-/// Before the agent reads or edits a file: what other tasks recorded about that file (decisions,
-/// dead ends), as Claude Code `additionalContext`, each record once per session. Prints nothing
-/// when there is nothing new or the file is outside the task's workspace.
+/// What other tasks recorded about the file about to be read or edited, as Claude Code
+/// `additionalContext`, each record once per session.
 pub fn pre_read(client: &Client) {
     let input = hook_input();
     let Some((dir, tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
@@ -607,7 +589,6 @@ pub fn pre_read(client: &Client) {
     }
 }
 
-/// Checkpoints the task of this directory, unless the last hook checkpoint was under 2 s ago.
 pub fn post_edit(client: &Client, agent: &str) {
     let input = hook_input();
     let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
@@ -615,7 +596,7 @@ pub fn post_edit(client: &Client, agent: &str) {
     };
     let event = input["hook_event_name"].as_str().unwrap_or("PostToolUse");
     // a named agent whose claim was taken over checkpoints nothing, and is told on every edit:
-    // a refusal on stderr reaches nobody (T1a)
+    // a refusal on stderr reaches nobody
     let generation = match claim(&tf, agent) {
         taskfile::Claim::TakenBy(owner) => {
             println!(
@@ -638,7 +619,6 @@ pub fn post_edit(client: &Client, agent: &str) {
         eprintln!("av: hook post-edit: cannot update {}: {e}", taskfile::NAME);
     }
     tf.last_checkpoint_ms = Some(now);
-    // a remote checkout (Plan 14) sends its changes as a patch
     match crate::remote::checkpoint_task(client, &tf.task, generation, &dir) {
         Ok(answer) => {
             if let Some(out) = notices_output(&answer, event) {
@@ -653,8 +633,6 @@ pub fn post_edit(client: &Client, agent: &str) {
     }
 }
 
-/// The checkpoint answer's `notices` (lines an extension of the daemon addressed to the agent)
-/// as Claude Code `additionalContext`; `None` when there are none.
 fn notices_output(answer: &Value, event: &str) -> Option<String> {
     let lines: Vec<&str> = answer["notices"]
         .as_array()?
@@ -673,17 +651,14 @@ fn notices_output(answer: &Value, event: &str) -> Option<String> {
     )
 }
 
-/// Most symbol names the stop request lists.
 const NUDGE_SYMBOLS: usize = 8;
 
 /// How long `stop` waits for work, in seconds (`AV_HOOK_WAIT_SECS`); 0 turns the wait off.
 const DEFAULT_WAIT_SECS: u64 = 600;
-/// Most times `stop` continues one agent session (`AV_HOOK_MAX_CONTINUES`).
 const DEFAULT_MAX_CONTINUES: u32 = 20;
 /// Seconds between two looks at the backlog while waiting, as in `av watch`'s default.
 const POLL: Duration = Duration::from_secs(15);
 
-/// A number from the environment; the default when it is unset or not a number.
 fn env_number<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
         .ok()
@@ -695,13 +670,11 @@ fn env_number<T: std::str::FromStr>(name: &str, default: T) -> T {
 /// output is discarded, so the timeout must exceed the wait).
 const STOP_TIMEOUT_MARGIN: u64 = 60;
 
-/// The Stop hook's command timeout for a wait of `wait` seconds.
 pub fn stop_timeout_for(wait: u64) -> u64 {
     wait.saturating_add(STOP_TIMEOUT_MARGIN)
 }
 
-/// The Stop hook timeout `av init` writes: `AV_HOOK_WAIT_SECS` (default 600) plus a margin, as
-/// `integrations/claude-code/install.sh` sets it.
+/// What `av init` writes, matching `integrations/claude-code/install.sh`.
 pub fn stop_timeout_secs() -> u64 {
     stop_timeout_for(env_number("AV_HOOK_WAIT_SECS", DEFAULT_WAIT_SECS))
 }
@@ -765,7 +738,6 @@ pub fn stop(client: &Client, agent: &str) {
     );
 }
 
-/// Check 1: prints the block and returns true when it asked the agent to record its changes.
 fn nudge_to_record(
     client: &Client,
     agent: &str,
@@ -818,7 +790,6 @@ fn nudge_to_record(
     true
 }
 
-/// What a dry run of `next` says is waiting, as a phrase for the stop reason.
 fn waiting(would: &Value) -> String {
     let what = match would["from"].as_str() {
         Some("review") => "a review is waiting",
@@ -835,11 +806,10 @@ fn waiting(would: &Value) -> String {
 
 /// Check 2: prints the block and counts it when av has work for this agent, polling for up to
 /// `AV_HOOK_WAIT_SECS`. Returns without printing when nothing fits, the cap is reached, the
-/// daemon cannot be asked, or the continue cannot be counted in `.av-task` (it changed hands
-/// during the wait, or cannot be written).
+/// daemon cannot be asked, or the continue cannot be counted in `.av-task`.
 ///
-/// `named` is false when the hook has no name of its own (no `--agent`, no `AV_AGENT`, not run by
-/// Grok, which acts as `grok`). It then asks as the task's owner, not as `agent`: see `asks_as`.
+/// `named` is false when the hook has no name of its own (no `--agent`, no `AV_AGENT`, not
+/// Grok): it then asks as the task's owner, not as `agent` (`asks_as`).
 fn keep_busy(
     client: &Client,
     agent: &str,
@@ -922,15 +892,12 @@ fn keep_busy(
 
 /// The name an unnamed Stop hook asks `next` under: its task's owner, else `agent`.
 ///
-/// A hook given no name acts as `agent` (the Claude default), while the session's MCP tools act
-/// under another name (Claude Code's `claude-code`). Asked as `agent`, `next` would offer the
-/// session its own task as a review once it submitted it, since a review is kept only from its
-/// owner, and `start_task` would then find nothing: the hook would block every stop until
-/// `AV_HOOK_MAX_CONTINUES`. The owner is the session's own name when the session owns the task,
-/// the usual case in its workspace. An unnamed session in a task it does not own (a previous
-/// owner still running after a claim over MCP, or one opened in another agent's workspace) is
-/// asked for as the owner too, which may be wrong for it: the hook cannot learn the name the
-/// session's MCP tools act under.
+/// A hook given no name acts as `agent`, while the session's MCP tools act under another name.
+/// Asked as `agent`, `next` would offer the session its own submitted task as a review (kept
+/// only from its owner), `start_task` would find nothing, and the hook would block every stop
+/// until `AV_HOOK_MAX_CONTINUES`. The owner is the session's own name when it owns the task;
+/// for an unnamed session in another's task it may be wrong, since the hook cannot learn the
+/// name the session's MCP tools act under.
 fn asks_as(agent: &str, owner: Option<&str>) -> String {
     match owner {
         Some(owner) if !owner.trim().is_empty() => owner.to_owned(),
@@ -945,17 +912,13 @@ fn claim<'a>(tf: &'a TaskFile, agent: &str) -> taskfile::Claim<'a> {
     taskfile::claim_of(tf, named.then_some(agent))
 }
 
-/// The notice for a hook whose agent lost its claim, as Claude Code `additionalContext`.
 fn taken_over_output(event: &str, text: &str) -> String {
     json!({"hookSpecificOutput": {"hookEventName": event, "additionalContext": format!("av: {text}")}})
         .to_string()
 }
 
-/// Which agent `av hook` acts as.
-///
-/// `named` is true when `--agent` or a non-empty `AV_AGENT` was set (`cli_agent` is that
-/// value). Otherwise a Grok hook (`grok_hook`: `GROK_HOOK_EVENT` or `GROK_SESSION_ID`) acts as
-/// `grok`, and anything else keeps `cli_agent` (the Claude default, `agent` when unset).
+/// `named` is true when `--agent` or a non-empty `AV_AGENT` was set (`cli_agent` is that value).
+/// Otherwise a Grok hook (`grok_hook`) acts as `grok`, and anything else keeps `cli_agent`.
 pub fn pick_hook_agent(cli_agent: &str, named: bool, grok_hook: bool) -> String {
     if named {
         cli_agent.to_owned()
@@ -966,19 +929,16 @@ pub fn pick_hook_agent(cli_agent: &str, named: bool, grok_hook: bool) -> String 
     }
 }
 
-/// `pick_hook_agent` for this process: `--agent` / `AV_AGENT`, else `grok` under Grok's hook
-/// environment, else `cli_agent`.
 pub fn hook_agent(cli_agent: &str) -> String {
     pick_hook_agent(cli_agent, agent_named(), grok_hook())
 }
 
-/// Whether this process was given an agent name: `--agent` or a non-empty `AV_AGENT`.
 pub(crate) fn agent_named() -> bool {
     agent_flag_present() || std::env::var("AV_AGENT").is_ok_and(|v| !v.trim().is_empty())
 }
 
-/// Whether Grok runs this hook (`GROK_HOOK_EVENT` or `GROK_SESSION_ID`); it then acts as `grok`,
-/// the name `av init --for grok` also gives its MCP session.
+/// Whether Grok runs this hook; it then acts as `grok`, the name `av init --for grok` also gives
+/// its MCP session.
 fn grok_hook() -> bool {
     std::env::var_os("GROK_HOOK_EVENT").is_some() || std::env::var_os("GROK_SESSION_ID").is_some()
 }

@@ -18,7 +18,6 @@ use crate::client::Client;
 
 /// The label naming the task a container, image or volume belongs to.
 pub const TASK_LABEL: &str = "av.task";
-/// The label naming the agent that started it.
 pub const AGENT_LABEL: &str = "av.agent";
 
 /// The flags for `docker run`/`docker build`: `--label av.task=<task> --label av.agent=<agent>`.
@@ -26,8 +25,7 @@ pub fn labels(task: &str, agent: &str) -> String {
     format!("--label {TASK_LABEL}={task} --label {AGENT_LABEL}={agent}")
 }
 
-/// The `docker` executable on `PATH`, if any. Looked up, not run: a hook must cost nothing when
-/// there is none.
+/// Looked up, not run: a hook must cost nothing when there is none.
 pub fn docker() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let names: &[&str] = if cfg!(windows) {
@@ -41,8 +39,7 @@ pub fn docker() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Runs `docker args…` and returns its stdout, or `None` when it fails, exits non-zero or has not
-/// ended by `deadline` (then it is killed: a hung docker must not eat a hook's time budget).
+/// A docker that has not ended by `deadline` is killed: a hung one must not eat a hook's time budget.
 pub fn run(docker: &Path, args: &[&str], deadline: Instant) -> Option<String> {
     let mut child = Command::new(docker)
         .args(args)
@@ -77,13 +74,10 @@ pub fn run(docker: &Path, args: &[&str], deadline: Instant) -> Option<String> {
 
 /// `docker ps` columns: id, name, state, size (docker's own text) and the task label.
 pub const PS_FORMAT: &str = "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Size}}\t{{.Label \"av.task\"}}";
-/// `docker image inspect` columns: id, task label, size in bytes, tags (comma-separated).
 /// `docker images --format` has no label placeholder, so the ids it lists are inspected.
 pub const INSPECT_FORMAT: &str =
     "{{.Id}}\t{{index .Config.Labels \"av.task\"}}\t{{.Size}}\t{{join .RepoTags \",\"}}";
-/// `docker volume ls` columns: name and the task label.
 pub const VOLUME_FORMAT: &str = "{{.Name}}\t{{.Label \"av.task\"}}";
-/// `docker ps -a --no-trunc` columns for the unlabelled net: id, name, state and the task label.
 /// No `.Size`, which would make docker measure every container.
 pub const ALL_FORMAT: &str = "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label \"av.task\"}}";
 
@@ -125,15 +119,12 @@ pub struct Volume {
     pub task: String,
 }
 
-/// What carries an `av.task` label on this host's docker and, from the Stop hook, the
-/// containers the session started without one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
     pub containers: Vec<Container>,
     pub images: Vec<Image>,
     pub volumes: Vec<Volume>,
-    /// Containers not there at session start that carry no `av.task` label (`unlabelled_since`);
-    /// never filled by `scan`, so `gc` never sees them.
+    /// Never filled by `scan`, so `gc` never sees them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unlabelled: Vec<Container>,
 }
@@ -150,7 +141,6 @@ impl Report {
         self.containers.iter().filter(|c| c.is_running())
     }
 
-    /// Every task id that appears, each once, in order of first appearance.
     pub fn tasks(&self) -> Vec<&str> {
         let mut seen = Vec::new();
         let all = self
@@ -172,7 +162,6 @@ fn columns(line: &str) -> Vec<&str> {
     line.split('\t').map(str::trim).collect()
 }
 
-/// `docker ps` output in `PS_FORMAT`; lines that are not are skipped.
 pub fn parse_ps(text: &str) -> Vec<Container> {
     text.lines()
         .map(columns)
@@ -187,7 +176,6 @@ pub fn parse_ps(text: &str) -> Vec<Container> {
         .collect()
 }
 
-/// `docker ps` output in `ALL_FORMAT` (no size); lines that are not are skipped.
 pub fn parse_all(text: &str) -> Vec<Container> {
     text.lines()
         .map(columns)
@@ -202,16 +190,14 @@ pub fn parse_all(text: &str) -> Vec<Container> {
         .collect()
 }
 
-/// Of `all`, the containers whose id is not in `before` and that carry no `av.task` label.
 pub fn new_unlabelled(all: Vec<Container>, before: &[String]) -> Vec<Container> {
     all.into_iter()
         .filter(|c| c.task.is_empty() && !before.contains(&c.id))
         .collect()
 }
 
-/// The id of every container on this host, running or not (`docker ps -aq --no-trunc`,
-/// read-only), by `deadline`. `None` when docker fails or is late: then no container can be
-/// told new, and the Stop hook reports none as unlabelled.
+/// `None` when docker fails or is late: no container can then be told new, so the Stop hook
+/// reports none as unlabelled.
 pub fn container_ids(docker: &Path, deadline: Instant) -> Option<Vec<String>> {
     let text = run(docker, &["ps", "-aq", "--no-trunc"], deadline)?;
     Some(
@@ -223,10 +209,6 @@ pub fn container_ids(docker: &Path, deadline: Instant) -> Option<Vec<String>> {
     )
 }
 
-/// The containers that were not on this host at session start (`before`, from
-/// `container_ids`) and carry no `av.task` label: what a session started without
-/// `$AV_DOCKER_LABELS`. One read-only `docker ps -a --no-trunc` by `deadline`; empty when it
-/// fails.
 pub fn unlabelled_since(docker: &Path, before: &[String], deadline: Instant) -> Vec<Container> {
     run(
         docker,
@@ -237,7 +219,6 @@ pub fn unlabelled_since(docker: &Path, before: &[String], deadline: Instant) -> 
     .unwrap_or_default()
 }
 
-/// `docker image inspect` output in `INSPECT_FORMAT`.
 pub fn parse_inspect(text: &str) -> Vec<Image> {
     text.lines()
         .map(columns)
@@ -255,7 +236,6 @@ pub fn parse_inspect(text: &str) -> Vec<Image> {
         .collect()
 }
 
-/// `docker volume ls` output in `VOLUME_FORMAT`.
 pub fn parse_volumes(text: &str) -> Vec<Volume> {
     text.lines()
         .map(columns)
@@ -267,8 +247,7 @@ pub fn parse_volumes(text: &str) -> Vec<Volume> {
         .collect()
 }
 
-/// What to list: one task's things or every task's, and whether only dangling (untagged)
-/// images count, as `av gc` removes only those.
+/// `dangling_images` limits images to untagged ones, as `av gc` removes only those.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Scope<'a> {
     pub task: Option<&'a str>,
@@ -288,8 +267,7 @@ impl Scope<'_> {
     }
 }
 
-/// Lists the containers, images and volumes in `scope` (three or four docker calls, all read-only),
-/// by `deadline`. What a failing call would have listed is left out.
+/// All read-only; what a failing call would have listed is left out.
 pub fn scan(docker: &Path, scope: Scope<'_>, deadline: Instant) -> Report {
     let label = scope.label();
     let mut report = Report::default();
@@ -425,7 +403,6 @@ pub fn gc(client: &Client, docker: &Path, dry_run: bool) -> Value {
     })
 }
 
-/// `(repo, slug, finished)` of a task the daemon knows; `None` for one it does not.
 fn task_state(client: &Client, task: &str) -> Option<(String, String, bool)> {
     let t = client.get(&format!("/v1/tasks/{task}"), &[]).ok()?;
     let t = &t["task"];
@@ -488,7 +465,6 @@ mod tests {
         };
         assert!(!only.is_empty());
         assert!(only.tasks().is_empty(), "gc never sees an unlabelled one");
-        // the section sent: id, name, state; nothing when there are none
         assert_eq!(
             serde_json::to_value(&only).unwrap()["unlabelled"][0],
             json!({"id": "new", "name": "stray", "state": "running"})

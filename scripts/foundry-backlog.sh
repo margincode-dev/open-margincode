@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Posts the first backlog for the Margincode foundry (a standing Margincode Cloud cell that develops
-# Margincode): the loop's own noise, taken from the first dogfood run (2026-11-03). Each item is one
+# Margincode): the loop's own noise from its first dogfood run. Each item is one
 # `av post` with a goal written for an agent that has not seen that run.
 #
 #   AV_URL=http://127.0.0.1:7420 AV_TOKEN=... scripts/foundry-backlog.sh
@@ -18,9 +18,6 @@
 #
 # Items count toward the target "Loop noise" (slug loop-noise). `av post --target` takes the slug,
 # so no separate `PUT /v1/backlog/{id}/target` call is needed.
-#
-# Not included: restarting the owner's lease on request_changes (dogfood sev-3 #3). That fix is in
-# flight as its own change.
 set -euo pipefail
 
 AV="${AV:-av}"

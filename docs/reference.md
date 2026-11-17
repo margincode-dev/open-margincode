@@ -416,7 +416,9 @@ database's locale.
 ### Lite mode
 
 `av up` starts `margincode-daemon` in the background on `127.0.0.1` (port from `AV_URL`, default
-7420) and waits until it answers; `av down` stops it; `av init` calls `av up` when no daemon
+7420) and waits until it answers (the CLI's default `AV_URL` is `http://127.0.0.1:7420`, not
+`localhost`: on Windows `localhost` is `::1` first, and a refused connection there takes about
+2 s before the CLI tries IPv4); `av down` stops it; `av init` calls `av up` when no daemon
 answers. With no `AV_DATABASE_URL`, the daemon runs its own user-space Postgres 16: release
 builds carry it inside the binary (feature `bundled-postgres`), source builds download it on first
 start. Postgres refuses to run as root. Semantic search is off unless you also set `AV_QDRANT_URL`

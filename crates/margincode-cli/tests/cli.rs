@@ -6461,3 +6461,17 @@ fn av_claims_new_generation_is_never_on_disk_unnamed() {
     assert!(seen > 0, "the watcher never read generation 2");
     assert!(unnamed.is_empty(), "generation 2 named nobody: {unnamed:?}");
 }
+
+#[test]
+fn the_default_daemon_address_is_the_ipv4_loopback_the_daemon_listens_on() {
+    let o = Command::new(env!("CARGO_BIN_EXE_av"))
+        .env_remove("AV_URL")
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(
+        out(&o).contains("[default: http://127.0.0.1:7420]"),
+        "{}",
+        out(&o)
+    );
+}

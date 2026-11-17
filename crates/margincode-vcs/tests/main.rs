@@ -5,4 +5,5 @@
 mod merge;
 mod merge_fuzz;
 mod patch;
+mod sparse;
 mod vcs;

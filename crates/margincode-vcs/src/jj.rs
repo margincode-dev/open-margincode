@@ -41,11 +41,11 @@ use jj_lib::object_id::ObjectId as _;
 use jj_lib::op_store::RefTarget;
 use jj_lib::ref_name::{RefName, WorkspaceNameBuf};
 use jj_lib::repo::{ReadonlyRepo, Repo as _, RepoLoader};
-use jj_lib::repo_path::RepoPath;
+use jj_lib::repo_path::{RepoPath, RepoPathBuf};
 use jj_lib::rewrite::rebase_commit;
 use jj_lib::settings::UserSettings;
 use jj_lib::store::Store;
-use jj_lib::working_copy::SnapshotOptions;
+use jj_lib::working_copy::{LockedWorkingCopy, SnapshotOptions};
 use jj_lib::workspace::Workspace;
 use margincode_core::{
     Advance, AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
@@ -53,6 +53,7 @@ use margincode_core::{
 use pollster::block_on;
 
 use crate::patch::{self, Blob, EXECUTABLE, FILE, FileDiff, SYMLINK};
+use crate::sparse;
 
 /// Never part of a task's changes: margincode's own per-workspace metadata (written by the `av`
 /// CLI), and a workspace's build output (`target/`, where cargo and maven build by default; a
@@ -481,6 +482,11 @@ impl Inner {
         };
         block_on(tx.repo_mut().rebase_descendants()).map_err(verr)?;
         let ro = block_on(tx.commit(op)).map_err(verr)?;
+        if Self::task_workspace(slug).is_ok() {
+            let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
+            refresh_sparse(locked.locked_wc(), &wc.tree(), &dir, false)?;
+            block_on(locked.finish(ro.op_id().clone())).map_err(verr)?;
+        }
         block_on(ws.check_out(ro.op_id().clone(), None, &wc)).map_err(verr)?;
         Ok(dir)
     }
@@ -563,6 +569,9 @@ impl Inner {
             .clone();
         let wc_commit = ro.store().get_commit(&wc_id).map_err(verr)?;
         let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
+        if Self::task_workspace(slug).is_ok() {
+            refresh_sparse(locked.locked_wc(), &wc_commit.tree(), &dir, true)?;
+        }
         let options = SnapshotOptions {
             base_ignores: GitIgnoreFile::empty()
                 .chain(RepoPath::root(), Path::new(""), AGENT_IGNORES)
@@ -606,7 +615,27 @@ impl Inner {
         if !dir.is_dir() {
             return Err(AvError::NotFound(format!("workspace {slug}")));
         }
-        let applied = patch::apply(patch, |path| read_ws_file(&dir, path))?;
+        let off_disk = self.off_disk(repo, &dir)?;
+        let applied = patch::apply(patch, |path| match read_ws_file(&dir, path)? {
+            None => match &off_disk {
+                Some(o) if !o.covers(path) => o.blob(path),
+                _ => Ok(None),
+            },
+            on_disk => Ok(on_disk),
+        })?;
+        let gone: Vec<RepoPathBuf> = applied
+            .iter()
+            .filter(|a| a.after.is_none() && !dir.join(&a.path).exists())
+            .map(|a| RepoPathBuf::from_internal_string(a.path.as_str()).map_err(verr))
+            .collect::<Result<_>>()?;
+        if !gone.is_empty() {
+            let (mut ws, ro) = self.load_workspace(repo, &dir)?;
+            let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
+            let mut want = locked.locked_wc().sparse_patterns().map_err(verr)?.to_vec();
+            want.extend(gone);
+            block_on(locked.locked_wc().set_sparse_patterns(want)).map_err(verr)?;
+            block_on(locked.finish(ro.op_id().clone())).map_err(verr)?;
+        }
         for a in applied.iter().filter(|a| a.after.is_none()) {
             let file = dir.join(&a.path);
             std::fs::remove_file(&file).map_err(verr)?;
@@ -842,6 +871,98 @@ fn prune_empty_dirs(root: &Path, file: &Path) {
     }
 }
 
+/// The paths a workspace leaves off disk, for reading them from its commit instead.
+struct OffDisk {
+    patterns: Vec<RepoPathBuf>,
+    tree: MergedTree,
+    style: ConflictMarkerStyle,
+}
+
+impl OffDisk {
+    fn covers(&self, path: &str) -> bool {
+        self.patterns
+            .iter()
+            .any(|p| sparse::under(path, p.as_internal_file_string()))
+    }
+
+    fn blob(&self, path: &str) -> Result<Option<Blob>> {
+        let repo_path = RepoPath::from_internal_string(path).map_err(verr)?;
+        block_on(async {
+            let value = self.tree.path_value(repo_path).await.map_err(verr)?;
+            blob_of(
+                self.tree.store(),
+                repo_path,
+                value,
+                self.tree.labels(),
+                self.style,
+            )
+            .await
+        })
+    }
+}
+
+/// The include patterns `.av/sparse` in `tree` asks for: every path when the tree has no list,
+/// or an empty or invalid one, so nothing is ever left unsnapshotted by a bad list.
+fn sparse_patterns(tree: &MergedTree, dir: &Path) -> Result<Vec<RepoPathBuf>> {
+    let everything = || Ok(vec![RepoPathBuf::root()]);
+    let list = RepoPath::from_internal_string(sparse::FILE).map_err(verr)?;
+    let text = block_on(async {
+        let value = tree.path_value(list).await.map_err(verr)?;
+        match value.as_resolved() {
+            Some(Some(TreeValue::File { id, .. })) => {
+                let mut reader = tree.store().read_file(list, id).await.map_err(verr)?;
+                let mut buf = Vec::new();
+                reader.read_to_end(&mut buf).await.map_err(verr)?;
+                Ok(Some(buf))
+            }
+            _ => Ok::<_, AvError>(None),
+        }
+    })?;
+    let Some(text) = text else {
+        return everything();
+    };
+    let Ok(excludes) = sparse::parse(&String::from_utf8_lossy(&text)) else {
+        return everything();
+    };
+    if excludes.is_empty() {
+        return everything();
+    }
+    let mut files = vec![];
+    for (path, value) in tree.entries() {
+        if value.map_err(verr)?.is_present() {
+            files.push(path.as_internal_file_string().to_owned());
+        }
+    }
+    sparse::includes(&excludes, files, conflict_paths(tree), dir)?
+        .into_iter()
+        .map(|p| RepoPathBuf::from_internal_string(p).map_err(verr))
+        .collect()
+}
+
+/// `grow`: before a snapshot no pattern is dropped, or a file deleted from disk since the last
+/// snapshot would fall outside them and its deletion go unrecorded.
+fn refresh_sparse(
+    locked: &mut dyn LockedWorkingCopy,
+    tree: &MergedTree,
+    dir: &Path,
+    grow: bool,
+) -> Result<()> {
+    let current = locked.sparse_patterns().map_err(verr)?.to_vec();
+    let mut want = sparse_patterns(tree, dir)?;
+    if grow && !want.contains(&RepoPathBuf::root()) {
+        if current.contains(&RepoPathBuf::root()) {
+            return Ok(());
+        }
+        want.extend(current.iter().cloned());
+        want.sort();
+        want.dedup();
+    }
+    if current != want {
+        block_on(locked.set_sparse_patterns(want)).map_err(verr)?;
+    }
+    Ok(())
+}
+
 fn conflict_paths(tree: &MergedTree) -> Vec<String> {
     let mut paths: Vec<String> = tree
         .conflicts()
@@ -852,6 +973,27 @@ fn conflict_paths(tree: &MergedTree) -> Vec<String> {
 }
 
 impl Inner {
+    fn off_disk(&self, repo: &str, dir: &Path) -> Result<Option<OffDisk>> {
+        let (ws, ro) = self.load_workspace(repo, dir)?;
+        let patterns = ws.working_copy().sparse_patterns().map_err(verr)?.to_vec();
+        if patterns == [RepoPathBuf::root()] {
+            return Ok(None);
+        }
+        let wc_id = ro
+            .view()
+            .get_wc_commit_id(ws.workspace_name())
+            .ok_or_else(|| AvError::Vcs("workspace has no working-copy commit".into()))?;
+        let tree = ro.store().get_commit(wc_id).map_err(verr)?.tree();
+        let style: ConflictMarkerStyle = settings(self.exec_bit)?
+            .get("ui.conflict-marker-style")
+            .map_err(verr)?;
+        Ok(Some(OffDisk {
+            patterns,
+            tree,
+            style,
+        }))
+    }
+
     fn trunk(&self, repo: &str) -> Result<ChangeId> {
         let (_ws, ro) = self.load_main(repo)?;
         Ok(ChangeId(self.trunk_commit(repo, &ro)?.id().hex()))
@@ -1106,6 +1248,14 @@ impl Inner {
         block_on(tx.repo_mut().rebase_descendants()).map_err(verr)?;
         let ro = block_on(tx.commit(format!("av sync {slug}"))).map_err(verr)?;
         block_on(ws.check_out(ro.op_id().clone(), Some(&wc.tree()), &rebased)).map_err(verr)?;
+        let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
+        refresh_sparse(
+            locked.locked_wc(),
+            &rebased.tree(),
+            &self.ws_dir(repo, slug),
+            false,
+        )?;
+        block_on(locked.finish(ro.op_id().clone())).map_err(verr)?;
         Ok(RebaseOutcome {
             head: ChangeId(rebased.id().hex()),
             base,

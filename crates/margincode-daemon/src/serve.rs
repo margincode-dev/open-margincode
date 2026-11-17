@@ -13,7 +13,6 @@ use crate::{
     start_backups, sync_repos, worker_tick,
 };
 
-/// Errors from start-up and from an extension's `customize` step.
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Binds `cfg.listen`, then [`serve_with`] until Ctrl-C or SIGTERM (`av down`, `docker stop`).

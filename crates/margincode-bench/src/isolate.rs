@@ -22,20 +22,16 @@ use crate::Result;
 use crate::runner::{Arm, RunConfig, Vendor};
 use crate::spec::TaskSpec;
 
-/// The user the agent CLI runs as.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentUser {
     pub name: String,
     pub uid: u32,
     pub gid: u32,
-    /// The home the password database names for the user (what `getpwuid` answers, whatever
-    /// `HOME` says); `None` when the entry names none.
+    /// The home the password database names (not `HOME`); `None` when the entry names none.
     pub home: Option<PathBuf>,
 }
 
-/// The home of the user `name` (or of the entry with that `uid`) in password-database text:
-/// `getent passwd` output or `/etc/passwd`. `None`: no such entry. `Some(None)`: an entry whose
-/// home field is empty.
+/// The home of user `name` (or of the entry with that `uid`) in `getent passwd` / `/etc/passwd` text. `None`: no such entry; `Some(None)`: an entry with an empty home.
 fn passwd_home(text: &str, name: &str, uid: u32) -> Option<Option<PathBuf>> {
     let uid = uid.to_string();
     text.lines().find_map(|line| {
@@ -47,8 +43,7 @@ fn passwd_home(text: &str, name: &str, uid: u32) -> Option<Option<PathBuf>> {
     })
 }
 
-/// The user's home as the password database has it: `getent passwd NAME` (which asks every
-/// source the host is set up with), else `/etc/passwd`.
+/// `getent passwd NAME` (which asks every source the host is set up with), else `/etc/passwd`.
 fn home_of(name: &str, uid: u32) -> Result<Option<PathBuf>> {
     let asked = Command::new("getent").args(["passwd", name]).output();
     let text = match asked {
@@ -63,7 +58,6 @@ fn home_of(name: &str, uid: u32) -> Result<Option<PathBuf>> {
     })
 }
 
-/// `id FLAG [NAME]` as a number.
 fn id(flag: &str, name: Option<&str>) -> Result<u32> {
     let out = Command::new("id")
         .arg(flag)
@@ -79,7 +73,6 @@ fn id(flag: &str, name: Option<&str>) -> Result<u32> {
         .map_err(|e| format!("id {flag}: {e}"))
 }
 
-/// The user this process runs as.
 pub fn harness_uid() -> Result<u32> {
     id("-u", None)
 }
@@ -88,14 +81,12 @@ fn io_err(path: &Path, e: std::io::Error) -> String {
     format!("{}: {e}", path.display())
 }
 
-/// Sets a path's permission bits.
 pub fn set_mode(path: &Path, mode: u32) -> Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
         .map_err(|e| io_err(path, e))
 }
 
-/// Creates `path` (and what is missing above it) if it is not there, closed to everyone but the
-/// harness. A directory that exists is left as it is: the preflight says when it is open.
+/// Creates `path` (and parents) closed to everyone but the harness; a directory that exists is left as it is (the preflight says when it is open).
 pub fn private_dir(path: &Path) -> Result<()> {
     if path.exists() {
         return Ok(());
@@ -104,15 +95,13 @@ pub fn private_dir(path: &Path) -> Result<()> {
     set_mode(path, 0o700)
 }
 
-/// An empty file only the harness can read, for output that is then written through
-/// `File::create` (which keeps an existing file's mode).
+/// An empty file only the harness can read, for output written through `File::create` (which keeps an existing file's mode).
 pub fn private_file(path: &Path) -> Result<()> {
     std::fs::write(path, b"").map_err(|e| io_err(path, e))?;
     set_mode(path, 0o600)
 }
 
-/// Opens a file with `options` so that only the harness can read it before anything is written:
-/// a new file is made mode 600, an existing one is set to 600 first.
+/// Opens a file so that only the harness can read it before anything is written: a new file is made mode 600, an existing one is set to 600 first.
 pub fn open_private(mut options: std::fs::OpenOptions, path: &Path) -> Result<std::fs::File> {
     let file = options
         .mode(0o600)
@@ -123,8 +112,7 @@ pub fn open_private(mut options: std::fs::OpenOptions, path: &Path) -> Result<st
     Ok(file)
 }
 
-/// Every entry under `path` becomes `uid:gid`'s. Symlinks are changed themselves, never
-/// followed. With `close`, group and other lose every permission (and set-id bits go).
+/// Every entry under `path` becomes `uid:gid`'s; symlinks are changed themselves, never followed. With `close`, group and other lose every permission (and set-id bits go).
 fn chown_tree(path: &Path, uid: u32, gid: u32, close: bool) -> std::io::Result<()> {
     let meta = std::fs::symlink_metadata(path)?;
     lchown(path, Some(uid), Some(gid))?;
@@ -143,9 +131,7 @@ fn chown_tree(path: &Path, uid: u32, gid: u32, close: bool) -> std::io::Result<(
     Ok(())
 }
 
-/// After a session: the tree is root's again and nobody else can enter or read any of it, so
-/// neither a later session nor a file the agent linked elsewhere reaches what verify adds.
-/// Nothing if `path` is not there.
+/// After a session the tree is root's again and nobody else can enter or read it, so neither a later session nor a file the agent linked elsewhere reaches what verify adds.
 pub fn take_back(path: &Path) -> Result<()> {
     if std::fs::symlink_metadata(path).is_err() {
         return Ok(());
@@ -188,13 +174,9 @@ pub fn fresh_dest(workspace: &Path, rel: &str) -> Result<PathBuf> {
 /// What a process of the agent user is asked to do with a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
-    /// Read a file's first byte.
     Read,
-    /// List a directory.
     List,
-    /// Change into a directory.
     Enter,
-    /// Find a program to execute, by path or on `PATH`.
     Execute,
     /// Write to a path: for a directory, make or remove entries in it.
     Write,
@@ -212,8 +194,7 @@ impl Access {
     }
 }
 
-/// Run by `sh` as the agent user: one `<code> <path>` per line on stdin, the numbers of the
-/// lines that worked on stdout.
+/// Run by `sh` as the agent user: one `<code> <path>` per stdin line; the numbers of the lines that worked on stdout.
 const PROBE: &str = r#"n=0
 while IFS= read -r line; do
   k=${line%% *}; p=${line#* }
@@ -229,8 +210,7 @@ done
 "#;
 
 impl AgentUser {
-    /// Looks the user up by name (`id -u`, `id -g`, and its home in the password database).
-    /// Root is refused: it reads everything.
+    /// Looks the user up by name (`id -u`, `id -g`, home in the password database); root is refused (it reads everything).
     pub fn resolve(name: &str) -> Result<AgentUser> {
         let unknown = |e: String| format!("--agent-user {name}: no such user ({e})");
         let uid = id("-u", Some(name)).map_err(unknown)?;
@@ -248,8 +228,7 @@ impl AgentUser {
         })
     }
 
-    /// `program` as this user (no supplementary groups: std drops them when root sets a uid),
-    /// in `/`, with no stdin.
+    /// `program` as this user (no supplementary groups: std drops them when root sets a uid), in `/`, with no stdin.
     fn command(&self, program: &str) -> Command {
         let mut cmd = Command::new(program);
         cmd.uid(self.uid)
@@ -267,8 +246,7 @@ impl AgentUser {
         set_mode(path, 0o700)
     }
 
-    /// The live processes of this user, from `/proc` (zombies are not counted: a container
-    /// without an init never reaps them). Empty where there is no `/proc`.
+    /// The live processes of this user, from `/proc` (zombies not counted: a container without an init never reaps them); empty without `/proc`.
     pub fn processes(&self) -> Vec<u32> {
         let Ok(entries) = std::fs::read_dir("/proc") else {
             return vec![];
@@ -309,8 +287,6 @@ impl AgentUser {
         ))
     }
 
-    /// Tries each probe as this user, in one process, and says which worked. `path` puts
-    /// directories first on that process's `PATH` (for [`Access::Execute`]).
     pub fn allowed(&self, probes: &[(Access, PathBuf)], path: &[PathBuf]) -> Result<Vec<bool>> {
         let mut input = String::new();
         for (access, p) in probes {
@@ -411,7 +387,6 @@ fn add(checks: &mut Vec<Check>, access: Access, path: &Path, what: impl Into<Str
     }
 }
 
-/// The entries of a directory, sorted; none if it cannot be read.
 fn entries(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|d| d.flatten().map(|e| e.path()).collect())
@@ -425,8 +400,6 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
 const SCAN_DEPTH: usize = 6;
 const SCAN_ENTRIES: usize = 200_000;
 
-/// Directories every user can write and read (the temp dirs), where an earlier session, or a
-/// person looking into one, may have left a copy of a grading file.
 fn shared_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = vec![];
     for d in [
@@ -499,7 +472,6 @@ fn find_copies(
     }
 }
 
-/// What the preflight says of another run's directory under `runs/`.
 const EARLIER_RUN: &str = "an earlier run's sessions";
 
 /// A directory as the preflight found it: where, and which one (device and inode).
@@ -518,14 +490,12 @@ impl Found {
         }
     }
 
-    /// Whether the path is still this directory: not a symlink, not another directory.
     fn still_there(&self) -> bool {
         std::fs::symlink_metadata(&self.path)
             .is_ok_and(|m| m.is_dir() && m.dev() == self.dev && m.ino() == self.ino)
     }
 }
 
-/// What is at `path`, without following a symlink; `None` when nothing is.
 fn look(path: &Path) -> Result<Option<std::fs::Metadata>> {
     match std::fs::symlink_metadata(path) {
         Ok(m) => Ok(Some(m)),
@@ -543,16 +513,14 @@ struct Undo {
     missing: Vec<PathBuf>,
     /// Directories the preflight made, as found right after.
     made: Vec<Found>,
-    /// Paths noted as missing that could not be looked at after the creation, with the error:
-    /// each may be a directory the preflight made, which `put_back` cannot check or close.
+    /// Paths noted as missing that could not be looked at after the creation (each may be a directory the preflight made, which `put_back` cannot check or close).
     unseen: Vec<(PathBuf, std::io::Error)>,
     /// Directories that were there, with their modes.
     modes: Vec<(Found, u32)>,
 }
 
 impl Undo {
-    /// Notes the directories of the absolute `path`, itself included, that are not there yet. A
-    /// path that cannot be looked at is an error, not a missing directory.
+    /// Notes the directories of the absolute `path`, itself included, that are not there yet; a path that cannot be looked at is an error, not a missing directory.
     fn missing(&mut self, path: &Path) -> Result<()> {
         for dir in path.ancestors() {
             if dir.as_os_str().is_empty() || look(dir)?.is_some() {
@@ -578,7 +546,6 @@ impl Undo {
         }
     }
 
-    /// Notes the mode of the directory at `path`, if one is there (not through a symlink).
     fn mode(&mut self, path: &Path) -> Result<()> {
         if let Some(m) = look(path)?
             && m.is_dir()
@@ -646,7 +613,6 @@ impl Undo {
     }
 }
 
-/// What the preflight says of the agent user's home.
 const HOME_WHAT: &str = "that user's home in the password database: what a session leaves there, \
                          a later one finds";
 
@@ -659,9 +625,7 @@ const RESULT_FILES: [&str; 2] = ["rows.jsonl", "first-packs.jsonl"];
 const RESULTS_DEPTH: usize = 3;
 const RESULTS_ENTRIES: usize = 20_000;
 
-/// Adds to `found` the directories under `dir` that hold a results file (`RESULT_FILES`), down
-/// to `depth` levels. `skip` (this run's own `--out`) is left out, a directory that is found is
-/// not looked into further (closing it closes what is in it), and symlinks are not followed.
+/// Adds to `found` the results directories under `dir`, down to `depth` levels. `skip` (this run's `--out`) is left out, a found directory is not looked into (closing it closes what is in it), and symlinks are not followed.
 fn results_dirs(
     dir: &Path,
     skip: &Path,
@@ -821,7 +785,6 @@ fn check(
         }
     }
 
-    // what a session needs
     let mut need = vec![];
     add(&mut need, Access::Enter, &run_dir, "the run's directory");
     let cli = match cfg.vendor {
@@ -851,7 +814,6 @@ fn check(
     }
     let missing = failing(user, &need, &path, true)?;
 
-    // what a session must not reach
     let mut deny = vec![];
     for s in specs {
         let dir = absolute(&s.spec_dir)?;
@@ -931,10 +893,8 @@ fn check(
             add(&mut deny, Access::Enter, dir, what);
         }
     }
-    // The user's own home, as the password database has it: the harness sets `HOME` to the
-    // session's directory, but a program can look the home up (`getpwuid`). One user serves
-    // every session, so a home it can write to carries work from one session to the next, and
-    // one it can list shows what was left there.
+    // The user's own home, as the password database has it: a program can look it up (`getpwuid`) whatever `HOME` is set to. One user serves every session, so a home it can write carries work
+    // from one session to the next, and one it can list shows what was left there.
     let home = user.home.as_deref().filter(|h| h.is_dir());
     if let Some(home) = home {
         add(&mut deny, Access::Write, home, HOME_WHAT);
@@ -1087,7 +1047,6 @@ mod tests {
             [top.join("first-pack/before/n500"), top.join("pilot")],
             "not --out itself, nothing inside one that is found, nothing below the depth"
         );
-        // a search that ran out of entries stops
         let (mut found, mut budget) = (vec![], 1);
         results_dirs(top, &out, RESULTS_DEPTH, &mut budget, &mut found);
         assert_eq!((found, budget), (vec![], 0));
@@ -1097,9 +1056,6 @@ mod tests {
         std::fs::symlink_metadata(p).unwrap().mode() & 0o7777
     }
 
-    /// A run directory the refused preflight made but cannot remove (something is in it by
-    /// then) is closed instead, and the refusal says so; the directories above it, its way, stay
-    /// as they are.
     #[test]
     fn a_made_directory_that_cannot_be_removed_is_closed_and_named() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1129,8 +1085,6 @@ mod tests {
         assert_eq!(mode_of(&runs), 0o711, "the way to it is left as it is");
     }
 
-    /// A path noted as missing that cannot be looked at after the creation may be a directory
-    /// the preflight made: it is not dropped, the refusal names it.
     #[test]
     fn a_path_that_cannot_be_looked_at_after_the_creation_is_named() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1150,7 +1104,6 @@ mod tests {
         );
     }
 
-    /// A path noted as missing that is still missing after the creation is nothing to put back.
     #[test]
     fn a_path_still_missing_after_the_creation_is_not_named() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1160,8 +1113,6 @@ mod tests {
         assert!(undo.put_back().is_empty());
     }
 
-    /// A symlink where the preflight noted or made a directory is neither removed nor changed,
-    /// nor is what it points at.
     #[test]
     fn a_symlink_where_a_directory_was_is_neither_removed_nor_chmodded() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1198,8 +1149,6 @@ mod tests {
         assert_eq!(left, Vec::<String>::new());
     }
 
-    /// A directory replaced by another one (another inode) after it was noted is not the one the
-    /// preflight made or changed: it is left alone.
     #[test]
     fn a_directory_replaced_by_another_one_is_left_alone() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1230,7 +1179,6 @@ mod tests {
         assert_eq!(left, Vec::<String>::new());
     }
 
-    /// A path that cannot be looked at is an error of the preflight, not a directory to make.
     #[test]
     fn a_path_that_cannot_be_looked_at_is_not_missing() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1257,7 +1205,6 @@ mod tests {
         let dest = fresh_dest(&ws, "tests/test_a.py").unwrap();
         assert_eq!(dest, ws.join("tests/test_a.py"));
         assert!(std::fs::symlink_metadata(ws.join("tests")).is_err());
-        // the file itself is a link, or a file the agent made
         std::os::unix::fs::symlink(elsewhere.join("kept"), ws.join("real/test_b.py")).unwrap();
         std::fs::write(ws.join("real/test_c.py"), "agent's").unwrap();
         for f in ["real/test_b.py", "real/test_c.py"] {
@@ -1270,7 +1217,6 @@ mod tests {
             "agent's",
             "what the links pointed at is untouched"
         );
-        // a path that is free is just the path
         assert_eq!(
             fresh_dest(&ws, "new/dir/test_d.py").unwrap(),
             ws.join("new/dir/test_d.py")

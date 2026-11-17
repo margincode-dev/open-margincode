@@ -16,7 +16,6 @@ use crate::AppState;
 use crate::error::ApiResult;
 use crate::worker::{DrainStats, OutboxWorker};
 
-/// Advisory lock key shared by reindex and the worker tick.
 pub const SEMANTIC_LOCK_KEY: i64 = 7_420_002;
 
 fn serr(e: sqlx::Error) -> AvError {

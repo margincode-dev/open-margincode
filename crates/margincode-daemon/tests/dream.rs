@@ -1,6 +1,4 @@
-//! Plan 16 Phase 2: dreams and verdicts, with hand-written verdicts and no model. The daemon
-//! chooses what a run may judge, checks every quote word for word, and gives a verdict no
-//! effect until a second look agrees.
+//! Dreams and verdicts with hand-written verdicts and no model.
 
 use crate::common::*;
 use margincode_core::{IntentStore, RecordId};
@@ -12,7 +10,6 @@ async fn post_json(e: &Env, path: &str, body: Value) -> (StatusCode, Value) {
     call(&e.app, "POST", path, Some(body)).await
 }
 
-/// A record of task `t` anchored on `path`.
 async fn record_on(e: &Env, t: &Value, kind: &str, summary: &str, path: &str) -> Value {
     let (status, body) = post_json(
         e,
@@ -30,8 +27,7 @@ fn handle(rec: &Value) -> String {
     format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8])
 }
 
-/// An earlier task with records on the greeter, and a later task that edits the greeter, so
-/// its packs show them.
+/// The later task edits the greeter, so its packs show the earlier task's records.
 async fn two_tasks(e: &Env) -> (Value, Value) {
     let earlier = start_task(e, "Earlier work").await;
     let reader = start_task(e, "Louder hello").await;
@@ -76,7 +72,6 @@ fn dream_id(d: &Value) -> String {
         .to_owned()
 }
 
-/// Posts one verdict to a review run and answers its result entry.
 async fn propose(e: &Env, dream: &Value, verdict: Value) -> Value {
     let (status, body) = post_json(
         e,
@@ -92,7 +87,6 @@ fn code_quote() -> Value {
     json!({"code": "app/greeter.py", "quote": GREETER_LINE})
 }
 
-/// A person agrees with a proposed verdict.
 async fn accept(e: &Env, result: &Value) -> Value {
     let vd = result["verdict"]["handle"]
         .as_str()
@@ -117,7 +111,6 @@ fn line_of<'a>(md: &'a str, needle: &str) -> &'a str {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_run_is_handed_records_with_their_task_and_the_code_on_main() {
     let e = env().await;
-    // nothing to judge: no run is made
     let none = start_dream(&e, "review", "").await;
     assert!(
         none["dream"].is_null() && none["items"] == json!([]),
@@ -207,7 +200,6 @@ async fn one_run_of_a_mode_per_area_at_a_time() {
     assert_eq!(body["dream"]["status"], "done", "{body}");
     let d = start_dream(&e, "review", "app").await;
     assert_eq!(d["dream"]["area"], "app", "{d}");
-    // a finished run takes no more verdicts
     let (status, body) = post_json(
         &e,
         &format!("/v1/dreams/{}/verdicts", dream_id(&whole)),
@@ -347,7 +339,6 @@ async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_
         )),
         "{line}"
     );
-    // the record itself is untouched, and its routes say what was found
     let (_, recs) = call(
         &e.app,
         "GET",
@@ -368,7 +359,6 @@ async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_
         stored["standing"]["factor"].as_f64().unwrap() < 0.5,
         "{stored}"
     );
-    // a verdict is reviewed once
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
@@ -433,13 +423,11 @@ async fn a_verdict_a_person_rejects_has_no_effect() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["verdict"]["state"], "rejected", "{body}");
     assert_eq!(pack(&e, &reader, "p1").await, before);
-    // one verdict is read with the record it judges
     let (status, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
     assert_eq!(status, StatusCode::OK, "{one}");
     assert_eq!(one["verdict"]["state"], "rejected", "{one}");
     assert_eq!(one["record"]["summary"], "hello never shouts", "{one}");
     assert_eq!(one["repo"], "demo", "{one}");
-    // and with its reviews: a person's has no run
     let reviews = one["reviews"].as_array().expect("reviews");
     assert_eq!(reviews.len(), 1, "{one}");
     assert_eq!(reviews[0]["reviewer"], "vinh", "{one}");
@@ -542,7 +530,6 @@ async fn a_duplicate_is_hidden_and_the_canonical_record_is_shown() {
         .find(|r| r["id"] == dup["id"])
         .unwrap_or_else(|| panic!("{hits}"));
     assert_eq!(hit["verdict"]["kind"], "duplicate", "{hit}");
-    // a hidden record is not handed to the next run, and cannot be a canonical record
     let (_, done) = post_json(
         &e,
         &format!("/v1/dreams/{}/finish", dream_id(&d)),
@@ -677,7 +664,6 @@ async fn a_confirmed_verdict_clears_the_changed_mark_and_such_records_are_looked
 }
 
 /// A review run of `limit` records that finishes without a verdict: the run as started, and
-/// the records it was handed, in order.
 async fn declined_run(e: &Env, limit: usize) -> (Value, Vec<Value>) {
     let (status, d) = post_json(
         e,
@@ -703,18 +689,14 @@ async fn a_record_a_finished_run_left_undecided_waits_behind_records_no_run_decl
     // two records that rank the same: one kind each, no shared anchor, no verdict
     let a = record_on(&e, &t, "decision", "greetings stay short", "app/greeter.py").await;
     let b = record_on(&e, &t, "note", "names keep their case", "app/util.py").await;
-    // the first run is handed one of them and judges nothing
     let (d, handed) = declined_run(&e, 1).await;
     let first = handed[0].clone();
     assert!(first == a["id"] || first == b["id"], "{first}");
-    // the run keeps the score each record had in it
     let key = first.as_str().unwrap();
     assert_eq!(d["dream"]["worklist"]["scores"][key], json!(1.0), "{d}");
-    // the next run is handed the other, not the one already declined
     let second = declined_run(&e, 1).await.1[0].clone();
     assert!(second == a["id"] || second == b["id"], "{second}");
     assert_ne!(first, second, "a declined record is not handed again first");
-    // once both were declined, the ranking alone decides again
     assert_eq!(declined_run(&e, 1).await.1[0], first);
 }
 
@@ -768,7 +750,6 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
         "app/greeter.py",
     )
     .await;
-    // nothing proposed: nothing to verify
     assert!(start_dream(&e, "verify", "").await["dream"].is_null());
     let d = start_dream(&e, "review", "").await;
     let proposed = propose(
@@ -830,7 +811,6 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
             .await
             .contains("(disputed: the greeter adds no mark")
     );
-    // the verdict is read with the review that made it effective, the run's quote included
     let (status, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
     assert_eq!(status, StatusCode::OK, "{one}");
     assert_eq!(
@@ -862,8 +842,7 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
     );
 }
 
-/// A guard with a policy for shared memory: only `vinh` reviews verdicts, and `grok` supersedes
-/// nothing. It remembers what it was asked.
+/// A guard with a policy for shared memory: only `vinh` reviews verdicts, `grok` supersedes nothing.
 #[derive(Default)]
 struct MemoryPolicy(std::sync::Mutex<Vec<String>>);
 

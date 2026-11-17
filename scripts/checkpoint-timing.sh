@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plan 14's measurement: times `av checkpoint` N times in DIR, appending a line to FILE before
+# Times `av checkpoint` N times in DIR, appending a line to FILE before
 # each, and prints every wall time and the median in milliseconds. Run it once in a task workspace
 # on the daemon's host (a local checkpoint) and once in a checkout made by `av remote clone` on
 # another host (a remote one, patch and round trip included), then compare the medians.

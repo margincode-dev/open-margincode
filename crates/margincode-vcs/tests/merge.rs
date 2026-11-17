@@ -27,7 +27,6 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-/// Fixture: a.py (three lines) and pkg/b.py.
 fn fixture_git_repo() -> TempDir {
     let d = TempDir::new().unwrap();
     git(d.path(), &["init", "-q", "-b", "main"]);
@@ -66,7 +65,6 @@ impl Env {
             &["rev-parse", "refs/heads/main"],
         )
     }
-    /// Starts a workspace, writes `files`, snapshots, and returns the head.
     async fn task(&self, slug: &str, files: &[(&str, &str)]) -> ChangeId {
         self.vcs.create_workspace("demo", slug).await.unwrap();
         for (path, text) in files {
@@ -288,7 +286,6 @@ async fn push_backup_non_fast_forward_is_an_error_not_a_force() {
     let remote = bare_remote();
     let url = remote.path().to_str().unwrap().to_owned();
     e.vcs.push_backup("demo", &url, None).await.unwrap();
-    // someone else moves the remote's main to an unrelated history
     let other = TempDir::new().unwrap();
     git(other.path(), &["init", "-q", "-b", "main"]);
     std::fs::write(other.path().join("x"), "x").unwrap();

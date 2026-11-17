@@ -1,5 +1,3 @@
-//! Candidate gathering: turns a task into scored, tiered `Item`s.
-
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,8 +20,6 @@ pub(crate) struct Deps<'a> {
     pub semantic: Option<Arc<dyn Semantic>>,
 }
 
-/// What became of the tasks of the records a pack may show (`margincode_core::standing`), asked of
-/// the store in one query per batch of records.
 #[derive(Default)]
 pub(crate) struct Origins(HashMap<RecordId, OriginFacts>);
 
@@ -39,7 +35,6 @@ impl Origins {
         Ok(origins)
     }
 
-    /// Asks for the records of `ids` it does not know yet.
     pub(crate) async fn extend(
         &mut self,
         store: &dyn IntentStore,
@@ -67,8 +62,7 @@ impl Origins {
             .map(|facts| standing(facts, rec.kind, rec.created_at))
     }
 
-    /// The verdict in effect on `rec`, for an agent on task `reader` (none on its own records
-    /// or on what was mined from git: a dream judges what agents wrote for others).
+    /// None on the reader's own records and on mined ones: a dream judges what agents wrote for others.
     fn verdict(&self, rec: &Record, reader: TaskId) -> Option<&EffectiveVerdict> {
         if rec.task_id == reader || history::is_mined(&rec.author_agent) {
             return None;
@@ -76,8 +70,6 @@ impl Origins {
         self.0.get(&rec.id)?.verdict.as_ref()
     }
 
-    /// Whether a verdict takes `rec` out of what `reader` is shown: a duplicate of a record
-    /// that is shown, or one the code has outgrown.
     pub(crate) fn hidden(&self, rec: &Record, reader: TaskId) -> bool {
         self.verdict(rec, reader).is_some_and(|v| v.kind.hides())
     }
@@ -103,7 +95,6 @@ impl Origins {
         }
     }
 
-    /// What a line of `rec` says of where it comes from.
     pub(crate) fn whence(&self, rec: &Record, reader: TaskId) -> Whence<'_> {
         Whence {
             origin: self.of(rec, reader).map(|s| s.origin),
@@ -114,8 +105,7 @@ impl Origins {
     }
 }
 
-/// What a record's line says beyond the record itself: what became of its task (after the
-/// kind, unless it merged) and a `disputed` verdict in effect on it (after the summary).
+/// What a record's line says beyond the record: what became of its task, and a `disputed` verdict in effect on it.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Whence<'a> {
     pub origin: Option<Origin>,
@@ -125,8 +115,7 @@ pub(crate) struct Whence<'a> {
 pub(crate) struct Gathered {
     pub items: Vec<Item>,
     pub degraded: Vec<String>,
-    /// Ids of the History items that are records of another task which this one may supersede:
-    /// an earlier agent's claims, which the reading agent can correct (`render::CORRECT_HINT`).
+    /// Ids of History items that are another task's records this one may supersede (`render::CORRECT_HINT`).
     pub foreign: HashSet<String>,
 }
 
@@ -141,15 +130,12 @@ struct Structural {
     code_factor: HashMap<String, f32>,
     located: Vec<IndexedSymbol>,
     has_head: bool,
-    /// History items that are records, by item id: what `lead_goal_matches` needs to know.
     records: HashMap<String, RecordFacts>,
     /// Embedding similarity of the records that were semantic hits, by item id.
     similarity: HashMap<String, f32>,
-    /// What became of the tasks of the records gathered so far.
     origins: Origins,
 }
 
-/// A History record as `lead_goal_matches` sees it.
 struct RecordFacts {
     /// Summary and body, matched against the goal's words.
     text: String,
@@ -157,7 +143,6 @@ struct RecordFacts {
     may_lead: bool,
     /// Its `record_factor`, applied to a lead's score too.
     factor: f32,
-    /// A record of another task that a record of this one may supersede.
     foreign: bool,
 }
 
@@ -262,11 +247,8 @@ pub(crate) fn symbol_handle(s: &IndexedSymbol) -> String {
     )
 }
 
-/// `stale`: an anchored symbol or file is gone. `changed`: the anchored code changed after the record
-/// was written, so the claim may no longer hold (Plan 2b). `stale` wins when both apply.
-/// `whence`: what became of the record's task, said after the kind unless it merged
-/// (`decision, reverted: …`), and a verdict that disputes it, said after the summary with its
-/// reason (`(disputed: …, vd:…)`; the clipped handle says `(disputed)`).
+/// `stale`: an anchored symbol or file is gone; `changed`: the anchored code changed after the record was written (`stale` wins).
+/// `whence` adds what became of the record's task after the kind (unless merged) and a disputing verdict after the summary.
 pub(crate) fn record_texts(
     rec: &Record,
     stale: bool,
@@ -620,8 +602,7 @@ async fn expand_best_hits(
     Ok(())
 }
 
-/// Full-text (BM25) code hits (Plan 6), each counting as `score::rrf_sim` of its rank; a hit on an
-/// item already in the pack raises its score instead.
+/// Full-text (BM25) code hits, each counting as `score::rrf_sim` of its rank; a hit on an item already in the pack raises its score.
 async fn apply_lexical(
     d: &Deps<'_>,
     task: &Task,
@@ -706,8 +687,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         vec![]
     };
 
-    // ---- seeds: symbols whose lines changed (all symbols of a new file), symbols the goal names
-    // outright (Plan 6), plus `focus` matches ----
     let mut seeds = changed_symbols(d, task, &changed).await?;
     for ident in lexical::named_identifiers(&task.goal) {
         // `pricing.line_total`: qnames carry no module, so a dotted name is also looked up by
@@ -784,7 +763,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         .collect();
     let our_paths: Vec<String> = seed_paths.iter().cloned().collect();
 
-    // ---- file contents at head (for code excerpts) ----
     let wanted: BTreeSet<String> = located.iter().map(|l| l.sym.symbol.path.clone()).collect();
     let mut contents: HashMap<String, String> = HashMap::new();
     if has_head {
@@ -807,7 +785,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         }
     }
 
-    // ---- Task section ----
     let changed_listed: Vec<&str> = changed
         .iter()
         .take(MAX_CHANGED_LISTED)
@@ -840,7 +817,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         .because("task"),
     );
 
-    // ---- Code section ----
     for l in &located {
         let s = &l.sym;
         let handle = symbol_handle(s);
@@ -886,7 +862,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         );
     }
 
-    // ---- History / Task records ----
     // Two hops: a change that only shares a constant with a function (render → BULK_QTY →
     // line_total) still sees what was decided about it, ranked by distance like everything else.
     let qnames: Vec<String> = located
@@ -984,7 +959,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         }
     }
 
-    // ---- Conflicts ----
     for path in &conflicts {
         let handle = format!("- ⚠ {path} conflicts with main");
         let full = format!(
@@ -1034,11 +1008,10 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         }
     }
 
-    // ---- Conventions ----
     let mut conventions = d.store.conventions_for(repo, &our_paths).await?;
     if our_paths.is_empty() {
-        // Nothing changed yet, so nothing scopes the rules: hard constraints that apply anywhere in
-        // the repo are shown up front, while the agent is still planning (Plan 2b).
+        // Nothing changed yet, so nothing scopes the rules: hard constraints that apply anywhere in the repo are
+        // shown up front, while the agent is still planning.
         let change = if has_head {
             &task.head_change
         } else {
@@ -1071,7 +1044,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         );
     }
 
-    // ---- Live work ----
     if !our_paths.is_empty() {
         let ours: BTreeSet<&String> = our_paths.iter().collect();
         for other in d
@@ -1116,7 +1088,6 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         }
     }
 
-    // ---- Map: skeletons of seed / neighbor files, plus the repo layout ----
     let map_paths: BTreeSet<&String> = seed_paths.iter().chain(neighbor_paths.iter()).collect();
     let skeletons = join_all(map_paths.iter().map(|p| async move {
         (
@@ -1338,10 +1309,8 @@ async fn merge_hits(
                     Err(AvError::NotFound(_)) => continue,
                     Err(e) => return Err(e),
                 };
-                // A vector is marked superseded a moment after the store is (the outbox), so a
-                // hit can still say `superseded: false` for a record the store has replaced.
-                // `include_record` would drop it; dropped here, it does not count toward the
-                // cap first and take the place of a record that would be shown.
+                // A vector is marked superseded a moment after the store is (the outbox), so a hit can still say
+                // `superseded: false`; dropped here, it does not count toward the cap first.
                 if rec.superseded_by.is_some() {
                     continue;
                 }
@@ -1361,7 +1330,7 @@ async fn merge_hits(
                     continue;
                 };
                 let id = format!("conv:{}", cid.0);
-                // Missing means the glob did not match the task paths (Plan 1 scope rule).
+                // Missing means the glob did not match the task paths.
                 if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == id) {
                     item.score = score::convention_score(hit.score);
                 }
@@ -1372,9 +1341,8 @@ async fn merge_hits(
     Ok(())
 }
 
-/// Code hits from `main` carry `main`'s symbol ids. Map each through the task's view: an unmasked
-/// path keeps the main symbol (same id in the view); a masked path maps to the overlay symbol of
-/// the same qname, or the hit is dropped when the overlay has no such symbol (tombstone / rename).
+/// Code hits from `main` carry `main`'s symbol ids: an unmasked path keeps the main symbol, a masked path maps to the
+/// overlay symbol of the same qname, or the hit is dropped when there is none (tombstone / rename).
 async fn to_task_scope(
     d: &Deps<'_>,
     task: &Task,
@@ -1655,8 +1623,7 @@ pub(crate) async fn anchor_hash(
     Some(format!("{:x}", Sha256::digest(&hashed)))
 }
 
-/// The bytes `a` points at in `change`: the anchored symbol's source lines, or the whole file
-/// for a path anchor. `None` when the file or symbol does not exist there.
+/// The bytes `a` points at in `change`, selected as in `anchor_hash`.
 pub(crate) async fn anchored_text(
     vcs: &dyn Vcs,
     index: &dyn CodeIndex,
@@ -1708,13 +1675,11 @@ fn record_factor(rec: &Record, task: &Task, changed: bool, origin: Option<Standi
     f
 }
 
-/// The repo layout: top-level entries with file counts (summary), and under each top-level
-/// directory its direct children (full). Files already shown as skeletons are not repeated.
+/// Top-level entries with file counts, and each top directory's direct children; files already shown as skeletons are not repeated.
 fn repo_tree_item(files: &[String], skeletons: &BTreeSet<String>) -> Option<Item> {
     if files.is_empty() {
         return None;
     }
-    // top-level entry -> (is_dir, file count); and per top dir its direct children
     let mut top: BTreeMap<String, (bool, usize)> = BTreeMap::new();
     let mut children: BTreeMap<String, BTreeMap<String, (bool, usize)>> = BTreeMap::new();
     for f in files {

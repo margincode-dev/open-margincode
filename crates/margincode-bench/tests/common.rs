@@ -35,8 +35,6 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-/// A repo with a base commit (`calc.py` with a bug, `README.md`) and a fix commit that corrects
-/// `calc.py` and adds `test_calc.py`. Returns (base, fix).
 pub fn fixture_repo(dir: &Path) -> (String, String) {
     git(dir, &["init", "-q", "-b", "main"]);
     std::fs::write(dir.join("calc.py"), "def add(a, b):\n    return a - b\n").unwrap();
@@ -88,10 +86,8 @@ pub fn real_av() -> Option<std::path::PathBuf> {
     av.is_file().then_some(av)
 }
 
-/// A real daemon on an ephemeral port.
 pub struct TestDaemon {
     pub url: String,
-    /// Where the daemon keeps its task workspaces.
     pub ws_root: std::path::PathBuf,
     shutdown: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
@@ -160,8 +156,7 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
     }
 }
 
-/// The fake scripts read `FAKE_*` from the environment, which is process-wide, so the tests that
-/// set it run one at a time, across every module of this binary.
+/// `FAKE_*` env vars are process-wide, so the tests that set them run one at a time across every module.
 pub static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn serial() -> std::sync::MutexGuard<'static, ()> {

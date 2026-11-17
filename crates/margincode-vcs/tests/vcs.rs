@@ -380,7 +380,6 @@ async fn restore_workspace_brings_back_the_head() {
     );
     // the working copy is the head itself: nothing changed, same head
     assert_eq!(e.vcs.snapshot("demo", "back").await.unwrap(), head);
-    // and it keeps working
     std::fs::write(r.path.join("more.txt"), "more").unwrap();
     let next = e.vcs.snapshot("demo", "back").await.unwrap();
     assert_ne!(next, head);
@@ -434,8 +433,6 @@ async fn restore_workspace_works_for_an_empty_head_jj_abandoned() {
     assert_eq!(r.base_change, w.base_change);
     assert_eq!(e.vcs.snapshot("demo", "empty").await.unwrap(), head);
 }
-
-// --- Plan 14: remote checkpoints (a patch applied to a workspace, a workspace's state as a patch)
 
 fn git_out(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")

@@ -1,5 +1,3 @@
-//! Plan 8 Task 3: agent profiles, the backlog and the handoff tags.
-
 use margincode_core::routing::*;
 use margincode_core::*;
 use margincode_store::PgStore;
@@ -61,7 +59,6 @@ async fn profiles_are_upserted_and_listed_cheapest_first() {
     s.put_profile(&profile("grok", &["image"], &[], 2))
         .await
         .unwrap();
-    // a second put replaces the first
     let mut c = profile("claude", &["code", "tests"], &[], 3);
     c.aliases = vec!["claude-code".into()];
     c.managed_by = Some("ee".into());
@@ -185,7 +182,6 @@ async fn an_untaken_item_is_queued_again_and_a_linked_one_names_its_task() {
     s.link_backlog_task(item.item.id, task.id).await.unwrap();
     let e = &s.list_backlog(None, None).await.unwrap()[0];
     assert_eq!(e.task_id, Some(task.id));
-    // a taken item cannot be untaken once it has a task
     assert!(s.untake_backlog(item.item.id).await.is_err());
 }
 
@@ -237,7 +233,6 @@ async fn a_proposed_item_waits_until_it_is_accepted() {
         .await
         .unwrap();
     assert_eq!(proposed.len(), 1);
-    // a proposed item cannot be taken
     assert!(!s.take_backlog(p.item.id, "claude").await.unwrap());
     assert_eq!(
         s.get_backlog(p.item.id).await.unwrap().state,
@@ -250,7 +245,6 @@ async fn a_proposed_item_waits_until_it_is_accepted() {
     assert!(a.accepted_at.is_some());
     assert_eq!(a.why.as_deref(), Some("not sure the cache is worth it"));
 
-    // only a proposed item is accepted
     assert!(matches!(
         s.accept_backlog(p.item.id, "vinh").await.unwrap_err(),
         AvError::IllegalState(_)
@@ -324,7 +318,6 @@ async fn agent_posts_is_a_repo_setting() {
 async fn a_handoff_can_carry_tags_until_it_is_claimed() {
     let (_db, s) = store().await;
     let t = s.create_task(new_task()).await.unwrap();
-    // only a handed-off task can carry them
     let err = s
         .set_handoff_needs(t.id, &["image".to_string()], None)
         .await
@@ -363,7 +356,7 @@ async fn handed_off_tasks_include_untagged_handoffs() {
     assert!(ids.contains(&tagged.id) && ids.contains(&plain.id));
     let p = h.iter().find(|h| h.task.id == plain.id).unwrap();
     assert!(p.needs.is_empty() && p.prefer.is_none());
-    // a handoff whose time was never stamped (made before Plan 9) counts as old
+    // a handoff whose time was never stamped counts as old
     assert!(p.since < chrono::Utc::now() - chrono::Duration::days(365));
 }
 

@@ -44,7 +44,6 @@ impl Usage {
         self.input + self.cache_creation + self.output
     }
 
-    /// Every input token the model saw, cache reads included (calibration).
     pub fn all_input(self) -> u64 {
         self.input + self.cache_creation + self.cache_read
     }
@@ -56,7 +55,6 @@ pub struct ToolUse {
     pub input: Value,
 }
 
-/// One assistant message, merged over all the events that carry its id.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub id: String,
@@ -75,9 +73,7 @@ pub struct ResultEvent {
 
 #[derive(Debug, Clone, Default)]
 pub struct ParsedSession {
-    /// The session's working directory (`init.cwd`), for relativizing tool paths.
     pub cwd: Option<String>,
-    /// In order of first appearance.
     pub messages: Vec<Message>,
     pub result: Option<ResultEvent>,
     /// Lines that are not JSON objects (a partial last line of a killed session, for example).

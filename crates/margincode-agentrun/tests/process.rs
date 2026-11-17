@@ -1,5 +1,3 @@
-//! Running a child with a deadline and a log.
-
 use std::time::{Duration, Instant};
 
 use margincode_agentrun::process::{run_with_timeout, shell};

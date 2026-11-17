@@ -19,7 +19,6 @@ fn state() -> HandoffState {
     }
 }
 
-/// The fixture task with a decision, a dead end, a note, a superseded note and a handoff record.
 async fn handed_off() -> Fx {
     let fx = fixture().await;
     let add = |kind, summary: &str, body: &str, anchors| {
@@ -214,8 +213,6 @@ async fn bundle_matches_golden_for_fixture_task() {
     assert_eq!(got, want);
 }
 
-/// Plan 9: an agent that reads `git status` in a workspace sees nothing (av snapshots edits into
-/// commits), so both bundles say so under the workspace path.
 #[tokio::test]
 async fn bundles_say_a_workspace_shows_no_git_changes() {
     let fx = handed_off().await;

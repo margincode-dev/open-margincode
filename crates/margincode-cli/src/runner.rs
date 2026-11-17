@@ -17,7 +17,6 @@ pub struct Runner<'a> {
 }
 
 impl Runner<'_> {
-    /// The repo's check command (`av repo settings --check`).
     fn command(&self) -> Result<String> {
         let s = self
             .client
@@ -34,7 +33,6 @@ impl Runner<'_> {
             })
     }
 
-    /// Writes the tree at `change` into a fresh directory.
     pub fn materialize(&self, change: &str) -> Result<PathBuf> {
         let dir = self.work_dir.join(&change[..change.len().min(12)]);
         if dir.exists() {
@@ -62,7 +60,6 @@ impl Runner<'_> {
         Ok(dir)
     }
 
-    /// Runs the check on `change`, posts the result and returns the exit code.
     pub fn check(&self, change: &str, command: &str) -> Result<i32> {
         let dir = self.materialize(change)?;
         let out = std::process::Command::new("sh")
@@ -89,8 +86,6 @@ impl Runner<'_> {
         Ok(code)
     }
 
-    /// Checks main now if it has no result yet; with `once`, stops there. Otherwise follows the
-    /// event feed and checks every merge (and undo) as it lands.
     pub fn run(&self, once: bool) -> Result<()> {
         let command = self.command()?;
         let health = self
@@ -129,7 +124,6 @@ impl Runner<'_> {
     }
 }
 
-/// The default scratch directory for materialized trees.
 pub fn default_work_dir(repo: &str) -> PathBuf {
     std::env::temp_dir().join(format!("av-runner-{repo}"))
 }

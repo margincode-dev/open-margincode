@@ -11,14 +11,11 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// What an agent is good at and what it costs; set by the user (`av agent set`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
-    /// Tags this agent is best at.
     #[serde(default)]
     pub best: Vec<String>,
-    /// Tags this agent can do, but is not the best at.
     #[serde(default)]
     pub can: Vec<String>,
     /// 1 is the cheapest.
@@ -26,8 +23,7 @@ pub struct Profile {
     /// Other names the agent introduces itself with (MCP `clientInfo.name`).
     #[serde(default)]
     pub aliases: Vec<String>,
-    /// The most open tasks it may hold at once (an agent CLI with subagents is a team that works
-    /// in parallel). `None`: no limit.
+    /// The most open tasks it may hold at once; `None`: no limit.
     #[serde(default)]
     pub max_open: Option<i32>,
     /// Who writes this profile: `None` for the user (`av agent set`), else the name of the
@@ -36,7 +32,6 @@ pub struct Profile {
     pub managed_by: Option<String>,
 }
 
-/// A task waiting in the backlog for an agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklogItem {
     pub id: Uuid,
@@ -45,7 +40,6 @@ pub struct BacklogItem {
     pub goal: String,
     #[serde(default)]
     pub needs: Vec<String>,
-    /// An agent pinned to the item for its reserve window.
     pub prefer: Option<String>,
     pub priority: i32,
     pub reserve_secs: i64,
@@ -55,7 +49,6 @@ pub struct BacklogItem {
     pub after: Vec<Uuid>,
 }
 
-/// What the user posts to the backlog (`av post`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewBacklogItem {
     pub repo: String,
@@ -85,14 +78,11 @@ pub struct NewBacklogItem {
 /// Longest `why` of a backlog item (the same bound as the column's check).
 pub const WHY_MAX: usize = 300;
 
-/// What becomes of a backlog item an agent posts in a repo (`RepoSettings::agent_posts`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentPosts {
-    /// Queued, unless the agent proposed it (the default).
     #[default]
     Queue,
-    /// Always proposed: a human accepts it first.
     Propose,
 }
 
@@ -154,13 +144,11 @@ impl std::str::FromStr for BacklogState {
     }
 }
 
-/// A backlog row: the item plus what became of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BacklogEntry {
     #[serde(flatten)]
     pub item: BacklogItem,
     pub state: BacklogState,
-    /// The task made for the item once an agent took it.
     pub task_id: Option<crate::TaskId>,
     pub taken_by: Option<String>,
     pub taken_at: Option<DateTime<Utc>>,
@@ -168,24 +156,20 @@ pub struct BacklogEntry {
     /// Titles of the items in `after` that are not merged yet; empty: nothing to wait for.
     #[serde(default)]
     pub waiting_on: Vec<String>,
-    /// The target the item counts toward, and its title.
     #[serde(default)]
     pub target_id: Option<Uuid>,
     #[serde(default)]
     pub target: Option<String>,
-    /// Why the poster was unsure of it (a proposed item's reason).
     #[serde(default)]
     pub why: Option<String>,
-    /// Who accepted a proposed item, and when (the item was queued then).
     #[serde(default)]
     pub accepted_by: Option<String>,
     #[serde(default)]
     pub accepted_at: Option<DateTime<Utc>>,
 }
 
-/// Something a team works toward in a repo (a release, a milestone). Backlog items count toward
-/// at most one target; its progress is what became of them. A target is never deleted: it is
-/// done or dropped, and can be made active again.
+/// Backlog items count toward at most one target. A target is never deleted: it is done or
+/// dropped, and can be made active again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
     pub id: Uuid,
@@ -200,7 +184,6 @@ pub struct Target {
     pub created_at: DateTime<Utc>,
     /// Backlog items that count toward it, dropped and proposed ones left out.
     pub items: i64,
-    /// Of those: waiting for an agent.
     pub queued: i64,
     /// Taken, and their task is not merged yet.
     pub working: i64,
@@ -211,7 +194,6 @@ pub struct Target {
     pub proposed: i64,
 }
 
-/// What the user adds (`av target add`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewTarget {
     pub repo: String,
@@ -257,7 +239,6 @@ impl std::str::FromStr for TargetStatus {
     }
 }
 
-/// A handed-off task that names what its next agent needs (`av handoff --needs`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandedOff {
     pub task: crate::Task,
@@ -275,7 +256,6 @@ pub struct Stale {
     pub since: DateTime<Utc>,
 }
 
-/// Lowercases and trims a tag; blank tags are an error.
 pub fn clean_tag(tag: &str) -> crate::Result<String> {
     let t = tag.trim().to_lowercase();
     if t.is_empty() {
@@ -284,18 +264,15 @@ pub fn clean_tag(tag: &str) -> crate::Result<String> {
     Ok(t)
 }
 
-/// Default reserve window of a backlog item.
 pub const DEFAULT_RESERVE_SECS: i64 = 600;
 
 impl Profile {
-    /// Every need is in `best` or `can`.
     pub fn can_do(&self, needs: &[String]) -> bool {
         needs
             .iter()
             .all(|n| self.best.contains(n) || self.can.contains(n))
     }
 
-    /// 2 per need in `best`, 1 per need in `can`.
     pub fn score(&self, needs: &[String]) -> u32 {
         needs
             .iter()
@@ -310,7 +287,6 @@ impl Profile {
     }
 }
 
-/// The profile `name` refers to, directly or through an alias.
 pub fn resolve<'a>(profiles: &'a [Profile], name: &str) -> Option<&'a Profile> {
     profiles.iter().find(|p| p.name == name).or_else(|| {
         profiles
@@ -319,8 +295,6 @@ pub fn resolve<'a>(profiles: &'a [Profile], name: &str) -> Option<&'a Profile> {
     })
 }
 
-/// Agent names that may take `item`, best first: the pinned agent, then every profile that can do
-/// it by score, cost and name.
 pub fn rank(item: &BacklogItem, profiles: &[Profile]) -> Vec<String> {
     let mut able: Vec<&Profile> = profiles.iter().filter(|p| p.can_do(&item.needs)).collect();
     able.sort_by(|a, b| {
@@ -341,7 +315,6 @@ pub fn rank(item: &BacklogItem, profiles: &[Profile]) -> Vec<String> {
     out
 }
 
-/// Whether `agent` is within the reserve window's exclusive holder, or the window is over.
 fn reserved_for(item: &BacklogItem, ranked: &[String], now: DateTime<Utc>) -> Option<String> {
     let open = item.created_at + Duration::seconds(item.reserve_secs.max(0));
     if now >= open {
@@ -430,7 +403,6 @@ mod tests {
         }
     }
 
-    /// The example set from the design.
     fn profiles() -> Vec<Profile> {
         vec![
             profile("grok", &["image"], &["ui"], 2),
@@ -469,14 +441,12 @@ mod tests {
         let p = profiles();
         assert_eq!(rank(&item(1, &["image"]), &p), ["grok"]);
         assert_eq!(rank(&item(1, &["math"]), &p), ["codex"]);
-        // code: claude is best (2), codex and muse can (1); muse is cheaper than codex.
         assert_eq!(rank(&item(1, &["code"]), &p), ["claude", "muse", "codex"]);
     }
 
     #[test]
     fn an_agent_must_have_every_need() {
         let p = profiles();
-        // Only claude has both tags.
         assert_eq!(rank(&item(1, &["code", "ui"]), &p), ["claude"]);
         assert!(rank(&item(1, &["image", "math"]), &p).is_empty());
     }
@@ -506,7 +476,6 @@ mod tests {
         assert!(eligible("claude", &i, &p, later));
         assert!(eligible("muse", &i, &p, later));
         assert!(eligible("codex", &i, &p, later));
-        // grok has no `code`: never.
         assert!(!eligible("grok", &i, &p, later));
     }
 
@@ -548,7 +517,6 @@ mod tests {
             .iter()
             .map(|i| i.id)
             .collect();
-        // claude ranks first on both code items (oldest first), then the urgent docs item.
         assert_eq!(ids, [old_code.id, code.id, urgent.id]);
     }
 

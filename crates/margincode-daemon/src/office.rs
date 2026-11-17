@@ -18,11 +18,9 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::error::ApiResult;
 
-/// Entries a timeline returns unless `limit` says otherwise, and the most it returns.
 const TIMELINE_DEFAULT: i64 = 100;
 const TIMELINE_MAX: i64 = 500;
 
-/// The most open or in-review tasks the office looks at.
 const OFFICE_TASKS: usize = 1000;
 
 pub(crate) fn routes() -> Router<AppState> {
@@ -37,7 +35,6 @@ struct TimelineQuery {
     limit: Option<i64>,
 }
 
-/// What an agent did, newest first (`PgStore::agent_timeline`).
 async fn timeline(
     State(st): State<AppState>,
     Path(name): Path<String>,
@@ -58,7 +55,6 @@ struct OfficeQuery {
     repo: Option<String>,
 }
 
-/// One task as the office shows it.
 fn desk_task(t: &TaskSummary) -> Value {
     json!({
         "id": t.task.id, "repo": t.task.repo, "slug": t.task.slug, "title": t.task.title,

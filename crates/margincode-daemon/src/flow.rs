@@ -24,17 +24,14 @@ use crate::indexing::{
     rebuild_task_overlay, reconcile_task_overlay, reindex_changed, replace_task_overlay,
 };
 
-/// Serializes merge and undo across the daemon, so a status check and the trunk move it guards
-/// cannot interleave with another merge of the same task. Advancing trunk from the backup remote
-/// (`backup::advance_trunk`) takes it too.
+/// Serializes merge and undo (and `backup::advance_trunk`) so a status check and the trunk move it
+/// guards cannot interleave with another merge of the same task.
 pub(crate) static MERGE_LOCK: Mutex<()> = Mutex::const_new(());
 
-/// Request header carrying the claim generation a write is made under (see `fence`).
 pub(crate) const GENERATION_HEADER: &str = "x-av-generation";
 
-/// Refuses a write made under an older claim of the task; a write under the current claim renews
-/// its lease. A request without the header is not fenced. Call with `AppState::lock_task` held, so
-/// no claim lands between this check and the write.
+/// Refuses a write under an older claim of the task; one under the current claim renews its lease. No header, no fence.
+/// Call with `AppState::lock_task` held, so no claim lands between this check and the write.
 pub(crate) async fn fence(st: &AppState, task: &Task, headers: &HeaderMap) -> Result<()> {
     let Some(value) = headers.get(GENERATION_HEADER) else {
         return Ok(());
@@ -138,8 +135,8 @@ async fn gate(st: &AppState, task: &Task, action: &str) -> Result<Vec<String>> {
     Ok(unrecorded)
 }
 
-/// What the submit gate would say now, without submitting (handoff B7): for a hook that asks the
-/// agent to record its decisions and dead ends before a session ends. Reads the last checkpoint.
+/// What the submit gate would say now, without submitting: for a hook that asks the agent to record
+/// its decisions and dead ends before a session ends. Reads the last checkpoint.
 pub(crate) async fn unrecorded(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -164,12 +161,11 @@ pub(crate) struct SubmitBody {
     records: Vec<Value>,
 }
 
-/// What an agent does once its task is in review. Fixed copy: agents read this verbatim.
+/// Fixed copy: agents read this verbatim.
 const NEXT_IN_REVIEW: &str =
     "in review: a reviewer runs av review to approve or request changes; nothing else to do";
 
-/// Turns the inline records of a submit body into `RecordBody`s authored by `agent`. Errors name
-/// the offending index.
+/// Turns a submit's inline records into `RecordBody`s authored by `agent`; errors name the index.
 fn inline_records(agent: &str, raw: Vec<Value>) -> Result<Vec<RecordBody>> {
     raw.into_iter()
         .enumerate()
@@ -188,11 +184,10 @@ pub(crate) struct SubmitReport {
     status: String,
     head: String,
     changed: Vec<String>,
-    /// Changed symbols that no record of this task anchors to (by symbol or by file). Advisory.
+    /// Changed symbols that no record of this task anchors to. Advisory.
     unrecorded_symbols: Vec<String>,
     /// Ids of the inline records this call wrote, in order.
     recorded: Vec<RecordId>,
-    /// What happens next, for the agent to read.
     next: &'static str,
 }
 
@@ -276,8 +271,6 @@ pub(crate) async fn submit(
     }))
 }
 
-/// Rebases the task onto main, replaces the overlay with `changed(T, H')`, and stores the new
-/// base, head and conflicts.
 async fn sync_workspace(st: &AppState, task: &Task) -> Result<Vec<String>> {
     let rebased = st.vcs.rebase_workspace(&task.repo, &task.slug).await?;
     st.store
@@ -303,8 +296,7 @@ pub(crate) struct AgentBody {
     agent: String,
 }
 
-/// Rebases an open or conflicted task onto the current main. Conflicts stay in the workspace as
-/// markers and are listed.
+/// Rebases onto the current main; conflicts stay in the workspace as markers and are listed.
 pub(crate) async fn sync(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -341,9 +333,8 @@ pub(crate) struct ValidateBody {
     /// Results of the task's convention checks (`GET /v1/tasks/{id}/checks`), run alongside.
     #[serde(default)]
     checks: Vec<CheckResult>,
-    /// An attestation by an agent that does not own the task (`av validate` by a named
-    /// non-owner, T1a): it sends no generation, so it must not move the head. Recorded at the
-    /// task's head as it is; refused when the workspace holds files that head does not.
+    /// An attestation by a non-owner (`av validate` by a named agent): it sends no generation, so it must not
+    /// move the head. Recorded at the head as it is; refused when the workspace holds files that head does not.
     #[serde(default)]
     at_head: bool,
 }
@@ -446,12 +437,11 @@ async fn refuse_conflict_markers(
     )))
 }
 
-/// Reviewer name of approvals that av carried across a rebase.
 const CARRIER: &str = "av";
 
 /// Carries the task's last human approval to its current head when the head only moved by a
-/// rebase that kept the approved change. Antique's idea, in small: reviewers judge the change,
-/// not every commit id it is rebased to. It carries only when
+/// rebase that kept the approved change: reviewers judge the change, not every commit id it is
+/// rebased to. It carries only when
 /// - the task's newest verdict is an approval at an earlier head H0 (carried ones chain back to
 ///   the human approval at H0), with no request for changes after it;
 /// - a passing validation exists at the current head;
@@ -585,9 +575,8 @@ pub(crate) async fn carry_approval(st: &AppState, task: &Task) -> Result<Option<
     Ok(Some(h0))
 }
 
-/// Whether `old_base → old_head` and `new_base → new_head` make the same edit to one file:
-/// the same creation/deletion, and the same text changes wherever they sit. Non-UTF-8 content
-/// must match byte for byte.
+/// Whether the two base-to-head pairs make the same edit to one file: the same creation/deletion and
+/// the same text changes wherever they sit; non-UTF-8 content must match byte for byte.
 fn same_edit(
     old_base: &Option<Vec<u8>>,
     old_head: &Option<Vec<u8>>,
@@ -620,7 +609,6 @@ pub(crate) async fn applicable_checks(st: &AppState, task: &Task) -> Result<Vec<
     Ok(changed_and_checks(st, task).await?.1)
 }
 
-/// The task's changed paths (base to head, sorted) and the required checks they call for.
 pub(crate) async fn changed_and_checks(
     st: &AppState,
     task: &Task,
@@ -646,9 +634,8 @@ pub(crate) async fn changed_and_checks(
 /// The placeholder `av validate` expands in a check command to the packages a change affects.
 const CRATES: &str = "{crates}";
 
-/// Why the task's convention checks do not allow approval at `head` (`None`: they do). The
-/// newest result per convention across the validations at `head` counts; a check with no
-/// result counts as not run.
+/// Why the task's convention checks do not allow approval at `head` (`None`: they do). The newest
+/// result per convention at `head` counts; a check with no result counts as not run.
 async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Option<String>> {
     let wanted = applicable_checks(st, task).await?;
     if wanted.is_empty() {
@@ -663,7 +650,7 @@ async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Op
         .collect();
     records.sort_by_key(|r| r.created_at);
     // A check that says `{crates}` counts only as run by a client that expanded it: run as
-    // written, `cargo test {crates}` filters every test out and exits 0 (Plan 12 Task 2).
+    // written, `cargo test {crates}` filters every test out and exits 0.
     let expands: std::collections::HashSet<i64> = wanted
         .iter()
         .filter(|c| {
@@ -714,7 +701,6 @@ async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Op
     Ok((!problems.is_empty()).then(|| problems.join("; ")))
 }
 
-/// The latest validation at `head`, as (command, passed).
 async fn validation_at(
     st: &AppState,
     task: TaskId,
@@ -775,8 +761,8 @@ pub(crate) struct ReviewBody {
 /// head and is refused when the head is already approved in this review round (since the latest
 /// submit); `request_changes` sends the task back to its owner with the findings as `review`
 /// records. A finding the reviewer already stored at this head (a retried review) is not stored
-/// again. Every finding is checked before anything is written, and the verdict is written after
-/// the findings, so a refused review leaves neither (F15).
+/// again. Every finding is checked before anything is written, and the verdict after them, so a
+/// refused review leaves neither.
 pub(crate) async fn review(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -1245,9 +1231,8 @@ pub(crate) async fn abandon(
 async fn restore_workspace(st: &AppState, task: &Task) -> &'static str {
     match crate::disk::ensure_workspace(st, task).await {
         Ok(what) => {
-            // snapshots leave `.av-task` out, so a re-created workspace comes back without one
-            // (F40); written with no name, as on every hand-out: the caller is the merger, not
-            // the owner
+            // snapshots leave `.av-task` out, so a re-created workspace comes back without one; written
+            // with no name, as on every hand-out: the caller is the merger, not the owner
             if what == "restored" {
                 hand_out(st, task, None);
             }
@@ -1417,8 +1402,7 @@ async fn head_as_found(st: &AppState, task: &Task) -> Result<ChangeId> {
     Ok(task.head_change.clone())
 }
 
-/// `claim` without the HTTP wrapper, for `next` (Plan 8). `named`: the agent named itself
-/// (`NamedByAgent`), so the workspace's file names it (T1a).
+/// `claim` without the HTTP wrapper, for `next`. `named`: the agent named itself, so the workspace's file names it.
 pub(crate) async fn claim_as(
     st: &AppState,
     id: TaskId,
@@ -1501,9 +1485,8 @@ pub(crate) async fn resume_as(
     }))
 }
 
-/// A claimed or resumed task's new session, written with its generation into the workspace's
-/// `.av-task` (F14), naming `owner` when the agent named itself (T1a). Also writes the file of a
-/// workspace an undo or revert re-created (F40).
+/// A claimed or resumed task's new session, written with its generation into the workspace's `.av-task`,
+/// naming `owner` when the agent named itself. Also writes the file of a workspace an undo or revert re-created.
 fn hand_out(st: &AppState, task: &Task, owner: Option<&crate::task_file::Owner>) -> String {
     let session = Uuid::new_v4().to_string();
     crate::task_file::write(
@@ -1517,7 +1500,7 @@ fn hand_out(st: &AppState, task: &Task, owner: Option<&crate::task_file::Owner>)
     session
 }
 
-/// The owner a hand-out's file names: only for an agent that named itself (T1a).
+/// The owner a hand-out's file names: only for an agent that named itself.
 async fn owner(st: &AppState, task: &Task, named: bool) -> Option<crate::task_file::Owner> {
     if named {
         crate::task_file::owner_of(st, task).await

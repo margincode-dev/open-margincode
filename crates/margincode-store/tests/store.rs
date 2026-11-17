@@ -203,14 +203,12 @@ async fn record_origins_say_what_became_of_each_records_task() {
         let facts = s.record_origins(&[r.id]).await.unwrap();
         standing(&facts[&r.id], r.kind, r.created_at).origin
     };
-    // open
     let open = s.create_task(new_task("Open")).await.unwrap();
     let r_open = s
         .add_record(rec(open.id, RecordKind::Decision, "open", vec![]))
         .await
         .unwrap();
     assert_eq!(origin_of(&r_open).await, Origin::Open);
-    // merged, then reverted: the record written before the revert is of reverted work
     let t = s.create_task(new_task("Merged")).await.unwrap();
     let before = s
         .add_record(rec(t.id, RecordKind::Decision, "before", vec![]))
@@ -220,16 +218,13 @@ async fn record_origins_say_what_became_of_each_records_task() {
     assert_eq!(origin_of(&before).await, Origin::Merged);
     s.transition(t.id, Event::Revert).await.unwrap();
     assert_eq!(origin_of(&before).await, Origin::Reverted);
-    // and one written after it belongs to the work that follows
     let after = s
         .add_record(rec(t.id, RecordKind::Decision, "after", vec![]))
         .await
         .unwrap();
     assert_eq!(origin_of(&after).await, Origin::Open);
-    // merged again: nothing of it is reverted work any more
     s.set_status(t.id, TaskStatus::Merged).await.unwrap();
     assert_eq!(origin_of(&before).await, Origin::Merged);
-    // abandoned
     let gone = s.create_task(new_task("Gone")).await.unwrap();
     let r_gone = s
         .add_record(rec(gone.id, RecordKind::Note, "gone", vec![]))
@@ -311,7 +306,6 @@ async fn a_record_cannot_supersede_a_record_of_another_repo() {
     newer.supersedes = Some(old.id);
     let err = s.add_record(newer).await.unwrap_err();
     assert!(matches!(err, AvError::IllegalState(_)), "{err}");
-    // nothing was written, and the other repo's record still shows
     assert_eq!(s.task_records(ours.id).await.unwrap().len(), 0);
     assert_eq!(s.get_record(old.id).await.unwrap().superseded_by, None);
     assert_eq!(
@@ -357,7 +351,6 @@ async fn the_store_refuses_a_superseding_record_of_a_kind_that_may_not_correct()
             );
         }
     }
-    // what must not be hidden cannot be superseded by any record
     let finding = add(theirs.id, Review, None).await.unwrap();
     let check = add(theirs.id, Validation, None).await.unwrap();
     let intent = add(theirs.id, Intent, None).await.unwrap();
@@ -377,7 +370,6 @@ async fn the_store_refuses_a_superseding_record_of_a_kind_that_may_not_correct()
             old.kind
         );
     }
-    // a task restates its own intent or handoff, with a record of the same kind only
     for (old, by) in [
         (&intent, Note),
         (&intent, Handoff),
@@ -417,7 +409,6 @@ async fn a_superseded_record_cannot_be_superseded_again() {
     let err = s.add_record(third.clone()).await.unwrap_err();
     assert!(matches!(err, AvError::Conflict(_)), "{err}");
     assert_eq!(s.task_records(t.id).await.unwrap().len(), 2);
-    // the live end of the chain is the one to correct
     third.supersedes = Some(second.id);
     s.add_record(third).await.unwrap();
 }
@@ -670,7 +661,6 @@ async fn find_record_takes_any_prefix_with_or_without_hyphens() {
         "five hex digits"
     );
 
-    // two records whose ids start alike: the prefix they share names neither
     let pool = sqlx::PgPool::connect(&db.url).await.unwrap();
     let twins = [
         "5eed5eed-1111-4111-8111-111111111111",
@@ -796,7 +786,6 @@ async fn add_record_with_stores_hashes_and_receipt_or_writes_nothing() {
         symbol: Some("f".into()),
     }];
     let hashes = [Some("h1".to_owned())];
-    // an unknown receipt fails the whole write: no record without its citation
     let err = s
         .add_record_with(
             rec(t.id, RecordKind::Note, "n", anchors.clone()),
@@ -806,7 +795,6 @@ async fn add_record_with_stores_hashes_and_receipt_or_writes_nothing() {
         .await;
     assert!(matches!(err, Err(AvError::NotFound(_))), "{err:?}");
     assert!(s.task_records(t.id).await.unwrap().is_empty());
-    // so does a hash list that does not match the anchors
     let err = s
         .add_record_with(
             rec(t.id, RecordKind::Note, "n", anchors.clone()),
@@ -939,7 +927,6 @@ async fn transition_with_record_writes_both_or_neither() {
         .unwrap();
     assert_eq!(status, TaskStatus::HandedOff);
     assert_eq!(record.kind, RecordKind::Handoff);
-    // illegal now (already handed off): no second record
     let err = s
         .transition_with_record(t.id, lifecycle::Event::Handoff, r)
         .await
@@ -953,7 +940,6 @@ async fn transition_with_record_writes_both_or_neither() {
         .filter(|r| r.kind == RecordKind::Handoff)
         .count();
     assert_eq!(handoffs, 1);
-    // an invalid record fails the whole step: the status does not move either
     let u = s.create_task(new_task("Too long")).await.unwrap();
     let long = rec(u.id, RecordKind::Handoff, &"x".repeat(201), vec![]);
     assert!(
@@ -1023,7 +1009,6 @@ async fn backup_state_keeps_the_branch_until_the_target_is_set_again() {
         .await
         .unwrap();
     assert_eq!(st.branch.as_deref(), Some("av-main"));
-    // a failure, a success and a read all leave the target as it was
     s.backup_failed("demo", "down", std::time::Duration::ZERO)
         .await
         .unwrap();
@@ -1036,13 +1021,11 @@ async fn backup_state_keeps_the_branch_until_the_target_is_set_again() {
         s.backup_state("demo").await.unwrap().branch.as_deref(),
         Some("av-main")
     );
-    // setting the remote again without a branch means the trunk name again
     let st = s
         .set_backup_remote("demo", Some("/srv/c.git"), None)
         .await
         .unwrap();
     assert_eq!(st.branch, None);
-    // clearing the remote clears the branch too
     s.set_backup_remote("demo", Some("/srv/c.git"), Some("x"))
         .await
         .unwrap();
@@ -1068,13 +1051,11 @@ async fn backup_state_keeps_advance_with_the_target() {
         .await
         .unwrap();
     assert!(st.advance, "pushes leave it as it was");
-    // setting the target again without it turns it off, as with the branch
     let st = s
         .set_backup_remote("demo", Some("/srv/b.git"), None)
         .await
         .unwrap();
     assert!(!st.advance);
-    // and there is no advancing without a remote
     let st = s.set_backup_target("demo", None, None, true).await.unwrap();
     assert!(!st.advance);
 }

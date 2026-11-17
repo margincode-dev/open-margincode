@@ -90,7 +90,6 @@ async fn clone_scope_copies_symbols_edges_and_chunks_under_new_ids() {
         idx.scope_change("demo", "main").await.unwrap(),
         Some(c.clone())
     );
-    // main is at another change than the task's base
     assert!(
         !idx.clone_scope("demo", "main", "t1", &ChangeId("other".into()))
             .await
@@ -116,7 +115,6 @@ async fn clone_scope_copies_symbols_edges_and_chunks_under_new_ids() {
     assert!(!main_edges.is_empty());
     assert_eq!(main_edges, edges(&pool, "t1").await);
     assert_eq!(chunks(&pool, "main").await, chunks(&pool, "t1").await);
-    // the copy embeds nothing (task base imports never are) and records its own change
     assert_eq!(
         count(&pool, "SELECT count(*) FROM outbox").await,
         outbox_before
@@ -131,7 +129,6 @@ async fn clone_scope_copies_symbols_edges_and_chunks_under_new_ids() {
         .await
         .unwrap();
     assert_eq!(stats.unchanged, 2, "{stats:?}");
-    // the copy resolves and walks like the original
     let t1 = idx
         .symbols_in(&ScopeView::new("demo", "t1"), "app/a.py")
         .await
@@ -143,7 +140,6 @@ async fn clone_scope_copies_symbols_edges_and_chunks_under_new_ids() {
         .unwrap();
     assert_eq!(near.len(), 2, "{near:?}"); // greet (callee) and Greeter.wave (caller)
 
-    // never into a scope that already has an index
     assert!(matches!(
         idx.clone_scope("demo", "main", "t1", &c).await,
         Err(AvError::Invalid(_))

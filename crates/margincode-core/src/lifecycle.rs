@@ -1,4 +1,4 @@
-//! Task lifecycle: the only legal status transitions (Plan 3).
+//! Task lifecycle: the only legal status transitions.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,6 @@ pub enum Event {
 }
 
 impl Event {
-    /// The event feed's name for this transition.
     pub fn feed_kind(self) -> &'static str {
         match self {
             Event::Handoff => "handoff",
@@ -40,7 +39,6 @@ impl Event {
     }
 }
 
-/// The status after `event`, or `IllegalState` when the transition is not in the table.
 pub fn next(status: TaskStatus, event: Event) -> Result<TaskStatus> {
     use Event as E;
     use TaskStatus as S;

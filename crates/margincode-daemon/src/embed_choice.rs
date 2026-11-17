@@ -7,7 +7,6 @@ use margincode_core::{AvError, Result};
 pub const DEFAULT_OLLAMA_EMBED_FAMILIES: &[&str] = &["embeddinggemma-2", "qwen3-embedding"];
 pub const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 
-/// Where embedding requests go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbedChoice {
     /// Ollama's `/api/embed`, on this host or another (`AV_OLLAMA_URL`). No API key.
@@ -165,7 +164,6 @@ fn api_choice(detect: &EmbedDetect<'_>, required: bool) -> Result<Option<EmbedCh
     }
 }
 
-/// `ollama --version`, then `ollama list` when the CLI is present.
 pub fn detect_ollama() -> (bool, std::result::Result<Vec<String>, String>) {
     let version = std::process::Command::new("ollama")
         .arg("--version")

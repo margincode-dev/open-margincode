@@ -16,7 +16,6 @@ pub trait Embedder: Send + Sync {
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
 }
 
-/// Lets shared trait objects (`Arc<dyn Embedder>`) be used wherever an `Embedder` is expected.
 #[async_trait]
 impl<T: Embedder + ?Sized> Embedder for Arc<T> {
     async fn dimension(&self) -> Result<usize> {
@@ -27,8 +26,6 @@ impl<T: Embedder + ?Sized> Embedder for Arc<T> {
     }
 }
 
-/// HTTP client for a text-embeddings-inference `/embed` endpoint.
-///
 /// `new` does not connect. `dimension` posts `["ping"]` on first use and caches that vector's length.
 #[derive(Clone)]
 pub struct TeiEmbedder {
@@ -50,7 +47,6 @@ struct EmbedRequest<'a> {
 }
 
 impl TeiEmbedder {
-    /// Does not connect. No `Authorization` header.
     pub fn new(base_url: impl Into<String>) -> Self {
         Self::with_api_key(base_url, None)
     }
@@ -77,7 +73,6 @@ impl TeiEmbedder {
         }
     }
 
-    /// `GET {base}/health`. Non-2xx is [`AvError::Semantic`].
     pub async fn health(&self) -> Result<()> {
         let response = authorized(
             self.inner.client.get(format!("{}/health", self.inner.base)),

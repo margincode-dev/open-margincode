@@ -81,7 +81,6 @@ pub struct AppState {
     /// `AV_WS_RETAIN_SECS`: how long a merged or abandoned task's workspace stays; `None` = for
     /// good, `Some(0)` = removed by the merge or abandon itself.
     pub(crate) ws_retain: Option<u64>,
-    /// How often the daemon looks for workspaces to reclaim (`disk::RECLAIM_TICK`).
     pub(crate) reclaim_tick: std::time::Duration,
     /// `AV_DISK_MIN_FREE_GB`: the free space under `ws_root` below which the daemon reclaims on
     /// its own and makes no new task workspace (`disk::Floor`; off unless set).
@@ -93,7 +92,7 @@ pub struct AppState {
     pub(crate) store_root: Option<PathBuf>,
     /// Lite mode's own Postgres directory (`AV_PG_DIR`), for `GET /v1/disk`.
     pub(crate) pg_dir: Option<PathBuf>,
-    /// `AV_BUILD_CACHE`: one cargo target per repo, shared by its task workspaces.
+    /// `AV_BUILD_CACHE`: lean cargo settings and a shared dependency cache per repo (`build_cache`, `deps_cache`).
     pub(crate) build_cache: bool,
     /// What sessions reported adding outside any task workspace (`POST /v1/footprint`), newest
     /// first, one per session, in memory only.
@@ -101,40 +100,29 @@ pub struct AppState {
     /// Open MCP sessions (`/mcp`), by `Mcp-Session-Id`.
     pub(crate) mcp: mcp::Sessions,
     task_locks: Arc<Mutex<HashMap<TaskId, Arc<tokio::sync::Mutex<()>>>>>,
-    /// Asked before an approval and a merge; `AllowAll` unless an extension sets one.
     pub(crate) guard: Arc<dyn MergeGuard>,
-    /// Adds to a checkpoint's answer; `NoCheckpointHook` unless an extension sets one.
     pub(crate) checkpoint_hook: Arc<dyn ext::CheckpointHook>,
-    /// How many task starts copy an index at once; the others wait their turn. A copy holds a
-    /// pooled connection for its whole length, so without a limit a burst of starts takes every
-    /// connection and other requests fail with `pool timed out`.
+    /// Limits concurrent task-start index copies: each holds a pooled connection, so a burst
+    /// would take every connection and other requests would fail with `pool timed out`.
     pub(crate) starts: Arc<tokio::sync::Semaphore>,
-    /// Repo imports by name, running or finished since the daemon started.
     pub(crate) imports: api::Imports,
-    /// Reviews offered by `next`, by task: who was offered it and until when (Plan 9).
+    /// Reviews offered by `next`, by task: who was offered it and until when.
     pub(crate) reviews: routing_api::Reviews,
-    /// The longest `next` holds a call open waiting for work (`wait_secs` is clamped to it).
     pub(crate) max_wait: std::time::Duration,
-    /// How often a waiting `next` looks again when nothing woke it (`routing_api::WAIT_TICK`).
     pub(crate) wait_tick: std::time::Duration,
     /// Bumped when what `next` may hand out changes in a way no event records: a backlog post
     /// or drop, a profile change. Waiting `next` calls watch it (and the event feed).
     pub(crate) work: Arc<tokio::sync::watch::Sender<u64>>,
-    /// Tools an extension adds to `/mcp`. `with_mcp_tools` refuses a name a Community tool or an
-    /// earlier extension tool already has, so a clash never reaches dispatch.
     pub(crate) mcp_tools: Arc<Vec<ext::ExtTool>>,
-    /// Told about `POST /v1/agents/{name}/usage`; `NoUsage` unless an extension sets one.
     pub(crate) usage: Arc<dyn ext::UsageSink>,
     extensions: ext::Extensions,
     events: ext::EventFeed,
-    /// `false` until the daemon's shutdown future completes (`serve_with`); extensions watch it
-    /// through `shutdown()`.
     shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     reclaim_passes: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl AppState {
-    /// No semantic layer: packs behave as in Plan 1 and `POST /v1/reindex` only rebuilds the outbox.
+    /// No semantic layer: `POST /v1/reindex` only rebuilds the outbox.
     pub fn new(
         vcs: Arc<dyn Vcs>,
         store: Arc<PgStore>,
@@ -187,10 +175,9 @@ impl AppState {
         }
     }
 
-    /// A handle that turns `true` when the daemon starts shutting down (its shutdown future
-    /// completed; the graceful shutdown of open connections follows), so an extension's
-    /// background task stops with the daemon: `shutdown.wait_for(|down| *down).await`. A state
-    /// not served through `serve_with` never signals it.
+    /// A handle that turns `true` when the daemon starts shutting down, so an extension's
+    /// background task stops with it: `shutdown.wait_for(|down| *down).await`. A state not served
+    /// through `serve_with` never signals it.
     pub fn shutdown(&self) -> tokio::sync::watch::Receiver<bool> {
         self.shutdown.subscribe()
     }
@@ -204,7 +191,6 @@ impl AppState {
         self.reclaim_passes.send_modify(|n| *n += 1);
     }
 
-    /// Tells every `shutdown()` handle that the daemon is stopping.
     pub(crate) fn signal_shutdown(&self) {
         self.shutdown.send_replace(true);
     }
@@ -222,15 +208,12 @@ impl AppState {
         self
     }
 
-    /// The service of type `T` given to `with_extension`, if any.
     pub fn extension<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.extensions.get()
     }
 
-    /// Adds `tools` to `/mcp`: listed after the Community tools, and called with the same
-    /// argument checks. Panics on a name a Community tool or an earlier extension tool already
-    /// has: that is a bug in the extension, found at start-up. Because registration refuses the
-    /// clash, `tools/call` can search either list first.
+    /// Adds `tools` to `/mcp`, after the Community tools. Panics on a name a Community tool or an
+    /// earlier extension tool already has: a bug in the extension, found at start-up.
     pub fn with_mcp_tools(mut self, tools: Vec<ext::ExtTool>) -> Self {
         let mut all = self.mcp_tools.as_ref().clone();
         for t in tools {
@@ -246,7 +229,6 @@ impl AppState {
         self
     }
 
-    /// Tells `sink` about every usage report (`POST /v1/agents/{name}/usage`).
     pub fn with_usage_sink(mut self, sink: Arc<dyn ext::UsageSink>) -> Self {
         self.usage = sink;
         self
@@ -265,7 +247,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Wakes every waiting `next`: what it may be given changed without an event saying so.
     pub(crate) fn work_changed(&self) {
         self.work.send_modify(|n| *n = n.wrapping_add(1));
     }
@@ -284,10 +265,8 @@ impl AppState {
     }
 
     /// Wraps the version-control engine: `layer` gets the engine built so far (jj) and returns the
-    /// one the daemon uses from here on, which may forward to it and observe, or replace it.
-    /// Call it from `run_with`'s `customize` step: `serve_with` starts the outbox worker, the backup
-    /// loop and the disk sweep from the state `customize` returns, so they see the layered engine.
-    /// The packer holds its own handle (taken in `new`), so it is rebuilt on the layered one.
+    /// one the daemon uses from here on. Call it from `run_with`'s `customize` step, so the outbox
+    /// worker, backup loop and disk sweep see the layered engine; the packer is rebuilt on it.
     /// Only `sync_repos` runs on the bare engine before `customize`; it keeps nothing.
     pub fn with_vcs_layer(mut self, layer: impl FnOnce(Arc<dyn Vcs>) -> Arc<dyn Vcs>) -> Self {
         self.vcs = layer(self.vcs);
@@ -325,12 +304,10 @@ impl AppState {
         self
     }
 
-    /// The configured `AV_TOKEN`, if any.
     pub fn token(&self) -> Option<&str> {
         self.token.as_deref()
     }
 
-    /// The longest `next` waits for work (default `MAX_WAIT_SECS`); shorter in tests.
     pub fn with_max_wait(mut self, max: std::time::Duration) -> Self {
         self.max_wait = max;
         self
@@ -350,7 +327,6 @@ impl AppState {
         self
     }
 
-    /// How often the daemon reclaims workspaces (default `RECLAIM_TICK`); shorter in tests.
     pub fn with_reclaim_tick(mut self, tick: std::time::Duration) -> Self {
         self.reclaim_tick = tick;
         self
@@ -468,7 +444,6 @@ impl AppState {
         self.pg.migrate_extension(schema, migrator).await
     }
 
-    /// Inverse of `to_host_path`: where a workspace path a client was told lives in this process.
     pub(crate) fn to_local_path(&self, p: &Path) -> PathBuf {
         match p.strip_prefix(&self.ws_host_root) {
             Ok(rel) => self.ws_root.join(rel),

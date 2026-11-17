@@ -61,7 +61,6 @@ pub trait VectorIndex: Send + Sync {
     async fn recreate(&self, dim: usize) -> Result<()>;
 }
 
-/// Lets shared trait objects (`Arc<dyn VectorIndex>`) be used wherever a `VectorIndex` is expected.
 #[async_trait]
 impl<T: VectorIndex + ?Sized> VectorIndex for Arc<T> {
     async fn ensure(&self, dim: usize) -> Result<()> {
@@ -93,7 +92,6 @@ impl<T: VectorIndex + ?Sized> VectorIndex for Arc<T> {
     }
 }
 
-/// In-memory cosine index. Clones share the point map.
 #[derive(Clone)]
 pub struct MemoryIndex {
     inner: Arc<Mutex<MemoryState>>,
@@ -262,7 +260,6 @@ impl VectorIndex for MemoryIndex {
     }
 }
 
-/// gRPC Qdrant client. `new` stores the URL and connects on the first call.
 #[derive(Clone)]
 pub struct QdrantIndex {
     url: Arc<String>,

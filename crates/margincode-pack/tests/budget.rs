@@ -33,7 +33,6 @@ fn used_by(a: &Allocation, section: Section) -> u32 {
         .sum()
 }
 
-/// What `used` must equal: chosen tier texts plus the listed omitted lines.
 fn recomputed_used(a: &Allocation) -> u32 {
     a.chosen.iter().map(|(i, t)| tok(i.text(*t))).sum::<u32>()
         + a.omitted.iter().map(|l| tok(l)).sum::<u32>()
@@ -309,7 +308,6 @@ fn required_items_never_exceed_budget() {
     let a = allocate(items, 200, FAM);
     assert!(a.used <= 200, "{}", a.used);
     assert!(a.omitted_total > 0, "not all 40 handles fit in 200 tokens");
-    // the best-scored required items are the ones kept
     assert!(a.chosen.iter().any(|(i, _)| i.id == "conv:39"));
 }
 
@@ -360,7 +358,6 @@ fn custom_shares_respect_budget_and_spill_over() {
         "an item of a group without a share is never chosen"
     );
     assert_eq!(a.omitted_total, 1, "{:?}", a.omitted);
-    // chosen items come grouped in share order, best score first
     let ids: Vec<&str> = a.chosen.iter().map(|(i, _)| i.id.as_str()).collect();
     assert_eq!(ids, ["b:0", "b:1", "b:2", "b:3", "b:4", "b:5"]);
 }

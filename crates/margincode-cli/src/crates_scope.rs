@@ -9,7 +9,6 @@ use serde_json::Value;
 
 pub const PLACEHOLDER: &str = "{crates}";
 
-/// What `{crates}` becomes.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Scope {
     Workspace,
@@ -29,7 +28,6 @@ impl Scope {
     }
 }
 
-/// `cmd` with every `{crates}` replaced, running `cargo metadata` in `root` only when it has one.
 pub fn expand(cmd: &str, root: &Path, changed: &[String]) -> String {
     if !cmd.contains(PLACEHOLDER) {
         return cmd.to_owned();
@@ -172,9 +170,8 @@ pub fn scope(meta: &Value, prefix: &str, changed: &[String]) -> Scope {
     Scope::Packages(chosen.into_iter().collect())
 }
 
-/// What a package at the workspace root owns: its sources, not the rest of the tree (fixture dirs
-/// other members read, and `Cargo.toml`, `Cargo.lock`, `.cargo/`, which every member's build
-/// reads).
+/// What a root package owns: its sources, not the fixture dirs other members read nor the files
+/// (`Cargo.toml`, `Cargo.lock`, `.cargo/`) every member's build reads.
 fn root_package_owns(path: &str) -> bool {
     path == "build.rs"
         || ["src/", "tests/", "benches/", "examples/"]
@@ -228,7 +225,6 @@ mod tests {
             scope(&m, "", &paths(&["crates/app/src/lib.rs"])),
             pkgs(&["app"])
         );
-        // store <- app (build)
         assert_eq!(
             scope(&m, "", &paths(&["crates/store/src/lib.rs"])),
             pkgs(&["app", "store"])
@@ -238,7 +234,6 @@ mod tests {
             scope(&m, "", &paths(&["crates/core/Cargo.toml"])),
             pkgs(&["app", "core", "store"])
         );
-        // testutil <- core (dev) <- store <- app
         assert_eq!(
             scope(&m, "", &paths(&["crates/testutil/src/lib.rs"])),
             pkgs(&["app", "core", "store", "testutil"])
@@ -294,13 +289,11 @@ mod tests {
             scope(&m, "", &paths(&[".cargo/config.toml"])),
             Scope::Workspace
         );
-        // a fixture dir another member may read through `../`
         assert_eq!(
             scope(&m, "", &paths(&["fixtures/a.json"])),
             Scope::Workspace
         );
         assert_eq!(scope(&m, "", &paths(&["build.rs"])), pkgs(&["root"]));
-        // the same under a repo subdirectory
         assert_eq!(
             scope(&m, "rust", &paths(&["rust/src/main.rs"])),
             pkgs(&["root"])
@@ -331,7 +324,6 @@ mod tests {
         assert_eq!(pkgs(&["a", "b"]).args(), "-p a -p b");
     }
 
-    /// Real `cargo metadata` on a two-crate workspace where `b` dev-depends on `a`.
     #[test]
     fn expand_runs_cargo_metadata_in_the_workspace() {
         if std::process::Command::new("cargo")
@@ -377,7 +369,6 @@ mod tests {
             "cargo test --workspace --no-run"
         );
         assert_eq!(expand("cargo test", w, &[]), "cargo test", "no placeholder");
-        // not a cargo workspace at all
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(
             expand(cmd, empty.path(), &paths(&["a/src/lib.rs"])),

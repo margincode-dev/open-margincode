@@ -23,8 +23,7 @@ pub struct TaskSpec {
     pub fix_rev: Option<String>,
     /// Written from the commit message, without naming files. Identical in every arm.
     pub goal: String,
-    /// Files the real fix changed. An edit to one of these, or to `created_files`, is a relevant
-    /// edit.
+    /// Files the real fix changed; an edit to one of these, or to `created_files`, is a relevant edit.
     pub relevant_files: Vec<String>,
     /// Files the real fix added; they must not exist at `base_rev`.
     #[serde(default)]
@@ -49,20 +48,16 @@ pub struct TaskSpec {
     /// test runner). `~/` is expanded.
     #[serde(default)]
     pub path_prepend: Vec<PathBuf>,
-    /// The `claude` process is killed after this long.
     #[serde(default = "default_session_timeout")]
     pub session_timeout_secs: u64,
     #[serde(default, rename = "dead_end")]
     pub dead_ends: Vec<DeadEnd>,
-    /// E4 knowledge relay: a `notes.toml` (relative to the spec file) of what an earlier agent
-    /// learned. Every arm gets the notes as commits on top of the base; `notes` also as
-    /// `NOTES.md`, the av arms as anchored records of an earlier task (instead of `dead_end`s).
+    /// E4 relay: a `notes.toml` (relative to the spec) of what an earlier agent learned; every arm gets the notes as commits on the base, `notes` also as `NOTES.md`, the av arms as anchored records.
     #[serde(default)]
     pub relay_pool: Option<PathBuf>,
     /// The pool note this task needs (the rest are noise for it).
     #[serde(default)]
     pub relay_pair: Option<String>,
-    /// The notes of `relay_pool`, read when the spec loads.
     #[serde(skip)]
     pub relay_notes: Vec<RelayNote>,
     /// The directory of the spec file, which `LocalTest::source` is relative to.
@@ -73,9 +68,7 @@ pub struct TaskSpec {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalTest {
-    /// Where it goes in the working directory.
     pub path: String,
-    /// The file, relative to the spec file.
     pub source: PathBuf,
 }
 
@@ -84,7 +77,6 @@ pub struct LocalTest {
 pub struct DeadEnd {
     pub description: String,
     pub file_glob: String,
-    /// A regex over the text an edit writes.
     pub pattern: String,
 }
 
@@ -96,7 +88,6 @@ pub struct RelayNote {
     pub pair: String,
     /// A record kind: `attempt` (a dead end) or `decision`.
     pub kind: String,
-    /// The file it is about, and optionally the symbol.
     pub path: String,
     #[serde(default)]
     pub symbol: Option<String>,
@@ -104,15 +95,10 @@ pub struct RelayNote {
     pub summary: String,
     #[serde(default)]
     pub body: String,
-    /// Irrelevant filler for E4-at-scale: still written into `NOTES.md` and seeded as av
-    /// records, but not as its own empty git commit (so setup stays cheap and the baseline
-    /// `git log` channel is unchanged).
+    /// Noise filler: still in `NOTES.md` and seeded as av records, but not its own empty git commit (setup stays cheap and the `git log` channel unchanged).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub noise: bool,
-    /// A lesson kept out of the `git log` channel: written into `NOTES.md` and seeded as an av
-    /// record like any other, but not as a commit message. The wrong-lesson pool sets it, so
-    /// that what it measures is the memory channel alone (a later record can correct a
-    /// record; nothing corrects a commit message).
+    /// Kept out of the `git log` channel (still in `NOTES.md` and as an av record), so the memory channel alone is measured: a later record can correct a record, nothing corrects a commit message.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_commit: bool,
 }
@@ -167,7 +153,6 @@ fn default_session_timeout() -> u64 {
 }
 
 impl TaskSpec {
-    /// Relevant-edit targets: `relevant_files` and `created_files`.
     pub fn is_relevant(&self, path: &str) -> bool {
         self.relevant_files.iter().any(|f| f == path)
             || self.created_files.iter().any(|f| f == path)
@@ -178,8 +163,7 @@ pub fn load_spec(path: &Path) -> Result<TaskSpec> {
     load_spec_with_root(path, None)
 }
 
-/// With `repos_root`, `repo_path` becomes `repos_root/<its last component>`, so the same task
-/// files work on any machine that has the repos side by side.
+/// With `repos_root`, `repo_path` becomes `repos_root/<its last component>`, so the same task files work on any machine that has the repos side by side.
 pub fn load_spec_with_root(path: &Path, repos_root: Option<&Path>) -> Result<TaskSpec> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut spec: TaskSpec =
@@ -201,7 +185,6 @@ fn expand_home(p: &Path) -> PathBuf {
     }
 }
 
-/// Every spec file in `dir` (`*.toml`), sorted by file name.
 pub fn spec_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
@@ -212,7 +195,6 @@ pub fn spec_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// `git -C repo <args>`, stdout on success.
 pub(crate) fn git_in(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let out = Command::new("git")
         .arg("-C")
@@ -226,7 +208,7 @@ pub(crate) fn git_in(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// The full commit id of `rev`, refusing option-like revs.
+/// The full commit id of `rev`; option-like revs are refused.
 pub(crate) fn resolve_rev(repo: &Path, rev: &str) -> Result<String> {
     if rev.starts_with('-') || rev.is_empty() {
         return Err(format!("revision {rev:?} is not a commit name"));
@@ -345,7 +327,6 @@ pub fn check_spec(spec: &TaskSpec) -> Result<()> {
     Ok(())
 }
 
-/// Problems that do not stop a run: a `path_prepend` directory that is not there.
 pub fn check_warnings(spec: &TaskSpec) -> Vec<String> {
     spec.path_prepend
         .iter()

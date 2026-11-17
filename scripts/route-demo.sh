@@ -55,9 +55,7 @@ git -C "$repo" init -q -b main
 git -C "$repo" add -A
 git -C "$repo" -c user.name=demo -c user.email=demo@example.com commit -qm "demo"
 
-# what av prints as `workspace: PATH` for a command run as $1
 ws_of() { sed -n 's/^workspace: //p' | head -1; }
-# the title of the task the agent holds: `av status` in its workspace
 title_of() { (cd "$1" && AV_AGENT=$2 av status) | sed -n 's/^task: *//p' | head -1; }
 
 say "1. Profiles: what each agent is good at, and what it costs (1 is the cheapest)"

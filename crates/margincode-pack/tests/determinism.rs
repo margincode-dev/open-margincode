@@ -145,10 +145,9 @@ async fn pack(reverse: bool, cold: bool) -> String {
     blank(&pack.markdown, "rec:")
 }
 
-/// Record ids and times are part of the state, so a run cannot repeat them; this sets both from
-/// each record's content. The id matters beyond its text: its tokens count against the budget.
-/// The time: one day and then an hour apart, as far older records differ by less than an f32
-/// step in recency, and whole-second ages would let the clock decide.
+/// Record ids and times are part of the state, so a run cannot repeat them; this sets both from each record's
+/// content (ids count against the budget). Times are a day, then an hour apart: older records differ by less than an
+/// f32 step in recency, and whole-second ages would let the clock decide.
 async fn pin_records(store: &PgStore) {
     let mut tx = store.pool().begin().await.unwrap();
     for sql in [
@@ -173,7 +172,6 @@ async fn pin_records(store: &PgStore) {
     tx.commit().await.unwrap();
 }
 
-/// Replaces the id after each `prefix` (`rec:1a2b3c4d`, `sym:12`) with `X`.
 fn blank(md: &str, prefix: &str) -> String {
     let mut out = String::new();
     let mut rest = md;
@@ -203,8 +201,7 @@ async fn the_same_writes_give_the_same_pack() {
     assert_eq!(a, b);
 }
 
-/// Symbol ids differ with the indexing order; which symbols are shown, and in what order, must
-/// not.
+/// Symbol ids differ with the indexing order; which symbols are shown, and in what order, must not.
 #[tokio::test]
 async fn indexing_order_does_not_change_the_pack() {
     for cold in [false, true] {

@@ -296,7 +296,6 @@ const STATUS_SINCE: &str = "SELECT t.*, COALESCE(
 const TASK_COLS: &str = "id, repo, slug, title, goal, status, owner_agent, base_change, head_change, \
                          workspace_path, generation, lease_expires, pack_mode";
 
-/// One row of `PgStore::tasks_in_flight`: an unfinished task and when it entered its status.
 #[derive(Debug, Clone)]
 pub struct TaskInFlight {
     pub task: Task,
@@ -309,7 +308,6 @@ pub struct TaskInFlight {
     pub approved_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// One row of `PgStore::list_tasks`.
 #[derive(Debug, Clone)]
 pub struct TaskSummary {
     pub task: Task,
@@ -386,7 +384,6 @@ impl PgStore {
         Self::connect_with(url, 8).await
     }
 
-    /// Connects with a pool of at most `max_connections` and runs migrations.
     pub async fn connect_with(url: &str, max_connections: u32) -> Result<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(max_connections.max(1))
@@ -404,13 +401,11 @@ impl PgStore {
         &self.pool
     }
 
-    /// Runs the migrations of code built on the daemon (an extension) in its own Postgres
-    /// `schema`, created if missing, with that schema's own `_sqlx_migrations`. Their numbers
-    /// never meet the daemon's, and the daemon's migrator never sees them. While they run the
-    /// search path is `schema, public`: an unqualified `CREATE TABLE` lands in `schema`, and the
-    /// daemon's tables (`tasks`, ...) still resolve. Queries afterwards name the schema
-    /// (`schema.table`). The connection used is closed, not returned to the pool, so no pooled
-    /// connection keeps that search path.
+    /// Runs an extension's migrations in its own Postgres `schema` (created if missing, with its own
+    /// `_sqlx_migrations`), so their numbers never meet the daemon's. While they run the search path
+    /// is `schema, public`: an unqualified `CREATE TABLE` lands in `schema`, the daemon's tables still
+    /// resolve; queries afterwards name the schema. The connection is closed, not returned to the
+    /// pool, so none keeps that search path.
     pub async fn migrate_extension(
         &self,
         schema: &str,
@@ -2161,8 +2156,6 @@ impl IntentStore for PgStore {
     }
 }
 
-/// Inserts `r` (anchors, outbox rows) inside `tx`. `receipt_hex` is a `LIKE` pattern for the cited
-/// receipt's id, already resolved.
 fn verdict_row(r: &PgRow) -> Result<VerdictRow> {
     let verdict: String = r.try_get("verdict").map_err(serr)?;
     let opt = |col: &str| -> Result<Option<ChangeId>> {
@@ -2184,7 +2177,6 @@ fn verdict_row(r: &PgRow) -> Result<VerdictRow> {
 /// drawn, so a reader paging by `id > since` never skips one that committed late.
 const EVENTS_LOCK: i64 = 0x6176_6576_656e_7473; // "avevents"
 
-/// Appends one feed event inside `tx` (see `EVENTS_LOCK`).
 async fn insert_event(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     repo: &str,

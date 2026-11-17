@@ -1,5 +1,4 @@
-//! Shared harness for the daemon's HTTP tests: a TestDb, a fixture git repo imported as `demo`,
-//! real `JjVcs`, and helpers to drive the router.
+//! Shared harness for the daemon's HTTP tests.
 #![allow(dead_code)] // each test file uses a different subset
 
 pub use std::path::{Path, PathBuf};
@@ -46,7 +45,6 @@ pub fn git(dir: &Path, args: &[&str]) {
     );
 }
 
-/// `git` in `dir`, returning trimmed stdout.
 pub fn git_out(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .current_dir(dir)
@@ -97,12 +95,10 @@ pub async fn env() -> Env {
     env_with(|s| s).await
 }
 
-/// `tweak` customizes the state (semantic backends) before the router is built.
 pub async fn env_with(tweak: impl FnOnce(AppState) -> AppState) -> Env {
     env_with_vcs(|v| v, tweak).await
 }
 
-/// Like `env_with`, and `wrap` may put a test double around the real `JjVcs`.
 pub async fn env_with_vcs(
     wrap: impl FnOnce(Arc<dyn margincode_core::Vcs>) -> Arc<dyn margincode_core::Vcs>,
     tweak: impl FnOnce(AppState) -> AppState,
@@ -110,7 +106,6 @@ pub async fn env_with_vcs(
     env_full(wrap, |i| i, tweak, Router::new()).await
 }
 
-/// Like `env_with`, and `wrap` may put a test double around the real `PgIndex`.
 pub async fn env_with_index(
     wrap: impl FnOnce(Arc<dyn CodeIndex>) -> Arc<dyn CodeIndex>,
     tweak: impl FnOnce(AppState) -> AppState,
@@ -118,7 +113,6 @@ pub async fn env_with_index(
     env_full(|v| v, wrap, tweak, Router::new()).await
 }
 
-/// Like `env_with`, with `extra` routes (`router_with`).
 pub async fn env_with_routes(
     tweak: impl FnOnce(AppState) -> AppState,
     extra: Router<AppState>,
@@ -204,7 +198,6 @@ pub async fn call_as(
     call_with(app, method, uri, body, &headers).await
 }
 
-/// `call` with extra request headers.
 pub async fn call_with(
     app: &Router,
     method: &str,
@@ -251,7 +244,6 @@ pub fn ws_dir(e: &Env, task: &Value) -> PathBuf {
         .join(task["task"]["slug"].as_str().unwrap())
 }
 
-/// The `.av-task` in `task`'s workspace, parsed (F14: the daemon writes it).
 pub fn task_file(e: &Env, task: &Value) -> Value {
     let path = ws_dir(e, task).join(".av-task");
     let text =
@@ -291,7 +283,6 @@ pub struct CountingVcs {
 }
 
 impl CountingVcs {
-    /// Fresh counters around `inner`.
     pub fn new(inner: Arc<dyn margincode_core::Vcs>) -> Self {
         Self {
             inner,

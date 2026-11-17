@@ -16,7 +16,6 @@ const STOP: &[&str] = &[
 
 /// At most this many search words, in goal order; the store weighs each by IDF.
 pub const MAX_TERMS: usize = 16;
-/// At most this many identifiers taken from one goal.
 pub const MAX_NAMED: usize = 8;
 
 /// Identifier-aware words: each alphanumeric run lowercased, plus its camelCase parts.
@@ -65,9 +64,8 @@ fn ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// Identifiers the goal names: anything in backticks, and words that only code would contain:
-/// snake_case, camelCase, dotted or `::` paths, or a name followed by `(`. Paths use `.` (the
-/// index's qname separator); file names (`core.py`) are left to full-text search.
+/// Identifiers the goal names: in backticks, or code-only shapes (snake_case, camelCase, `.`/`::` paths, `name(`).
+/// Paths use `.` (the index's qname separator); file names (`core.py`) are left to full-text search.
 pub fn named_identifiers(goal: &str) -> Vec<String> {
     let mut found: Vec<(String, bool)> = vec![];
     for (i, span) in goal.split('`').enumerate() {
@@ -137,10 +135,8 @@ pub fn names_symbol(ident: &str, qname: &str) -> bool {
     q == i || q.ends_with(&format!(".{i}"))
 }
 
-/// `names_symbol`, or a module path followed by the symbol's whole qname: `pricing.line_total`
-/// names `line_total` in `shop/pricing.py` (qnames do not include the module). The module part
-/// must match whole trailing segments of the file's module path; `crate`, `self` and `super`
-/// lead nowhere and are ignored.
+/// `names_symbol`, or `module.symbol` where the module part matches whole trailing segments of the file's
+/// module path (qnames omit the module); `crate`, `self` and `super` are ignored.
 pub fn names_symbol_at(ident: &str, qname: &str, path: &str) -> bool {
     if names_symbol(ident, qname) {
         return true;
@@ -170,8 +166,7 @@ fn module_path(path: &str) -> String {
     stem.replace('/', ".").to_lowercase()
 }
 
-/// What to search the symbol index for to find what `ident` names: the name itself and, for a
-/// dotted name, what follows each dot (the module part is not in any qname).
+/// The name itself and, for a dotted name, what follows each dot (the module part is in no qname).
 pub fn symbol_queries(ident: &str) -> Vec<&str> {
     std::iter::once(ident)
         .chain(ident.match_indices('.').map(|(i, _)| &ident[i + 1..]))

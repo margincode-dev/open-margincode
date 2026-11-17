@@ -1,11 +1,5 @@
-//! Benchmark harness (Plan 4): replays real tasks with headless Claude Code in three arms
-//! (`baseline` git checkout, `av_no_packs`, full `av`) and reports cost and wall time per accepted
-//! task. The analyzer (`events`, `metrics`, `report`, `calibrate`) is pure; only `runner` and
-//! `orchestrate` start processes, and only they can spend money. `retrieval` (Plan 6, E1) scores
-//! context packs against baselines offline, with no agent; `mine` builds its task sets from history.
-//! `routing_profile` (E-G1) turns a results file into Wilson intervals and `av agent set`
-//! commands. `runner` can launch Grok (`grok -p --output-format json --always-approve
-//! --max-turns N --cwd`) as well as Claude Code; Grok is not passed `--max-budget-usd`.
+//! Benchmark harness: replays real tasks with headless Claude Code (or Grok) in several arms and reports cost and wall time per accepted task.
+//! The analyzer (`events`, `metrics`, `report`, `calibrate`) is pure; only `runner` and `orchestrate` start processes and can spend money.
 
 pub mod calibrate;
 pub mod chunklen;
@@ -23,8 +17,7 @@ pub mod scale;
 pub mod spec;
 pub mod stats;
 
-/// The transcript parser lives in `margincode-agentrun`, shared with the commercial runner; the
-/// old path keeps working.
+/// Shared with the commercial runner; the old path keeps working.
 pub use margincode_agentrun::events;
 
 pub type Result<T> = std::result::Result<T, String>;

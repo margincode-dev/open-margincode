@@ -100,8 +100,6 @@ async fn put_agent(
 
 #[derive(Deserialize)]
 struct DeleteAgentQuery {
-    /// Drop the profile even when the agent still owns open, handed-off, in-review or conflicted
-    /// tasks.
     #[serde(default)]
     force: bool,
 }
@@ -420,7 +418,7 @@ struct NextBody {
     session: String,
     budget: Option<u32>,
     family: Option<AgentFamily>,
-    /// Only say what `next` would give (Plan 9): nothing is taken, claimed or reserved.
+    /// Only say what `next` would give: nothing is taken, claimed or reserved.
     #[serde(default)]
     dry_run: bool,
     /// With nothing to give, wait up to this many seconds for something (at most `max_wait`).
@@ -436,7 +434,6 @@ struct NextBody {
     skip_returned: bool,
 }
 
-/// The kinds of thing `next` gives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Take {
@@ -510,7 +507,6 @@ impl Wake {
         })
     }
 
-    /// Returns when something may have changed, or after `tick`.
     async fn wait(&mut self, tick: Duration) {
         use tokio::sync::broadcast::error::RecvError;
         let Wake { work, events, repo } = self;
@@ -540,7 +536,6 @@ impl Wake {
     }
 }
 
-/// How long a review offered by `next` stays with the agent it was offered to.
 pub const REVIEW_RESERVE_SECS: u64 = 600;
 
 /// Reviews offered by `next`: the agent each was offered to, and until when. In memory only: a
@@ -555,11 +550,13 @@ const SYNC_TODO: &str = "Its merge conflicted because main moved: av sync it ont
 const RETURNED_TODO: &str = "A reviewer requested changes: the findings are below. Fix each one, \
                              re-run the check, then av validate and av submit.";
 
-/// What `next` may give an agent, best first.
 #[derive(Debug)]
 pub(crate) enum Choice {
     /// Another agent's task in review; `approved` at its current head (then it only needs a merge).
-    Review { task: Task, approved: bool },
+    Review {
+        task: Task,
+        approved: bool,
+    },
     /// The agent's own open task that a reviewer sent back with requested changes, while its head
     /// is still the one judged: offered to its owner at once (resumed, not claimed). The change
     /// request renewed the owner's lease, so without this the owner would wait out that lease.
@@ -571,7 +568,6 @@ pub(crate) enum Choice {
     Handoff(BacklogItem),
     /// An open task whose owner went quiet (its lease ran out): claimed, or resumed by its owner.
     Abandoned(BacklogItem),
-    /// A queued backlog item to start.
     Backlog(BacklogItem),
 }
 
@@ -722,7 +718,6 @@ pub(crate) async fn choose(
     Ok((choices, queued.len()))
 }
 
-/// What a dry run says about a choice: its kind, the task or backlog item, its repo and title.
 fn would(c: &Choice) -> Value {
     let (from, item) = match c {
         Choice::Review { task, .. } => {
@@ -775,13 +770,11 @@ async fn task_needs(st: &AppState, task: &Task) -> Result<Vec<String>> {
         .unwrap_or_default())
 }
 
-/// Whether some agent other than `owner` can do work that needs `needs`.
 fn others_can(owner: &str, needs: &[String], profiles: &[Profile]) -> bool {
     profiles.iter().any(|p| p.name != owner && p.can_do(needs))
 }
 
-/// Whether `agent` (its profile, if any) can do work that needs `needs`. With no profile, only
-/// untagged work.
+/// Whether `agent` can do work that needs `needs`; with no profile, only untagged work.
 fn fits(agent: &str, needs: &[String], profiles: &[Profile]) -> bool {
     match profiles.iter().find(|p| p.name == agent) {
         Some(p) => p.can_do(needs),
@@ -789,7 +782,6 @@ fn fits(agent: &str, needs: &[String], profiles: &[Profile]) -> bool {
     }
 }
 
-/// Whether a live offer of `task` names another agent than `agent`.
 fn reserved_for_other(st: &AppState, task: TaskId, agent: &str) -> bool {
     let reviews = st.reviews.lock().unwrap_or_else(|e| e.into_inner());
     reviews
@@ -937,9 +929,8 @@ async fn next(
     }
 }
 
-/// Where a `next` call is, for an in-process caller that may want to stop it (MCP's
-/// `start_task`, F10), as a request extension. Only a call that is waiting (it holds nothing)
-/// can be stopped; one that is looking may be taking work, and goes on.
+/// Where a `next` call is, for an in-process caller that may want to stop it (MCP's `start_task`), as a
+/// request extension. Only a waiting call can be stopped; one that is looking may be taking work, and goes on.
 #[derive(Clone, Default)]
 pub(crate) struct NextPhase(std::sync::Arc<std::sync::atomic::AtomicU8>);
 

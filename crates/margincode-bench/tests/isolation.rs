@@ -92,8 +92,7 @@ const TASK: &str = "calc-add";
 const RUN: &str = "gate";
 const ARMS: [Arm; 3] = [Arm::Cold, Arm::Notes, Arm::Av];
 
-/// Straight to stderr: the test harness captures `eprintln!` of a passing test, and whether the
-/// gate ran must be seen in a plain `cargo test`.
+/// Straight to stderr: the harness captures `eprintln!` of a passing test, and whether the gate ran must show.
 fn say(line: &str) {
     let _ = writeln!(std::io::stderr(), "{line}");
 }
@@ -102,7 +101,6 @@ fn chmod(p: &Path, mode: u32) {
     std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
 }
 
-/// `nobody`, when this process is root and can start a process as that user; else why not.
 fn agent_user() -> Result<AgentUser, String> {
     let me = harness_uid()?;
     if me != 0 {
@@ -129,7 +127,6 @@ struct Gate {
     _dirs: Vec<TempDir>,
     /// Holds the bench tree (`tasks/`) and the source repo: root's alone unless a test opens it.
     closed: PathBuf,
-    /// Holds the tools and the work root.
     open: PathBuf,
     daemon: TestDaemon,
     specs: Vec<TaskSpec>,
@@ -444,8 +441,6 @@ fn read(p: &Path) -> String {
     std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
 }
 
-/// Every session ran as `uid`, edited its own working copy, and passed verify; the av sessions'
-/// hooks fired and the daemon saw the edit.
 fn assert_sessions_worked(g: &Gate, r: &RunReport, uid: u32) {
     assert_sessions_of(g, r, uid, &ARMS, 2);
 }
@@ -522,9 +517,8 @@ fn assert_sessions_of(g: &Gate, r: &RunReport, uid: u32, arms: &[Arm], reps: u32
     }
 }
 
-/// The gate. Control first: without `--agent-user` the same fake agent reads every path, so the
-/// probes are real paths and a leak is detected. Then with `--agent-user nobody`: every attempt
-/// fails with a permission error, and every session still works.
+/// Control first: without `--agent-user` the same fake agent reads every path, so a leak is detectable. Then with
+/// `--agent-user nobody` every attempt fails with a permission error and every session still works.
 #[test]
 fn a_session_cannot_read_the_grading_files_or_an_earlier_session() {
     let _g = serial();
@@ -651,7 +645,6 @@ fn a_session_cannot_read_the_grading_files_or_an_earlier_session() {
             );
         }
     }
-    // the results are root's alone: the directory the preflight made, and each file in it
     for path in [
         g.out.clone(),
         g.out.join("rows.jsonl"),
@@ -782,10 +775,8 @@ esac
 exit 0
 "#;
 
-/// `--jit-hooks` with an agent user: the pre-read hook keeps what it told the agent in
-/// `pre-read.out`, and the agent user cannot write in the session directory. A hook that fails
-/// there would lose the agent the records about the file it is about to read, so the hook must
-/// exit 0 as that user, and the harness must still end up with the file, its own alone.
+/// A failing pre-read hook would lose the agent the records about the file it reads, so it must exit 0 as the agent
+/// user (who cannot write in the session directory), and the harness must still keep `pre-read.out`, its own alone.
 #[test]
 fn the_pre_read_hook_works_as_the_agent_user_and_what_it_said_is_kept() {
     let _g = serial();
@@ -838,7 +829,6 @@ fn the_pre_read_hook_works_as_the_agent_user_and_what_it_said_is_kept() {
     ));
 }
 
-/// The gate's fixture for the preflight tests, or `None` (said on stderr) without root.
 fn isolated_gate(test: &str) -> Option<Gate> {
     match agent_user() {
         Ok(user) => Some(gate(Some(user), None)),
@@ -851,7 +841,6 @@ fn isolated_gate(test: &str) -> Option<Gate> {
     }
 }
 
-/// No session directory was made: the refusal came before the first session.
 fn assert_nothing_launched(g: &Gate) {
     let run_dir = g.cfg.work_root.join("runs").join(RUN);
     let made: Vec<_> = std::fs::read_dir(&run_dir)
@@ -883,7 +872,6 @@ fn the_preflight_refuses_a_bench_tree_the_agent_user_can_read_and_names_the_path
     }
     assert_nothing_launched(&g);
 
-    // closed again, the same run starts
     chmod(&g.closed, 0o700);
     let r = sessions(&g, &[Arm::Cold], 1).unwrap();
     assert!(r.rows[0].success, "{:?}", r.rows);
@@ -986,10 +974,7 @@ fn the_preflight_refuses_a_copy_of_a_hidden_test_in_a_shared_directory() {
     assert!(r.rows[0].success, "{:?}", r.rows);
 }
 
-/// Results hold what a `cold` or `baseline` session must not see: `first-packs` writes packs
-/// with the tasks' lessons, `run` the rows of earlier sessions. An `--out` that is there and
-/// open is refused, and so is a results directory beside it; a missing `--out` is made root's
-/// alone, with the files in it.
+/// Results hold what a `cold` or `baseline` session must not see: packs with the lessons, rows of earlier sessions.
 #[test]
 fn the_preflight_refuses_results_the_agent_user_can_read() {
     let _g = serial();
@@ -1039,7 +1024,6 @@ fn the_preflight_refuses_results_the_agent_user_can_read() {
     assert!(err.contains("chmod 700"), "{err}");
     assert_nothing_launched(&g);
 
-    // closed, each of them, the same run starts, and what it writes is root's alone
     for d in [&g.out, &packs, &earlier] {
         chmod(d, 0o700);
     }
@@ -1061,9 +1045,8 @@ fn the_preflight_refuses_results_the_agent_user_can_read() {
     );
 }
 
-/// The harness gives the agent a `HOME` of its own per session, but a program can ask the
-/// password database for the user's home (`getpwuid`). If that directory is there and the user
-/// can write to it, a session can leave its work in it for a later one.
+/// A program can ask the password database for the user's home (`getpwuid`) whatever `HOME` the harness sets; a home
+/// the user can write to would let a session leave work for a later one.
 #[test]
 fn the_preflight_refuses_a_home_the_agent_user_can_write_to_or_list() {
     let _g = serial();
@@ -1098,7 +1081,6 @@ fn the_preflight_refuses_a_home_the_agent_user_can_write_to_or_list() {
     assert!(err.contains(&list) && !err.contains(&write), "{err}");
     assert_nothing_launched(&g);
 
-    // root's and closed, the run starts; so it does when the directory is not there at all
     chmod(&home, 0o700);
     let r = sessions(&g, &[Arm::Cold], 1).unwrap();
     assert!(r.rows[0].success, "{:?}", r.rows);
@@ -1134,8 +1116,7 @@ fn a_session_that_stops_early_is_closed_too() {
     assert!(s.join("ws/NOTES.md").exists(), "kept for debugging");
 }
 
-/// Not root: the flag is refused with the reason, before anything is launched. (As root this
-/// path cannot be taken; the other tests take the root one.)
+/// As root this path cannot be taken; the other tests take the root one.
 #[test]
 fn the_flag_is_refused_when_the_harness_is_not_root() {
     let _g = serial();
@@ -1162,16 +1143,14 @@ fn mode_of(p: &Path) -> u32 {
         & 0o7777
 }
 
-/// The entries of a directory; none when it is not there.
 fn entries_of(dir: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(dir)
         .map(|d| d.flatten().map(|e| e.path()).collect())
         .unwrap_or_default()
 }
 
-/// A run the preflight refuses leaves nothing it made: no run directory under `runs/` (which the
-/// agent user may enter, so the next preflight would refuse on it), no `--out`, no work root.
-/// Directories that were there before are kept, with the modes they had.
+/// A refused preflight leaves no run directory (the agent user may enter `runs/`, so the next preflight would refuse
+/// on it), no `--out`, no work root; directories that were there before keep their modes.
 #[test]
 fn a_refused_preflight_leaves_nothing_the_next_one_refuses() {
     let _g = serial();
@@ -1180,8 +1159,6 @@ fn a_refused_preflight_leaves_nothing_the_next_one_refuses() {
     };
     let results = g.out.parent().unwrap().to_path_buf();
     let runs = g.cfg.work_root.join("runs");
-    // refused for a reason of its own (the bench tree open to everyone), three times in a row,
-    // each with a new --out, as an operator retries
     chmod(&g.closed, 0o755);
     let tasks = format!("enter {}", g.closed.join("tasks").display());
     for name in ["try1", "try2", "try3"] {
@@ -1215,7 +1192,6 @@ fn a_refused_preflight_leaves_nothing_the_next_one_refuses() {
             g.cfg.work_root.display()
         );
     }
-    // a --out and a run directory that were there before stay, and so do their modes
     let kept_out = results.join("kept");
     let kept_run = runs.join("kept");
     for d in [&kept_out, &kept_run] {
@@ -1229,7 +1205,6 @@ fn a_refused_preflight_leaves_nothing_the_next_one_refuses() {
     for d in [&kept_out, &kept_run] {
         assert_eq!(mode_of(d), 0o700, "{} kept as it was", d.display());
     }
-    // fixed, a run with a new --out starts with no manual step
     chmod(&g.closed, 0o700);
     let r = sessions_to(&g, &results.join("fixed"), &[Arm::Cold], 1)
         .unwrap_or_else(|e| panic!("after the fix: {e}"));
@@ -1242,9 +1217,6 @@ fn a_refused_preflight_leaves_nothing_the_next_one_refuses() {
     );
 }
 
-/// A run that ends closes its run directory (mode 700), so the next run in the same work root,
-/// with another `--out`, starts with no manual step. A resumed run opens it for its own sessions
-/// and closes it again.
 #[test]
 fn a_finished_run_closes_its_run_directory() {
     let _g = serial();
@@ -1260,12 +1232,10 @@ fn a_finished_run_closes_its_run_directory() {
         0o700,
         "the finished run's directory is closed"
     );
-    // the next run, with another --out, in the same work root
     let next = g.out.parent().unwrap().join("next");
     let r = sessions_to(&g, &next, &[Arm::Cold], 1).unwrap_or_else(|e| panic!("the next run: {e}"));
     assert!(r.rows[0].success, "{:?}", r.rows);
     assert_eq!(mode_of(&runs.join("next")), 0o700);
-    // resumed with a second rep: its session gets through the run's directory again
     let r = sessions(&g, &[Arm::Cold], 2).unwrap_or_else(|e| panic!("the resume: {e}"));
     assert_eq!(r.rows.len(), 2, "{:?}", r.rows);
     assert!(r.rows.iter().all(|row| row.success), "{:?}", r.rows);
@@ -1332,8 +1302,6 @@ fn a_run_that_stops_on_an_error_closes_its_run_directory() {
     );
 }
 
-/// An earlier run's directory the agent user can enter is refused by name, with what to do,
-/// and left as it is: another run may be using it.
 #[test]
 fn the_preflight_names_an_open_earlier_run_directory_and_the_fix() {
     let _g = serial();
@@ -1368,8 +1336,6 @@ fn the_preflight_names_an_open_earlier_run_directory_and_the_fix() {
     );
 }
 
-/// With an agent user the results files are mode 600 even after a resume that adds no row,
-/// whatever mode they were left with.
 #[test]
 fn a_resume_that_adds_no_row_leaves_the_results_closed() {
     let _g = serial();

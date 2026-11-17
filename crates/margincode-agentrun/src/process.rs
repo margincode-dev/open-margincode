@@ -1,5 +1,3 @@
-//! Child processes with a deadline.
-
 use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -7,12 +5,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-/// How a child ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Waited {
-    /// The exit code; `None` when it was killed (or ended by a signal).
     pub exit: Option<i32>,
-    /// It ran past the deadline and was killed.
     pub killed: bool,
     /// It was killed because the caller raised the stop flag (`run_until`), before the deadline.
     pub stopped: bool,
@@ -55,7 +50,6 @@ pub fn run_until(mut cmd: Command, timeout: Duration, stop: &AtomicBool) -> Resu
     }
 }
 
-/// `sh -c script` in `cwd` with no stdin and stdout and stderr both written to `log`.
 pub fn shell(script: &str, cwd: &Path, log: &Path) -> Result<Command, String> {
     let out = File::create(log).map_err(|e| format!("{}: {e}", log.display()))?;
     let err = out.try_clone().map_err(|e| e.to_string())?;

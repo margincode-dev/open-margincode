@@ -1,8 +1,3 @@
-//! Plan 11: the workspaces of merged and abandoned tasks are reclaimed (`POST /v1/gc`, the sweep,
-//! or at once with `AV_WS_RETAIN_SECS=0`), restored by undo and revert, and `GET /v1/disk` shows
-//! what is on disk; below the free-space floor (`AV_DISK_MIN_FREE_GB`) the daemon reclaims on its
-//! own and starts no new task.
-
 use crate::common::*;
 
 use std::time::Duration;
@@ -21,7 +16,6 @@ async fn post(e: &Env, t: &Value, op: &str, body: Value) -> (StatusCode, Value) 
     .await
 }
 
-/// A task that edited the greeter, recorded, submitted, validated and was approved.
 async fn approved(e: &Env, title: &str) -> Value {
     let t = start_task(e, title).await;
     edit_greeter(e, &t);
@@ -47,7 +41,6 @@ async fn approved(e: &Env, title: &str) -> Value {
     t
 }
 
-/// `approved`, then merged by `merger`; returns the task and the merge response.
 async fn merged(e: &Env, title: &str) -> (Value, Value) {
     let t = approved(e, title).await;
     let (status, body) = post(e, &t, "merge", json!({"agent": "merger"})).await;
@@ -94,7 +87,6 @@ async fn gc_removes_a_merged_tasks_workspace() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["status"], "merged");
 
-    // the feed says so
     let (_, events) = call(
         &e.app,
         "GET",
@@ -110,7 +102,6 @@ async fn gc_removes_a_merged_tasks_workspace() {
         .unwrap_or_else(|| panic!("{events}"));
     assert_eq!(ev["payload"]["slug"], t["task"]["slug"]);
 
-    // nothing left to do
     let again = gc(&e, json!({"retain_secs": 0})).await;
     assert!(listed(&again["reclaimed"], &t).is_none(), "{again}");
 }
@@ -129,7 +120,6 @@ async fn undo_after_gc_restores_the_workspace_with_the_edit() {
     let greeter = std::fs::read_to_string(ws_dir(&e, &t).join("app/greeter.py")).unwrap();
     assert!(greeter.contains("wave"), "{greeter}");
 
-    // the restored task merges again
     let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "merged", "{body}");
@@ -148,13 +138,11 @@ async fn revert_after_gc_restores_the_workspace() {
     assert_eq!(body["workspace"], "restored", "{body}");
     let greeter = std::fs::read_to_string(ws_dir(&e, &t).join("app/greeter.py")).unwrap();
     assert!(greeter.contains("wave"), "{greeter}");
-    // the owner keeps working in it
     let (status, body) = post(&e, &t, "checkpoint", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
-/// F40: a workspace undo or revert re-creates comes back without `.av-task` (snapshots leave it
-/// out), so the owner's hooks and `av` commands there found no task.
+/// Snapshots leave `.av-task` out, so a restored workspace needs it written again.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_undo_that_restores_a_workspace_writes_its_task_file() {
     let e = env().await;
@@ -322,14 +310,10 @@ async fn retain_zero_removes_the_workspace_with_the_merge() {
     assert_eq!(merge["build"], "removed", "{merge}");
     assert_eq!(merge["workspace"], "removed", "{merge}");
     assert!(!ws_dir(&e, &t).exists());
-    // nothing left for gc
     let out = gc(&e, json!({})).await;
     assert_eq!(out["reclaimed"], json!([]), "{out}");
 }
 
-// ---- Plan 12: build output goes with the merge, the workspace waits for the retention ----
-
-/// Puts 8 KiB of "build output" in the task's workspace.
 fn build_in(e: &Env, t: &Value) -> PathBuf {
     let built = ws_dir(e, t).join("target/debug/deps");
     std::fs::create_dir_all(&built).unwrap();
@@ -351,7 +335,6 @@ async fn a_merge_removes_the_build_output_and_keeps_the_workspace() {
     // measured and removed in the background, after the answer
     let ev = feed_event(&e, "build:reclaimed").await;
     assert_eq!(ev["payload"]["bytes"], 8192, "{ev}");
-    // the workspace still follows the retention
     let (_, disk) = call(&e.app, "GET", "/v1/disk", None).await;
     let w = listed(&disk["repos"][0]["workspaces"], &t).unwrap_or_else(|| panic!("{disk}"));
     assert_eq!(w["build_bytes"], 0, "{disk}");
@@ -391,8 +374,6 @@ async fn retain_never_keeps_the_build_output() {
     assert!(target.exists());
 }
 
-// ---- Task 3 (Plan 11), reworked by Plan 12: lean builds, one target dir per workspace ----
-
 const CARGO_CONFIG: &str = "# written by av: lean builds for every task workspace of this repo.
 # Delete this file, or set AV_BUILD_CACHE=off before `av up`, to opt out.
 # Each workspace builds into its own target/ (removed with the workspace); never share a
@@ -406,7 +387,6 @@ debug = \"line-tables-only\"
 debug = false
 ";
 
-/// A git repo with a root `Cargo.toml`.
 fn cargo_git_repo() -> TempDir {
     let d = TempDir::new().unwrap();
     git(d.path(), &["init", "-q", "-b", "main"]);
@@ -551,8 +531,6 @@ async fn start_up_gives_repos_imported_earlier_their_build_cache() {
     );
 }
 
-/// Where cargo, run in `dir` with av's config in force (no `CARGO_TARGET_DIR` from this test's
-/// own environment), would put its build.
 fn cargo_target_dir(dir: &Path) -> PathBuf {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let out = std::process::Command::new(cargo)
@@ -564,9 +542,8 @@ fn cargo_target_dir(dir: &Path) -> PathBuf {
             "--offline",
         ])
         .current_dir(dir)
-        // The daemon cannot control an agent's environment; with these set, cargo would use them
-        // in every workspace. `av validate`, the hooks and av-wrap.sh point them at the
-        // workspace's own target/ (Plan 12 Task 3, `margincode-cli/src/target_dir.rs`).
+        // The daemon cannot control an agent's environment: with these set, cargo would use
+        // them in every workspace, so `av validate` and the hooks point them at its own target/.
         .env_remove("CARGO_TARGET_DIR")
         .env_remove("CARGO_BUILD_TARGET_DIR")
         .output()
@@ -599,7 +576,6 @@ async fn two_workspaces_of_one_repo_never_share_a_target_dir() {
         assert_eq!(status, StatusCode::OK, "{t}");
         let ws = e.ws.path().join("crab").join(slug(&t));
         let target = cargo_target_dir(&ws);
-        // its own target/, inside the workspace, so it goes when the workspace is reclaimed
         assert!(
             target.ends_with(Path::new(slug(&t)).join("target")),
             "{}",
@@ -633,8 +609,6 @@ async fn disk_and_gc_count_a_workspaces_build_output_apart() {
     assert!(!ws_dir(&e, &t).exists());
 }
 
-// ---- Task 4: what sessions added outside any workspace ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reported_footprint_shows_under_outside_newest_first() {
     let e = env().await;
@@ -646,7 +620,6 @@ async fn a_reported_footprint_shows_under_outside_newest_first() {
     for body in [
         report("cc-1", "/home/u/junk/target", 3 * mb),
         report("cc-2", "/tmp/x/node_modules", 2 * mb),
-        // a later stop of the same session replaces its report
         report("cc-1", "/home/u/junk/target", 5 * mb),
     ] {
         let (status, out) = call(&e.app, "POST", "/v1/footprint", Some(body)).await;
@@ -681,7 +654,6 @@ async fn a_footprint_names_its_tasks_slug() {
                       "added": [{"path": "/home/u/junk/target", "bytes": 4096}]});
     let (status, out) = call(&e.app, "POST", "/v1/footprint", Some(body)).await;
     assert_eq!(status, StatusCode::OK, "{out}");
-    // a task the daemon does not know keeps no slug
     let body = json!({"session": "cc-4", "task": "not-a-task", "added": []});
     let (status, out) = call(&e.app, "POST", "/v1/footprint", Some(body)).await;
     assert_eq!(status, StatusCode::OK, "{out}");
@@ -690,8 +662,6 @@ async fn a_footprint_names_its_tasks_slug() {
     assert!(disk["outside"][0]["slug"].is_null(), "{disk}");
 }
 
-/// A session's containers (the Stop hook's `docker ps` of what carries the task's label) come
-/// back under `outside` as reported: the daemon keeps them, never touches docker.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_footprint_keeps_the_containers_it_reports() {
     let e = env().await;
@@ -713,8 +683,6 @@ async fn a_footprint_keeps_the_containers_it_reports() {
     assert_eq!(disk["outside"][1]["total_bytes"], 0, "{disk}");
     assert!(disk["outside"][0].get("containers").is_none(), "{disk}");
 }
-
-// ---- the sweep, through the daemon's own start-up (`serve_with`) ----
 
 fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
     Config {
@@ -744,7 +712,6 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
     }
 }
 
-/// One HTTP/1.1 request on a raw socket: (status code, JSON body).
 async fn raw(addr: std::net::SocketAddr, method: &str, path: &str, body: Value) -> (u16, Value) {
     let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
     let body = body.to_string();
@@ -910,10 +877,8 @@ async fn disk_reports_the_filesystems_free_and_total_bytes() {
     }
 }
 
-/// `GET /v1/disk?fs=1` (or `fs=true`): only the filesystem numbers, the floor and the build
-/// budget, what Margincode Cloud's `disk_low` alert polls every 60 s. No repo, workspace or
-/// footprint is listed, and no store query or directory walk runs: with the store gone the full
-/// answer fails and this one still comes.
+/// `?fs=1` walks nothing and queries no store (Cloud's `disk_low` alert polls it every 60 s): with
+/// the store gone the full answer fails and this one still comes.
 #[tokio::test]
 async fn disk_fs_answers_the_filesystem_numbers_without_walking_the_workspaces() {
     let e = env().await;
@@ -963,7 +928,6 @@ async fn disk_fs_answers_the_filesystem_numbers_without_walking_the_workspaces()
             "{fs}"
         );
     }
-    // fs=0 is the full answer; anything else is a malformed request
     let (status, body) = call(&e.app, "GET", "/v1/disk?fs=0", None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(
@@ -1005,7 +969,6 @@ async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_worki
         "the floor's bytes: {why}"
     );
     assert!(why.contains(" bytes) free"), "the free bytes: {why}");
-    // nothing was made: no task row, no workspace
     let (_, tasks) = call(&e.app, "GET", "/v1/tasks?repo=demo", None).await;
     let titles: Vec<&str> = tasks["tasks"]
         .as_array()
@@ -1019,7 +982,6 @@ async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_worki
         "no task row for the refused start: {tasks}"
     );
 
-    // `next` refuses a backlog task the same way and leaves the item queued
     let (status, body) = call(
         &e.app,
         "POST",
@@ -1042,7 +1004,6 @@ async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_worki
     let (_, items) = call(&e.app, "GET", "/v1/backlog?repo=demo", None).await;
     assert_eq!(items["items"][0]["state"], "queued", "{items}");
 
-    // the dashboard strip and `av attention` say so, daemon-wide and worst first
     let items = attention_kinds(&e).await;
     let low = &items[0];
     assert_eq!(low["kind"], "disk_low", "{items:?}");
@@ -1053,7 +1014,6 @@ async fn below_the_floor_a_new_task_is_refused_with_507_and_open_ones_keep_worki
     assert_eq!(disk["below_floor"], true, "{disk}");
     assert_eq!(disk["min_free_bytes"], FAR_ABOVE, "{disk}");
 
-    // the task already started keeps working: edit, record, submit
     edit_greeter(&e, &open);
     record_decision(&e, &open).await;
     let (status, body) = submit(&e, &open).await;
@@ -1139,7 +1099,6 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
         .await;
         // no repo yet; the floor answers first
         assert_eq!(code, 507, "{out}");
-        // room for one task, made and merged
         state.set_disk_min_free(0);
         ok(
             addr,
@@ -1196,8 +1155,6 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
     served.unwrap();
 }
 
-// ---- Plan 12 Task 5: dependencies are built once per repo ----
-
 const SERDE_LIB: &str = "a266d54d01e4376a";
 const SERDE_SCRIPT: &str = "1f0e2d3c4b5a6978";
 const SERDE_RUN: &str = "77a0bc3e1d2f4a55";
@@ -1230,7 +1187,6 @@ fn cargo_build_in(e: &Env, t: &Value) -> PathBuf {
         }
         w(&format!(".fingerprint/{unit}/invoked.timestamp"), b"");
     };
-    // serde, from the registry
     w(&format!("deps/libserde-{SERDE_LIB}.rlib"), &[1; 4096]);
     w(&format!("deps/libserde-{SERDE_LIB}.rmeta"), &[2; 1024]);
     let out = format!("{td}/build/serde-{SERDE_RUN}/out");
@@ -1276,7 +1232,6 @@ fn cargo_build_in(e: &Env, t: &Value) -> PathBuf {
         &format!("serde-{SERDE_RUN}"),
         &["run-build-script-build-script-build"],
     );
-    // the repo's own crate
     w(&format!("deps/libdemo_core-{OWN_LIB}.rlib"), &[5; 2048]);
     let own_d =
         format!("{td}/deps/libdemo_core-{OWN_LIB}.rlib: {own}/src/lib.rs\n\n{own}/src/lib.rs:\n");
@@ -1317,7 +1272,6 @@ fn deps_cache(e: &Env) -> PathBuf {
     e.ws.path().join("demo/.cache/deps-target/debug")
 }
 
-/// What a dependency leaves in the cache.
 fn shared_entries() -> Vec<String> {
     vec![
         format!("deps/libserde-{SERDE_LIB}.rlib"),
@@ -1332,8 +1286,8 @@ fn shared_entries() -> Vec<String> {
     ]
 }
 
-/// What the repo's own crates leave, which never enters the cache: their fingerprints hash
-/// their path relative to the workspace root, so another workspace would take them as fresh.
+/// Never enter the cache: their fingerprints hash their path relative to the workspace root, so
+/// another workspace would take them as fresh.
 fn own_entries() -> Vec<String> {
     vec![
         format!("deps/libdemo_core-{OWN_LIB}.rlib"),
@@ -1402,7 +1356,6 @@ async fn a_merge_keeps_the_dependencies_in_the_repos_deps_cache_and_never_the_re
             "{entry} must stay out of the deps cache"
         );
     }
-    // nothing is left on its way out
     let aside = e.ws.path().join("demo/.cache/reclaim");
     assert_eq!(std::fs::read_dir(&aside).map(|d| d.count()).unwrap_or(0), 0);
     assert!(
@@ -1494,7 +1447,6 @@ async fn an_entry_already_in_the_deps_cache_is_never_replaced() {
     feed_event(&e, "build:reclaimed").await;
     assert_eq!(std::fs::read(&rlib).unwrap(), b"first");
     assert_eq!(std::fs::read(&fingerprint).unwrap(), b"first");
-    // and what was missing is still added
     assert!(
         cache
             .join(format!("deps/libserde-{SERDE_LIB}.rmeta"))
@@ -1562,8 +1514,6 @@ async fn start_up_removes_build_output_a_stopped_daemon_left_on_its_way_in_or_ou
     assert_eq!(std::fs::read(&kept).unwrap(), b"cached");
 }
 
-// ---- the build budget (`AV_BUILD_CACHE_MAX_GB`): a cap over every task's own target/ ----
-
 const KIB: u64 = 1024;
 
 fn hours(h: u64) -> Duration {
@@ -1595,7 +1545,6 @@ fn budget_of(gc: &Value) -> &Value {
     b
 }
 
-/// `(what, slug)` of each removal, in order.
 fn removals(gc: &Value) -> Vec<(String, Option<String>)> {
     budget_of(gc)["removed"]
         .as_array()
@@ -1610,8 +1559,7 @@ fn removals(gc: &Value) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// Every `build:reclaimed` of repo `demo` once `n` of them are in, waiting up to 20 s (the
-/// harvest runs in the background).
+/// Waits up to 20 s for `n` `build:reclaimed` events of repo `demo` (the harvest runs in the background).
 async fn reclaimed_events(e: &Env, n: usize) -> Vec<Value> {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     loop {
@@ -1697,7 +1645,6 @@ async fn over_the_build_budget_finished_targets_go_first_then_idle_ones_least_re
         targets[4].exists(),
         "a target/ touched just now is never removed"
     );
-    // workspaces themselves stay
     for t in [&abandoned, &merged, &idle_long] {
         assert!(ws_dir(&e, t).join("app/greeter.py").exists());
     }
@@ -1776,7 +1723,6 @@ async fn a_recent_target_survives_even_over_the_budget_and_the_deps_cache_goes_l
     assert_eq!(it["repo"], "demo", "{it}");
     assert_eq!(it["bytes"], 16 * KIB, "{it}");
 
-    // back under: the attention item goes
     e.state.set_build_budget(64 * KIB);
     gc(&e, json!({})).await;
     let items = attention_kinds(&e).await;

@@ -1,5 +1,3 @@
-//! Per-session metrics (Plan 4 "Metrics").
-
 use globset::Glob;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -9,10 +7,8 @@ use crate::spec::TaskSpec;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionMetrics {
-    /// `input + cache_creation + output` over the messages up to and including the one that
-    /// makes the first relevant edit; `None` without one.
+    /// Tokens (`input + cache_creation + output`) up to and including the first relevant edit; `None` without one.
     pub tokens_to_first_edit: Option<u64>,
-    /// The `result` event's session usage (same fields) when present, else the sum over messages.
     pub tokens_total: u64,
     /// `total_cost_usd`, or the per-session cap when the stream has no `result` event.
     pub cost_usd: f64,
@@ -26,12 +22,10 @@ pub struct SessionMetrics {
     pub input_tokens: u64,
 }
 
-/// The `result` event's usage, or the sum over messages when there is none.
 fn session_usage(s: &ParsedSession) -> Usage {
     s.total_usage()
 }
 
-/// Tools that write files, and the input key that names the file.
 fn edit_target(t: &ToolUse) -> Option<&str> {
     let key = match t.name.as_str() {
         "Edit" | "Write" | "MultiEdit" => "file_path",
@@ -57,7 +51,6 @@ fn written_texts(t: &ToolUse) -> Vec<&str> {
     }
 }
 
-/// `path` relative to the session's working directory.
 pub fn relative<'a>(path: &'a str, cwd: Option<&str>) -> &'a str {
     if let Some(cwd) = cwd
         && let Some(rest) = path.strip_prefix(cwd.trim_end_matches('/'))
@@ -79,7 +72,6 @@ pub struct Prices {
 }
 
 impl Prices {
-    /// `input,cache_write,cache_read,output`, dollars per million tokens.
     pub fn parse(s: &str) -> Result<Prices, String> {
         let v: Vec<f64> = s
             .split(',')
@@ -112,8 +104,7 @@ pub fn compute(spec: &TaskSpec, s: &ParsedSession, session_cap_usd: f64) -> Sess
     compute_priced(spec, s, session_cap_usd, None)
 }
 
-/// `compute`, with the cost taken from token usage at `prices` when given: the `result` event's
-/// session usage, else the sum over messages (a killed session is charged what it used).
+/// `compute`, costing token usage at `prices` when given (a killed session is charged what it used).
 pub fn compute_priced(
     spec: &TaskSpec,
     s: &ParsedSession,

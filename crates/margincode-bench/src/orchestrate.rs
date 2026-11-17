@@ -1,5 +1,3 @@
-//! `margincode-bench run`: the session plan, the budget cap, resumable result rows and the report.
-
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -18,8 +16,7 @@ pub struct Planned {
     pub arm: Arm,
 }
 
-/// Rep-major, then task; within each (rep, task) the arms in a seeded random order, so drift over
-/// the run hits every arm equally.
+/// Rep-major, then task; arms in a seeded random order so drift over the run hits every arm equally.
 pub fn plan(n_tasks: usize, arms: &[Arm], reps: u32, seed: u64) -> Vec<Planned> {
     let mut rng = Rng::new(seed);
     let mut out = vec![];
@@ -42,9 +39,7 @@ pub struct RunArgs {
     /// Without it nothing is launched (as `dry_run`).
     pub confirm: bool,
     pub dry_run: bool,
-    /// Expected cost of one session, for the plan's estimate (a pilot's median is better).
     pub est_session_usd: Option<f64>,
-    /// A pilot run's results directory: its median cost per arm is the estimate.
     pub pilot: Option<PathBuf>,
     pub meta: Meta,
 }
@@ -196,8 +191,7 @@ fn append_row(path: &Path, row: &Row, private: bool) -> Result<()> {
     writeln!(f, "{}", serde_json::to_string(row).expect("json")).map_err(|e| e.to_string())
 }
 
-/// Rows do not say which noise level (and seed) they ran at, so a results directory holds one: a
-/// run that would resume into another level's rows is refused.
+/// Rows do not record the noise level (and seed), so a results directory holds one: resuming into another level is refused.
 fn check_noise_level(out: &Path, meta: &Meta) -> Result<()> {
     let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
         return Ok(());
@@ -223,9 +217,7 @@ fn check_noise_level(out: &Path, meta: &Meta) -> Result<()> {
     ))
 }
 
-/// Rows do not say whether their agent was isolated (`--agent-user`), so a results directory
-/// holds one setting: a run that would resume into rows made under another is refused. Results
-/// from before the option count as not isolated.
+/// Rows do not record isolation (`--agent-user`), so a results directory holds one setting; older results count as not isolated.
 fn check_isolation(out: &Path, meta: &Meta) -> Result<()> {
     let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
         return Ok(());
@@ -244,9 +236,7 @@ fn check_isolation(out: &Path, meta: &Meta) -> Result<()> {
     ))
 }
 
-/// Rows do not say which store their av arms started from (Plan 16: `--wrong-reverted`,
-/// `--dreamed`), so a results directory holds one: a run that would resume into rows made from
-/// another is refused. Results from before the options count as `raw`.
+/// Rows do not record the starting store, so a results directory holds one; older results count as `raw`.
 fn check_memory(out: &Path, meta: &Meta) -> Result<()> {
     let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
         return Ok(());
@@ -266,8 +256,7 @@ fn check_memory(out: &Path, meta: &Meta) -> Result<()> {
     ))
 }
 
-/// The whole run. Sessions already in `out/rows.jsonl` (an interrupted run) are not repeated and
-/// their cost counts toward the budget.
+/// Sessions already in `out/rows.jsonl` (an interrupted run) are not repeated and their cost counts toward the budget.
 pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunReport> {
     let sessions = plan(specs.len(), &args.arms, args.reps, args.seed);
     let text = plan_text(specs, args, cfg, &sessions);
@@ -301,8 +290,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
     if cfg.agent_user.is_none() {
         return ran;
     }
-    // The run's directory is open to the agent user while the run goes (its sessions are under
-    // it); once it is over, closed, so the next run's preflight finds no way into this one.
+    // open to the agent user while the run goes (its sessions are under it); closed after, so the next run's preflight finds no way into this one
     let run_dir = cfg.work_root.join("runs").join(&run_id);
     let closed = crate::isolate::set_mode(&run_dir, 0o700).map_err(|e| {
         format!(

@@ -52,7 +52,7 @@ impl PgStore {
     }
 
     /// `set_backup_remote`, and whether each push first advances trunk from the remote's `main`
-    /// (Plan 15; always `false` without a remote).
+    /// (always `false` without a remote).
     pub async fn set_backup_target(
         &self,
         repo: &str,

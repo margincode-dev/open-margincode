@@ -1,6 +1,4 @@
-//! Handoff bundle (Plan 3 Task 3): what the next agent needs to continue a task, within a token
-//! budget. Same allocator as context packs, with its own sections and shares. The review (PR)
-//! bundle (Task 4) adds test status, risks and a conventions checklist.
+//! Handoff and review bundles: what the next agent or a reviewer needs, within a token budget.
 
 use std::collections::HashMap;
 
@@ -35,9 +33,7 @@ const REVIEW: &Layout = &[
     ("state", 10, "State"),
     ("questions", 5, "Open questions"),
 ];
-/// A changed symbol referenced by at least this many symbols is a risk area.
 const RISKY_IN_DEGREE: u32 = 5;
-/// Longest diff shown for one changed symbol.
 const MAX_HUNK_LINES: usize = 60;
 
 #[derive(Debug, Clone)]
@@ -125,8 +121,7 @@ fn goal_item(task: &Task) -> Item {
         task.status.as_str()
     );
     let first = task.goal.lines().next().unwrap_or("").trim();
-    // An agent that runs `git status` in the workspace sees nothing: av snapshots the edits into
-    // commits. Say so, or a reviewer concludes the task changed nothing (seen in the Plan 8 run).
+    // `git status` in the workspace shows nothing (av snapshots edits into commits); say so, or a reviewer concludes the task changed nothing.
     let meta = format!(
         "Owner: {}\nWorkspace: {}\n(edits there are snapshotted into commits, so git status \
          shows nothing; the changes are listed below)",
@@ -235,8 +230,6 @@ async fn read_text(
     }
 }
 
-/// One item per changed symbol (handle, signature, its hunks), then one per changed file that has
-/// no changed symbol.
 async fn change_items(
     vcs: &dyn Vcs,
     task: &Task,
@@ -346,8 +339,6 @@ fn tests_item(task: &Task, records: &[Record]) -> Item {
     it
 }
 
-/// Decisions with no `attempt` on any of their anchors (no alternatives recorded), and changed
-/// symbols that many others reference.
 fn risk_items(
     records: &[Record],
     symbols: &[IndexedSymbol],
@@ -433,8 +424,6 @@ fn render_bundle(
     out
 }
 
-/// What the review bundle adds: conventions in scope of the changed paths, and per changed
-/// symbol how many symbols reference it.
 pub(crate) struct ReviewInputs {
     pub conventions: Vec<Convention>,
     pub in_degree: HashMap<SymbolId, u32>,

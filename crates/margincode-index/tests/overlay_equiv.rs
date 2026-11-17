@@ -41,7 +41,6 @@ enum Step {
     TaskDelete(usize),
     /// The task puts a file back to main's content (or deletes one main does not have).
     TaskRestore(usize),
-    /// Main merges a rewrite of one of its files.
     MainEdit(usize, FileSpec),
     MainAdd(FileSpec),
     MainDelete(usize),
@@ -118,7 +117,6 @@ fn nth(tree: &Tree, i: usize) -> Option<String> {
     (!tree.is_empty()).then(|| tree.keys().nth(i % tree.len()).unwrap().clone())
 }
 
-/// Applies a step to (main, task). Files are added under fresh names (`n<counter>.<ext>`).
 fn apply(step: &Step, main: &mut Tree, task: &mut Tree, counter: &mut usize) {
     let fresh = |f: &FileSpec, counter: &mut usize| {
         *counter += 1;
@@ -212,8 +210,8 @@ async fn sync_scope(idx: &PgIndex, repo: &str, scope: &str, from: &Tree, to: &Tr
     }
 }
 
-/// The overlay as Task 4 will keep it: rows for every path whose content in the task's tree
-/// differs from main's, a tombstone for each path the task lacks.
+/// Rows for every path whose content in the task's tree differs from main's, a tombstone for each
+/// path the task lacks.
 async fn write_overlay(
     idx: &PgIndex,
     pool: &PgPool,

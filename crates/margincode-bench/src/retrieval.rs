@@ -1,9 +1,5 @@
-//! Offline pack retrieval (Plan 6, E1): no agent, no money. For a task with a known fix, the
-//! non-test source files and the innermost symbols the fix changed are the gold set. Each method
-//! turns the goal into a text of at most `budget` cl100k tokens: Margincode's context pack (from a
-//! daemon), and three baselines that need no Margincode: BM25 over files, BM25 over symbols, and an
-//! Aider-style repo map (PageRank over the symbol reference graph). Every text is scored the same
-//! way, by matching its lines against the gold code, so no method is scored on its own terms.
+//! Offline pack retrieval (E1): no agent, no money. The gold set is the non-test source files and innermost symbols a task's fix changed.
+//! Every method's text is scored the same way, by matching its lines against gold code, so no method is scored on its own terms.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,10 +15,8 @@ use crate::runner::{Daemon, scrubbed_copy};
 use crate::spec::load_spec_with_root;
 use crate::stats::Rng;
 
-/// The methods, in report order.
 /// `pack` shows code bodies (`code=full`); `pack_sig` is what agents get by default (`code=signatures`).
 pub const METHODS: [&str; 5] = ["pack", "pack_sig", "bm25_files", "bm25_symbols", "repo_map"];
-/// The pack methods and the `code` detail each asks the daemon for.
 const PACK_METHODS: [(&str, &str); 2] = [("pack", "full"), ("pack_sig", "signatures")];
 
 /// Lines shorter than this (after whitespace is collapsed) are too generic to count as evidence.
@@ -37,8 +31,7 @@ pub struct RetrievalTask {
     pub goal: String,
 }
 
-/// Plan 4 `.toml` specs, and `.jsonl` retrieval sets (one task per line, `repo_path` may start
-/// with `~/`). With `repos`, each task's repo is looked up by its directory name under it.
+/// `.toml` specs or `.jsonl` retrieval sets; with `repos`, a task's repo is looked up by directory name under it.
 pub fn load_tasks(paths: &[PathBuf], repos: Option<&Path>) -> Result<Vec<RetrievalTask>> {
     let mut out = vec![];
     for p in paths {
@@ -88,9 +81,6 @@ fn resolve_repo(p: &Path, repos: Option<&Path>) -> PathBuf {
     }
 }
 
-// ---------------------------------------------------------------- text helpers
-
-/// Whitespace collapsed to single spaces, ends trimmed.
 pub fn norm(line: &str) -> String {
     line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -107,7 +97,6 @@ pub fn indexable(path: &str) -> bool {
     )
 }
 
-/// Test code: a test directory, or a test file by naming convention.
 pub fn is_test_path(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
     let dirs: Vec<&str> = p.split('/').collect();
@@ -142,7 +131,6 @@ const STOP: &[&str] = &[
     "while", "does", "doesn", "don", "get", "set", "test", "tests",
 ];
 
-/// Identifier-aware words: each alphanumeric run lowercased, plus its camelCase parts.
 pub fn words(text: &str) -> Vec<String> {
     let mut out = vec![];
     for raw in text.split(|c: char| !c.is_alphanumeric()) {
@@ -174,7 +162,6 @@ pub fn words(text: &str) -> Vec<String> {
     out
 }
 
-/// The goal's search terms: words of three letters or more, minus stop words, deduplicated.
 pub fn goal_terms(goal: &str) -> Vec<String> {
     let mut seen = BTreeSet::new();
     words(goal)
@@ -184,9 +171,6 @@ pub fn goal_terms(goal: &str) -> Vec<String> {
         .collect()
 }
 
-// ---------------------------------------------------------------- the repository
-
-/// The source files of a checked-out tree that the index would parse.
 pub struct Repo {
     pub files: BTreeMap<String, String>,
     /// Normalized distinctive line → how many files contain it.
@@ -246,15 +230,11 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-// ---------------------------------------------------------------- gold
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GoldSymbol {
     pub path: String,
     pub qname: String,
-    /// The definition's first source line, normalized.
     pub signature: String,
-    /// Its other distinctive lines, normalized.
     pub body: Vec<String>,
 }
 
@@ -263,8 +243,7 @@ pub struct Gold {
     /// Non-test source files the fix modified (files it only added cannot be retrieved).
     pub files: Vec<String>,
     pub symbols: Vec<GoldSymbol>,
-    /// Whether the goal text names a gold file stem or gold symbol; such tasks are easier for
-    /// every method and are reported separately.
+    /// Whether the goal names a gold file stem or symbol; such tasks are easier for every method and are reported separately.
     pub leak: bool,
 }
 
@@ -287,7 +266,6 @@ pub fn hunk_ranges(diff: &str) -> Vec<(u32, u32)> {
     out
 }
 
-/// Of the symbols overlapping a range, those that contain no other overlapping symbol.
 fn innermost(
     syms: &[margincode_index::Symbol],
     (lo, hi): (u32, u32),
@@ -365,17 +343,13 @@ pub fn gold(repo: &Path, base: &str, fix: &str, goal: &str) -> Result<Gold> {
     Ok(g)
 }
 
-// ---------------------------------------------------------------- scoring
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Scores {
     pub tokens: u64,
-    /// Share of gold files whose path appears.
     pub files_named: f64,
     /// Share of gold files with code shown: a gold symbol's signature, or three lines found in
     /// no other file of the repo.
     pub files_code: f64,
-    /// Share of gold symbols whose signature line appears.
     pub symbols_sig: f64,
     /// Share of gold symbols with at least half of their distinctive lines shown.
     pub symbols_body: f64,
@@ -474,10 +448,7 @@ pub fn score(text: &str, gold: &Gold, repo: &Repo) -> Scores {
     }
 }
 
-// ---------------------------------------------------------------- baselines
-
-/// Concatenates items in order while the total stays within `budget` cl100k tokens. The first
-/// item that does not fit is cut to the lines that do (if any), and nothing follows it.
+/// Concatenates items while the total stays within `budget` cl100k tokens; the first that does not fit is cut to the lines that do, and nothing follows it.
 pub fn fit(items: &[String], budget: u32) -> String {
     let budget = u64::from(budget);
     let mut out = String::new();
@@ -505,8 +476,7 @@ pub fn fit(items: &[String], budget: u32) -> String {
     out
 }
 
-/// Okapi BM25 (k1 = 1.2, b = 0.75) of each document against the query terms, best first; zero
-/// scores are dropped. Ties keep document order.
+/// Okapi BM25 (k1 = 1.2, b = 0.75), best first; zero scores are dropped and ties keep document order.
 pub fn bm25(docs: &[Vec<String>], query: &[String]) -> Vec<(usize, f64)> {
     let n = docs.len() as f64;
     if docs.is_empty() || query.is_empty() {
@@ -557,7 +527,6 @@ fn fence(path: &str) -> &'static str {
     }
 }
 
-/// Whole files, best BM25 match first.
 pub fn bm25_files(repo: &Repo, goal: &str, budget: u32) -> String {
     let paths: Vec<&String> = repo.files.keys().collect();
     let docs: Vec<Vec<String>> = paths
@@ -620,10 +589,8 @@ pub fn bm25_symbols(repo: &Repo, goal: &str, budget: u32) -> String {
     fit(&items, budget)
 }
 
-/// An Aider-style repo map: files ranked by personalized PageRank over "file A uses an identifier
-/// that file B defines" edges (identifiers the goal names weigh 10x, private ones 0.1x; files whose
-/// path or symbols match the goal are the personalization), then each file's symbols as
-/// `L<n>: <signature>` lines, best files and goal-matching symbols first.
+/// An Aider-style repo map: files ranked by personalized PageRank over "A uses an identifier B defines" edges (goal-named identifiers weigh 10x,
+/// private ones 0.1x; files matching the goal are the personalization), then each file's symbols as `L<n>: <signature>` lines.
 pub fn repo_map(repo: &Repo, goal: &str, budget: u32) -> String {
     let syms = repo.symbols();
     let terms: HashSet<String> = goal_terms(goal).into_iter().collect();
@@ -718,8 +685,6 @@ pub fn repo_map(repo: &Repo, goal: &str, budget: u32) -> String {
     fit(&items, budget)
 }
 
-// ---------------------------------------------------------------- running
-
 pub struct RetrievalArgs {
     pub budgets: Vec<u32>,
     pub out: PathBuf,
@@ -729,10 +694,8 @@ pub struct RetrievalArgs {
     /// Without a semantic layer the daemon's packs use full-text search only.
     pub allow_no_semantic: bool,
     pub index_wait_secs: u64,
-    /// Skip the pack method (baselines only, no daemon).
     pub no_pack: bool,
-    /// Reuse the repos an earlier run (this id) imported into the same daemon instead of importing
-    /// and embedding them again; only the packing is measured anew.
+    /// Reuse the repos an earlier run (this id) imported into the same daemon; only the packing is measured anew.
     pub reuse_run: Option<String>,
 }
 
@@ -781,8 +744,7 @@ fn wait_semantic(daemon: &Daemon, repo: &str, args: &RetrievalArgs) -> Result<bo
 /// (method, budget, markdown, degraded) for each pack method and budget.
 type BudgetPacks = Vec<(&'static str, u32, String, Vec<String>)>;
 
-/// Imports the base tree as its own repo, starts a task with the goal, and returns the first pack
-/// at each budget, each for a fresh session (nothing deduplicated against earlier packs).
+/// Imports the base tree as its own repo, starts a task with the goal, and returns the first pack at each budget, each in a fresh session (nothing deduplicated).
 fn packs(
     t: &RetrievalTask,
     run_id: &str,
@@ -931,8 +893,6 @@ pub fn run(
     std::fs::write(args.out.join("report.md"), report(&rows, &meta)).map_err(|e| e.to_string())?;
     Ok(rows)
 }
-
-// ---------------------------------------------------------------- report
 
 const METRICS: [&str; 5] = [
     "files_code",

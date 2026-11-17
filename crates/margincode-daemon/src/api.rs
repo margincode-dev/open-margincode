@@ -20,8 +20,7 @@ use crate::indexing::{
     update_overlay_changed,
 };
 
-/// Budget of a work pack (start, `context`) when the client names none: agents get small packs and
-/// ask for more.
+/// Budget of a work pack (start, `context`) when the client names none: agents get small packs and ask for more.
 pub(crate) const DEFAULT_BUDGET: u32 = 800;
 /// Budget of a handoff or review bundle when the client names none: a reviewer reads all of it.
 pub(crate) const BUNDLE_BUDGET: u32 = 4000;
@@ -60,8 +59,7 @@ pub fn router_with(state: AppState, extra: Router<AppState>) -> Router {
         .with_state(state)
 }
 
-/// The daemon's crate version, sent on every response (`X-Av-Version`) and by `/v1/version`, so
-/// a client can tell it is talking to a daemon of another build.
+/// The daemon's crate version, sent on every response (`X-Av-Version`) and by `/v1/version`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Route families `/v1` serves (the first path segment after `/v1`, plus `mcp`).
@@ -92,7 +90,6 @@ async fn stamp_version(mut res: axum::response::Response) -> axum::response::Res
     res
 }
 
-/// `GET /v1/version`: the daemon's version and the route families it serves.
 async fn version() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "version": VERSION, "routes": ROUTE_FAMILIES }))
 }
@@ -178,7 +175,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::dream::routes())
 }
 
-/// Sessions idle this long lose their ledger in `prune`.
 const PRUNE_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
 
 /// Deletes the ledgers of sessions idle for 30 days and parse-cache entries no scope uses.
@@ -207,13 +203,11 @@ fn clip_chars(s: &str, max: usize) -> String {
 struct AddRepo {
     name: String,
     git_source: PathBuf,
-    /// `false`: answer `202` with the job at once, and the client polls
-    /// `GET /v1/repos/{name}/import`. Either way the import runs on its own task, so a client
-    /// that disconnects does not stop it.
+    /// `false`: answer `202` with the job at once; the client polls `GET /v1/repos/{name}/import`. The import
+    /// runs on its own task either way, so a client that disconnects does not stop it.
     #[serde(default = "yes")]
     wait: bool,
-    /// Cold start: after the index, mine at most this many records from the repo's git history
-    /// (`history::mine`; 0, the default, mines nothing).
+    /// Cold start: after the index, mine at most this many records from the repo's git history (0 mines nothing).
     #[serde(default)]
     mine_history: usize,
 }
@@ -222,7 +216,6 @@ fn yes() -> bool {
     true
 }
 
-/// Repo imports by name, running or finished since the daemon started.
 pub(crate) type Imports = Arc<Mutex<HashMap<String, ImportJob>>>;
 
 #[derive(Clone, Serialize)]
@@ -234,7 +227,6 @@ pub(crate) struct ImportJob {
     main_change: Option<ChangeId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     indexed_files: Option<usize>,
-    /// Records mined from git history (`mine_history` > 0).
     #[serde(skip_serializing_if = "Option::is_none")]
     mined_records: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -262,8 +254,7 @@ async fn list_repos(State(st): State<AppState>) -> ApiResult<Vec<RepoInfo>> {
     Ok(Json(out))
 }
 
-/// Adds a `repos` row for each repo in the VCS store that has none (repos imported before the
-/// table existed). Returns how many it added. The daemon runs it at start-up.
+/// Adds a `repos` row for each repo in the VCS store that has none; returns how many it added.
 pub async fn sync_repos(st: &AppState) -> Result<usize> {
     let known: std::collections::HashSet<String> = st
         .store
@@ -350,10 +341,9 @@ async fn add_repo(
     }
 }
 
-/// Refuses a `git_source` the daemon cannot see: missing, not a directory, or a directory that
-/// is neither a git work tree (`.git`) nor a bare repo (`HEAD` and `objects/`). The path is read
-/// where the daemon runs, which in Docker is not where the client runs, so the message says so.
-/// Only a quick look at the directory: git itself still decides whether it can be cloned.
+/// Refuses a `git_source` the daemon cannot see: missing, not a directory, or neither a git work tree nor a bare
+/// repo. The path is read where the daemon runs, which in Docker is not where the client runs, so the message
+/// says so. Only a quick look: git itself still decides whether it can be cloned.
 fn visible_source(src: &std::path::Path) -> Result<()> {
     let why = match src.canonicalize() {
         Ok(p)
@@ -497,7 +487,6 @@ async fn start_task(
     Ok(Json(Started { task, pack }))
 }
 
-/// The first pack of a started task: small, signatures only, with the repo map.
 pub(crate) fn first_pack_request(
     task_id: TaskId,
     budget: Option<u32>,
@@ -608,7 +597,7 @@ async fn prepare_workspace(st: &AppState, task: &Task) -> Result<std::path::Path
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)
         .await?;
-    // Plan 12 Task 5: the repo's built dependencies, so cargo compiles only its own crates
+    // the repo's built dependencies, so cargo compiles only its own crates
     crate::disk::seed_dependencies(st, task);
     // Overlay on main: O empty when B = T; reconcile fills changed(B, T) when main moved.
     init_task_overlay(st, &task.repo, &task.slug, &info.base_change).await?;
@@ -649,7 +638,6 @@ struct ListTasksQuery {
     limit: Option<usize>,
 }
 
-/// Most tasks `GET /v1/tasks` returns.
 const MAX_TASKS: usize = 500;
 
 /// Tasks newest first, for the dashboard: `?repo=`, `?status=`, `?limit=` (default 200).
@@ -716,8 +704,8 @@ struct RecordsAtQuery {
     session: Option<String>,
 }
 
-/// What other tasks recorded about one file (handoff B6): for a hook to show an agent as it opens
-/// the file, so the why arrives next to the code instead of up front.
+/// What other tasks recorded about one file: for a hook to show an agent as it opens the file, so the why
+/// arrives next to the code instead of up front.
 async fn records_at(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -732,12 +720,12 @@ async fn records_at(
 
 #[derive(Deserialize)]
 struct CheckpointQuery {
-    /// Plan 14: the head a remote checkout's patch (the body) was made against.
+    /// The head a remote checkout's patch (the body) was made against.
     base: Option<String>,
 }
 
 /// Snapshots the workspace. With `?base=`, the body is a remote checkout's patch, applied first
-/// (`remote::checkpoint`); without it the body is ignored, as it always was.
+/// (`remote::checkpoint`); without it the body is ignored.
 async fn checkpoint(
     State(st): State<AppState>,
     Path(id): Path<Uuid>,
@@ -797,7 +785,7 @@ pub(crate) struct RecordBody {
     /// The record this one corrects: the `rec:<hex>` handle a pack prints, a prefix of the id
     /// (6 or more hex characters, hyphens optional) or the full id.
     supersedes: Option<String>,
-    /// `rcp:…` of the pack the author worked from (Plan 2b).
+    /// `rcp:…` of the pack the author worked from.
     receipt: Option<String>,
 }
 
@@ -845,22 +833,15 @@ pub(crate) fn rec_handle(id: RecordId) -> String {
     format!("rec:{}", &id.0.simple().to_string()[..8])
 }
 
-/// Longest chain of superseded records followed to its live end.
 const MAX_SUPERSEDE_CHAIN: usize = 64;
 
-/// The record a new record of `task`, of kind `by`, names in `supersedes`, when it may supersede
-/// it. Records are append-only: superseding leaves the old record as it is and hides it from
-/// packs, the pre-read hook and search, so what one agent may hide from every other is limited
-/// here, and again by the store inside the insert (`PgStore`'s `insert_record`), where two tasks
-/// superseding one record at once are told apart.
+/// The record a new record of `task`, of kind `by`, names in `supersedes`, when it may supersede it.
+/// Superseding hides the old record from packs, the pre-read hook and search, so what one agent may hide
+/// is limited here, and again by the store inside the insert (`PgStore`'s `insert_record`), where two
+/// tasks superseding one record at once are told apart.
 ///
-/// Refused: a record of another repo (422); what `supersede_refusal` refuses (422): a `review`
-/// or `validation` record (a finding or a failed check must not be hidden by writing a note),
-/// another task's `intent` or `handoff` (they say what that task is for and where it stands),
-/// a task's own `intent` or `handoff` by a record of another kind, and a decision, attempt or
-/// note by a record that is not one of those three (packs would show nothing in its place); a
-/// record that is already superseded (409, naming the live record at the end of the chain, which
-/// is the one to correct, when the chain is short enough to follow).
+/// Refused: a record of another repo (422); what `supersede_refusal` refuses (422); a record that is already
+/// superseded (409, naming the live record at the end of the chain when it is short enough to follow).
 async fn superseded_by_task(
     st: &AppState,
     task: &Task,
@@ -1038,7 +1019,7 @@ async fn task_checks(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiRes
                    "scope_glob": c.scope_glob, "text": c.text})
         })
         .collect();
-    // `av validate` expands a check's `{crates}` from these (Plan 12 Task 2)
+    // `av validate` expands a check's `{crates}` from these
     Ok(Json(json!({"checks": checks, "changed": changed})))
 }
 
@@ -1107,9 +1088,7 @@ async fn with_main_health(st: &AppState, task: TaskId, mut pack: Pack) -> Pack {
     pack
 }
 
-/// Most records `search` returns.
 const MAX_SEARCH: usize = 20;
-/// Most trunk commits `log` returns.
 const MAX_LOG: usize = 200;
 
 #[derive(Deserialize)]
@@ -1119,7 +1098,7 @@ struct SearchQuery {
     limit: Option<usize>,
 }
 
-/// Full-text search over the repo's records (superseded ones hidden), at most 20.
+/// Full-text search over the repo's records; superseded ones are hidden.
 async fn search(
     State(st): State<AppState>,
     Path(repo): Path<String>,
@@ -1135,7 +1114,6 @@ async fn search(
 #[derive(Deserialize)]
 struct LogQuery {
     limit: Option<usize>,
-    /// Only the commits that changed this path.
     path: Option<String>,
 }
 

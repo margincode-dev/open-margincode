@@ -41,15 +41,12 @@ enum Op {
     Delete {
         file: usize,
     },
-    /// Adds `new_<task>.txt`.
     AddOwn,
-    /// Adds `shared.txt` with this task's content.
     AddShared,
 }
 
 #[derive(Debug, Clone)]
 struct Case {
-    /// Lines per base file (`f0.txt`, `f1.txt`, …).
     files: Vec<usize>,
     /// Per task, in merge order: how many earlier merges land before its workspace starts
     /// (clamped to its index), its operations, and which earlier clean merge (modulo their
@@ -253,7 +250,6 @@ async fn repo(base: &Tree) -> Repo {
     }
 }
 
-/// Writes `tree` into the workspace over `base` (deleting what `tree` drops).
 fn write_workspace(dir: &Path, base: &Tree, tree: &Tree) {
     for path in base.keys() {
         if !tree.contains_key(path) {
@@ -284,8 +280,6 @@ struct Trunk {
 }
 
 impl Trunk {
-    /// Checks one merge (or revert) against the model and `git merge-tree` of the same three
-    /// commits, then advances on a clean result.
     async fn check(
         &mut self,
         r: &Repo,
@@ -388,7 +382,6 @@ async fn run_case(case: Case) -> Result<(), TestCaseError> {
         merges: Vec::new(),
     };
 
-    // Tasks start in the order of their start points; merges run in task order.
     let n = case.tasks.len();
     let start_at: Vec<usize> = (0..n).map(|i| case.tasks[i].0.min(i)).collect();
     let mut started: Vec<Option<Started>> = (0..n).map(|_| None).collect();

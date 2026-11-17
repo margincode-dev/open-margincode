@@ -6,7 +6,6 @@ use margincode_core::{AvError, Result};
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Language, Node, Parser};
 
-/// Files larger than this are not indexed.
 pub const MAX_FILE_BYTES: usize = 1024 * 1024;
 /// Files where more than this share of bytes sits inside syntax errors are skipped.
 const MAX_ERROR_SHARE: f64 = 0.30;
@@ -17,8 +16,7 @@ pub enum SymbolKind {
     Function,
     Method,
     Type,
-    /// A named module-level value: `UPPER_CASE = …` in Python and TypeScript, any `const` or
-    /// `static` in Rust. Indexed so code that uses one links to the module that defines it.
+    /// Module-level `UPPER_CASE` (Python/TS) or `const`/`static` (Rust), so users link to its module.
     Constant,
 }
 
@@ -207,7 +205,6 @@ impl<'a> Walker<'a> {
             .unwrap_or_else(|| node.end_byte())
     }
 
-    /// A function-like node: refs cover the whole node.
     fn push_callable(&mut self, node: Node, prefix: &str, kind: SymbolKind) {
         if let Some(name) = self.name_of(node) {
             let q = Self::qualify(prefix, name);
@@ -255,7 +252,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    // ---- Python ----
     fn py_block(&mut self, parent: Node, prefix: &str, in_class: bool) {
         let mut cursor = parent.walk();
         let children: Vec<Node> = parent.named_children(&mut cursor).collect();
@@ -282,7 +278,6 @@ impl<'a> Walker<'a> {
                 };
                 self.push_callable(node, prefix, kind);
             }
-            // `NAME = …` / `NAME: T = …` at module level; one plain name, upper case
             "expression_statement" if prefix.is_empty() && !in_class => {
                 let Some(assign) = node.named_child(0).filter(|a| a.kind() == "assignment") else {
                     return;
@@ -306,7 +301,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    // ---- TypeScript / TSX ----
     fn ts_block(&mut self, parent: Node, prefix: &str) {
         let mut cursor = parent.walk();
         let children: Vec<Node> = parent.named_children(&mut cursor).collect();
@@ -373,7 +367,6 @@ impl<'a> Walker<'a> {
         }
     }
 
-    // ---- Rust ----
     fn rs_block(&mut self, parent: Node, prefix: &str) {
         let mut cursor = parent.walk();
         let children: Vec<Node> = parent.named_children(&mut cursor).collect();

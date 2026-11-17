@@ -49,7 +49,6 @@ async fn board_rows(State(st): State<AppState>) -> String {
     format!("rows={n}")
 }
 
-/// One HTTP/1.1 request on a raw socket: (status code, body).
 async fn get_raw(addr: std::net::SocketAddr, path: &str, token: Option<&str>) -> (u16, String) {
     let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
     let auth = token
@@ -100,11 +99,9 @@ async fn serve_with_serves_core_and_extension_routes_and_runs_extension_migratio
     let client = async move {
         wait_up(addr).await;
         assert_eq!(get_raw(addr, "/healthz", None).await, (200, "ok".into()));
-        // core route, behind the token
         assert_eq!(get_raw(addr, "/v1/repos", None).await.0, 401);
         let (code, body) = get_raw(addr, "/v1/repos", Some("secret")).await;
         assert_eq!(code, 200, "{body}");
-        // the extension's route is behind the same token and reads its own schema
         assert_eq!(get_raw(addr, "/v1/ee/board", None).await.0, 401);
         assert_eq!(
             get_raw(addr, "/v1/ee/board", Some("secret")).await,

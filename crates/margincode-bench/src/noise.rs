@@ -22,14 +22,12 @@ use crate::retrieval::{indexable, is_test_path};
 use crate::spec::{RelayNote, TaskSpec, git_in, resolve_rev};
 use crate::stats::Rng;
 
-/// Where a noise note is anchored: a file, and a symbol in it unless the note is about the module.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Anchor {
     pub path: String,
     pub symbol: Option<String>,
 }
 
-/// One kind of note, with `{what}` for the symbol (`` `Cart.add` ``) or the module.
 struct Template {
     kind: &'static str,
     summary: &'static str,
@@ -132,8 +130,6 @@ const TEMPLATES: [Template; 18] = [
     },
 ];
 
-/// Every source file of `rev` the index would parse (tests left out), as a module-level anchor
-/// plus one anchor per function, method and type in it; sorted.
 pub fn anchors_at(repo: &Path, rev: &str) -> Result<Vec<Anchor>> {
     let rev = resolve_rev(repo, rev)?;
     let names = git_in(
@@ -173,7 +169,6 @@ fn module_name(path: &str) -> &str {
     file.rsplit_once('.').map_or(file, |(stem, _)| stem)
 }
 
-/// At most `max` characters.
 fn clip(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_owned();
@@ -183,8 +178,7 @@ fn clip(s: &str, max: usize) -> String {
     t
 }
 
-/// `n` noise notes over `anchors`, deterministic in `seed`; the first `k` of any larger `n` are
-/// the notes for `k`. Empty without anchors.
+/// Deterministic in `seed`; the first `k` of any larger `n` are the notes for `k`. Empty without anchors.
 pub fn generate(anchors: &[Anchor], n: usize, seed: u64) -> Vec<RelayNote> {
     if anchors.is_empty() || n == 0 {
         return vec![];
@@ -245,8 +239,6 @@ pub fn interleave(base: Vec<RelayNote>, noise: Vec<RelayNote>, seed: u64) -> Vec
         .collect()
 }
 
-/// `run --noise N`: every relay task gets N noise notes interleaved into its pool, generated once
-/// per (repo, base) so tasks on one base share them. Refuses a task without `relay_pool`.
 pub fn add_noise(specs: &mut [TaskSpec], n: usize, seed: u64) -> Result<()> {
     if n == 0 {
         return Ok(());

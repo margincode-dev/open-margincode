@@ -12,7 +12,6 @@ use regex::Regex;
 /// wrote (`margincode-pack`'s `MINED_FACTOR`) and show their origin; no agent should use the name.
 pub const MINED_AUTHOR: &str = "git";
 
-/// Whether a record was mined from git history rather than written by an agent.
 pub fn is_mined(author_agent: &str) -> bool {
     author_agent == MINED_AUTHOR
 }
@@ -67,7 +66,6 @@ pub fn housekeeping(subject: &str) -> bool {
     HOUSEKEEPING.is_match(subject.trim())
 }
 
-/// A full commit description split into its subject (first line) and body.
 pub fn split_message(description: &str) -> (&str, &str) {
     let d = description.trim_start();
     match d.split_once('\n') {
@@ -76,8 +74,7 @@ pub fn split_message(description: &str) -> (&str, &str) {
     }
 }
 
-/// The cleaned message of a commit worth mining, or `None` for a merge (more than one parent), a
-/// root commit, housekeeping, or a message too short to say anything.
+/// `None` for a merge, a root commit, housekeeping, or a message too short to keep.
 pub fn worth_mining(parents: usize, subject: &str, body: &str, max_chars: usize) -> Option<String> {
     if parents != 1 || housekeeping(subject) {
         return None;
@@ -86,7 +83,6 @@ pub fn worth_mining(parents: usize, subject: &str, body: &str, max_chars: usize)
     (text.chars().count() >= MIN_MESSAGE_CHARS).then_some(text)
 }
 
-/// `text` cut to at most `max` characters, with `…` when something was cut.
 pub fn clip_chars(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.to_owned();

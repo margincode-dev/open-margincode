@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::embed::{Embedder, cached_dim, http_client, validate_dim};
 
-/// How long Ollama keeps the embedding model loaded after a request.
 const KEEP_ALIVE: &str = "30m";
 
 /// `POST {base}/api/embed` with `{"model", "input", "truncate": true}`. No API key.

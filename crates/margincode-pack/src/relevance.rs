@@ -78,10 +78,8 @@ pub(crate) fn word_scores(goal: &str, texts: &[String]) -> Vec<f32> {
         .collect()
 }
 
-/// Reciprocal rank fusion of two orderings of the same items: `words[i]` (BM25, 0.0 = no match)
-/// and `similarity[i]` (embedding similarity, `None` = not among the hits). An item neither
-/// ordering ranks gets 0.0. Tied items share the mean of their ranks: thirty records that match
-/// one common word equally are not thirty best matches.
+/// Reciprocal rank fusion of `words[i]` (BM25, 0.0 = no match) and `similarity[i]` (`None` = not a hit).
+/// Tied items share the mean of their ranks: thirty records matching one common word are not thirty best matches.
 pub(crate) fn fuse(words: &[f32], similarity: &[Option<f32>]) -> Vec<f32> {
     let mut out = vec![0.0; words.len()];
     let words: Vec<Option<f32>> = words.iter().map(|w| (*w > 0.0).then_some(*w)).collect();
@@ -190,7 +188,6 @@ mod tests {
         let f = fuse(&[0.0, 3.0, 1.0, 0.0], &[None, Some(0.8), None, Some(0.9)]);
         assert_eq!(f[0], 0.0);
         assert!(f[1] > f[3] && f[3] > f[2] && f[2] > 0.0, "{f:?}");
-        // equal scores share the mean of their ranks, so a wide tie is worth less than a win
         let t = fuse(&[2.0, 2.0, 2.0, 0.0], &[None, None, None, Some(0.5)]);
         assert_eq!((t[0], t[1]), (t[1], t[2]));
         assert!(t[3] > t[0], "{t:?}");

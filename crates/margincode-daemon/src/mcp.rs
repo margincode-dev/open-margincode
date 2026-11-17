@@ -28,7 +28,6 @@ pub(crate) const MAX_REQUEST_BYTES: usize = 8 << 20;
 const MAX_ARGUMENTS_BYTES: usize = 1 << 20;
 const MAX_TEXT_BYTES: usize = 64 << 10;
 const MAX_SUMMARY_CHARS: usize = 200;
-/// Sessions unused this long are forgotten (on the next `initialize`).
 const SESSION_IDLE: Duration = Duration::from_secs(24 * 3600);
 
 const INVALID_REQUEST: i64 = -32600;
@@ -40,14 +39,12 @@ const INTERNAL_ERROR: i64 = -32603;
 #[derive(Clone)]
 pub(crate) struct McpSession {
     agent: String,
-    /// The agent named itself (`X-Av-Agent`), not only its client (`clientInfo.name`): the
-    /// workspaces it is handed name it as their owner (`task_file::NamedByAgent`, T1a).
+    /// The agent named itself (`X-Av-Agent`), not only its client: workspaces it is handed name it as owner.
     named: bool,
     /// The tasks this session started, claimed or resumed, oldest first, each with the claim
     /// generation it writes under. Usually one at a time; an agent CLI's subagents share their
     /// parent's session (checked with Claude Code), so a team can hold several.
     tasks: Vec<(String, Option<i64>)>,
-    /// This session's latest `start_task` calls, oldest first (F10).
     starts: Vec<StartCall>,
     last_used: Instant,
 }
@@ -59,22 +56,16 @@ pub(crate) struct McpSession {
 /// being lost; the retry makes no second task.
 #[derive(Clone)]
 struct StartCall {
-    /// The JSON-RPC id of the call that holds it: the call it was made for, or the retry it was
-    /// last handed to.
     request: String,
-    /// What it asked: `{repo, title, goal}` (no title or goal: the next backlog task).
     asked: Value,
-    /// The client cancelled that call.
     cancelled: bool,
     /// `None` while it runs; then `Some` of the task it gave, or `Some(None)` for none.
     done: tokio::sync::watch::Receiver<Option<Option<Done>>>,
-    /// Stops the start.
     stop: tokio::task::AbortHandle,
     /// Where its `next` call is: only a start still waiting for work may be stopped.
     phase: crate::routing_api::NextPhase,
 }
 
-/// A start's answer: its text, and the task with its generation.
 #[derive(Clone)]
 struct Done {
     text: String,
@@ -82,13 +73,11 @@ struct Done {
     generation: Option<i64>,
 }
 
-/// How many `start_task` calls a session keeps.
 const SESSION_STARTS: usize = 8;
 
 /// How many tasks a session remembers; older ones need `task_id`.
 const SESSION_TASKS: usize = 32;
 
-/// The names of the tools the daemon itself offers.
 pub(crate) fn community_tool_names() -> Vec<String> {
     tools()
         .as_array()
@@ -98,7 +87,6 @@ pub(crate) fn community_tool_names() -> Vec<String> {
         .collect()
 }
 
-/// `tools/list`: the Community tools, then the extension's.
 fn listed_tools(st: &AppState) -> Value {
     let mut all = tools();
     if let Some(list) = all.as_array_mut() {
@@ -125,9 +113,7 @@ fn tools() -> Value {
     let anchors = json!({"type": "array", "description": "Code the record is about.", "items": {
         "type": "object", "required": ["path"],
         "properties": {"path": {"type": "string"}, "symbol": {"type": "string"}}}});
-    // `submit` says its records take the same fields as `record`, which describes them: the
-    // descriptions are not repeated here, since every byte of this list is sent on every turn
-    // (nor is one given for `records` itself: the tool's description says what they are for)
+    // Fields are described once under `record`: every byte of this list is sent on every turn.
     let record_item = json!({"type": "object", "required": ["kind", "summary"], "properties": {
         "kind": {"type": "string", "enum": ["intent", "decision", "attempt", "note"]},
         "summary": {"type": "string"}, "body": {"type": "string"}, "anchors": anchors,
@@ -227,7 +213,6 @@ fn tools() -> Value {
     ])
 }
 
-/// A JSON-RPC error.
 struct RpcError {
     code: i64,
     message: String,
@@ -312,8 +297,6 @@ fn check_args(schema: &Value, args: &Value) -> Result<(), RpcError> {
     Ok(())
 }
 
-/// The size limits: summaries at most 200 characters, bodies at most 64 KiB, anywhere in the
-/// arguments (findings included).
 fn check_sizes(v: &Value) -> Result<(), RpcError> {
     match v {
         Value::Object(map) => {
@@ -341,7 +324,6 @@ fn check_sizes(v: &Value) -> Result<(), RpcError> {
     }
 }
 
-/// An in-process request to the daemon's `/v1` routes, as (status, JSON body).
 async fn inner(
     st: &AppState,
     method: &str,
@@ -352,7 +334,6 @@ async fn inner(
     inner_with(st, method, uri, body, generation, None, false).await
 }
 
-/// `inner`, with the `NextPhase` a `next` call reports to, for a session that named itself or not.
 async fn inner_with(
     st: &AppState,
     method: &str,
@@ -411,8 +392,7 @@ fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args[key].as_str().filter(|s| !s.is_empty())
 }
 
-/// The id of the task `given` names: an id as is, else `repo/slug`, else a slug in any repo (an
-/// error that lists the matches when it is in several).
+/// The id `given` names: an id, `repo/slug`, or a slug in any repo (an error lists the matches if several).
 async fn task_ref(st: &AppState, given: &str) -> Result<String, RpcError> {
     let given = given.trim();
     if Uuid::parse_str(given).is_ok() {
@@ -468,7 +448,6 @@ fn remember(st: &AppState, sid: &str, task: &str, generation: Option<i64>) {
     }
 }
 
-/// The task a tool acts on and the generation to write under (only for the session's own task).
 /// The `repo` argument, else the repo of the session's task.
 async fn repo_arg(st: &AppState, s: &McpSession, args: &Value) -> Result<String, RpcError> {
     if let Some(r) = str_arg(args, "repo") {
@@ -535,8 +514,7 @@ fn pretty(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_default()
 }
 
-/// How a tool reaches the API: method, URI, JSON body, generation header, and how the response
-/// becomes the tool's text.
+/// Method, URI, JSON body, generation header, and how the response becomes the tool's text.
 type Call = (
     &'static str,
     String,
@@ -545,8 +523,7 @@ type Call = (
     fn(&Value) -> String,
 );
 
-/// What a tool call gave: its text (`Err`: the daemon refused, a tool error) and, for
-/// `start_task`, the task it started or resumed for this session (what `remember` keeps).
+/// `text`'s `Err` is a tool error (the daemon refused); `started` is what `remember` keeps.
 struct Ran {
     text: Result<String, String>,
     started: Option<(String, Option<i64>)>,
@@ -563,7 +540,6 @@ async fn run_tool(
 ) -> Result<Ran, RpcError> {
     let agent = s.agent.as_str();
     let (method, uri, body, generation, render): Call = match name {
-        // With no title and goal: the next backlog task that fits this agent (Plan 8).
         "start_task" if args["title"].is_null() && args["goal"].is_null() => (
             "POST",
             "/v1/backlog/next".into(),
@@ -1141,7 +1117,6 @@ async fn run_tool(
     })
 }
 
-/// Runs `f` on session `sid`, if it still exists.
 fn with_session<R>(st: &AppState, sid: &str, f: impl FnOnce(&mut McpSession) -> R) -> Option<R> {
     st.mcp
         .lock()
@@ -1347,7 +1322,6 @@ async fn call_tool(
     };
     check_args(&tool["inputSchema"], &args)?;
     check_sizes(&args)?;
-    // a task may be named by its slug (or repo/slug): from here on it is its id
     let mut args = args;
     if let Some(given) = args["task_id"].as_str() {
         args["task_id"] = json!(task_ref(st, given).await?);
@@ -1403,8 +1377,7 @@ async fn initialize(
         .filter(|a| !a.is_empty())
         .unwrap_or("mcp")
         .to_owned();
-    // A profile may list the names a client introduces itself with (`av agent set --alias`), so
-    // routing, task ownership and fencing all use one name for the agent.
+    // Resolve profile aliases (`av agent set --alias`) so routing, ownership and fencing use one name.
     let agent = match st.store.list_profiles().await {
         Ok(profiles) => margincode_core::routing::resolve(&profiles, &agent)
             .map(|p| p.name.clone())
@@ -1442,7 +1415,6 @@ async fn initialize(
     ))
 }
 
-/// `POST /mcp`: one JSON-RPC request or notification (batches are not supported).
 pub(crate) async fn post(State(st): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     let Ok(msg) = serde_json::from_slice::<Value>(&body) else {
         return http(
@@ -1542,7 +1514,6 @@ pub(crate) async fn get() -> Response {
     StatusCode::METHOD_NOT_ALLOWED.into_response()
 }
 
-/// `DELETE /mcp` ends a session.
 pub(crate) async fn delete(State(st): State<AppState>, headers: HeaderMap) -> Response {
     let removed = headers
         .get(SESSION_HEADER)
@@ -1550,7 +1521,7 @@ pub(crate) async fn delete(State(st): State<AppState>, headers: HeaderMap) -> Re
         .and_then(|sid| st.mcp.lock().unwrap_or_else(|e| e.into_inner()).remove(sid));
     match removed {
         Some(s) => {
-            // its client is done: a start still waiting for work takes nothing (F10)
+            // its client is done: a start still waiting for work takes nothing
             for c in &s.starts {
                 if c.done.borrow().is_none() && c.phase.stop() {
                     c.stop.abort();

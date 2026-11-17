@@ -66,8 +66,8 @@ pub struct Config {
     /// `AV_BUILD_IDLE_SECS` (default 1800): over the build budget, an unfinished task's `target/`
     /// is removed only when nothing at depth ≤ 2 in it changed for this long (it may be building).
     pub build_idle_secs: u64,
-    /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): a repo with a root
-    /// `Cargo.toml` gets one cargo target dir for all its task workspaces.
+    /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): lean cargo settings and a shared
+    /// dependency cache for a repo with a root `Cargo.toml` (`build_cache`, `deps_cache`).
     pub build_cache: bool,
     /// `AV_BACKUP_REMOTES`: whitespace-separated `repo=url` pairs, pushed after every merge.
     /// `POST /v1/repos/{name}/backup` sets one at runtime.
@@ -242,7 +242,6 @@ mod home_tests {
     }
 }
 
-/// The `AV_ATTN_*` thresholds; each unset one keeps its default.
 fn parse_attention(get: &dyn Fn(&str) -> Option<String>) -> Result<crate::AttentionLimits> {
     let d = crate::AttentionLimits::default();
     let num = |name: &str, default: u64| -> Result<u64> {
@@ -368,7 +367,6 @@ fn normalize_secret(value: Option<String>) -> Option<String> {
     })
 }
 
-/// `Authorization` header value for the embedding API.
 pub fn embed_authorization(api_key: Option<&str>) -> Option<String> {
     normalize_secret(api_key.map(str::to_owned)).map(|key| format!("Bearer {key}"))
 }

@@ -40,9 +40,7 @@ static MINING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Mined {
-    /// Records written by this run.
     pub records: usize,
-    /// Commits looked at.
     pub scanned: usize,
     /// Commits skipped because an earlier run mined them.
     pub already: usize,
@@ -50,7 +48,6 @@ pub struct Mined {
     pub task: Option<String>,
 }
 
-/// The repo's history task, if mining ever ran.
 pub(crate) async fn history_task(st: &AppState, repo: &str) -> Result<Option<Task>> {
     match st.store.task_by_slug(repo, HISTORY_SLUG).await {
         Ok(t) if t.owner_agent == MINED_AUTHOR => return Ok(Some(t)),
@@ -164,7 +161,6 @@ pub(crate) struct MineBody {
     limit: Option<usize>,
 }
 
-/// `POST /v1/repos/{name}/history`: mine (more of) an imported repo's history.
 pub(crate) async fn post_history(
     State(st): State<AppState>,
     Path(repo): Path<String>,

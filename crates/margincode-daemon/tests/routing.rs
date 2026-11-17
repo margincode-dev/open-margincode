@@ -1,5 +1,3 @@
-//! Plan 8 Task 4: agent profiles, the backlog and `next` over the HTTP API.
-
 use crate::common::*;
 use margincode_core::IntentStore as _;
 
@@ -89,7 +87,6 @@ async fn backlog_items_are_posted_listed_and_dropped() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(backlog(&e, "?state=queued").await.len(), 1);
     assert_eq!(backlog(&e, "?state=dropped").await.len(), 1);
-    // dropping twice, or an unknown id
     let (status, _) = call(&e.app, "DELETE", &format!("/v1/backlog/{id}"), None).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     let (status, _) = call(
@@ -132,7 +129,6 @@ async fn next_gives_an_agent_the_item_that_fits_it() {
     assert_eq!(items[0]["task_id"], body["task"]["id"]);
     assert_eq!(items[0]["id"], item["id"]);
 
-    // nothing is left for the next agent
     let (_, again) = next(&e, "muse").await;
     assert_eq!(again, json!({"task": null, "queued": 0}));
 }
@@ -234,7 +230,6 @@ async fn a_handoff_with_tags_goes_to_the_agent_that_fits() {
     assert_eq!(body["generation"], 2);
     assert!(body["bundle"].is_object(), "{body}");
 
-    // claimed: the tags are gone, nothing is left to pull
     let (_, again) = next(&e, "grok").await;
     assert_eq!(again["task"], Value::Null);
 }
@@ -293,8 +288,6 @@ async fn the_backlog_names_the_agent_that_ranks_first_for_each_item() {
     assert_eq!(best("image"), Value::Null); // nobody can do it
 }
 
-// ---- Plan 9 Task 2: next offers reviews and merges before new work ----
-
 async fn post_for(e: &Env, title: &str, needs: &[&str], agent: &str) {
     let (status, body) = call(
         &e.app,
@@ -319,7 +312,6 @@ async fn task_op(e: &Env, task_id: &str, op: &str, body: Value) -> (StatusCode, 
     .await
 }
 
-/// `agent` takes the backlog item titled `title` (pinned to it) and submits it.
 async fn take_and_submit(e: &Env, agent: &str, title: &str, needs: &[&str]) -> Value {
     post_for(e, title, needs, agent).await;
     let (status, t) = next(e, agent).await;
@@ -373,7 +365,6 @@ async fn next_offers_another_agents_task_in_review_before_backlog_work() {
         body["next"],
         "Review it: review_task, run its tests in its workspace and validate, then post_review. If you approve, merge it."
     );
-    // the image item is still queued
     assert_eq!(backlog(&e, "?state=queued").await.len(), 1);
 }
 
@@ -418,7 +409,6 @@ async fn a_review_nobody_else_can_do_goes_to_any_other_agent() {
     assert_eq!(body["task"]["id"], t["task"]["id"]);
 }
 
-/// claude takes a `code` backlog item and hands it off without tags.
 async fn take_and_hand_off_untagged(e: &Env) -> Value {
     post_for(e, "louder hello", &["code"], "claude").await;
     let (status, t) = next(e, "claude").await;
@@ -430,7 +420,6 @@ async fn take_and_hand_off_untagged(e: &Env) -> Value {
     t
 }
 
-/// A handoff without tags keeps the tags of the item it was made from.
 #[tokio::test]
 async fn an_untagged_handoff_keeps_the_tags_of_its_item() {
     let e = env().await;
@@ -520,8 +509,6 @@ async fn a_resubmitted_task_is_offered_for_review_again_not_as_approved() {
     assert_eq!(body["approved"], false);
 }
 
-// ---- Plan 9 Task 3: next rescues tasks whose owner went quiet ----
-
 /// claude starts a task directly (no backlog item, so no tags) under a 1 s lease, then goes
 /// quiet past it.
 async fn abandoned(e: &Env) -> Value {
@@ -603,7 +590,6 @@ async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
         assert_eq!(body["task"], Value::Null, "{agent}: {body}");
     }
 
-    // the owner goes quiet past that lease too: the reviewer still does not get it, another does
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     assert_eq!(peek(&e, "grok").await["would"], Value::Null);
     let (_, body) = next(&e, "grok").await;
@@ -692,7 +678,6 @@ async fn a_task_its_owner_is_already_fixing_is_not_offered_again() {
     assert_eq!(peek(&e, "claude").await["would"], Value::Null);
 }
 
-/// `next` as `agent` with `extra` merged into the body.
 async fn next_with(e: &Env, agent: &str, extra: Value) -> Value {
     let mut b = json!({"agent": agent, "session": "s-next"});
     b.as_object_mut()
@@ -795,8 +780,6 @@ async fn at_its_limit_a_caller_that_skips_returned_tasks_gets_nothing() {
     assert_eq!(body["at_capacity"]["max"], 1, "{body}");
 }
 
-// ---- Plan 9 Task 6: a dry-run peek ----
-
 async fn peek(e: &Env, agent: &str) -> Value {
     let (status, body) = call(
         &e.app,
@@ -829,7 +812,6 @@ async fn a_peek_takes_nothing() {
 async fn a_peek_names_what_next_would_return() {
     let e = env().await;
     three_agents(&e).await;
-    // a review
     let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
     let p = peek(&e, "grok").await;
     assert_eq!(p["would"]["from"], "review", "{p}");
@@ -837,7 +819,6 @@ async fn a_peek_names_what_next_would_return() {
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["from"], "review");
     assert_eq!(body["task"]["id"], p["would"]["task_id"]);
-    // a handoff
     let h = start_task(&e, "Make goodbye louder").await;
     edit_greeter(&e, &h);
     record_decision(&e, &h).await;
@@ -860,8 +841,6 @@ async fn a_peek_does_not_reserve_a_review() {
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["task"]["id"], t["task"]["id"], "{body}");
 }
-
-// ---- Plan 9 Task 7: next waits for work ----
 
 async fn next_waiting(app: &Router, agent: &str, wait: u64) -> (StatusCode, Value) {
     call(
@@ -980,8 +959,6 @@ async fn a_peek_never_waits() {
     assert!(t.elapsed() < std::time::Duration::from_millis(500));
 }
 
-// ---- a team's limit on open tasks (`max_open`)
-
 async fn put_limited(e: &Env, name: &str, best: &[&str], cost: i32, max_open: i32) {
     let (status, body) = call(
         &e.app,
@@ -1021,7 +998,6 @@ async fn a_team_at_its_limit_gets_reviews_but_no_new_work() {
     assert_eq!(peek["would"], Value::Null, "{peek}");
     assert_eq!(peek["at_capacity"]["max"], 1, "{peek}");
 
-    // grok's image work needs a reviewer, and claude is offered it at the limit
     let g = take_and_submit(&e, "grok", "draw it", &["image"]).await;
     let (_, body) = next(&e, "claude").await;
     assert_eq!(body["from"], "review", "{body}");
@@ -1029,7 +1005,6 @@ async fn a_team_at_its_limit_gets_reviews_but_no_new_work() {
     let (status, b) = task_op(&e, &id(&g), "merge", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{b}");
 
-    // claude submits its task: below the limit again, it takes the next item
     edit_greeter(&e, &first);
     record_decision(&e, &first).await;
     let (status, b) = task_op(&e, &id(&first), "submit", json!({"agent": "claude"})).await;
@@ -1065,9 +1040,6 @@ async fn a_limit_below_one_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
 
-/// Twelve agents, each the only one that can do its item, all get work from `next`.
-/// None sets `max_open`, and no answer carries `at_capacity`: there is no cap on how
-/// many distinct agents take work.
 #[tokio::test]
 async fn next_routes_twelve_agents_with_no_cap() {
     let e = env().await;
@@ -1102,8 +1074,6 @@ async fn next_routes_twelve_agents_with_no_cap() {
     assert!(body.get("at_capacity").is_none(), "{body}");
 }
 
-// ---- Backlog dependencies: an item can start after others merge ----
-
 async fn post_after(e: &Env, title: &str, after: &[&str]) -> (StatusCode, Value) {
     call(
         &e.app,
@@ -1128,7 +1098,6 @@ async fn an_item_is_not_offered_until_the_items_it_lists_have_merged() {
     assert_eq!(status, StatusCode::OK, "{b}");
     assert_eq!(b["waiting_on"], json!(["stop hook"]), "{b}");
 
-    // A is queued: only A is offered, B waits
     let (_, t) = next(&e, "grok").await;
     assert_eq!(t["task"]["title"], "stop hook", "{t}");
     let (_, body) = next(&e, "grok").await;
@@ -1136,7 +1105,6 @@ async fn an_item_is_not_offered_until_the_items_it_lists_have_merged() {
     let items = backlog(&e, "?state=queued").await;
     assert_eq!(items[0]["waiting_on"], json!(["stop hook"]));
 
-    // A in review: still not offered (a peek says the same)
     edit_greeter(&e, &t);
     record_decision(&e, &t).await;
     let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "grok"})).await;
@@ -1153,7 +1121,6 @@ async fn an_item_is_not_offered_until_the_items_it_lists_have_merged() {
         "claude gets the review, not B: {body}"
     );
 
-    // A merged: B is offered
     approve(&e, &id(&t), "claude").await;
     let (status, b) = task_op(&e, &id(&t), "merge", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{b}");
@@ -1178,13 +1145,9 @@ async fn after_takes_an_item_id_and_refuses_an_unknown_item() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{b}");
 }
 
-// ---- dogfood: next offers a conflicted task back to its owner ----
-
 const SYNC_ACTION: &str = "Its merge conflicted because main moved: av sync it onto main, resolve \
                            the conflict markers, re-run the check, validate and submit it again.";
 
-/// `agent` starts a task directly, edits `app/greeter.py` to `text`, records a decision and
-/// submits it.
 async fn start_edit_submit(e: &Env, agent: &str, title: &str, text: &str) -> Value {
     let (status, t) = call(
         &e.app,
@@ -1259,7 +1222,6 @@ async fn another_agent_gets_a_conflicted_task_only_after_the_owners_lease() {
         assert_eq!(body["task"], Value::Null, "{other}: {body}");
     }
 
-    // the owner goes quiet past its lease: any agent that fits may claim it, and it stays conflicted
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["from"], "conflicted", "{body}");
@@ -1268,7 +1230,6 @@ async fn another_agent_gets_a_conflicted_task_only_after_the_owners_lease() {
     assert_eq!(body["task"]["status"], "conflicted");
     assert_eq!(body["generation"], 2);
     assert_eq!(body["next"], SYNC_ACTION);
-    // and it is no longer claude's
     let (_, body) = next(&e, "claude").await;
     assert_eq!(body["task"], Value::Null, "{body}");
 }
@@ -1308,7 +1269,6 @@ async fn a_worker_that_takes_only_work_skips_reviews_and_a_reviewer_skips_work()
     let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
     post_item(&e, "demo", "quieter hello", &["code"], 0).await;
 
-    // without `take`, grok is offered claude's review first
     let (_, peek) = call(
         &e.app,
         "POST",
@@ -1318,7 +1278,6 @@ async fn a_worker_that_takes_only_work_skips_reviews_and_a_reviewer_skips_work()
     .await;
     assert_eq!(peek["would"]["from"], "review", "{peek}");
 
-    // a reviewer that takes only reviews is not given the backlog item
     let (status, r) = next_taking(&e, "codex", &["review", "merge"]).await;
     assert_eq!(status, StatusCode::OK, "{r}");
     assert_eq!(r["from"], "review", "{r}");
@@ -1327,13 +1286,11 @@ async fn a_worker_that_takes_only_work_skips_reviews_and_a_reviewer_skips_work()
     // its own reserved review again; never the item
     assert_ne!(r["from"], "backlog", "{r}");
 
-    // a worker that takes only work gets the item, not the review
     let (status, w) = next_taking(&e, "grok", &["work"]).await;
     assert_eq!(status, StatusCode::OK, "{w}");
     assert_eq!(w["from"], "backlog", "{w}");
     assert_eq!(w["task"]["title"], "quieter hello");
 
-    // approved: only `merge` takes it now
     approve(&e, &id(&t), "codex").await;
     let (_, r) = next_taking(&e, "codex", &["review"]).await;
     assert_eq!(r["task"], Value::Null, "{r}");
@@ -1385,8 +1342,6 @@ async fn next_routes_a_dozen_agents_at_once_with_no_cap() {
     assert!(items.iter().all(|it| it["state"] == "taken"), "{items:?}");
 }
 
-// ---- Plan 10 A3: targets ----
-
 async fn add_target(e: &Env, repo: &str, title: &str) -> Value {
     let (status, body) = call(
         &e.app,
@@ -1416,7 +1371,6 @@ async fn targets_are_added_listed_and_closed_over_http() {
     assert_eq!(targets(&e, "?repo=demo").await.len(), 1);
     assert_eq!(targets(&e, "").await.len(), 2);
 
-    // by slug within a repo, or by id
     let (status, body) = call(
         &e.app,
         "PUT",
@@ -1501,7 +1455,6 @@ async fn backlog_items_count_toward_a_target_and_merges_move_it() {
         (Some(2), Some(2))
     );
 
-    // claude takes the first and merges it
     let (status, t) = next(&e, "claude").await;
     assert_eq!(status, StatusCode::OK, "{t}");
     assert_eq!(t["task"]["title"], "Louder hello", "{t}");
@@ -1524,7 +1477,6 @@ async fn backlog_items_count_toward_a_target_and_merges_move_it() {
         "{t}"
     );
 
-    // unlinking
     let (status, body) = call(
         &e.app,
         "PUT",
@@ -1621,13 +1573,11 @@ async fn a_managed_profile_refuses_the_api_put_and_names_its_manager() {
             .contains("agent reviewer is managed by ee; change it there"),
         "{body}"
     );
-    // unchanged
     let a = agent(&e, "reviewer").await;
     assert_eq!(a["best"], json!(["review"]), "{a}");
     assert_eq!(a["cost_rank"], 2, "{a}");
     assert_eq!(a["managed_by"], "ee", "{a}");
 
-    // its manager may still rewrite it, and may let it go
     st.put_profile(&managed("reviewer", None)).await.unwrap();
     assert_eq!(agent(&e, "reviewer").await["managed_by"], Value::Null);
     let (status, body) = call(
@@ -1697,7 +1647,6 @@ async fn an_agent_profile_can_be_removed_unless_it_owns_work_or_an_extension_man
     assert_eq!(status, StatusCode::OK, "{listed}");
     assert!(!names(&listed).contains(&"muse".to_owned()), "{listed}");
 
-    // an open task blocks; force removes the profile and leaves the task
     put_agent(&e, "claude", &["code"], &[], 4).await;
     let open = start_task(&e, "Make hello louder").await;
     let (status, body) = call(&e.app, "DELETE", "/v1/agents/claude", None).await;
@@ -1720,7 +1669,6 @@ async fn an_agent_profile_can_be_removed_unless_it_owns_work_or_an_extension_man
     let (status, body) = call(&e.app, "DELETE", "/v1/agents/bea", None).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 
-    // handed off blocks too; an abandoned task does not
     put_agent(&e, "ada", &["code"], &[], 3).await;
     let handed = start_as(&e, "ada", "Pass it on").await;
     edit_greeter(&e, &handed);
@@ -1804,8 +1752,6 @@ async fn delete_profile_refuses_a_held_profile_and_names_an_unknown_one_in_one_s
     e.store.delete_profile("claude", true).await.unwrap();
 }
 
-// ---- propose mode: items a human accepts first ----
-
 async fn post_json(e: &Env, body: Value) -> (StatusCode, Value) {
     call(&e.app, "POST", "/v1/backlog", Some(body)).await
 }
@@ -1846,7 +1792,6 @@ async fn a_proposed_item_is_not_offered_until_it_is_accepted() {
     assert_eq!(p["why"], "unsure it pays off");
     let id = p["id"].as_str().unwrap().to_owned();
 
-    // never offered, not even to a peek, and not counted as queued
     assert_eq!(
         peek(&e, "claude").await,
         json!({"would": null, "queued": 0})
@@ -1855,7 +1800,6 @@ async fn a_proposed_item_is_not_offered_until_it_is_accepted() {
     assert_eq!(body, json!({"task": null, "queued": 0}));
     assert_eq!(backlog(&e, "?state=proposed").await.len(), 1);
 
-    // accepted: queued, an event, and offered
     let (status, a) = accept(&e, &id, "vinh").await;
     assert_eq!(status, StatusCode::OK, "{a}");
     assert_eq!(a["state"], "queued");
@@ -1875,7 +1819,6 @@ async fn a_proposed_item_is_not_offered_until_it_is_accepted() {
     assert_eq!(body["from"], "backlog", "{body}");
     assert_eq!(body["backlog_id"], id.as_str());
 
-    // accepting a queued or taken item, or an unknown one
     let (status, body) = accept(&e, &id, "vinh").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     let (status, _) = accept(&e, "00000000-0000-0000-0000-000000000000", "vinh").await;
@@ -1993,7 +1936,6 @@ async fn agent_posts_propose_makes_every_agents_post_a_proposal() {
     .await;
     assert_eq!(b["state"], "queued", "{b}");
 
-    // back to queue: agents queue again; an unknown mode is a 400
     set_agent_posts(&e, "demo", "queue").await;
     let (_, b) = post_json(&e, post("claude", true)).await;
     assert_eq!(b["state"], "queued", "{b}");
@@ -2089,7 +2031,7 @@ async fn a_merge_guard_can_refuse_an_accept_and_the_item_stays_proposed() {
     assert_eq!(guard.0.lock().unwrap().len(), 2);
 }
 
-// F14: every route that hands out a workspace writes its `.av-task`: the task, a session and the
+// Every route that hands out a workspace writes its `.av-task`: the task, a session and the
 // generation, no agent (the daemon does not know the name the hooks there act as).
 
 #[tokio::test]
@@ -2172,7 +2114,6 @@ async fn a_resume_keeps_what_the_task_file_already_holds() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{b}");
-    // as the CLI and the Stop hook leave it
     let file = ws_dir(&e, &t).join(".av-task");
     std::fs::write(
         &file,

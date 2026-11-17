@@ -52,7 +52,6 @@ fn ours(text: &str) -> bool {
         .is_some_and(|l| l.starts_with(MARKER_PREFIX))
 }
 
-/// Whether `<ws_root>/<repo>/.cargo/config.toml` is av's.
 pub(crate) fn is_ours(st: &AppState, repo: &str) -> bool {
     config_path(st, repo)
         .ok()

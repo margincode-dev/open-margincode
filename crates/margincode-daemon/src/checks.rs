@@ -76,7 +76,6 @@ pub(crate) async fn results_by_change(
         .collect())
 }
 
-/// The failing result among `rows`, else any result (for display).
 pub(crate) fn summary(rows: &[CheckRow]) -> Option<&CheckRow> {
     rows.iter().find(|r| r.exit_code != 0).or(rows.first())
 }
@@ -109,7 +108,6 @@ pub(crate) async fn main_health(st: &AppState, repo: &str) -> Result<Value> {
     if row.exit_code == 0 {
         return Ok(json!({"main": main, "state": "green", "checked": newest.change}));
     }
-    // the oldest commit of the red run that ends at the newest checked commit
     let (since, failing) = checked
         .iter()
         .take_while(|(_, r)| r.exit_code != 0)

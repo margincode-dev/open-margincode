@@ -37,8 +37,7 @@ use crate::AppState;
 use crate::error::ApiResult;
 
 /// The thresholds of `GET /v1/attention`: how long a task may wait in a status before it needs
-/// attention, and what footprint is worth a row. The defaults are the dashboard's former
-/// constants.
+/// attention, and what footprint is worth a row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AttentionLimits {
     /// `AV_ATTN_REVIEW_SECS` (default 7200): a review nobody gave.
@@ -259,7 +258,6 @@ async fn attention(
         items.push(it);
     }
 
-    // tasks: conflicted, waiting for a review or a merge, handed off, quiet
     let quiet: HashMap<TaskId, DateTime<Utc>> = st
         .store
         .abandoned_tasks(repo, st.lease_secs)

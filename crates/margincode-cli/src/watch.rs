@@ -21,9 +21,8 @@ use serde_json::{Value, json};
 use crate::client::{CliError, Client, Result};
 use margincode_agentrun::slots;
 
-/// The longest pause after failures (the command, or the daemon).
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
-/// The Stop hook's wait for more work (`hook::stop`), which a watched command gets as 0.
+/// The watch already waits for work, so a watched command's Stop hook (`hook::stop`) must not.
 const HOOK_WAIT: &str = "AV_HOOK_WAIT_SECS";
 
 pub struct Watch<'a> {
@@ -33,14 +32,11 @@ pub struct Watch<'a> {
     pub every: Duration,
     pub max_runs: Option<u32>,
     pub once: bool,
-    /// Agents allowed to run at once on this host; `None` = no limit.
     pub max_agents: Option<u32>,
-    /// Where the slot files live (`$AV_HOME/agents`).
     pub slots_dir: PathBuf,
     pub cmd: &'a [String],
 }
 
-/// What a dry run of `next` says: `None` when nothing fits the agent.
 fn peek(client: &Client, w: &Watch) -> Result<Option<Value>> {
     let r = client.post(
         "/v1/backlog/next",

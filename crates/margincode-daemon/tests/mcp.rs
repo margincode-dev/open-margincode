@@ -1,4 +1,4 @@
-//! The MCP endpoint (`/mcp`, Plan 3 Task 8): JSON-RPC over streamable HTTP, plain JSON responses.
+//! The MCP endpoint (`/mcp`): JSON-RPC over streamable HTTP, plain JSON responses.
 
 use crate::common::*;
 use axum::body::Body;
@@ -82,7 +82,6 @@ async fn tool(e: &Env, session: &str, name: &str, args: Value) -> Value {
     r.body
 }
 
-/// The text of a successful tool result.
 fn text(reply: &Value) -> String {
     assert_eq!(reply["result"]["isError"], false, "{reply}");
     reply["result"]["content"][0]["text"]
@@ -280,7 +279,6 @@ async fn start_task_then_get_context_roundtrip_over_mcp() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_record_tool_corrects_a_record_by_the_handle_a_pack_prints() {
     let e = env().await;
-    // an earlier task recorded something wrong about a file
     let earlier = start_task(&e, "Earlier work").await;
     let (status, wrong) = call(
         &e.app,
@@ -354,7 +352,6 @@ async fn the_record_tool_corrects_a_record_by_the_handle_a_pack_prints() {
         .unwrap();
     assert!(old["superseded_by"].is_string(), "{old}");
 
-    // a refusal is a tool error that says why
     let r = tool(
         &e,
         &s,
@@ -385,7 +382,6 @@ async fn second_get_context_in_same_session_marks_items_sent_earlier() {
     .await;
     let again = text(&tool(&e, &s, "get_context", json!({})).await);
     assert!(again.contains("(sent earlier)"), "{again}");
-    // another MCP session sees everything in full
     let other = connect(&e, "claude-code").await;
     let task = text(&tool(&e, &s, "status", json!({})).await);
     let id: Value = serde_json::from_str(&task).unwrap();
@@ -515,7 +511,7 @@ async fn instructions_do_not_ask_for_manual_checkpoints() {
         "{instructions}"
     );
     assert!(instructions.contains("submit checkpoints for you"));
-    // Plan 9: how to take the next job and do a review, and why git status looks empty. Not a
+    // How to take the next job and do a review, and why git status looks empty. Not a
     // loop: an agent the user opened for their own work must not start pulling backlog work.
     assert!(
         instructions.contains("with no title or goal"),
@@ -589,7 +585,6 @@ async fn submit_tool_accepts_records() {
     );
 }
 
-/// What a refused tool call says.
 fn refusal(reply: &Value) -> &str {
     reply["result"]["content"][0]["text"].as_str().unwrap()
 }
@@ -642,7 +637,6 @@ async fn submit_lists_supersedes_for_its_inline_records_and_takes_it() {
 
     let t = start_task(&e, "Improve greeting").await;
     edit_greeter(&e, &t);
-    // a record that may not correct is refused through the tool as through the API
     let r = tool(
         &e,
         &s,
@@ -834,8 +828,6 @@ async fn mcp_packs_are_800_tokens_of_signatures_unless_asked() {
     assert!(full.contains("n.title()"), "code=full has bodies: {full}");
 }
 
-// ---- Plan 8 Task 5: routing over MCP
-
 async fn put_profile(e: &Env, name: &str, body: Value) {
     let (status, out) = call(&e.app, "PUT", &format!("/v1/agents/{name}"), Some(body)).await;
     assert_eq!(status, StatusCode::OK, "{out}");
@@ -871,7 +863,6 @@ async fn start_task_without_title_and_goal_takes_the_next_backlog_task() {
     assert!(out.contains("workspace:"), "{out}");
     assert!(out.contains("generation: 1"), "{out}");
 
-    // the session now has a task and its owner is the profile name, so later calls just work
     let status = text(&tool(&e, &s, "status", json!({})).await);
     assert!(status.contains("\"owner_agent\": \"grok\""), "{status}");
 }
@@ -880,7 +871,6 @@ async fn start_task_without_title_and_goal_takes_the_next_backlog_task() {
 async fn post_backlog_queues_or_proposes_follow_up_work() {
     let e = env().await;
     let s = connect(&e, "claude-code").await;
-    // repo given: queued, posted by the session's agent
     let out = text(
         &tool(
             &e,
@@ -892,7 +882,6 @@ async fn post_backlog_queues_or_proposes_follow_up_work() {
     );
     assert!(out.starts_with("queued: "), "{out}");
     assert!(out.contains("Add a farewell"), "{out}");
-    // without a repo: the session task's; proposed with why
     text(
         &tool(
             &e,
@@ -995,7 +984,6 @@ async fn a_handoff_with_needs_is_claimed_by_start_task_without_arguments() {
     edit_greeter(&e, &t);
     record_decision(&e, &t).await;
 
-    // the owner hands off over MCP, naming the tag the next agent must have
     let first = connect(&e, "claude").await;
     let out = text(
         &tool(
@@ -1030,8 +1018,6 @@ async fn needs_must_be_a_list_of_strings() {
     assert_eq!(r["error"]["code"], -32602, "{r}");
 }
 
-// ---- Plan 9 Task 4: slugs for task ids; review offers over MCP
-
 async fn op(e: &Env, task: &str, op: &str, body: Value) {
     let (status, out) = call(
         &e.app,
@@ -1043,7 +1029,6 @@ async fn op(e: &Env, task: &str, op: &str, body: Value) {
     assert_eq!(status, StatusCode::OK, "{op}: {out}");
 }
 
-/// A task of `demo` that claude submitted, ready for review.
 async fn submitted(e: &Env, title: &str) -> Value {
     let t = start_task(e, title).await;
     edit_greeter(e, &t);
@@ -1112,7 +1097,6 @@ async fn an_ambiguous_slug_names_every_match() {
     let msg = r["error"]["message"].as_str().unwrap();
     assert!(msg.contains(&format!("demo/{}", slug(&t))), "{msg}");
     assert!(msg.contains(&format!("other/{}", slug(&t))), "{msg}");
-    // naming the repo picks one
     let out = text(
         &tool(
             &e,
@@ -1175,7 +1159,6 @@ async fn start_task_without_arguments_offers_a_review_and_does_not_adopt_it() {
     );
     assert!(out.contains("owner: claude"), "{out}");
     assert!(out.contains("Review it: review_task"), "{out}");
-    // the reviewer does not own it: the session has no task of its own
     let r = tool(&e, &s, "status", json!({})).await;
     assert_eq!(r["error"]["code"], -32602, "{r}");
 }
@@ -1286,12 +1269,10 @@ async fn extension_tools_are_listed_and_called_like_community_ones() {
     let out = text(&tool(&e, &s, "ee_echo", json!({"text": "hi"})).await);
     assert!(out.ends_with("says hi"), "{out}");
 
-    // the tool's own refusal is a tool error, as for Community tools
     let refused = tool(&e, &s, "ee_echo", json!({"text": "boom"})).await;
     assert_eq!(refused["result"]["isError"], true, "{refused}");
     assert_eq!(refused["result"]["content"][0]["text"], "echo refused");
 
-    // arguments are checked against its schema first
     let bad = tool(&e, &s, "ee_echo", json!({})).await;
     assert!(bad["error"]["message"].is_string(), "{bad}");
 
@@ -1317,8 +1298,6 @@ async fn an_extension_tool_cannot_take_a_community_tool_name() {
     );
     env_with(|s| s.with_mcp_tools(vec![tool])).await;
 }
-
-// ---- several tasks on one MCP session (Claude Code subagents share their parent's session)
 
 fn record_count(status: &str) -> i64 {
     serde_json::from_str::<Value>(status).unwrap()["record_count"]
@@ -1355,7 +1334,6 @@ async fn a_session_with_two_open_tasks_asks_which_one() {
     );
     assert!(msg.contains("task_id"), "{msg}");
 
-    // naming it works, and the write lands on that task
     let count = |id: &'static str| {
         let (e, s) = (&e, &s);
         async move { record_count(&text(&tool(e, s, "status", json!({"task_id": id})).await)) }
@@ -1367,7 +1345,6 @@ async fn a_session_with_two_open_tasks_asks_which_one() {
     assert_eq!(r["result"]["isError"], false, "{r}");
     assert_eq!(count("first-job").await, first + 1);
 
-    // once only one of them is open, it is the default again
     let r = tool(&e, &s, "abandon", json!({"task_id": "second-job"})).await;
     assert_eq!(r["result"]["isError"], false, "{r}");
     let second = count("second-job").await;
@@ -1394,13 +1371,9 @@ async fn abandon_says_when_the_workspace_was_removed() {
     assert_eq!(abandoned, "task abandoned; its workspace was removed");
 }
 
-// ---- F10: a start_task the client gave up on is handed to its retry ----
-//
-// Claude Code (2.1.325, measured 2026-11-16 through a logging proxy) resets a tool call's socket
-// 60 s after it sent the call, sends `notifications/cancelled` with the request id only when its
-// MCP_TOOL_TIMEOUT is shorter than that (none at the default 60 s), and retries about 1 s after it
-// gave up with the same `Mcp-Session-Id`. In the dogfood run that found this, both retries came
-// while the ~90 s start was still running.
+// Claude Code resets a tool call's socket 60 s after sending it, sends `notifications/cancelled`
+// only when MCP_TOOL_TIMEOUT is shorter than that, and retries about 1 s after giving up with the
+// same `Mcp-Session-Id`, while the original start may still be running.
 
 async fn paused_env() -> (Env, std::sync::Arc<margincode_daemon::StartPackPause>) {
     let pause = std::sync::Arc::new(margincode_daemon::StartPackPause {
@@ -1572,7 +1545,7 @@ async fn a_waiting_start_whose_socket_closed_takes_nothing() {
 }
 
 /// Claude Code resets a cancelled call's socket 60 s after it sent the call, while the start
-/// may still run (measured with 2.1.325): a start that a retry took over goes on for the retry.
+/// may still run: a start that a retry took over goes on for the retry.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_start_taken_over_by_a_retry_goes_on_when_its_socket_closes() {
     let (e, pause) = paused_env().await;
@@ -1642,7 +1615,6 @@ async fn a_waiting_start_takes_an_item_posted_while_it_waits() {
     assert!(text(&got).contains("workspace:"), "{got}");
 }
 
-/// A client that ends its session (`DELETE /mcp`) is gone: its waiting start takes nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_waiting_start_of_a_deleted_session_takes_nothing() {
     let (e, _) = paused_env().await;
@@ -1666,7 +1638,6 @@ async fn a_waiting_start_of_a_deleted_session_takes_nothing() {
     );
 }
 
-/// When the retry that holds a waiting start goes too, the start stops and takes nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_waiting_start_whose_retry_closed_too_takes_nothing() {
     let (e, _) = paused_env().await;
@@ -1691,8 +1662,6 @@ async fn a_waiting_start_whose_retry_closed_too_takes_nothing() {
     assert!(open_tasks(&e).await.is_empty(), "a gone call took the item");
 }
 
-/// A start is handed back only to a retry with the same repo: another repo (or none) asks for
-/// other work.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancelled_start_is_handed_only_to_a_retry_with_the_same_repo() {
     let (e, _) = paused_env().await;
@@ -1752,8 +1721,6 @@ async fn a_cancelled_explicit_start_is_handed_only_to_the_same_ask() {
     assert!(!slugs.iter().any(|s| s.ends_with("-2")), "{slugs:?}");
 }
 
-/// Only an answer that gave a task is handed back, and only while that task is still open under
-/// the same generation.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_a_start_that_gave_a_task_still_open_is_handed_back() {
     let (e, _) = paused_env().await;
@@ -1800,11 +1767,10 @@ async fn start_task_over_mcp_writes_the_task_file() {
     assert!(tf.get("agent").is_none(), "names no agent: {tf}");
 }
 
-// T1a: the daemon names the owner in `.av-task` only when the agent named itself (`X-Av-Agent`),
-// with its profile's aliases, so a hook that acts under that name or an alias is not fenced from
-// its own workspace. A session named only by its client program gets a file with no name.
+// The daemon names the owner in `.av-task` only when the agent named itself (`X-Av-Agent`), with its
+// profile's aliases, so a hook acting under that name or an alias is not fenced from its own
+// workspace. A session named only by its client program gets a file with no name.
 
-/// `initialize` with `X-Av-Agent: name`; returns the session id.
 async fn connect_named(e: &Env, name: &str) -> String {
     let (status, sid, body) = initialize_with(e, ("x-av-agent", name)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1819,14 +1785,12 @@ async fn connect_named(e: &Env, name: &str) -> String {
     sid
 }
 
-/// The task a `start_task` answer names, as `{"task": {"id", "slug"}}`.
 fn started_task(said: &str) -> Value {
     let line = said.lines().find(|l| l.starts_with("task: ")).unwrap();
     let (task, slug) = line["task: ".len()..].split_once(" (").unwrap();
     json!({"task": {"id": task, "slug": slug.trim_end_matches(')')}})
 }
 
-/// Started over MCP by `session`, then handed off by its owner `owner`.
 async fn started_and_handed_off(e: &Env, session: &str, owner: &str) -> Value {
     let said = text(
         &tool(
@@ -1853,7 +1817,6 @@ async fn a_session_named_by_header_gets_its_name_in_the_task_file() {
         json!({"best": ["code"], "aliases": ["opus"]}),
     )
     .await;
-    // named by an alias: the session acts as the profile's name
     let s = connect_named(&e, "opus").await;
     let t = started_and_handed_off(&e, &s, "claude-opus").await;
     let tf = task_file(&e, &t);
@@ -1861,7 +1824,6 @@ async fn a_session_named_by_header_gets_its_name_in_the_task_file() {
     assert_eq!(tf["aliases"], json!(["opus"]), "{tf}");
     assert_eq!(tf["generation"], 1, "{tf}");
 
-    // a claim by another named session names the new owner, and only it
     let g = connect_named(&e, "grok").await;
     let claimed = text(&tool(&e, &g, "claim_task", json!({"task_id": t["task"]["id"]})).await);
     assert!(claimed.contains("generation: 2"), "{claimed}");
@@ -1877,7 +1839,6 @@ async fn a_session_named_only_by_its_client_gets_none() {
     let s = connect_named(&e, "grok").await;
     let t = started_and_handed_off(&e, &s, "grok").await;
     assert_eq!(task_file(&e, &t)["agent"], "grok");
-    // `codex` is only the client's name: its claim leaves the file naming nobody
     let c = connect(&e, "codex").await;
     let claimed = text(&tool(&e, &c, "claim_task", json!({"task_id": t["task"]["id"]})).await);
     assert!(claimed.contains("generation: 2"), "{claimed}");
@@ -1886,10 +1847,9 @@ async fn a_session_named_only_by_its_client_gets_none() {
     assert_eq!(tf["generation"], 2, "{tf}");
 }
 
-/// A claim names its owner in the same write that hands out the new generation (T1a): a reader
-/// that saw generation 2 saw the name too, so no named previous owner reads the new generation
-/// from a file that names nobody and lands a write under it. A thread reads the file throughout
-/// the claim; with the name written after, it finds generation 2 unnamed.
+/// A claim names its owner in the same write that hands out the new generation: a reader that saw
+/// generation 2 saw the name too, so a named previous owner never reads it from a file that names
+/// nobody and lands a write under it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_claims_file_is_named_in_the_write_that_hands_out_its_generation() {
     use std::sync::Arc;

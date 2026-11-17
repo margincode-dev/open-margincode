@@ -4,8 +4,7 @@
 use crate::common::*;
 use margincode_core::IntentStore as _;
 
-/// A commit in `dir` at `secs` past 2026-01-01 (committer and author time), so newest-first is
-/// the order written here.
+/// Commit times are fixed offsets from 2026-01-01, so newest-first is the order written here.
 fn commit_at(dir: &Path, secs: u64, args: &[&str]) {
     let date = format!("{} +0000", 1_767_225_600 + secs);
     let out = std::process::Command::new("git")
@@ -198,7 +197,6 @@ async fn import_mines_commits_worth_keeping_into_anchored_notes() {
         vec!["app/cache.py"],
         "a merged branch's commit is mined too"
     );
-    // the root, the typo fix, `wip`, the merge and the 30-file sweep are not
     for skipped in [
         "init",
         "fix typo",
@@ -250,7 +248,6 @@ async fn the_cap_holds_and_mining_again_only_adds_what_is_new() {
         vec![CACHE, DEFAULTS, TOML]
     );
 
-    // again: nothing new
     let (_, r) = call(
         &e.app,
         "POST",
@@ -260,7 +257,6 @@ async fn the_cap_holds_and_mining_again_only_adds_what_is_new() {
     .await;
     assert_eq!(r["records"], 0, "{r}");
     assert_eq!(r["already"], 3, "{r}");
-    // a second add of the same repo is refused and mines nothing either
     let (status, body) = call(
         &e.app,
         "POST",
@@ -300,7 +296,6 @@ async fn mined_records_reach_agents_below_their_own_and_why_names_the_commit() {
         json!({"repo": "hist", "title": title, "goal": "Support YAML configs too",
                "agent": agent, "session": format!("s-{title}")})
     };
-    // an agent's note about config.py, from another task
     let (_, other) = call(&e.app, "POST", "/v1/tasks", Some(start("Earlier", "codex"))).await;
     let other_id = other["task"]["id"].as_str().unwrap().to_owned();
     let (status, _) = call(
@@ -317,7 +312,6 @@ async fn mined_records_reach_agents_below_their_own_and_why_names_the_commit() {
     let (_, t) = call(&e.app, "POST", "/v1/tasks", Some(start("Yaml", "claude"))).await;
     let id = t["task"]["id"].as_str().unwrap().to_owned();
     // what a hook shows an agent opening the file: the agent's note first, then the mined ones,
-    // each saying where it comes from
     let (_, at) = call(
         &e.app,
         "GET",
@@ -350,7 +344,6 @@ async fn mined_records_reach_agents_below_their_own_and_why_names_the_commit() {
     let agent = md.find("must never raise").expect(md);
     let mined_at = md.find(DEFAULTS).expect(md);
     assert!(agent < mined_at, "{md}");
-    // why a line of imported history is that way: the commit's mined record
     let (status, why) = call(
         &e.app,
         "GET",

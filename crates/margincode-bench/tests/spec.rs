@@ -240,7 +240,6 @@ fn check_warns_about_a_missing_path_prepend_dir_but_does_not_fail() {
         "{w:?}"
     );
 
-    // The CLI prints the warning and still succeeds.
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_margincode-bench"))
         .arg("check")
         .arg(tasks.path())

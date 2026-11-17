@@ -15,7 +15,6 @@ use crate::common::*;
 const GREETER: &str = "from util import format_name\n\nclass Greeter:\n    def hello(self, name):\n        return format_name(name)\n";
 const LOUDER: &str = "from util import format_name\n\nclass Greeter:\n    def hello(self, name):\n        return format_name(name).upper()\n";
 
-/// A request with a raw body; returns status, headers and the body bytes.
 async fn raw(
     app: &Router,
     method: &str,
@@ -89,7 +88,6 @@ async fn a_patch_checkpoint_lands_like_a_local_one() {
         tree.len() == 40 && tree.bytes().all(|b| b.is_ascii_hexdigit()),
         "{tree}"
     );
-    // the daemon's own workspace holds the file, and the task's head is the new checkpoint
     assert_eq!(
         std::fs::read_to_string(ws_dir(&e, &t).join("app/greeter.py")).unwrap(),
         LOUDER
@@ -113,7 +111,6 @@ async fn a_patch_checkpoint_lands_like_a_local_one() {
     )
     .await;
     assert_eq!(local["head_change"], head, "{local}");
-    // the checkpoint is an event like any other
     let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
     let kinds: Vec<&str> = events["events"]
         .as_array()
@@ -141,7 +138,6 @@ async fn a_stale_base_is_409_with_the_current_head() {
     let e = env().await;
     let t = start_task(&e, "Stale base").await;
     let base = head_of(&e, &t).await;
-    // someone on the daemon's host edits and checkpoints
     edit_greeter(&e, &t);
     let (_, local) = call(
         &e.app,
@@ -184,7 +180,6 @@ async fn the_patch_route_starts_and_resyncs_a_checkout() {
     let e = env().await;
     let t = start_task(&e, "Resync").await;
     let base = head_of(&e, &t).await;
-    // from nothing: every file of the task's head
     let (status, headers, full) = raw(
         &e.app,
         "GET",
@@ -206,7 +201,6 @@ async fn the_patch_route_starts_and_resyncs_a_checkout() {
     let tree = headers["x-av-tree"].to_str().unwrap().to_owned();
     assert_eq!(tree.len(), 40);
 
-    // after a change on the daemon, from the old base: only what changed
     edit_greeter(&e, &t);
     let (_, local) = call(
         &e.app,
@@ -229,7 +223,6 @@ async fn the_patch_route_starts_and_resyncs_a_checkout() {
     assert_eq!(applied.len(), 1);
     assert_eq!(applied[0].path, "app/greeter.py");
 
-    // a patch from the head to itself is empty
     let head = local["head_change"].as_str().unwrap();
     let (_, _, none) = raw(
         &e.app,
@@ -256,7 +249,6 @@ async fn a_bad_patch_is_400_and_writes_nothing() {
         std::fs::read_to_string(ws_dir(&e, &t).join("app/greeter.py")).unwrap(),
         GREETER
     );
-    // an unknown base
     let (status, _, body) = post_patch(&e, &t, &"ab".repeat(20), vec![]).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
 }

@@ -1,5 +1,3 @@
-//! Plan 2 Task 6: outbox worker (TestDb + ScriptedEmbedder + MemoryIndex, no network).
-
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -71,7 +69,6 @@ impl Env {
             .unwrap()
     }
 
-    /// Live (non-superseded) record hits for `text`, searched with that text's own vector.
     async fn record_hits(&self, text: &str) -> Vec<RecordId> {
         let v = self
             .embedder
@@ -174,7 +171,6 @@ async fn redelivered_upsert_does_not_clear_superseded() {
     env.record("new idea", Some(old.id)).await;
     env.worker().drain_once().await.unwrap();
     assert!(!env.record_hits("old idea").await.contains(&old.id));
-    // A stale copy of the original upsert, still saying superseded = false.
     PgStore::enqueue(
         env.store.pool(),
         &NewOutbox {
@@ -276,7 +272,6 @@ async fn code_chunk_upsert_lands_and_delete_removes_it() {
     assert!(hits.is_empty());
 }
 
-/// Move every row's lock into the past so a second drain may claim it again.
 async fn sqlx_unlock(env: &Env) {
     sqlx::query("UPDATE outbox SET locked_until = now() - interval '1 second'")
         .execute(env.store.pool())

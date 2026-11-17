@@ -15,7 +15,6 @@ struct Fake {
     bodies: Arc<Mutex<Vec<Value>>>,
     /// Vector length per call: `dims[n]` for the n-th call (last entry repeats).
     dims: Arc<Vec<usize>>,
-    /// Return one vector fewer than the number of inputs.
     short: bool,
 }
 

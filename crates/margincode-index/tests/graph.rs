@@ -437,8 +437,8 @@ async fn in_degree_does_not_attribute_a_shared_name() {
     assert_eq!(deg.get(&put), Some(&6), "`put` is unique: all six callers");
 }
 
-/// The dogfood case: two unrelated types both define `new` and hundreds of symbols call a `new`.
-/// Neither definition may look like a hot spot (the risk threshold is 5).
+/// Two unrelated types both define `new` and hundreds of symbols call a `new`: neither may look
+/// like a hot spot (the risk threshold is 5).
 #[tokio::test]
 async fn in_degree_is_low_for_two_unrelated_new() {
     let (_db, idx, _) = setup().await;
@@ -498,7 +498,6 @@ async fn in_degree_counts_the_symbols_that_reference_each_one() {
 async fn a_name_more_symbols_share_than_the_fanout_cap_links_to_none() {
     let (_db, idx, _) = setup().await;
     let idx = idx.with_max_fanout(Some(2));
-    // `load` is defined twice (at the cap), `save` three times (over it)
     idx.index_paths(
         "demo",
         "main",

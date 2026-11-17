@@ -77,7 +77,6 @@ pub(crate) async fn blame(
     let Some(newest) = touching.first().cloned() else {
         return Err(AvError::NotFound(format!("{path} has no history on main")));
     };
-    // back: find where to start computing
     let mut start = touching.len() - 1;
     let mut runs: Option<Runs> = None;
     for (i, c) in touching.iter().enumerate() {

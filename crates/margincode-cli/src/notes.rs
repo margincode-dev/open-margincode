@@ -1,10 +1,6 @@
-//! `av notes`: a task's records as a Markdown block for its pull request (Plan 13 Phase 2, the PR
-//! bot). The daemon runs on the developer's machine, out of a CI job's reach, so the CLI renders
-//! the block from `/v1` reads and posts it with `gh` from where the daemon is reachable.
-//!
-//! The block sits between `<!-- margincode:notes v1 task=<id> -->` and `<!-- /margincode:notes -->`,
-//! one per task, so posting again replaces it in place (`replace_block`) and an unchanged block
-//! is not sent at all. Rendering is pure (`render`), tested against `tests/golden/notes.md`.
+//! `av notes`: a task's records as a Markdown block for its pull request, posted with `gh`
+//! because the daemon is out of a CI job's reach. The block sits between two markers, one per
+//! task, so posting again replaces it in place and an unchanged block is not sent.
 
 use std::io::Write as _;
 use std::process::{Command, Stdio};
@@ -16,10 +12,8 @@ use crate::client::{CliError, Result};
 pub const END: &str = "<!-- /margincode:notes -->";
 /// Changed files whose earlier records the block looks up (`records/at`, one request each).
 pub const MAX_FILES: usize = 20;
-/// Body text shown per record; the rest is a `av expand` away.
 const MAX_BODY_CHARS: usize = 600;
 
-/// The opening marker of the block for one task.
 pub fn start_marker(task_id: &str) -> String {
     format!("<!-- margincode:notes v1 task={task_id} -->")
 }
@@ -97,7 +91,6 @@ fn anchors(rec: &Value) -> String {
     }
 }
 
-/// A record's body as quoted lines under its bullet, clipped to `MAX_BODY_CHARS`.
 fn body_lines(body: &str) -> Vec<String> {
     let body = body.trim();
     if body.is_empty() {
@@ -252,15 +245,12 @@ pub fn render(task: &Value, records: &[Value], files: &[FileNotes]) -> String {
     out.join("\n") + "\n"
 }
 
-/// Where the block of `task_id` is in `text` (marker to end marker, inclusive).
 pub fn find_block(text: &str, task_id: &str) -> Option<std::ops::Range<usize>> {
     let start = text.find(&start_marker(task_id))?;
     let end = text[start..].find(END)? + start + END.len();
     Some(start..end)
 }
 
-/// `text` with the block of `task_id` replaced by `block`, or `block` appended when there is
-/// none. Other tasks' blocks and any text around it stay as they are.
 pub fn replace_block(text: &str, task_id: &str, block: &str) -> String {
     let block = block.trim_end_matches('\n');
     match find_block(text, task_id) {
@@ -270,7 +260,6 @@ pub fn replace_block(text: &str, task_id: &str, block: &str) -> String {
     }
 }
 
-/// What posting did.
 #[derive(Debug, PartialEq)]
 pub enum Posted {
     Created,
@@ -336,7 +325,6 @@ fn comments_of(output: &str) -> Vec<Value> {
     out
 }
 
-/// The pull request of the current branch, as `gh pr view` finds it.
 pub fn current_pr(gh_repo: Option<&str>) -> Result<u64> {
     let out = gh(
         &["pr", "view", "--json", "number", "--jq", ".number"],
@@ -351,8 +339,6 @@ pub fn current_pr(gh_repo: Option<&str>) -> Result<u64> {
     })
 }
 
-/// Posts `block` as a comment on pull request `pr`, or updates the comment that already holds
-/// the block of `task_id` (left alone when the block is the same).
 pub fn post(pr: u64, gh_repo: Option<&str>, task_id: &str, block: &str) -> Result<Posted> {
     let listed = gh(
         &[

@@ -1,6 +1,5 @@
-//! `margincode_vcs::patch` (Plan 14): git-format patches for remote checkpoints, checked against git
-//! itself. `git diff --binary --full-index --no-renames` output must apply to the same files with
-//! `patch::apply`, and what `patch::render` writes must apply with `git apply`.
+//! Checked against git itself: `git diff --binary --full-index --no-renames` output applies with
+//! `patch::apply`, and what `patch::render` writes applies with `git apply`.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -57,7 +56,6 @@ fn write_files(dir: &Path, files: &Files) {
     }
 }
 
-/// `files` after `applied`.
 fn after(mut files: Files, applied: Vec<Applied>) -> Files {
     for a in applied {
         match a.after {
@@ -211,7 +209,6 @@ fn a_rendered_patch_applies_with_git_and_with_apply() {
     for path in old.keys().filter(|p| !new.contains_key(*p)) {
         assert!(!dir.path().join(path).exists(), "{path} is deleted");
     }
-    // git's tree of the result is the one git would write for `new` itself
     let tree = String::from_utf8(git(dir.path(), &["write-tree"])).unwrap();
     let fresh = TempDir::new().unwrap();
     git(fresh.path(), &["init", "-q"]);
@@ -324,7 +321,6 @@ fn a_patch_that_does_not_match_the_files_is_refused_whole() {
         patch::git_blob_id(b"kept\n"),
     );
     invalid(apply_to(&files, p.as_bytes()));
-    // a path twice
     let p = format!("{}{}", add_file("n.txt"), add_file("n.txt"));
     invalid(apply_to(&files, p.as_bytes()));
 }

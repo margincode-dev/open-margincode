@@ -27,8 +27,7 @@ pub const MAX_FILE_BYTES: usize = 256 * 1024 * 1024;
 /// Context lines around each rendered hunk (git's default).
 const CONTEXT: usize = 3;
 
-/// One version of a file: its git mode (`FILE`, `EXECUTABLE`; `SYMLINK` with the target as bytes)
-/// and its content.
+/// One version of a file: its git mode (`SYMLINK` holds the target as bytes) and its content.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Blob {
     pub mode: u32,
@@ -71,11 +70,6 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes[..bytes.len().min(8000)].contains(&0)
 }
 
-// ---------------------------------------------------------------------------------------------
-// render
-
-/// A patch that turns every `before` into its `after`. Paths whose versions are equal add
-/// nothing; with none changed the patch is empty.
 pub fn render(diffs: &[FileDiff]) -> Vec<u8> {
     let mut out = Vec::new();
     for d in diffs {
@@ -217,8 +211,7 @@ fn binary_literal(out: &mut Vec<u8>, bytes: &[u8]) {
     out.push(b'\n');
 }
 
-/// `s` as git writes a path in a header: in C quotes when it holds a quote, a backslash, a
-/// control byte or a non-ASCII byte.
+/// `s` as git writes a path in a header (C-quoted when needed).
 fn quote(s: &str) -> String {
     let needs = s
         .bytes()
@@ -241,9 +234,6 @@ fn quote(s: &str) -> String {
     q.push('"');
     q
 }
-
-// ---------------------------------------------------------------------------------------------
-// parse
 
 #[derive(Debug)]
 enum Kind {
@@ -282,7 +272,6 @@ struct FilePatch {
     binary: Option<Binary>,
 }
 
-/// The patch's lines without their `\n`.
 fn lines(p: &[u8]) -> Vec<&[u8]> {
     let mut v: Vec<&[u8]> = p.split(|b| *b == b'\n').collect();
     if v.last().is_some_and(|l| l.is_empty()) {
@@ -373,7 +362,6 @@ fn parse(p: &[u8]) -> Result<Vec<FilePatch>> {
     Ok(files)
 }
 
-/// The path of `a/X b/X` (either side may be quoted).
 fn header_path(rest: &str) -> Result<String> {
     let a = if rest.starts_with('"') {
         let (a, _) = unquote_prefix(rest)?;
@@ -404,7 +392,6 @@ fn header_path(rest: &str) -> Result<String> {
     })
 }
 
-/// `---`/`+++` name: `None` for `/dev/null`, else the path without its prefix.
 fn side_path(name: &str, prefix: &str) -> Result<Option<String>> {
     // git ends a name holding a space with a tab
     let name = name.strip_suffix('\t').unwrap_or(name);
@@ -427,7 +414,6 @@ fn side_path(name: &str, prefix: &str) -> Result<Option<String>> {
         })
 }
 
-/// A C-quoted string at the start of `s`, and what follows it.
 fn unquote_prefix(s: &str) -> Result<(String, &str)> {
     let b = s.as_bytes();
     let mut out = Vec::new();
@@ -468,7 +454,6 @@ fn unquote_prefix(s: &str) -> Result<(String, &str)> {
     Err(bad("unterminated quoted path"))
 }
 
-/// `@@ -a[,b] +c[,d] @@` and its lines, from `ls[at]`; returns the hunk and the next line index.
 fn parse_hunk(ls: &[&[u8]], at: usize) -> Result<(Hunk, usize)> {
     let header = text(ls[at])?;
     let inner = header
@@ -691,9 +676,6 @@ fn apply_delta(src: &[u8], delta: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-// ---------------------------------------------------------------------------------------------
-// apply
-
 /// A workspace-relative path a patch may write: plain components only, nothing in `.jj` or `.git`,
 /// not the CLI's own `.av-task`.
 fn check_path(path: &str) -> Result<()> {
@@ -728,13 +710,12 @@ fn check_mode(path: &str, m: u32) -> Result<()> {
     }
 }
 
-/// Whether `id` (full or abbreviated, from an `index` line) names `bytes`.
 fn id_matches(id: &str, bytes: &[u8]) -> bool {
     id.len() < 7 || id.bytes().all(|b| b == b'0') || git_blob_id(bytes).starts_with(id)
 }
 
-/// What `patch` does to the files `current` reads (`None`: no such file). Nothing is returned
-/// unless every file of the patch applies; paths come back in patch order.
+/// `None` from `current` means no such file. Nothing is returned unless every file of the patch
+/// applies; paths come back in patch order.
 pub fn apply(
     patch: &[u8],
     mut current: impl FnMut(&str) -> Result<Option<Blob>>,

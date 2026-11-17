@@ -39,7 +39,6 @@ pub(crate) const DIR: &str = "deps-target";
 /// Artifacts rustc replaces rather than rewrites: hard-linked. Everything else is copied.
 const LINKED: &[&str] = &["rlib", "rmeta", "so", "dylib", "dll"];
 
-/// What a harvest or a seed placed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Placed {
     pub linked: u64,
@@ -215,7 +214,6 @@ fn artifact(path: &str) -> bool {
         .any(|ext| path.ends_with(ext))
 }
 
-/// The entries of `profile` that may be shared.
 fn shareable(profile: &Path) -> Units {
     let read = |p: PathBuf| std::fs::read_to_string(p).ok();
     // deps/: a (crate, hash) group goes when its dep-info is external
@@ -468,7 +466,7 @@ mod tests {
     const REG: &str = "/usr/local/cargo/registry/src/index.crates.io-1949cf8c6b5b557f";
 
     /// Cargo compares a unit's outputs' mtimes with its dependencies': a copy stamped "now"
-    /// makes everything that depends on it stale (a live run rebuilt 252 of 263 crates so).
+    /// makes everything that depends on it stale.
     #[test]
     fn copies_keep_the_modification_time() {
         let dir = tempfile::tempdir().unwrap();

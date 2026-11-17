@@ -334,8 +334,6 @@ async fn path_traversal_in_repo_name_is_a_400_and_creates_nothing() {
     );
 }
 
-// ---- Plan 2 Task 8: semantic wiring and POST /v1/reindex ----
-
 struct FailingSemantic;
 
 #[async_trait::async_trait]
@@ -420,8 +418,6 @@ async fn reindex_with_memory_index_upserts_and_clears_outbox() {
     assert!(!chunks.is_empty(), "main's code chunks were upserted");
 }
 
-// ---- Plan 2b Task 1: receipts ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn context_returns_a_receipt_that_records_can_cite() {
     let e = env().await;
@@ -448,8 +444,6 @@ async fn context_returns_a_receipt_that_records_can_cite() {
     let (status, _) = call(&e.app, "GET", "/v1/receipts/ffffffff", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
-
-// ---- Plan 2b Task 2: freshness ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn knowledge_on_code_edited_later_is_flagged_after_checkpoint() {
@@ -537,8 +531,6 @@ async fn record_without_checkpoint_is_not_flagged_changed_after_submit() {
     assert!(!line.contains("changed since recorded"), "{line}");
 }
 
-// ---- Plan 2b Task 3: conventions over HTTP, required ones survive tiny budgets ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn required_convention_added_over_http_survives_a_tiny_pack() {
     let e = env().await;
@@ -576,8 +568,6 @@ async fn required_convention_added_over_http_survives_a_tiny_pack() {
     );
 }
 
-// ---- Plan 2b Task 4: charged expand ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn expand_with_session_is_charged_and_capped() {
     let e = env_with(|s| s.with_expand_cap(Some(60))).await;
@@ -598,7 +588,6 @@ async fn expand_with_session_is_charged_and_capped() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let used = body["session_expand_tokens"].as_u64().unwrap();
     assert!(used > 0, "{body}");
-    // keep expanding until the 60-token cap refuses
     let mut refused = None;
     for _ in 0..20 {
         let (status, body) = call(&e.app, "GET", &url, None).await;
@@ -623,8 +612,6 @@ async fn expand_with_session_is_charged_and_capped() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
-
-// ---- Plan 3 Task 2: record discipline and the submit gate ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submit_refused_when_nothing_changed() {
@@ -815,8 +802,6 @@ async fn concurrent_submit_only_one_wins() {
     assert_eq!(oks, 1, "{a:?} {b:?}");
 }
 
-// ---- Plan 7: task start opens an overlay, does not copy main ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn start_opens_an_empty_overlay_without_reading_the_repo() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -875,8 +860,6 @@ async fn start_opens_an_empty_overlay_without_reading_the_repo() {
     assert!(qnames.iter().any(|q| q == "Greeter.wave"), "{qnames:?}");
 }
 
-// ---- Plan 3 Tasks 4-5: validate, review, merge, sync, undo ----
-
 fn write_file(e: &Env, t: &Value, path: &str, text: &str) {
     std::fs::write(ws_dir(e, t).join(path), text).unwrap();
 }
@@ -925,7 +908,6 @@ async fn review(e: &Env, t: &Value, reviewer: &str, verdict: &str) -> (StatusCod
     .await
 }
 
-/// Edits util.py with `body`, records, submits, validates and gets an approval.
 async fn ready_to_merge(e: &Env, title: &str, body: &str) -> Value {
     let t = start_task(e, title).await;
     write_file(e, &t, "app/util.py", body);
@@ -1032,7 +1014,6 @@ async fn request_changes_reopens_the_task_with_a_review_record() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_approve_of_an_approved_head_is_refused_and_names_the_first() {
     let e = env().await;
-    // approved by "reviewer"
     let t = ready_to_merge(&e, "Upper names", UPPER).await;
     // another reviewer, then the same one again (a retried `av review`)
     for who in ["reviewer2", "reviewer"] {
@@ -1055,7 +1036,6 @@ async fn a_second_approve_of_an_approved_head_is_refused_and_names_the_first() {
 async fn approve_after_changes_requested_and_a_new_submit_is_accepted() {
     let e = env().await;
     let t = ready_to_merge(&e, "Upper names", UPPER).await;
-    // request_changes on an approved head works as before
     let (status, body) = review(&e, &t, "reviewer2", "request_changes").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "open");
@@ -1063,7 +1043,6 @@ async fn approve_after_changes_requested_and_a_new_submit_is_accepted() {
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     validate(&e, &t, 0).await;
-    // the first approver approves the new head
     let (status, body) = review(&e, &t, "reviewer", "approve").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["verdict"], "approve");
@@ -1075,7 +1054,6 @@ async fn the_same_head_resubmitted_after_changes_requested_is_a_new_round() {
     let t = ready_to_merge(&e, "Upper names", UPPER).await;
     let (status, body) = review(&e, &t, "reviewer2", "request_changes").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    // resubmitted without an edit: the head is the one approved before
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let (status, body) = review(&e, &t, "reviewer", "approve").await;
@@ -1084,7 +1062,6 @@ async fn the_same_head_resubmitted_after_changes_requested_is_a_new_round() {
         StatusCode::OK,
         "the old round's approval does not count: {body}"
     );
-    // within this round, a second approval is refused
     let (status, body) = review(&e, &t, "reviewer2", "approve").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     let error = body["error"].as_str().unwrap();
@@ -1102,7 +1079,6 @@ async fn identical_review_findings_at_one_head_are_stored_once() {
     let same = json!({"summary": "keep title case for names", "body": "names are proper nouns",
                       "anchors": [{"path": "app/util.py", "symbol": "format_name"}]});
     let other = json!({"summary": "add a test for empty names"});
-    // the same finding twice in one call
     let (status, body) = post(
         &e,
         &t,
@@ -1111,7 +1087,6 @@ async fn identical_review_findings_at_one_head_are_stored_once() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    // the same head submitted again and the review sent again, with one new finding
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let (status, body) = post(
@@ -1168,8 +1143,6 @@ async fn a_retried_finding_with_its_anchors_reordered_is_stored_once() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    // the same head submitted again and the review retried as it was sent, once more with the
-    // anchors reversed, and with the same text on different anchors
     let (status, body) = submit(&e, &t).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let retry = [
@@ -1300,8 +1273,6 @@ async fn undo_returns_main_and_the_task_to_review() {
     );
 }
 
-// ---- Plan 3 Task 3: handoff and claim ----
-
 async fn task_json(e: &Env, t: &Value) -> Value {
     let (status, body) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(t)), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1397,7 +1368,6 @@ async fn claim_changes_owner_and_reopens() {
     );
     let md = body["bundle"]["markdown"].as_str().unwrap();
     assert!(md.contains("Remaining: make goodbye louder"), "{md}");
-    // the new owner can carry on to submit
     let (status, body) = call_as(
         &e.app,
         "POST",
@@ -1497,8 +1467,6 @@ async fn expired_lease_can_be_claimed_by_another_agent() {
     assert_eq!(body["task"]["status"], "open");
     assert_eq!(body["generation"], 2);
 }
-
-// ---- merge crash recovery, bundles ----
 
 /// Merges for real, then fails the first `merge_task` call as if the daemon died before it could
 /// record the merge.
@@ -1674,8 +1642,6 @@ async fn bundle_route_serves_handoff_and_review_bundles() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
 }
 
-// ---- Plan 3 Task 6: backup push ----
-
 async fn backup(e: &Env) -> Value {
     let (status, body) = call(&e.app, "GET", "/v1/repos/demo/backup", None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1724,7 +1690,6 @@ async fn merge_succeeds_when_remote_unreachable_and_records_failure() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "merged");
     let mut state = backup(&e).await;
-    // the merge's background push, as in `settled()`: up to 30 s on a loaded machine
     for _ in 0..600 {
         if state["failures"].as_u64().unwrap() >= 2 {
             break;
@@ -1797,7 +1762,6 @@ async fn backup_can_push_main_to_a_named_branch() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(backup(&e).await["branch"], "av-main");
 
-    // setting only the remote goes back to the trunk name
     let (_, state) = call(
         &e.app,
         "POST",
@@ -1837,8 +1801,6 @@ async fn option_like_backup_remote_is_rejected() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(backup(&e).await["remote"], Value::Null);
 }
-
-// ---- Plan 15 Phase 0 §9: advance trunk from the backup remote ----
 
 /// A bare remote at `dir/origin.git` whose `main` is the imported trunk (GitHub's `main`).
 fn origin_at_trunk(e: &Env, dir: &Path) -> PathBuf {
@@ -1926,7 +1888,6 @@ async fn advance_fast_forwards_trunk_to_a_remote_commit_on_top_of_it() {
         "{ev}"
     );
 
-    // a new task starts on the new main, and its pack sees the new code
     let t = start_task(&e, "Wave farewell").await;
     assert!(ws_dir(&e, &t).join("app/farewell.py").exists());
     let (status, pack) = call(
@@ -1942,7 +1903,6 @@ async fn advance_fast_forwards_trunk_to_a_remote_commit_on_top_of_it() {
         "{pack}"
     );
 
-    // without a body: the backup remote and `main`
     set_remote(&e, url).await;
     settled(&e).await;
     let next = land_on_remote(&e, &remote, "app/later.py", "def later():\n    return 1\n");
@@ -1962,7 +1922,6 @@ async fn advance_refuses_a_diverged_remote_and_leaves_trunk_alone() {
     let (_, merged) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
     let main = merged["main"].as_str().unwrap().to_owned();
 
-    // the remote is behind: nothing to take, nothing changes
     let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["outcome"], "ahead", "{body}");
@@ -2018,7 +1977,6 @@ async fn backup_tick_advances_before_it_pushes_when_asked() {
     );
     assert_eq!(backup(&e).await["last_pushed"], landed.as_str());
 
-    // setting the remote again without `advance` turns it off
     let (_, state) = call(
         &e.app,
         "POST",
@@ -2028,8 +1986,6 @@ async fn backup_tick_advances_before_it_pushes_when_asked() {
     .await;
     assert_eq!(state["advance"], false, "{state}");
 }
-
-// ---- Plan 3 Task 7: search, abandon, log ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn search_route_finds_records_of_the_repo() {
@@ -2100,8 +2056,6 @@ async fn log_route_lists_main_newest_first() {
         "{body}"
     );
 }
-
-// ---- Plan 3 Task 9: token, scope cleanup, expand repo check, prune ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn token_required_when_configured_and_healthz_open() {
@@ -2343,8 +2297,6 @@ async fn outbox_route_reports_pending_rows_and_whether_semantic_is_on() {
     assert_eq!(body["semantic"], true);
 }
 
-// ---- Plan 5 Task 2: workspace-free read API ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn read_api_serves_files_and_trees_at_main_a_change_and_a_task() {
     let e = env().await;
@@ -2459,8 +2411,6 @@ async fn read_api_diffs_two_changes_and_logs_one_path() {
         "only the import touches greeter.py: {body}"
     );
 }
-
-// ---- Plan 5 Task 3: event feed ----
 
 fn kinds(body: &Value) -> Vec<String> {
     body["events"]
@@ -2588,7 +2538,6 @@ async fn a_checkpoint_that_moves_the_head_is_an_event_and_one_that_does_not_is_n
     }
     assert_eq!(seen, ["started", "checkpoint"]);
 
-    // a snapshot that changes nothing moves no head and is no event
     let (_, again) = post(&e, &t, "checkpoint", json!({})).await;
     assert_eq!(again["head_change"], moved["head_change"]);
     assert_eq!(again["changed"], moved["changed"]);
@@ -2601,8 +2550,6 @@ async fn a_checkpoint_that_moves_the_head_is_an_event_and_one_that_does_not_is_n
     .await;
     assert!(kinds(&after).is_empty(), "{after}");
 }
-
-// ---- Plan 5 Task 4: carried approvals ----
 
 const BASE_UTIL: &str = "def format_name(n):\n    return n.title()\n";
 
@@ -2644,7 +2591,6 @@ async fn conflicted_after_approval(
     a
 }
 
-/// Resolves A's conflicts by writing `files`, then checkpoints, validates and submits.
 async fn resolve_and_resubmit(e: &Env, a: &Value, files: &[(&str, &str)]) -> Value {
     for (path, text) in files {
         write_file(e, a, path, text);
@@ -2730,7 +2676,6 @@ async fn approval_carries_over_a_reworded_markdown_resolution() {
 async fn a_request_for_changes_after_the_approval_blocks_the_carry() {
     let e = env().await;
     let a = conflicted_after_approval(&e, "A = 1\n", "B = 2\n", None).await;
-    // The reviewer changes their mind before the resolution lands.
     let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&a)), None).await;
     let head = task["task"]["head_change"].as_str().unwrap().to_owned();
     e.store
@@ -2782,8 +2727,6 @@ async fn repo_settings_default_then_update_and_reject_bad_globs() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
-
-// ---- Plan 5 Task 5: enforced conventions ----
 
 async fn add_conv(e: &Env, glob: &str, text: &str, check: Option<&str>) -> i64 {
     let (status, body) = call(
@@ -2928,7 +2871,6 @@ async fn a_crates_check_counts_only_when_its_command_was_expanded() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     refused(&body);
 
-    // run by hand as written
     validate_with(
         &e,
         &t,
@@ -2973,8 +2915,6 @@ async fn a_removed_convention_is_no_longer_listed_or_enforced() {
     let (_, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
     assert_eq!(body["status"], "merged", "{body}");
 }
-
-// ---- Plan 5 Task 6: post-merge checks ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn main_health_follows_posted_checks_and_names_the_culprit() {
@@ -3056,8 +2996,6 @@ async fn packs_warn_when_main_is_red() {
         "{md}"
     );
 }
-
-// ---- Plan 5 Task 7: revert any merge ----
 
 const LOUD_GREETER: &str = "from util import format_name\n\nclass Greeter:\n    def hello(self, name):\n        return format_name(name) + \"!\"\n";
 
@@ -3179,8 +3117,6 @@ async fn a_revert_that_conflicts_leaves_main_untouched() {
     assert_eq!(t["task"]["status"], "merged");
 }
 
-// ---- Plan 5 Task 8: derived data, `why` ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn why_names_the_task_and_decisions_behind_a_line() {
     let e = env().await;
@@ -3234,7 +3170,6 @@ async fn why_names_the_task_and_decisions_behind_a_line() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
-    // computed once, then served from the derived cache (keyed by the immutable commit)
     let cached: i64 = sqlx::query_scalar("SELECT count(*) FROM derived WHERE kind = 'blame_v1'")
         .fetch_one(e.store.pool())
         .await
@@ -3276,8 +3211,6 @@ async fn why_follows_a_line_through_later_changes_from_the_cache() {
         "untouched lines keep their origin: {line1}"
     );
 }
-
-// ---- Plan 5 Task 10: conflict markers block submit ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn submit_refuses_leftover_conflict_markers() {
@@ -3350,8 +3283,6 @@ async fn context_can_leave_out_the_map_and_cap_the_code_items() {
     assert!(!md.contains("## Map"), "{md}");
     assert_eq!(md.matches("- sym:").count(), 1, "{md}");
 }
-
-// ---- Dashboard (`/ui`) and the listings it reads ----
 
 #[tokio::test(flavor = "multi_thread")]
 async fn list_tasks_returns_newest_first_with_record_counts_and_filters() {
@@ -3529,7 +3460,6 @@ async fn ui_page_reads_the_team_profiles() {
         html.contains("max_open"),
         "the page shows a team's open-task limit"
     );
-    // the teams are the first column of the layout, before the board, and get their own column
     let (layout, teams, board) = (
         html.find("class=\"layout\"").expect("a layout grid"),
         html.find("id=\"teamsH\"").expect("the teams heading"),
@@ -3569,14 +3499,11 @@ async fn reindex_refreshes_mains_code_index_and_skips_unchanged_files() {
     assert_eq!(body["code_files_reindexed"], 0, "all repos, same: {body}");
 }
 
-// ---- correcting a stored record: `supersedes` ----
-
 /// The `rec:<8 hex>` handle a pack prints for a record.
 fn handle(rec: &Value) -> String {
     format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8])
 }
 
-/// Posts a record of `t` that supersedes `target` (a handle, a prefix or a full id).
 async fn correct(e: &Env, t: &Value, summary: &str, target: &str) -> (StatusCode, Value) {
     post(
         e,
@@ -3587,7 +3514,6 @@ async fn correct(e: &Env, t: &Value, summary: &str, target: &str) -> (StatusCode
     .await
 }
 
-/// Posts a record of kind `kind` of `t` that supersedes `target`.
 async fn correct_as(e: &Env, t: &Value, kind: &str, target: &str) -> (StatusCode, Value) {
     post(
         e,
@@ -3618,7 +3544,6 @@ async fn a_record_corrects_another_tasks_record_by_the_handle_a_pack_prints() {
     assert_eq!(status, StatusCode::OK, "{new}");
     assert_eq!(new["supersedes"], wrong["id"], "{new}");
 
-    // the old record is neither deleted nor edited: it is marked superseded by the new one
     let old = record_by_id(&e, &a, &wrong).await;
     assert_eq!(old["summary"], "names stay lower case", "{old}");
     assert_eq!(old["superseded_by"], new["id"], "{old}");
@@ -3648,7 +3573,6 @@ async fn a_correction_without_anchors_takes_the_anchors_of_the_record_it_correct
     .await;
     let b = start_task(&e, "Later work").await;
 
-    // a bare prefix (6 or more hex characters) names the record too
     let prefix = handle(&wrong)["rec:".len()..].to_owned();
     let (status, new) = correct(&e, &b, "names are title case", &prefix).await;
     assert_eq!(status, StatusCode::OK, "{new}");
@@ -3829,7 +3753,6 @@ async fn only_a_decision_an_attempt_or_a_note_corrects_a_record() {
     assert_eq!(task_records(&e, &b).await.len(), records_before);
     assert_eq!(superseded_events(&e).await, events_before);
 
-    // inline on submit: checked with the rest before anything is written
     let claim = record_on(&e, &a, "decision", "hello stays quiet", "app/greeter.py").await;
     edit_greeter(&e, &b);
     let (status, body) = submit_with(
@@ -3862,7 +3785,6 @@ async fn only_a_decision_an_attempt_or_a_note_corrects_a_record() {
     }
 }
 
-/// How many `record:superseded` events the repo has.
 async fn superseded_events(e: &Env) -> usize {
     let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
     events["events"]
@@ -3981,7 +3903,6 @@ async fn superseding_a_superseded_record_is_a_conflict_that_names_the_live_one()
         );
     }
     assert_eq!(task_records(&e, &c).await.len(), before);
-    // the live one can be corrected
     let (status, body) = correct(&e, &c, "names are snake case", &handle(&third)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
@@ -4117,8 +4038,6 @@ async fn submit_with_an_inline_record_that_supersedes_by_handle() {
     let old = record_by_id(&e, &a, &wrong).await;
     assert_eq!(old["superseded_by"], body["recorded"][0], "{old}");
 }
-
-// ---- just-in-time records (handoff B6): what others recorded about the file an agent opens ----
 
 async fn record_on(e: &Env, t: &Value, kind: &str, summary: &str, path: &str) -> Value {
     let (status, body) = post(
@@ -4272,8 +4191,6 @@ async fn records_at_a_path_without_records_is_empty() {
     assert_eq!(body["records"], json!([]));
 }
 
-// ---- record-writing nudge (handoff B7): what a Stop hook asks the agent to record ----
-
 async fn unrecorded(e: &Env, t: &Value) -> Value {
     let (status, body) = call(
         &e.app,
@@ -4301,7 +4218,7 @@ async fn unrecorded_names_changed_symbols_no_record_explains() {
     assert_eq!(body["explained"], false, "{body}");
     assert_eq!(body["unrecorded_symbols"], json!(["format_name"]), "{body}");
 
-    decide(&e, &t).await; // anchored on app/util.py:format_name
+    decide(&e, &t).await;
     let body = unrecorded(&e, &t).await;
     assert_eq!(body["explained"], true, "{body}");
     assert_eq!(body["unrecorded_symbols"], json!([]), "{body}");
@@ -4409,8 +4326,6 @@ async fn submit_report_leaves_out_rust_unit_tests_without_a_checkpoint() {
     assert_eq!(body["unrecorded_symbols"], json!(["add"]), "{body}");
 }
 
-// ---- one budget law: work packs are 800 tokens of signatures unless asked ----
-
 #[tokio::test(flavor = "multi_thread")]
 async fn work_packs_default_to_800_tokens_of_signatures() {
     let e = env().await;
@@ -4456,7 +4371,6 @@ async fn work_packs_default_to_800_tokens_of_signatures() {
     assert_eq!(started["pack"]["markdown"], same["markdown"]);
 }
 
-/// A guard that refuses one kind of action and remembers what it was asked.
 struct Refuse {
     approve: bool,
     asked: std::sync::Mutex<Vec<String>>,
@@ -4597,7 +4511,6 @@ async fn a_vcs_layer_sees_the_api_the_packer_and_the_backup_loop() {
     let head = jj.snapshot("demo", slug).await.unwrap();
     assert_eq!(cp["head_change"], head.0.as_str(), "jj's own id");
 
-    // the packer reads through the layer too
     let n = mark();
     let (status, pr) = call(
         &e.app,
@@ -4609,7 +4522,6 @@ async fn a_vcs_layer_sees_the_api_the_packer_and_the_backup_loop() {
     assert_eq!(status, StatusCode::OK, "{pr}");
     assert!(since(n).contains(&"read_file"), "{:?}", since(n));
 
-    // the backup loop: one tick, one push, through the layer
     let dir = TempDir::new().unwrap();
     let remote = dir.path().join("backup.git");
     bare_repo(&remote);
@@ -4625,8 +4537,6 @@ async fn a_vcs_layer_sees_the_api_the_packer_and_the_backup_loop() {
     assert_eq!(backup(&e).await["last_pushed"], trunk.0.as_str());
 }
 
-/// A guard that refuses any review verdict by `impostor` and remembers the review and approval
-/// questions it was asked, in order.
 #[derive(Default)]
 struct Reviewers(std::sync::Mutex<Vec<String>>);
 
@@ -4703,10 +4613,7 @@ async fn a_merge_guard_can_refuse_a_review_verdict_before_anything_is_written() 
     assert_eq!(e.store.latest_verdict_any(task_id).await.unwrap(), None);
 }
 
-/// F15: `av review` (HTTP) wrote the verdict, then each finding, and the 200-character limit was
-/// checked inside each finding's write: a long third finding left a `request_changes` verdict and
-/// two review records behind a refused call. Every finding is now checked before anything is
-/// written, and the verdict is written after the findings.
+/// Every finding is checked before anything is written, and the verdict is written after them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_with_one_bad_finding_writes_nothing() {
     let e = env().await;
@@ -4749,7 +4656,6 @@ async fn a_review_with_one_bad_finding_writes_nothing() {
         let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
         assert_eq!(task["task"]["status"], "in_review", "{task}");
     }
-    // the same call with the summary fixed stores exactly three
     let (status, body) = post(
         &e,
         &t,
@@ -4782,7 +4688,6 @@ async fn a_review_is_asked_before_the_approval_question() {
         ["approve by reviewer", "approval by reviewer"]
     );
 
-    // an extension that matches only `Approve` keeps refusing approvals as before
     let refuse = std::sync::Arc::new(Refuse {
         approve: true,
         asked: Default::default(),
@@ -4817,7 +4722,6 @@ async fn request_changes_renews_the_owners_lease() {
     assert_eq!(task["task"]["owner_agent"], "claude", "{task}");
 }
 
-/// A guard that keeps tasks out of one directory and remembers every submit it was asked about.
 struct Scope {
     forbidden: &'static str,
     asked: std::sync::Mutex<Vec<Vec<String>>>,
@@ -4876,7 +4780,6 @@ async fn a_guard_can_refuse_a_submit_by_its_changed_paths() {
     );
 }
 
-/// A sink that keeps what it is told, and refuses reports for one model.
 #[derive(Default)]
 struct Tally(std::sync::Mutex<Vec<margincode_daemon::UsageReport>>);
 
@@ -5023,7 +4926,6 @@ async fn an_extension_upserts_agent_profiles_that_routing_reads() {
     );
 }
 
-/// What an extension keeps in the state.
 struct Greeting(&'static str);
 
 async fn greet(axum::extract::State(st): axum::extract::State<AppState>) -> axum::Json<Value> {
@@ -5260,8 +5162,6 @@ async fn a_client_that_disconnects_does_not_stop_its_import() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
-
-// ---- Plan 7 Task 4: overlay writes ----
 
 async fn overlay_paths(e: &Env, slug: &str) -> Vec<String> {
     sqlx::query_scalar(
@@ -5522,7 +5422,6 @@ async fn repos_lists_every_imported_repo_with_its_main_change() {
     assert_eq!(repos[0]["name"], "demo");
     let (_, import) = call(&e.app, "GET", "/v1/repos/demo/import", None).await;
     assert_eq!(repos[0]["main_change"], import["main_change"], "{body}");
-    // the import recorded the repo in Postgres, with its source
     let rows = e.store.list_repos().await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "demo");
@@ -5637,7 +5536,6 @@ async fn a_checkpoint_hook_adds_to_the_answer_and_never_fails_the_checkpoint() {
             Ok(json!({
                 "collisions": [{"slug": "other", "path": "app/greeter.py"}],
                 "notices": ["other (grok, open) also changes app/greeter.py"],
-                // the daemon's field: never overwritten
                 "head_change": "not-this",
             }))
         }
@@ -5675,7 +5573,6 @@ async fn a_checkpoint_hook_adds_to_the_answer_and_never_fails_the_checkpoint() {
     {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
-        // the task as it was (its old head), the new head, the changed paths
         assert_eq!(seen[0].0, t["task"]["head_change"].as_str().unwrap());
         assert_eq!(seen[0].1, cp["head_change"].as_str().unwrap());
         assert_eq!(seen[0].2, ["app/greeter.py"]);
@@ -5691,7 +5588,6 @@ async fn a_checkpoint_hook_adds_to_the_answer_and_never_fails_the_checkpoint() {
     assert_eq!(status, StatusCode::OK, "{v}");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    // a failing hook: the checkpoint still answers, without the extra fields
     fail.store(true, Ordering::SeqCst);
     let (status, cp) = call(
         &e.app,
@@ -5708,7 +5604,6 @@ async fn a_checkpoint_hook_adds_to_the_answer_and_never_fails_the_checkpoint() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     fail.store(false, Ordering::SeqCst);
 
-    // the MCP tool answers with the whole object, notices included
     let (status, init) = mcp_initialize(&e).await;
     assert_eq!(status, StatusCode::OK, "{init:?}");
     let session = init.0.expect("a session id");

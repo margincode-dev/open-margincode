@@ -1,5 +1,5 @@
-//! Plan 10 A3: targets. A target is something a team works toward (a release, a milestone);
-//! backlog items count toward at most one, and its progress is how many of those have merged.
+//! Targets: something a team works toward (a release, a milestone). Backlog items count toward at
+//! most one, and its progress is how many of them have merged.
 
 use margincode_core::routing::*;
 use margincode_core::*;
@@ -93,7 +93,6 @@ async fn targets_are_added_listed_by_repo_and_closed() {
             .unwrap()
             .is_empty()
     );
-    // reopening is a status change like any other
     let back = s
         .set_target_status(v1.id, TargetStatus::Active)
         .await
@@ -139,7 +138,6 @@ async fn a_target_is_named_by_id_or_by_the_slug_of_its_title() {
     assert!(matches!(err, AvError::Invalid(_)), "{err:?}");
     let err = s.resolve_target(Some("demo"), "nope").await.unwrap_err();
     assert!(matches!(err, AvError::NotFound(_)), "{err:?}");
-    // an id of another repo is not this repo's target
     let err = s
         .resolve_target(Some("other"), &v1.id.to_string())
         .await
@@ -152,7 +150,6 @@ async fn backlog_items_count_toward_a_target_and_progress_follows_their_tasks() 
     let (_db, s) = store().await;
     let v1 = s.add_target(new_target("demo", "Ship v1")).await.unwrap();
 
-    // posted with the target, or linked to it later
     let a = s
         .post_backlog(new_item("demo", "first", Some("ship-v1")))
         .await
@@ -210,7 +207,6 @@ async fn backlog_items_count_toward_a_target_and_progress_follows_their_tasks() 
     let t = &s.list_targets(Some("demo"), None).await.unwrap()[0];
     assert_eq!((t.items, t.queued, t.working, t.merged), (2, 0, 1, 1));
 
-    // unlinking takes an item out of the count
     let a = s.set_backlog_target(a.item.id, None).await.unwrap();
     assert_eq!(a.target_id, None);
     let t = &s.list_targets(Some("demo"), None).await.unwrap()[0];
@@ -225,14 +221,12 @@ async fn only_an_active_target_of_the_items_repo_takes_items() {
         .await
         .unwrap();
 
-    // a target of another repo
     let err = s
         .post_backlog(new_item("demo", "x", Some("their-goal")))
         .await
         .unwrap_err();
     assert!(matches!(err, AvError::NotFound(_)), "{err:?}");
 
-    // a closed target
     s.set_target_status(v1.id, TargetStatus::Done)
         .await
         .unwrap();
@@ -242,7 +236,6 @@ async fn only_an_active_target_of_the_items_repo_takes_items() {
         .unwrap_err();
     assert!(matches!(err, AvError::IllegalState(_)), "{err:?}");
 
-    // a dropped item cannot be linked
     s.set_target_status(v1.id, TargetStatus::Active)
         .await
         .unwrap();

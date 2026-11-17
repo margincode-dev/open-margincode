@@ -430,7 +430,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_WS_ROOT` | `~/ws` | where task workspaces appear (agents edit files here) |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it (see [Disk](#disk-what-agents-create-and-what-av-reclaims)) |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it av reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off |
-| `AV_BUILD_CACHE_MAX_GB` | `0` | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it av removes finished tasks' `target/`, then idle ones, then the deps cache (see [Disk](#disk-what-agents-create-and-what-av-reclaims)); `0` turns it off |
+| `AV_BUILD_CACHE_MAX_GB` | `0` | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it av removes finished tasks' `target/`, then idle ones (tasks in review first), then the deps cache (see [Disk](#disk-what-agents-create-and-what-av-reclaims)); `0` turns it off |
 | `AV_BUILD_IDLE_SECS` | `1800` | over the build budget, an unfinished (open, handed-off, in-review or conflicted) task's `target/` is removed only when nothing in it changed for this long |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos |
 | `AV_EXEC_BIT` | `auto` | whether a snapshot records a workspace file's executable bit: `auto` (as jj does: when the filesystem can hold it), `respect`, or `ignore` (each file keeps its mode from the repo, a new file is not executable, and checkouts write no executable bit). Set `ignore` when workspaces are edited from Windows through a Docker Desktop bind mount, where every file Windows creates reads as executable in the container |
@@ -495,7 +495,7 @@ Defaults (override with environment variables before `up`):
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`margincode repo backup` sets one at runtime). |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it the daemon reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off. |
-| `AV_BUILD_CACHE_MAX_GB` | `0` | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it the daemon removes finished tasks' `target/`, then idle ones, then the deps cache; `0` turns it off. |
+| `AV_BUILD_CACHE_MAX_GB` | `40` (the daemon's own default is `0`) | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it the daemon removes finished tasks' `target/`, then idle ones (tasks in review first), then the deps cache; `0` turns it off. |
 | `AV_BUILD_IDLE_SECS` | `1800` | over the build budget, an unfinished (open, handed-off, in-review or conflicted) task's `target/` is removed only when nothing in it changed for this long. |
 | `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`, `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS` | `7200`, `3600`, `3600`, 512 MiB, `86400` | when `GET /v1/attention` lists a waiting task or a footprint (see [Needs attention](#needs-attention-get-v1attention)). |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
@@ -1169,7 +1169,7 @@ listing repos, workspaces or footprints and without walking a directory, so a mo
 cheaply (the full answer measures every workspace and `target/`); `av disk --fs` prints that line
 and `av disk --fs --json` the object.
 
-**The build budget.** `AV_BUILD_CACHE_MAX_GB` (default `0`, off) caps each repo's build output:
+**The build budget.** `AV_BUILD_CACHE_MAX_GB` (default `0`, off; the compose file sets `40`, about nine full builds of this repository at 4.3 GB each) caps each repo's build output:
 every task workspace's own `target/` plus the repo's `.cache/` (the deps cache and the build
 output on its way in or out; what is already moved into `.cache/reclaim/` no longer counts). The
 target dirs stay one per workspace: a budget is a cap over what exists, never a shared target dir
@@ -1179,8 +1179,8 @@ removes, in this order, (1) the `target/` of merged and abandoned tasks, the one
 status first, keeping their dependencies in the deps cache as a merge does; (2) the `target/` of
 unfinished tasks that nothing touched for `AV_BUILD_IDLE_SECS` (default 1800; the newest
 modification time of `target/` and what is at depth 1 and 2 under it, so a build under way, which
-writes `debug/.cargo-lock` and new files into `debug/deps/`, counts as touched), least recently
-touched first; (3) the repo's deps cache `<repo>/.cache/deps-target`, only if still over. A
+writes `debug/.cargo-lock` and new files into `debug/deps/`, counts as touched), tasks in review
+first (their owner waits on the reviewer), then the others, each least recently touched first; (3) the repo's deps cache `<repo>/.cache/deps-target`, only if still over. A
 `target/` touched more recently is never removed, whatever the budget: it may be building. Each
 removal takes the task's lock and reads its status and idle time again; the feed gets
 `build:reclaimed` with `reason: budget`, and the daemon's log says what went and why. Workspaces,

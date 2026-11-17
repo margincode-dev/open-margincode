@@ -612,8 +612,10 @@ enum AgentCmd {
 enum BacklogCmd {
     /// Queue a proposed item, so agents may take it (as --agent, `user` by default).
     Accept { id: String },
-    /// Withdraw a queued or proposed item.
+    /// Withdraw a queued or proposed item, or one whose task was abandoned.
     Drop { id: String },
+    /// Put an item whose task was abandoned back in the queue, for a new task.
+    Requeue { id: String },
     /// Count an item toward a target (an id or the slug of its title); with none, toward no
     /// target.
     Target { id: String, target: Option<String> },
@@ -2739,6 +2741,16 @@ fn run(cli: Cli) -> Result<()> {
             println!("dropped {id}");
         }
         Cmd::Backlog {
+            cmd: Some(BacklogCmd::Requeue { id }),
+            ..
+        } => {
+            let r = client.post(
+                &format!("/v1/backlog/{}/requeue", urlencode(id)),
+                &json!({}),
+            )?;
+            println!("requeued {} · {} (queued)", s(&r["id"]), s(&r["title"]));
+        }
+        Cmd::Backlog {
             cmd: Some(BacklogCmd::Target { id, target }),
             ..
         } => {
@@ -2790,10 +2802,15 @@ fn run(cli: Cli) -> Result<()> {
                 } else {
                     String::new()
                 };
+                let state = if i["state"] == "taken" && i["task_status"] == "abandoned" {
+                    "taken (task abandoned)"
+                } else {
+                    s(&i["state"])
+                };
                 println!(
                     "{}  {}  {}  p{}  {}{}{}{}{}{}",
                     s(&i["id"]),
-                    s(&i["state"]),
+                    state,
                     s(&i["repo"]),
                     i["priority"],
                     s(&i["title"]),

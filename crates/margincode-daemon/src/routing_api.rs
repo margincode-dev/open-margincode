@@ -32,6 +32,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/backlog/next", post(next))
         .route("/v1/backlog/{id}", delete(drop_backlog))
         .route("/v1/backlog/{id}/accept", post(accept_backlog))
+        .route("/v1/backlog/{id}/requeue", post(requeue_backlog))
         .route("/v1/backlog/{id}/target", put(put_backlog_target))
         .route("/v1/targets", get(list_targets).post(post_target))
         .route("/v1/targets/{target}", put(put_target))
@@ -311,11 +312,18 @@ async fn list_backlog(
     let items = st.store.list_backlog(q.repo.as_deref(), state).await?;
     // the agent each item is reserved for first, so a client need not know the ranking rules
     let profiles = st.store.list_profiles().await?;
+    let task_ids: Vec<Uuid> = items
+        .iter()
+        .filter_map(|e| e.task_id)
+        .map(|t| t.0)
+        .collect();
+    let statuses = st.pg.task_statuses(&task_ids).await?;
     let items: Vec<Value> = items
         .iter()
         .map(|e| {
             let mut v = json!(e);
             v["best_agent"] = json!(routing::rank(&e.item, &profiles).first());
+            v["task_status"] = json!(e.task_id.and_then(|t| statuses.get(&t.0)));
             v
         })
         .collect();
@@ -326,6 +334,23 @@ async fn drop_backlog(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiRe
     st.store.drop_backlog(id).await?;
     st.work_changed();
     Ok(Json(json!({ "id": id, "state": "dropped" })))
+}
+
+async fn requeue_backlog(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<routing::BacklogEntry> {
+    let (entry, abandoned) = st.pg.requeue_backlog(id).await?;
+    st.store
+        .add_event(
+            &entry.item.repo,
+            "backlog:requeued",
+            Some(abandoned),
+            json!({ "backlog_id": id, "title": entry.item.title, "abandoned_task": abandoned.0 }),
+        )
+        .await?;
+    st.work_changed();
+    Ok(Json(entry))
 }
 
 #[derive(Deserialize)]
@@ -463,7 +488,7 @@ impl Choice {
 }
 
 /// The longest `next` holds a call open waiting for work. Under the 60 s that many HTTP clients
-/// allow a call; MCP clients' own limits were not measured (Plan 9 Task 7 Step 1).
+/// allow a call, and under the 60 s after which Claude Code resets an MCP call's socket.
 pub const MAX_WAIT_SECS: u64 = 50;
 
 /// How often a waiting `next` looks again when nothing woke it. Work that arrives by an event or

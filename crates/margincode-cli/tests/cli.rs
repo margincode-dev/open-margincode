@@ -4122,6 +4122,49 @@ fn post_backlog_and_drop() {
 }
 
 #[test]
+fn an_item_whose_task_was_abandoned_is_shown_and_requeued() {
+    let (d, scratch) = daemon_with_repo();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "muse", "--can", "code", "--cost", "1"],
+    ));
+    let posted = ok(av(
+        &d,
+        scratch.path(),
+        &[
+            "post",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+            "--reserve",
+            "0",
+        ],
+    ));
+    let id = posted
+        .split_whitespace()
+        .find(|w| w.len() == 36 && w.matches('-').count() == 4)
+        .unwrap_or_else(|| panic!("no id in {posted}"))
+        .to_owned();
+    ok(av_as(&d, scratch.path(), "muse", &["next"]));
+    let ws = d.ws.join("demo/improve-greeting");
+    assert!(!ok(av(&d, scratch.path(), &["backlog"])).contains("task abandoned"));
+    ok(av_as(&d, &ws, "muse", &["abandon"]));
+    let list = ok(av(&d, scratch.path(), &["backlog"]));
+    assert!(list.contains("taken (task abandoned)"), "{list}");
+
+    let requeued = ok(av(&d, scratch.path(), &["backlog", "requeue", &id]));
+    assert!(requeued.contains("Improve greeting"), "{requeued}");
+    let queued = ok(av(&d, scratch.path(), &["backlog", "--state", "queued"]));
+    assert!(queued.contains("Improve greeting"), "{queued}");
+    let again = av(&d, scratch.path(), &["backlog", "requeue", &id]);
+    assert!(!again.status.success(), "{}", out(&again));
+}
+
+#[test]
 fn next_starts_the_task_writes_the_task_file_and_prints_the_pack() {
     let (d, scratch) = daemon_with_repo();
     ok(av(

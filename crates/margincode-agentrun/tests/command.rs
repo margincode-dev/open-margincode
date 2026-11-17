@@ -204,12 +204,21 @@ fn a_raised_stop_flag_kills_the_session_before_its_deadline() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let dir = tempfile::tempdir().unwrap();
     let flag = Arc::new(AtomicBool::new(false));
-    let raise = flag.clone();
-    let watchdog = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
-        raise.store(true, Ordering::SeqCst);
-    });
-    let start = std::time::Instant::now();
+    let over = Arc::new(AtomicBool::new(false));
+    // raised once the script's line is in the events file, so the stop cannot win against it
+    let watchdog = {
+        let (raise, over) = (flag.clone(), over.clone());
+        let file = dir.path().join("events.jsonl");
+        std::thread::spawn(move || {
+            while !over.load(Ordering::SeqCst) {
+                if std::fs::read_to_string(&file).is_ok_and(|s| s.ends_with('\n')) {
+                    raise.store(true, Ordering::SeqCst);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        })
+    };
     let r = sh(
         r#"echo '{"type":"assistant","message":{"id":"a","content":[],"usage":{"input_tokens":10,"output_tokens":5}}}'
 sleep 60"#,
@@ -218,8 +227,9 @@ sleep 60"#,
     .stop_flag(flag)
     .run()
     .unwrap();
+    over.store(true, Ordering::SeqCst);
     watchdog.join().unwrap();
-    assert!(start.elapsed() < Duration::from_secs(10));
+    // the 20 s deadline would have ended it as killed
     assert_eq!((r.exit, r.killed, r.stopped), (None, false, true));
     assert_eq!(
         r.usage.counted(),

@@ -2430,7 +2430,14 @@ async fn events_feed_reports_the_lifecycle_in_order() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         kinds(&body),
-        ["started", "checkpoint", "submit", "approve", "merged"],
+        [
+            "started",
+            "workspace:ready",
+            "checkpoint",
+            "submit",
+            "approve",
+            "merged"
+        ],
         "{body}"
     );
     let events = body["events"].as_array().unwrap();
@@ -2439,23 +2446,43 @@ async fn events_feed_reports_the_lifecycle_in_order() {
         "{body}"
     );
     assert_eq!(
-        events[4]["change"], merged["main"],
+        events[5]["change"], merged["main"],
         "merged carries the merge commit"
     );
     let ids: Vec<i64> = events.iter().map(|ev| ev["id"].as_i64().unwrap()).collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "{ids:?}");
-    assert_eq!(body["next"], ids[4]);
+    assert_eq!(body["next"], ids[5]);
 
     let (_, rest) = call(
         &e.app,
         "GET",
-        &format!("/v1/events?repo=demo&since={}", ids[2]),
+        &format!("/v1/events?repo=demo&since={}", ids[3]),
         None,
     )
     .await;
     assert_eq!(kinds(&rest), ["approve", "merged"]);
     let (_, other) = call(&e.app, "GET", "/v1/events?repo=elsewhere&since=0", None).await;
     assert!(kinds(&other).is_empty(), "{other}");
+}
+
+#[tokio::test]
+async fn a_start_reports_its_workspace_copy() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    let (_, body) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    assert_eq!(kinds(&body), ["started", "workspace:ready"], "{body}");
+    let ev = &body["events"][1];
+    assert_eq!(ev["task_id"], t["task"]["id"], "{body}");
+    let p = &ev["payload"];
+    assert_eq!(p["slug"], t["task"]["slug"], "{body}");
+    for k in ["ms", "overlay_ms", "count_ms"] {
+        assert!(p[k].is_u64(), "{k}: {body}");
+    }
+    let util = std::fs::metadata(ws_dir(&e, &t).join("app/util.py"))
+        .unwrap()
+        .len();
+    assert!(p["files"].as_u64().unwrap() >= 2, "{body}");
+    assert!(p["bytes"].as_u64().unwrap() > util, "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2527,16 +2554,16 @@ async fn a_checkpoint_that_moves_the_head_is_an_event_and_one_that_does_not_is_n
     );
     assert_eq!(ev["payload"]["touched"], 1, "{ev}");
 
-    // the in-process feed carries it too: the start, then the checkpoint
+    // the in-process feed carries it too: the start, its workspace, then the checkpoint
     let mut seen = Vec::new();
-    while seen.len() < 2 {
+    while seen.len() < 3 {
         let ev = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
             .await
             .expect("an event within 10 s")
             .unwrap();
         seen.push(ev.kind);
     }
-    assert_eq!(seen, ["started", "checkpoint"]);
+    assert_eq!(seen, ["started", "workspace:ready", "checkpoint"]);
 
     let (_, again) = post(&e, &t, "checkpoint", json!({})).await;
     assert_eq!(again["head_change"], moved["head_change"]);

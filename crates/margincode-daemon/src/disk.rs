@@ -419,6 +419,58 @@ fn bytes_of(p: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+/// Files and bytes under `p`, `skip` left out (symlinks count as themselves, never followed).
+fn tally(p: &Path, skip: &Path) -> (u64, u64) {
+    if p == skip {
+        return (0, 0);
+    }
+    let Ok(meta) = std::fs::symlink_metadata(p) else {
+        return (0, 0);
+    };
+    if !meta.is_dir() {
+        return (1, meta.len());
+    }
+    std::fs::read_dir(p)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| tally(&e.path(), skip))
+                .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+        })
+        .unwrap_or((0, 0))
+}
+
+pub(crate) fn ms_since(t: std::time::Instant) -> u64 {
+    u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The feed's `workspace:ready` for a new workspace (F4): the copy's and the overlay's
+/// milliseconds, and the files and bytes the workspace holds, `.jj/` in and `target/` out. It is
+/// counted inline, so the event lands before anything else of the task's, and `count_ms` says
+/// what the count cost. A failed write is logged and never fails the start.
+pub(crate) async fn workspace_ready(
+    st: &AppState,
+    task: &Task,
+    ws: &Path,
+    copy_ms: u64,
+    overlay_ms: u64,
+) {
+    let counted = std::time::Instant::now();
+    let (root, skip) = (ws.to_path_buf(), ws.join(BUILD_DIR));
+    let (files, bytes) = tokio::task::spawn_blocking(move || tally(&root, &skip))
+        .await
+        .unwrap_or((0, 0));
+    let payload = json!({"slug": task.slug, "ms": copy_ms, "overlay_ms": overlay_ms,
+                         "files": files, "bytes": bytes, "count_ms": ms_since(counted)});
+    if let Err(e) = st
+        .store
+        .add_event(&task.repo, "workspace:ready", Some(task.id), payload)
+        .await
+    {
+        tracing::warn!(task = %task.slug, error = %e, "recording workspace:ready failed");
+    }
+}
+
 async fn measure(p: PathBuf) -> u64 {
     tokio::task::spawn_blocking(move || bytes_of(&p))
         .await

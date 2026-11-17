@@ -1210,6 +1210,11 @@ removes them when it starts. Hard links need the
 workspaces and the cache on one filesystem (they are: both under `ws_root`); where linking fails,
 a workspace simply starts without them. `AV_BUILD_CACHE=off` keeps and seeds nothing.
 
+**What a start cost.** Every task start adds `workspace:ready` to the feed, right after `started`:
+`ms` is the workspace copy (jj's checkout of `main`), `overlay_ms` the task's index overlay,
+`files` and `bytes` what the new workspace holds (`.jj/` included, `target/` left out), and
+`count_ms` what counting them took. A seed's `build:seeded` comes later, in the background.
+
 **Your `CARGO_TARGET_DIR` does not apply inside a task.** A target dir shared by two workspaces
 of one repo makes `cargo test` in one run the other's test binary. So in a cargo workspace,
 `av validate` and `integrations/generic/av-wrap.sh` set `CARGO_TARGET_DIR` to the workspace's

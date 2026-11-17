@@ -857,6 +857,24 @@ async fn env_no_tick() -> Env {
     env_with(|s| s.with_wait_tick(std::time::Duration::from_secs(60))).await
 }
 
+/// Waits until the item titled `title` is taken. A waiting `next` takes it before it makes the
+/// task's workspace and first pack, so this times the wake, not the start. Unwoken, a call from
+/// `env_no_tick` looks again only at its 30 s deadline: 15 s tells the two apart on any machine.
+async fn taken_on_wake(e: &Env, title: &str) {
+    let since = std::time::Instant::now();
+    while !backlog(e, "?state=taken")
+        .await
+        .iter()
+        .any(|i| i["title"] == title)
+    {
+        assert!(
+            since.elapsed() < std::time::Duration::from_secs(15),
+            "{title:?} not taken: the waiting call was not woken"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn next_waits_for_work_that_arrives() {
     let e = env_no_tick().await;
@@ -864,17 +882,12 @@ async fn next_waits_for_work_that_arrives() {
     let app = e.app.clone();
     let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let posted = std::time::Instant::now();
     post_item(&e, "demo", "draw it", &["image"], 0).await;
+    taken_on_wake(&e, "draw it").await;
     let (status, body) = waiting.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["from"], "backlog", "{body}");
     assert_eq!(body["task"]["title"], "draw it");
-    assert!(
-        posted.elapsed() < std::time::Duration::from_secs(5),
-        "{:?}",
-        posted.elapsed()
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -911,16 +924,11 @@ async fn a_profile_change_wakes_an_agent_that_now_fits() {
     let app = e.app.clone();
     let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let changed = std::time::Instant::now();
     put_agent(&e, "grok", &["image"], &["code"], 2).await;
+    taken_on_wake(&e, "louder hello").await;
     let (status, body) = waiting.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "louder hello", "{body}");
-    assert!(
-        changed.elapsed() < std::time::Duration::from_secs(5),
-        "{:?}",
-        changed.elapsed()
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1855,17 +1863,12 @@ async fn an_accept_wakes_an_agent_waiting_for_work() {
     let app = e.app.clone();
     let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let accepted = std::time::Instant::now();
     let (status, body) = accept(&e, p["id"].as_str().unwrap(), "vinh").await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    taken_on_wake(&e, "draw it").await;
     let (status, body) = waiting.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "draw it", "{body}");
-    assert!(
-        accepted.elapsed() < std::time::Duration::from_secs(5),
-        "{:?}",
-        accepted.elapsed()
-    );
 }
 
 #[tokio::test]
@@ -2351,16 +2354,10 @@ async fn a_requeue_wakes_an_agent_waiting_for_work() {
     let app = e.app.clone();
     let waiting = tokio::spawn(async move { next_waiting(&app, "muse", 30).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let requeued = std::time::Instant::now();
     let (status, body) = requeue(&e, &item).await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    taken_on_wake(&e, "draw it").await;
     let (status, body) = waiting.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "draw it", "{body}");
-    // without a wake it would answer at its 30 s deadline; the margin is for a slow start
-    assert!(
-        requeued.elapsed() < std::time::Duration::from_secs(20),
-        "{:?}",
-        requeued.elapsed()
-    );
 }

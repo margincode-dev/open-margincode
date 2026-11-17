@@ -98,3 +98,4 @@ The full rules, with the functions that enforce them, are in `docs/architecture.
 - `main` is the base. Start each change on a branch off `main` and land it through a pull request; prefer one PR per change over stacked PRs (a PR stacked on another merges into that branch, not `main`).
 - Work is TDD: failing test first, then implementation, then fmt + clippy + tests. See `CONTRIBUTING.md`.
 - Agent-facing text (pack output, MCP tool descriptions, hook messages) says `av`, not `margincode`: it is shorter for agents to type and both names are always installed.
+- An `av` task workspace leaves out `bench/results/` and `bench/retrieval/results/` (`.av/sparse`): read a file there with `av show PATH`; a new results directory can be written.

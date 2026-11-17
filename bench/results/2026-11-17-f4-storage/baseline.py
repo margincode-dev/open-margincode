@@ -4,8 +4,8 @@ Per run: wall time of `av task start` (client), the start's `workspace:ready` ev
 files, bytes, count_ms), and the wall time of `av checkpoint` after changing three files. Each task
 is abandoned afterwards. Raw lines go to stdout as JSON, one per run.
 
-Usage: python baseline.py [runs] [dir to start from]; AV_URL names the daemon. With AV_CHECKOUT_ROOT
-set, each start is `av task start --checkout <root>/run-N` (layout b: the client works in its own
+Usage: python baseline.py [runs] [dir to start from]; AV_URL names the daemon, AV_REPO the repo
+(default open-margincode). With AV_CHECKOUT_ROOT set, each start is `av task start --checkout <root>/run-N` (layout b: the client works in its own
 checkout, so the start also times that clone) and the checkout is removed after the abandon.
 """
 import json
@@ -21,7 +21,7 @@ import urllib.request
 sys.stdout.reconfigure(encoding="utf-8")
 AV = "av.exe"
 URL = os.environ.get("AV_URL", "http://127.0.0.1:7420")
-REPO = "open-margincode"
+REPO = os.environ.get("AV_REPO", "open-margincode")
 RUNS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 CWD = sys.argv[2] if len(sys.argv) > 2 else "."
 CHECKOUTS = os.environ.get("AV_CHECKOUT_ROOT")

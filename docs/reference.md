@@ -560,6 +560,12 @@ the daemon's part is under a second, and a checkpoint 0.6 s (five starts each,
 `bench/results/2026-11-17-f4-storage/`). The rest of the start is `git` writing the checkout on
 Windows.
 
+A repo that leaves most of its files out of task workspaces (`.av/sparse`, "Paths left out of task
+workspaces") is faster on the bind mount: this repository's list leaves out 4,670 of its 5,173
+files, and there a start took 6.5 s and a checkpoint 0.23 s (five each,
+`bench/results/2026-11-17-f4-sparse/`), while the checkout below still writes every file. The
+volume pays off when the files a task needs are most of the repo.
+
 Put the daemon's workspaces inside the store volume, which `store-init` hands to the daemon's
 user. In an override file:
 
@@ -1375,7 +1381,10 @@ Nothing an agent writes is lost by it:
 
 A listed file is not on disk, so an agent in the daemon's workspace cannot delete it (take
 the path off the list first); one in a checkout can. The client's own checkout is still the
-whole tree: `av remote clone` writes every file.
+whole tree: `av remote clone` writes every file. To read a listed file, `av show PATH` (from
+`main`, or `--at task:<slug>`).
+
+This repository lists its result archives, `bench/results/` and `bench/retrieval/results/`.
 
 ## Test
 

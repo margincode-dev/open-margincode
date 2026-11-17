@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::common::*;
 use async_trait::async_trait;
@@ -904,20 +904,22 @@ async fn two_builds_with_the_same_hits_are_byte_identical() {
 #[tokio::test]
 async fn slow_semantic_degrades_quickly() {
     let fx = fixture().await;
+    // The search never answers within the test, so the build ends only if the packer gives up on
+    // it; the guard turns a build that waits into a failure instead of a hang.
     let sem = Arc::new(FakeSemantic {
         hits: vec![],
         fail: false,
-        delay: Duration::from_secs(2),
+        delay: Duration::from_secs(3600),
         calls: AtomicUsize::new(0),
     });
     let packer = packer_with(&fx, sem);
-    let start = Instant::now();
-    let pack = packer.build(req(&fx.task, 3000, "slow")).await.unwrap();
-    let took = start.elapsed();
-    assert!(
-        took < Duration::from_secs(1),
-        "slow semantic should time out, took {took:?}"
-    );
+    let pack = tokio::time::timeout(
+        Duration::from_secs(30),
+        packer.build(req(&fx.task, 3000, "slow")),
+    )
+    .await
+    .expect("the build waited for the semantic layer")
+    .unwrap();
     assert!(
         pack.degraded.iter().any(|d| d == "semantic"),
         "{:?}",

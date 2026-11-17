@@ -1,5 +1,8 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, mpsc};
+use std::time::Duration;
 
 use margincode_core::{ChangeId, Vcs};
 use margincode_vcs::JjVcs;
@@ -62,6 +65,125 @@ async fn env() -> Env {
         vcs,
         main,
     }
+}
+
+/// A write hook that, after letting `skip` writes of workspace `slug` through, holds the next one
+/// until the test sends on `release`; `entered` hears when it is held.
+fn hold(
+    slug: &'static str,
+    skip: usize,
+) -> (
+    mpsc::Receiver<()>,
+    mpsc::Sender<()>,
+    impl Fn(&str) + Send + Sync + 'static,
+) {
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    let seen = AtomicUsize::new(0);
+    let hook = move |s: &str| {
+        if s == slug && seen.fetch_add(1, Ordering::SeqCst) == skip {
+            entered_tx.send(()).unwrap();
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(120));
+        }
+    };
+    (entered, release, hook)
+}
+
+/// A `JjVcs` with `hook` on `src` as repo `demo`, and its store and workspace directories.
+async fn held_env(
+    src: &TempDir,
+    hook: impl Fn(&str) + Send + Sync + 'static,
+) -> ([TempDir; 2], JjVcs) {
+    let store = TempDir::new().unwrap();
+    let ws = TempDir::new().unwrap();
+    let vcs = JjVcs::new(store.path().to_path_buf(), ws.path().to_path_buf()).with_write_hook(hook);
+    vcs.init_repo("demo", src.path()).await.unwrap();
+    ([store, ws], vcs)
+}
+
+/// Waits until the held write begins, then snapshots workspace `one` while it is held, then
+/// releases it. The timeouts only bound a failure.
+async fn snapshot_while_held(
+    vcs: &JjVcs,
+    entered: mpsc::Receiver<()>,
+    release: mpsc::Sender<()>,
+) -> ChangeId {
+    tokio::task::spawn_blocking(move || entered.recv_timeout(Duration::from_secs(60)))
+        .await
+        .unwrap()
+        .expect("the held write never began");
+    let other = tokio::time::timeout(Duration::from_secs(60), vcs.snapshot("demo", "one")).await;
+    release.send(()).unwrap();
+    other
+        .expect("a snapshot of another task waited for the held write")
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_copy_does_not_hold_up_other_tasks_in_the_repo() {
+    let src = fixture_git_repo();
+    let (entered, release, hook) = hold("late", 0);
+    let (_dirs, vcs) = held_env(&src, hook).await;
+    let one = vcs.create_workspace("demo", "one").await.unwrap();
+    std::fs::write(one.path.join("new.txt"), "n\n").unwrap();
+    let late = tokio::spawn({
+        let vcs = vcs.clone();
+        async move { vcs.create_workspace("demo", "late").await }
+    });
+    let head = snapshot_while_held(&vcs, entered, release).await;
+    assert_eq!(
+        vcs.changed_paths("demo", &one.base_change, &head)
+            .await
+            .unwrap(),
+        vec!["new.txt"]
+    );
+    let late = late.await.unwrap().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(late.path.join("pkg/b.py")).unwrap(),
+        "def b():\n    return 2\n"
+    );
+    let h = vcs.snapshot("demo", "late").await.unwrap();
+    assert!(
+        vcs.changed_paths("demo", &late.base_change, &h)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_widen_does_not_hold_up_other_tasks_in_the_repo() {
+    let src = fixture_git_repo();
+    std::fs::create_dir_all(src.path().join(".av")).unwrap();
+    std::fs::write(src.path().join(".av/sparse"), "pkg/\n").unwrap();
+    git(src.path(), &["add", "-A"]);
+    git(src.path(), &["commit", "-q", "-m", "list"]);
+    let (entered, release, hook) = hold("wide", 1);
+    let (_dirs, vcs) = held_env(&src, hook).await;
+    let one = vcs.create_workspace("demo", "one").await.unwrap();
+    let wide = vcs.create_workspace("demo", "wide").await.unwrap();
+    assert!(!wide.path.join("pkg/b.py").exists());
+    std::fs::write(one.path.join("new.txt"), "n\n").unwrap();
+    let widen = tokio::spawn({
+        let vcs = vcs.clone();
+        async move {
+            vcs.widen_workspace("demo", "wide", &["pkg".to_owned()])
+                .await
+        }
+    });
+    let head = snapshot_while_held(&vcs, entered, release).await;
+    assert_eq!(
+        vcs.changed_paths("demo", &one.base_change, &head)
+            .await
+            .unwrap(),
+        vec!["new.txt"]
+    );
+    assert_eq!(widen.await.unwrap().unwrap(), vec!["pkg/b.py"]);
+    assert!(wide.path.join("pkg/b.py").exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]

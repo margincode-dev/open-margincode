@@ -121,6 +121,18 @@ struct Inner {
     exec_bit: ExecBit,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     loaders: Mutex<HashMap<String, RepoLoader>>,
+    write_hook: Option<WriteHook>,
+}
+
+type WriteHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// A workspace the repo knows, with its files not yet written (`Inner::write_files`).
+struct Unwritten {
+    ws: Workspace,
+    op: jj_lib::op_store::OperationId,
+    wc: Commit,
+    dir: PathBuf,
+    slug: String,
 }
 
 #[derive(Clone)]
@@ -137,6 +149,7 @@ impl JjVcs {
                 exec_bit: ExecBit::default(),
                 locks: Mutex::new(HashMap::new()),
                 loaders: Mutex::new(HashMap::new()),
+                write_hook: None,
             }),
         }
     }
@@ -149,11 +162,33 @@ impl JjVcs {
         self
     }
 
+    /// Tests only: `hook(slug)` runs just before a create, restore or widen writes that
+    /// workspace's files. Set before the `JjVcs` is cloned or used.
+    #[doc(hidden)]
+    pub fn with_write_hook(mut self, hook: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_write_hook on a JjVcs already cloned")
+            .write_hook = Some(Arc::new(hook));
+        self
+    }
+
     /// Runs `f` on a blocking thread holding the per-repo lock (jj-lib futures are driven with `pollster`).
     async fn run<T: Send + 'static>(
         &self,
         repo: &str,
         f: impl FnOnce(&Inner) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.run_then(repo, f, |_, t| Ok(t)).await
+    }
+
+    /// Runs `locked` holding the per-repo lock, then `after` on the same thread without it.
+    /// `after` may only write the files of one task workspace and commit no operation: the
+    /// daemon's `lock_task` keeps other work off that workspace.
+    async fn run_then<A: 'static, T: Send + 'static>(
+        &self,
+        repo: &str,
+        locked: impl FnOnce(&Inner) -> Result<A> + Send + 'static,
+        after: impl FnOnce(&Inner, A) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         valid_component("repo", repo)?;
         let inner = self.inner.clone();
@@ -162,15 +197,18 @@ impl JjVcs {
             map.entry(repo.to_owned()).or_default().clone()
         };
         tokio::task::spawn_blocking(move || {
-            let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-            f(&inner)
+            let a = {
+                let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                locked(&inner)?
+            };
+            after(&inner, a)
         })
         .await
         .map_err(verr)?
     }
 
-    /// Runs a read of immutable data (addressed by commit id) on a blocking thread, without the
-    /// per-repo lock.
+    /// Runs on a blocking thread without the per-repo lock: a read of immutable data (addressed
+    /// by commit id), or work like `run_then`'s `after`.
     async fn read<T: Send + 'static>(
         &self,
         repo: &str,
@@ -436,17 +474,22 @@ impl Inner {
         self.ws_root.join(repo).join(slug)
     }
 
-    fn create_workspace(&self, repo: &str, slug: &str) -> Result<WorkspaceInfo> {
+    fn before_write(&self, slug: &str) {
+        if let Some(hook) = &self.write_hook {
+            hook(slug);
+        }
+    }
+
+    fn create_workspace(&self, repo: &str, slug: &str) -> Result<(Unwritten, ChangeId)> {
         valid_component("workspace", slug)?;
         let ro = self.head(repo)?;
         let trunk = self.trunk_commit(repo, &ro)?;
-        let path = self.create_workspace_at(repo, slug, &ro, &trunk, WcAt::ChildOf)?;
-        Ok(WorkspaceInfo {
-            path,
-            base_change: ChangeId(trunk.id().hex()),
-        })
+        let made = self.create_workspace_at(repo, slug, &ro, &trunk, WcAt::ChildOf)?;
+        Ok((made, ChangeId(trunk.id().hex())))
     }
 
+    /// Adds workspace `slug` to the repo; its files are written by `write_files`, which needs no
+    /// per-repo lock.
     fn create_workspace_at(
         &self,
         repo: &str,
@@ -454,14 +497,14 @@ impl Inner {
         ro: &Arc<ReadonlyRepo>,
         commit: &Commit,
         at: WcAt,
-    ) -> Result<PathBuf> {
+    ) -> Result<Unwritten> {
         let dir = self.ws_dir(repo, slug);
         if dir.exists() {
             return Err(AvError::Invalid(format!("workspace {slug} already exists")));
         }
         std::fs::create_dir_all(&dir).map_err(verr)?;
         let name = WorkspaceNameBuf::from(slug);
-        let (mut ws, ro) = block_on(Workspace::init_workspace_with_existing_repo(
+        let (ws, ro) = block_on(Workspace::init_workspace_with_existing_repo(
             &dir,
             &self.jj_repo_path(repo),
             ro,
@@ -482,12 +525,32 @@ impl Inner {
         };
         block_on(tx.repo_mut().rebase_descendants()).map_err(verr)?;
         let ro = block_on(tx.commit(op)).map_err(verr)?;
-        if Self::task_workspace(slug).is_ok() {
+        Ok(Unwritten {
+            ws,
+            op: ro.op_id().clone(),
+            wc,
+            dir,
+            slug: slug.to_owned(),
+        })
+    }
+
+    /// Writes the files of a workspace `create_workspace_at` made. It reads only the store and
+    /// writes only that workspace, whose working-copy lock it takes.
+    fn write_files(&self, u: Unwritten) -> Result<PathBuf> {
+        let Unwritten {
+            mut ws,
+            op,
+            wc,
+            dir,
+            slug,
+        } = u;
+        self.before_write(&slug);
+        if Self::task_workspace(&slug).is_ok() {
             let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
             refresh_sparse(locked.locked_wc(), &wc.tree(), &dir, false)?;
-            block_on(locked.finish(ro.op_id().clone())).map_err(verr)?;
+            block_on(locked.finish(op.clone())).map_err(verr)?;
         }
-        block_on(ws.check_out(ro.op_id().clone(), None, &wc)).map_err(verr)?;
+        block_on(ws.check_out(op, None, &wc)).map_err(verr)?;
         Ok(dir)
     }
 
@@ -534,7 +597,12 @@ impl Inner {
         Ok(forgot || had_dir)
     }
 
-    fn restore_workspace(&self, repo: &str, slug: &str, head: &ChangeId) -> Result<WorkspaceInfo> {
+    fn restore_workspace(
+        &self,
+        repo: &str,
+        slug: &str,
+        head: &ChangeId,
+    ) -> Result<(Unwritten, ChangeId)> {
         Self::task_workspace(slug)?;
         if std::fs::symlink_metadata(self.ws_dir(repo, slug)).is_ok() {
             return Err(AvError::Invalid(format!("workspace {slug} already exists")));
@@ -543,15 +611,12 @@ impl Inner {
         self.forget_workspace(repo, slug)?;
         let ro = self.head(repo)?;
         let commit = self.commit_in_repo(&ro, head)?;
-        let path = self.create_workspace_at(repo, slug, &ro, &commit, WcAt::Is)?;
+        let made = self.create_workspace_at(repo, slug, &ro, &commit, WcAt::Is)?;
         // A task's head is a child of its base: `create_workspace` checks out a new commit on
         // trunk, snapshots rewrite that commit in place and a rebase keeps its single parent. So
         // the first parent is the base; a commit without parents is its own base.
         let base = commit.parent_ids().first().unwrap_or(commit.id());
-        Ok(WorkspaceInfo {
-            path,
-            base_change: ChangeId(base.hex()),
-        })
+        Ok((made, ChangeId(base.hex())))
     }
 
     fn snapshot(&self, repo: &str, slug: &str) -> Result<ChangeId> {
@@ -1069,6 +1134,7 @@ impl Inner {
         }
         want.sort();
         want.dedup();
+        self.before_write(slug);
         if want != before {
             block_on(locked.locked_wc().set_sparse_patterns(want)).map_err(verr)?;
         }
@@ -1425,8 +1491,17 @@ impl Vcs for JjVcs {
 
     async fn create_workspace(&self, repo: &str, slug: &str) -> Result<WorkspaceInfo> {
         let (name, slug) = (repo.to_owned(), slug.to_owned());
-        self.run(repo, move |i| i.create_workspace(&name, &slug))
-            .await
+        self.run_then(
+            repo,
+            move |i| i.create_workspace(&name, &slug),
+            |i, (made, base_change)| {
+                Ok(WorkspaceInfo {
+                    path: i.write_files(made)?,
+                    base_change,
+                })
+            },
+        )
+        .await
     }
 
     async fn snapshot(&self, repo: &str, slug: &str) -> Result<ChangeId> {
@@ -1589,8 +1664,17 @@ impl Vcs for JjVcs {
         head: &ChangeId,
     ) -> Result<WorkspaceInfo> {
         let (name, slug, head) = (repo.to_owned(), slug.to_owned(), head.clone());
-        self.run(repo, move |i| i.restore_workspace(&name, &slug, &head))
-            .await
+        self.run_then(
+            repo,
+            move |i| i.restore_workspace(&name, &slug, &head),
+            |i, (made, base_change)| {
+                Ok(WorkspaceInfo {
+                    path: i.write_files(made)?,
+                    base_change,
+                })
+            },
+        )
+        .await
     }
 
     async fn off_disk(&self, repo: &str, slug: &str) -> Result<Vec<String>> {
@@ -1606,7 +1690,8 @@ impl Vcs for JjVcs {
         paths: &[String],
     ) -> Result<Vec<String>> {
         let (name, slug, paths) = (repo.to_owned(), slug.to_owned(), paths.to_vec());
-        self.run(repo, move |i| i.widen(&name, &slug, &paths)).await
+        self.read(repo, move |i| i.widen(&name, &slug, &paths))
+            .await
     }
 
     async fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> Result<Vec<String>> {

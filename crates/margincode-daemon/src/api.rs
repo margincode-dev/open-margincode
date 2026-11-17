@@ -552,7 +552,12 @@ pub(crate) async fn create_started(
     if pack_mode != PackMode::Full {
         st.store.set_pack_mode(task.id, pack_mode).await?;
     }
-    let dir = match prepare_workspace(st, &task).await {
+    // the copy runs outside the per-repo lock, so this keeps other work off the new workspace
+    let prepared = {
+        let _guard = st.lock_task(task.id).await;
+        prepare_workspace(st, &task).await
+    };
+    let dir = match prepared {
         Ok(dir) => dir,
         Err(e) => {
             let _ = st.store.set_status(task.id, TaskStatus::Abandoned).await;

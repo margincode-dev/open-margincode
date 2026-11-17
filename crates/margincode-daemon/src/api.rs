@@ -593,14 +593,19 @@ pub(crate) async fn create_started(
 
 /// Makes the task's workspace; answers its path in this process.
 async fn prepare_workspace(st: &AppState, task: &Task) -> Result<std::path::PathBuf> {
+    let copy = std::time::Instant::now();
     let info = st.vcs.create_workspace(&task.repo, &task.slug).await?;
+    let copy_ms = crate::disk::ms_since(copy);
     st.store
         .set_workspace(task.id, &st.to_host_path(&info.path), &info.base_change)
         .await?;
     // the repo's built dependencies, so cargo compiles only its own crates
     crate::disk::seed_dependencies(st, task);
     // Overlay on main: O empty when B = T; reconcile fills changed(B, T) when main moved.
+    let overlay = std::time::Instant::now();
     init_task_overlay(st, &task.repo, &task.slug, &info.base_change).await?;
+    let overlay_ms = crate::disk::ms_since(overlay);
+    crate::disk::workspace_ready(st, task, &info.path, copy_ms, overlay_ms).await;
     Ok(info.path)
 }
 

@@ -301,3 +301,153 @@ async fn an_open_workspace_keeps_its_files_when_main_gains_the_list() {
     let fresh = e.vcs.create_workspace("demo", "v").await.unwrap();
     assert!(!fresh.path.join("big").exists());
 }
+
+fn s(v: &[&str]) -> Vec<String> {
+    v.iter().map(|p| (*p).to_owned()).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn off_disk_names_the_listed_prefixes_a_workspace_leaves_out() {
+    let e = env().await;
+    e.vcs.create_workspace("demo", "t").await.unwrap();
+    assert_eq!(
+        e.vcs.off_disk("demo", "t").await.unwrap(),
+        ["bench/results/", "big/"]
+    );
+    e.vcs
+        .widen_workspace("demo", "t", &s(&["big"]))
+        .await
+        .unwrap();
+    assert_eq!(
+        e.vcs.off_disk("demo", "t").await.unwrap(),
+        ["bench/results/"]
+    );
+    let full = env_with(false).await;
+    full.vcs.create_workspace("demo", "t").await.unwrap();
+    assert!(full.vcs.off_disk("demo", "t").await.unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_widened_path_is_written_and_stays_through_snapshot_and_sync() {
+    let e = env().await;
+    let t = e.vcs.create_workspace("demo", "t").await.unwrap();
+    let written = e
+        .vcs
+        .widen_workspace("demo", "t", &s(&["big/"]))
+        .await
+        .unwrap();
+    assert_eq!(written, ["big/x.txt"]);
+    assert_eq!(
+        std::fs::read_to_string(t.path.join("big/x.txt")).unwrap(),
+        "x\n"
+    );
+    assert!(!t.path.join("bench/results").exists());
+    let head = e.vcs.snapshot("demo", "t").await.unwrap();
+    assert!(
+        e.vcs
+            .changed_paths("demo", &t.base_change, &head)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    e.vcs.create_workspace("demo", "u").await.unwrap();
+    let u_dir = t.path.parent().unwrap().join("u");
+    write(&u_dir, "big/x.txt", "from main\n");
+    write(&u_dir, "big/later.txt", "later\n");
+    let u = e.vcs.snapshot("demo", "u").await.unwrap();
+    e.vcs.merge_task("demo", "u", &u, "merge u").await.unwrap();
+    e.vcs.rebase_workspace("demo", "t").await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(t.path.join("big/x.txt")).unwrap(),
+        "from main\n"
+    );
+    // a widened path stays widened: what main adds there is written on every sync
+    assert!(t.path.join("big/later.txt").exists());
+    e.vcs.create_workspace("demo", "v").await.unwrap();
+    write(
+        &t.path.parent().unwrap().join("v"),
+        "big/again.txt",
+        "again
+",
+    );
+    let v = e.vcs.snapshot("demo", "v").await.unwrap();
+    e.vcs.merge_task("demo", "v", &v, "merge v").await.unwrap();
+    e.vcs.rebase_workspace("demo", "t").await.unwrap();
+    assert!(t.path.join("big/again.txt").exists());
+    assert!(!t.path.join("bench/results").exists());
+    assert_eq!(
+        e.vcs.off_disk("demo", "t").await.unwrap(),
+        ["bench/results/"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_widen_keeps_a_file_the_agent_already_wrote_there() {
+    let e = env().await;
+    let t = e.vcs.create_workspace("demo", "t").await.unwrap();
+    write(&t.path, "big/x.txt", "agent\n");
+    let written = e
+        .vcs
+        .widen_workspace("demo", "t", &s(&["big"]))
+        .await
+        .unwrap();
+    assert!(written.is_empty(), "{written:?}");
+    assert_eq!(
+        std::fs::read_to_string(t.path.join("big/x.txt")).unwrap(),
+        "agent\n"
+    );
+    let head = e.vcs.snapshot("demo", "t").await.unwrap();
+    assert_eq!(read(&e, &head, "big/x.txt").await, "agent\n");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_widened_file_deleted_is_recorded_deleted() {
+    let e = env().await;
+    let t = e.vcs.create_workspace("demo", "t").await.unwrap();
+    e.vcs
+        .widen_workspace("demo", "t", &s(&["big/x.txt"]))
+        .await
+        .unwrap();
+    std::fs::remove_file(t.path.join("big/x.txt")).unwrap();
+    let head = e.vcs.snapshot("demo", "t").await.unwrap();
+    assert!(!files(&e, &head).await.contains(&"big/x.txt".to_owned()));
+    assert!(
+        files(&e, &head)
+            .await
+            .contains(&"bench/results/r.txt".to_owned())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_widen_refuses_what_is_not_in_the_commit_and_repeats_as_a_no_op() {
+    let e = env().await;
+    e.vcs.create_workspace("demo", "t").await.unwrap();
+    for bad in ["nope/", "../x", "/etc", ".jj"] {
+        let err = e.vcs.widen_workspace("demo", "t", &s(&[bad])).await;
+        assert!(
+            matches!(err, Err(margincode_core::AvError::Invalid(_))),
+            "{bad}: {err:?}"
+        );
+    }
+    assert_eq!(
+        e.vcs
+            .widen_workspace("demo", "t", &s(&["big"]))
+            .await
+            .unwrap(),
+        ["big/x.txt"]
+    );
+    assert!(
+        e.vcs
+            .widen_workspace("demo", "t", &s(&["big"]))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        e.vcs
+            .widen_workspace("demo", "t", &s(&["a.txt"]))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

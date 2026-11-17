@@ -164,6 +164,24 @@ pub trait Vcs: Send + Sync {
             "restore_workspace is not supported by this Vcs".into(),
         ))
     }
+    /// The prefixes of the repo's `.av/sparse` that task workspace `slug` still leaves off disk
+    /// (each ending in `/`), read from the workspace's own patterns; empty for a full workspace.
+    async fn off_disk(&self, _repo: &str, _slug: &str) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+    /// Writes `paths` (files or directories of the workspace's commit) to the disk of task
+    /// workspace `slug`, which leaves them out (`.av/sparse`), and returns the files it wrote. A
+    /// file already on disk is kept as it is. A path not in the commit is `Invalid`.
+    async fn widen_workspace(
+        &self,
+        _repo: &str,
+        _slug: &str,
+        _paths: &[String],
+    ) -> Result<Vec<String>> {
+        Err(AvError::Invalid(
+            "this workspace leaves nothing out, so there is nothing to widen".into(),
+        ))
+    }
     /// Applies a git-format patch (`git diff --binary --full-index
     /// --no-renames`) to the files of task workspace `slug`, whole or not at all, and returns the
     /// paths it wrote or deleted, in patch order. It only writes files: no snapshot, no command.

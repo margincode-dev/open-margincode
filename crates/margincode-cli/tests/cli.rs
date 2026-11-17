@@ -6475,3 +6475,11 @@ fn the_default_daemon_address_is_the_ipv4_loopback_the_daemon_listens_on() {
         out(&o)
     );
 }
+
+#[test]
+fn widen_in_a_full_workspace_writes_nothing_and_needs_a_path() {
+    let (d, ws, _scratch) = started();
+    assert_eq!(ok(av(&d, &ws, &["widen", "app"])), "written (0): \n");
+    let o = av(&d, &ws, &["widen"]);
+    assert!(!o.status.success());
+}

@@ -1258,6 +1258,37 @@ async fn sync_brings_main_into_an_open_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn widen_answers_for_an_open_task_and_refuses_a_merged_one() {
+    let e = env().await;
+    let t = start_task(&e, "Look at app").await;
+    let (status, body) = post(
+        &e,
+        &t,
+        "widen",
+        json!({"agent": "claude", "paths": ["app"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({"written": [], "off_disk": []}));
+    let (status, body) = post(&e, &t, "widen", json!({"agent": "claude", "paths": []})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let m = ready_to_merge(&e, "Upper names", UPPER).await;
+    post(&e, &m, "merge", json!({"agent": "merger"})).await;
+    let (status, body) = post(
+        &e,
+        &m,
+        "widen",
+        json!({"agent": "claude", "paths": ["app"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("cannot widen"),
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn undo_returns_main_and_the_task_to_review() {
     let e = env().await;
     let t = ready_to_merge(&e, "Upper names", UPPER).await;

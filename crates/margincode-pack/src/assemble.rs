@@ -796,7 +796,22 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         task.slug,
         task.status.as_str()
     );
-    let summary = format!("{handle}\nGoal: {}", task.goal);
+    let off_disk = match d.vcs.off_disk(repo, &task.slug).await {
+        Ok(prefixes) => prefixes,
+        Err(_) => {
+            degraded.push("unknown: what the workspace leaves off disk".to_owned());
+            vec![]
+        }
+    };
+    let off_line = if off_disk.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nNot on disk: {} (`av show PATH` reads a file there, `av widen PATH` writes it here)",
+            off_disk.join(", ")
+        )
+    };
+    let summary = format!("{handle}\nGoal: {}{off_line}", task.goal);
     let full = format!(
         "{summary}\nWorkspace: {}\nChanged ({}): {}",
         task.workspace_path.display(),

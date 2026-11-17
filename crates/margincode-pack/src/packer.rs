@@ -86,7 +86,7 @@ const RECORDS_AT_HINT: &str =
 const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 10;
+pub const PACKER_VERSION: u32 = 11;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,

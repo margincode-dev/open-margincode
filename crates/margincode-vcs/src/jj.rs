@@ -901,10 +901,8 @@ impl OffDisk {
     }
 }
 
-/// The include patterns `.av/sparse` in `tree` asks for: every path when the tree has no list,
-/// or an empty or invalid one, so nothing is ever left unsnapshotted by a bad list.
-fn sparse_patterns(tree: &MergedTree, dir: &Path) -> Result<Vec<RepoPathBuf>> {
-    let everything = || Ok(vec![RepoPathBuf::root()]);
+/// The prefixes `.av/sparse` in `tree` lists: `None` with no list, or an empty or invalid one.
+fn listed(tree: &MergedTree) -> Result<Option<Vec<String>>> {
     let list = RepoPath::from_internal_string(sparse::FILE).map_err(verr)?;
     let text = block_on(async {
         let value = tree.path_value(list).await.map_err(verr)?;
@@ -919,28 +917,39 @@ fn sparse_patterns(tree: &MergedTree, dir: &Path) -> Result<Vec<RepoPathBuf>> {
         }
     })?;
     let Some(text) = text else {
-        return everything();
+        return Ok(None);
     };
-    let Ok(excludes) = sparse::parse(&String::from_utf8_lossy(&text)) else {
-        return everything();
-    };
-    if excludes.is_empty() {
-        return everything();
+    match sparse::parse(&String::from_utf8_lossy(&text)) {
+        Ok(excludes) if !excludes.is_empty() => Ok(Some(excludes)),
+        _ => Ok(None),
     }
+}
+
+fn tree_files(tree: &MergedTree) -> Result<Vec<String>> {
     let mut files = vec![];
     for (path, value) in tree.entries() {
         if value.map_err(verr)?.is_present() {
             files.push(path.as_internal_file_string().to_owned());
         }
     }
-    sparse::includes(&excludes, files, conflict_paths(tree), dir)?
+    Ok(files)
+}
+
+/// The include patterns `.av/sparse` in `tree` asks for: every path when the tree has no list,
+/// or an empty or invalid one, so nothing is ever left unsnapshotted by a bad list.
+fn sparse_patterns(tree: &MergedTree, dir: &Path) -> Result<Vec<RepoPathBuf>> {
+    let Some(excludes) = listed(tree)? else {
+        return Ok(vec![RepoPathBuf::root()]);
+    };
+    sparse::includes(&excludes, tree_files(tree)?, conflict_paths(tree), dir)?
         .into_iter()
         .map(|p| RepoPathBuf::from_internal_string(p).map_err(verr))
         .collect()
 }
 
 /// `grow`: before a snapshot no pattern is dropped, or a file deleted from disk since the last
-/// snapshot would fall outside them and its deletion go unrecorded.
+/// snapshot would fall outside them and its deletion go unrecorded. Otherwise a pattern under a
+/// listed prefix is kept too: only a widen or the agent's own files put one there.
 fn refresh_sparse(
     locked: &mut dyn LockedWorkingCopy,
     tree: &MergedTree,
@@ -949,11 +958,21 @@ fn refresh_sparse(
 ) -> Result<()> {
     let current = locked.sparse_patterns().map_err(verr)?.to_vec();
     let mut want = sparse_patterns(tree, dir)?;
-    if grow && !want.contains(&RepoPathBuf::root()) {
-        if current.contains(&RepoPathBuf::root()) {
+    if !want.contains(&RepoPathBuf::root()) {
+        if grow && current.contains(&RepoPathBuf::root()) {
             return Ok(());
         }
-        want.extend(current.iter().cloned());
+        let excludes = listed(tree)?.unwrap_or_default();
+        want.extend(
+            current
+                .iter()
+                .filter(|p| {
+                    grow || excludes
+                        .iter()
+                        .any(|e| sparse::under(p.as_internal_file_string(), e))
+                })
+                .cloned(),
+        );
         want.sort();
         want.dedup();
     }
@@ -992,6 +1011,71 @@ impl Inner {
             tree,
             style,
         }))
+    }
+
+    fn off_disk_prefixes(&self, repo: &str, slug: &str) -> Result<Vec<String>> {
+        let Some(off) = self.off_disk(repo, &self.ws_dir(repo, slug))? else {
+            return Ok(vec![]);
+        };
+        let Some(excludes) = listed(&off.tree)? else {
+            return Ok(vec![]);
+        };
+        let files = tree_files(&off.tree)?;
+        Ok(excludes
+            .into_iter()
+            .filter(|e| files.iter().any(|f| sparse::under(f, e) && !off.covers(f)))
+            .map(|e| format!("{e}/"))
+            .collect())
+    }
+
+    fn widen(&self, repo: &str, slug: &str, paths: &[String]) -> Result<Vec<String>> {
+        let mut wanted = vec![];
+        for p in paths {
+            let one = sparse::parse(p)
+                .ok()
+                .filter(|v| v.len() == 1)
+                .ok_or_else(|| {
+                    AvError::Invalid(format!(
+                        "{p:?} is not a path in the repo (.av, .jj and .git are never left out)"
+                    ))
+                })?;
+            wanted.extend(one);
+        }
+        let dir = self.ws_dir(repo, slug);
+        let Some(off) = self.off_disk(repo, &dir)? else {
+            return Ok(vec![]);
+        };
+        let files = tree_files(&off.tree)?;
+        let mut written = vec![];
+        for p in &wanted {
+            let here: Vec<&String> = files.iter().filter(|f| sparse::under(f, p)).collect();
+            if here.is_empty() {
+                return Err(AvError::Invalid(format!(
+                    "{p}: not in the task's last checkpoint"
+                )));
+            }
+            written.extend(
+                here.into_iter()
+                    .filter(|f| !off.covers(f) && !dir.join(f).exists())
+                    .cloned(),
+            );
+        }
+        let (mut ws, ro) = self.load_workspace(repo, &dir)?;
+        let mut locked = block_on(ws.start_working_copy_mutation()).map_err(verr)?;
+        let before = locked.locked_wc().sparse_patterns().map_err(verr)?.to_vec();
+        let mut want = before.clone();
+        for p in &wanted {
+            want.push(RepoPathBuf::from_internal_string(p.as_str()).map_err(verr)?);
+        }
+        want.sort();
+        want.dedup();
+        if want != before {
+            block_on(locked.locked_wc().set_sparse_patterns(want)).map_err(verr)?;
+        }
+        block_on(locked.finish(ro.op_id().clone())).map_err(verr)?;
+        written.sort();
+        written.dedup();
+        Ok(written)
     }
 
     fn trunk(&self, repo: &str) -> Result<ChangeId> {
@@ -1507,6 +1591,22 @@ impl Vcs for JjVcs {
         let (name, slug, head) = (repo.to_owned(), slug.to_owned(), head.clone());
         self.run(repo, move |i| i.restore_workspace(&name, &slug, &head))
             .await
+    }
+
+    async fn off_disk(&self, repo: &str, slug: &str) -> Result<Vec<String>> {
+        let (name, slug) = (repo.to_owned(), slug.to_owned());
+        self.run(repo, move |i| i.off_disk_prefixes(&name, &slug))
+            .await
+    }
+
+    async fn widen_workspace(
+        &self,
+        repo: &str,
+        slug: &str,
+        paths: &[String],
+    ) -> Result<Vec<String>> {
+        let (name, slug, paths) = (repo.to_owned(), slug.to_owned(), paths.to_vec());
+        self.run(repo, move |i| i.widen(&name, &slug, &paths)).await
     }
 
     async fn apply_patch(&self, repo: &str, slug: &str, patch: &[u8]) -> Result<Vec<String>> {

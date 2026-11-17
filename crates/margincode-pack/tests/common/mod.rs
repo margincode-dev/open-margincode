@@ -15,9 +15,14 @@ use margincode_testutil::TestDb;
 #[derive(Default)]
 pub struct FakeVcs {
     changes: Mutex<HashMap<String, BTreeMap<String, Vec<u8>>>>,
+    off_disk: Mutex<Vec<String>>,
 }
 
 impl FakeVcs {
+    pub fn set_off_disk(&self, prefixes: &[&str]) {
+        *self.off_disk.lock().unwrap() = prefixes.iter().map(|p| (*p).to_owned()).collect();
+    }
+
     pub fn set(&self, change: &str, files: &[(&str, &str)]) {
         let map = files
             .iter()
@@ -38,6 +43,9 @@ impl FakeVcs {
 
 #[async_trait]
 impl Vcs for FakeVcs {
+    async fn off_disk(&self, _: &str, _: &str) -> Result<Vec<String>> {
+        Ok(self.off_disk.lock().unwrap().clone())
+    }
     async fn init_repo(&self, _: &str, _: &Path) -> Result<ChangeId> {
         Err(AvError::Vcs("unsupported".into()))
     }

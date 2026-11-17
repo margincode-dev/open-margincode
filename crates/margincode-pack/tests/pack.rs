@@ -694,6 +694,32 @@ async fn golden_pack_for_fixture_task() {
 }
 
 #[tokio::test]
+async fn the_task_section_names_what_the_workspace_leaves_off_disk() {
+    let fx = fixture().await;
+    let plain = fx.packer.build(req(&fx.task, 2500, "plain")).await.unwrap();
+    assert!(
+        !plain.markdown.contains("Not on disk"),
+        "{}",
+        plain.markdown
+    );
+    fx.vcs.set_off_disk(&["bench/results/", "big/"]);
+    for budget in [2500, 300] {
+        let pack = fx
+            .packer
+            .build(req(&fx.task, budget, &format!("sparse-{budget}")))
+            .await
+            .unwrap();
+        assert!(
+            pack.markdown.contains(
+                "Not on disk: bench/results/, big/ (`av show PATH` reads a file there, `av widen PATH` writes it here)"
+            ),
+            "{}",
+            pack.markdown
+        );
+    }
+}
+
+#[tokio::test]
 async fn semantic_hit_on_unanchored_other_task_record_is_included() {
     let fx = fixture().await;
     let other = fx.store.create_task(new_task("Side quest")).await.unwrap();

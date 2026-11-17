@@ -29,6 +29,23 @@ cargo test --workspace
 All three must pass; CI runs the same on every pull request. For changes to the stack or the
 CLI's end-to-end flow, also run `scripts/smoke.sh`.
 
+### Running the bar in a container
+
+- Run as a non-root user if you can. As root, the tests need `AV_TEST_DATABASE_URL` or a
+  PostgreSQL installed in the container (`margincode-testutil` runs it as `postgres` or
+  `nobody`). The two `embedded_pg` tests start lite mode's Postgres, which refuses root: as root
+  they skip with a `SKIPPED embedded_pg` line, so a green run as root does not prove lite mode
+  starts. They also skip unless `AV_TEST_PG_INSTALL_DIR` names an installation.
+- To run it on an av task, mount the repo's directory under the workspace root
+  (`<ws_root>/<repo>`) and set the working directory to the task's workspace inside it
+  (`<repo>/<slug>`). av's lean-build config is `<ws_root>/<repo>/.cargo/config.toml`, and cargo
+  reads `.cargo/config.toml` only in the working directory and its parents, so a container that
+  mounts only the workspace builds without it. Mounted this way, the build goes to the
+  workspace's own `target/`, which av counts and removes with the task.
+- For a control run on a clean `main`, clone the backup remote: `git clone -b av-main
+  <export>.git control` is exactly `main` and starts no task. A merged task's workspace is
+  removed after `AV_WS_RETAIN_SECS` (an hour by default), and its `target/` at once.
+
 ## How changes are made
 
 - **Tests first.** Write the failing test, then the code. Daemon behaviour is tested through the

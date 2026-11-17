@@ -1,15 +1,32 @@
 //! Lite mode: the daemon's own Postgres when `AV_DATABASE_URL` is unset.
 //!
-//! Skips unless `AV_TEST_PG_INSTALL_DIR` names a PostgreSQL installation (the directory holding
-//! `bin/`, e.g. `/usr/lib/postgresql/16`), so it never downloads. Postgres refuses to run as root.
+//! Skips, with a line on stderr, unless `AV_TEST_PG_INSTALL_DIR` names a PostgreSQL installation
+//! (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`), so it never downloads, and when
+//! the tests run as root, which Postgres refuses.
 
 use margincode_daemon::EmbeddedPg;
 use sqlx::{Connection, PgConnection};
 
+/// The installation to start lite mode's Postgres from, or `None` after a line straight to stderr:
+/// the test harness keeps a passing test's output, and a skip must be seen.
+fn install_dir() -> Option<std::ffi::OsString> {
+    let dir = std::env::var_os("AV_TEST_PG_INSTALL_DIR").filter(|v| !v.is_empty() && v != "none");
+    let why = match dir {
+        Some(dir) if !margincode_testutil::is_root() => return Some(dir),
+        Some(_) => "the tests run as root, and Postgres refuses to",
+        None => "AV_TEST_PG_INSTALL_DIR is unset, empty or `none`",
+    };
+    use std::io::Write;
+    let _ = writeln!(
+        std::io::stderr(),
+        "SKIPPED embedded_pg: {why}; lite mode's Postgres was NOT started"
+    );
+    None
+}
+
 #[tokio::test]
 async fn embedded_postgres_keeps_its_data_and_password_across_restarts() {
-    let Some(install) = std::env::var_os("AV_TEST_PG_INSTALL_DIR").filter(|v| !v.is_empty()) else {
-        println!("skip: AV_TEST_PG_INSTALL_DIR unset");
+    let Some(install) = install_dir() else {
         return;
     };
     let home = tempfile::tempdir().unwrap();
@@ -44,8 +61,7 @@ async fn embedded_postgres_keeps_its_data_and_password_across_restarts() {
 
 #[tokio::test]
 async fn embedded_postgres_starts_after_a_crash_left_its_pid_file() {
-    let Some(install) = std::env::var_os("AV_TEST_PG_INSTALL_DIR").filter(|v| !v.is_empty()) else {
-        println!("skip: AV_TEST_PG_INSTALL_DIR unset");
+    let Some(install) = install_dir() else {
         return;
     };
     let home = tempfile::tempdir().unwrap();

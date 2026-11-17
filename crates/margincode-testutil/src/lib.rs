@@ -12,7 +12,7 @@ mod installed;
 use postgresql_embedded::PostgreSQL;
 use sqlx::{Connection, PgConnection};
 
-pub use installed::installed_bin;
+pub use installed::{installed_bin, is_root};
 
 pub struct TestDb {
     pub url: String,

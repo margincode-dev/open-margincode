@@ -36,7 +36,7 @@ struct Cli {
     #[arg(
         long,
         env = "AV_URL",
-        default_value = "http://localhost:7420",
+        default_value = "http://127.0.0.1:7420",
         global = true
     )]
     url: String,

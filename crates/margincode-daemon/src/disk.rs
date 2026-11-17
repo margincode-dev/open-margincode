@@ -1095,7 +1095,8 @@ pub(crate) async fn enforce_budget(st: &AppState, dry_run: bool) -> Result<Optio
             .filter_map(|b| task_of(b).map(|(t, _)| (b, t)))
             .filter(|(b, t)| !ended(t.status) && secs_since(b.touched) >= idle_for)
             .collect();
-        idle.sort_by_key(|(b, _)| b.touched);
+        // a task in review waits on its reviewer, so its owner is not about to build it again
+        idle.sort_by_key(|(b, t)| (t.status != TaskStatus::InReview, b.touched));
         let steps = finished
             .into_iter()
             .map(|(b, t, _)| ("finished", b, t))

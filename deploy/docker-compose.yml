@@ -102,6 +102,8 @@ services:
       AV_WS_RETAIN_SECS: ${AV_WS_RETAIN_SECS:-3600}
       # off: no shared cargo build cache (<ws>/<repo>/.cargo/config.toml) for Rust repos.
       AV_BUILD_CACHE: ${AV_BUILD_CACHE:-on}
+      # Build output (target/ dirs + .cache/) each repo may keep, in GiB; 0 turns the budget off.
+      AV_BUILD_CACHE_MAX_GB: ${AV_BUILD_CACHE_MAX_GB:-40}
       # ignore: snapshots keep each file's mode from the repo (workspaces edited from Windows).
       AV_EXEC_BIT: ${AV_EXEC_BIT:-auto}
       # A call whose name more than N other symbols define links to none (empty: no cap).

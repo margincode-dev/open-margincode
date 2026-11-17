@@ -1657,6 +1657,29 @@ async fn over_the_build_budget_finished_targets_go_first_then_idle_ones_least_re
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn over_the_build_budget_an_idle_build_in_review_goes_before_an_idle_open_one() {
+    let e = env().await;
+    let open = start_task(&e, "Idle for three hours").await;
+    let review = start_task(&e, "In review for an hour").await;
+    edit_greeter(&e, &review);
+    record_decision(&e, &review).await;
+    let (status, body) = submit(&e, &review).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let open_target = plant_target(&ws_dir(&e, &open), 16 * KIB, hours(3));
+    let review_target = plant_target(&ws_dir(&e, &review), 16 * KIB, hours(1));
+    // 32 KiB against 24: one goes, and its owner is not building the one in review
+    e.state.set_build_budget(24 * KIB);
+    let out = gc(&e, json!({})).await;
+    assert_eq!(
+        removals(&out),
+        vec![("idle".to_owned(), Some(slug(&review).to_owned()))],
+        "{out}"
+    );
+    assert!(!review_target.exists());
+    assert!(open_target.exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_recent_target_survives_even_over_the_budget_and_the_deps_cache_goes_last() {
     let e = env_with(|s| s.with_ws_retain(None)).await;
     let done = start_task(&e, "Never mind").await;

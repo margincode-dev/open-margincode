@@ -247,6 +247,12 @@ enum Cmd {
     },
     /// Rebase the task onto the current main; conflicts are left as markers in the workspace.
     Sync,
+    /// Write paths the workspace leaves out (the repo's `.av/sparse`) to its disk: files or
+    /// directories of the task's last checkpoint. What main adds there later is written on sync.
+    Widen {
+        #[arg(required = true)]
+        paths: Vec<String>,
+    },
     /// Undo this task's merge (only while it is still the newest change on main).
     Undo {
         /// Task id (default: the current task).
@@ -2233,6 +2239,27 @@ fn run(cli: Cli) -> Result<()> {
                 // the rebase moved the head: bring the checkout onto it (markers included)
                 let p = remote::pull(&client, &dir)?;
                 println!("checkout pulled to {}", short(&p.head));
+            }
+        }
+        Cmd::Widen { paths } => {
+            let (task, _) = resolve_task(&cli)?;
+            if let Some((_, tf)) = taskfile::find(&cwd()?)
+                && tf.task == task
+                && tf.remote.is_some()
+            {
+                println!("this checkout holds every file: nothing to widen");
+            } else {
+                let r = client.post_as(
+                    &format!("/v1/tasks/{task}/widen"),
+                    &json!({"agent": cli.agent, "paths": paths}),
+                    generation_for(&cli, &task)?,
+                )?;
+                let written = strings(&r["written"]);
+                println!("written ({}): {}", written.len(), written.join(", "));
+                let off = strings(&r["off_disk"]);
+                if !off.is_empty() {
+                    println!("still not on disk: {}", off.join(", "));
+                }
             }
         }
         Cmd::Revert { task_id, reason } => {

@@ -324,6 +324,40 @@ pub(crate) async fn sync(
 }
 
 #[derive(Deserialize)]
+pub(crate) struct WidenBody {
+    paths: Vec<String>,
+}
+
+/// Writes paths the workspace leaves out (`.av/sparse`) to its disk; returns the files written
+/// and the listed prefixes still off disk.
+pub(crate) async fn widen(
+    State(st): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<WidenBody>,
+) -> ApiResult<Value> {
+    let _guard = st.lock_task(TaskId(id)).await;
+    let task = st.store.get_task(TaskId(id)).await?;
+    fence(&st, &task, &headers).await?;
+    if !matches!(task.status, TaskStatus::Open | TaskStatus::Conflicted) {
+        return Err(AvError::IllegalState(format!(
+            "a task that is {} cannot widen its workspace; only open or conflicted tasks can",
+            task.status.as_str()
+        ))
+        .into());
+    }
+    if body.paths.is_empty() {
+        return Err(AvError::Invalid("name at least one path to widen".into()).into());
+    }
+    let written = st
+        .vcs
+        .widen_workspace(&task.repo, &task.slug, &body.paths)
+        .await?;
+    let off_disk = st.vcs.off_disk(&task.repo, &task.slug).await?;
+    Ok(Json(json!({ "written": written, "off_disk": off_disk })))
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ValidateBody {
     agent: String,
     command: String,

@@ -1381,10 +1381,20 @@ Nothing an agent writes is lost by it:
   patch may change or delete a listed file: the daemon reads that file from the workspace's
   commit.
 
-A listed file is not on disk, so an agent in the daemon's workspace cannot delete it (take
-the path off the list first); one in a checkout can. The client's own checkout is still the
-whole tree: `av remote clone` writes every file. To read a listed file, `av show PATH` (from
-`main`, or `--at task:<slug>`).
+The first lines of a pack say what the workspace leaves out, read from the working copy itself
+(so nothing for a full workspace): `Not on disk: bench/results/ (...)`. To read a listed file,
+`av show PATH` (from `main`, or `--at task:<slug>`). To work on one, widen the workspace:
+
+```bash
+av widen bench/results/2026-10-27-haiku/     # files or directories of the task's last checkpoint
+```
+
+`av widen` (`POST /v1/tasks/{id}/widen`) writes those files to disk, keeps any file the agent
+already wrote there, and prints what is still left out. A widened path stays widened: edits and
+deletions there are recorded, and what `main` adds under it is written on `av sync`. A restored
+workspace starts without its widened paths. A path that is not in the task's last checkpoint is
+refused. In a checkout (`--checkout`, `av remote clone`) every file is there already, so
+`av widen` does nothing; the client's own checkout is still the whole tree.
 
 This repository lists its result archives, `bench/results/` and `bench/retrieval/results/`.
 

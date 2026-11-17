@@ -120,6 +120,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/v1/tasks/{id}/review", post(crate::flow::review))
         .route("/v1/tasks/{id}/merge", post(crate::flow::merge))
         .route("/v1/tasks/{id}/sync", post(crate::flow::sync))
+        .route("/v1/tasks/{id}/widen", post(crate::flow::widen))
         .route("/v1/tasks/{id}/undo", post(crate::flow::undo))
         .route("/v1/tasks/{id}/revert", post(crate::flow::revert))
         .route("/v1/tasks/{id}/handoff", post(crate::flow::handoff))

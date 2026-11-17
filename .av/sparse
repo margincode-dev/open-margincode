@@ -1,0 +1,5 @@
+# Left out of task workspaces (docs/reference.md, "Paths left out of task workspaces"): the
+# result archives, 90 % of the files. A new results directory can still be written there; read
+# an existing one with `av show PATH`.
+bench/results/
+bench/retrieval/results/

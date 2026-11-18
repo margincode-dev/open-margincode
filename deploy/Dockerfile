@@ -25,8 +25,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM debian:bookworm-slim
 # git: the daemon shells out to `git clone --bare` when importing a repository.
+# openssh-client: git's transport for an SSH backup remote (`ssh` is only a Recommends of git).
+# libnss-wrapper: a passwd entry for a UID the image does not know (entrypoint.sh).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl \
+    && apt-get install -y --no-install-recommends git ca-certificates curl openssh-client \
+        libnss-wrapper \
     && rm -rf /var/lib/apt/lists/* \
     # Imported repos are mounted read-only and owned by whoever owns them on the host. git only
     # honours safe.directory from system/global config, so set it here, not through the env.
@@ -35,6 +38,7 @@ RUN apt-get update \
     && useradd --create-home --uid 1000 margincode \
     && mkdir -p /data && chown margincode:margincode /data
 COPY --from=build /usr/local/bin/margincode /usr/local/bin/av /usr/local/bin/margincode-daemon /usr/local/bin/
+COPY deploy/entrypoint.sh /usr/local/bin/margincode-entrypoint
 # Defaults for a plain `docker run`; compose sets its own store, workspace root and user.
 # AV_LISTEN: a published port reaches only a non-loopback address in the container. The daemon
 # then refuses to start without AV_TOKEN or AV_LISTEN_OPEN=1 (the port is published on the
@@ -47,4 +51,4 @@ VOLUME /data
 EXPOSE 7420
 # Compose runs it as the host user (`user:`), so it needs no root and writes host-owned files.
 USER margincode
-ENTRYPOINT ["margincode-daemon"]
+ENTRYPOINT ["margincode-entrypoint"]

@@ -118,7 +118,8 @@ services:
       # a key: mount it read-only (see the volume below) and set GIT_SSH_COMMAND to use it.
       AV_BACKUP_REMOTES: ${AV_BACKUP_REMOTES:-}
       GIT_SSH_COMMAND: ${AV_BACKUP_SSH_COMMAND:-ssh}
-      # No passwd entry for the host UID inside the container; give git a writable HOME.
+      # The host UID has no home in the image (the entrypoint gives it a passwd entry for ssh);
+      # give git a writable HOME.
       # (safe.directory for the import mount is set in the image's system git config.)
       HOME: /tmp
     healthcheck:

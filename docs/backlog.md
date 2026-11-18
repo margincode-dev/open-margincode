@@ -50,7 +50,13 @@ the suspected cause, marked as a guess; the status.
 - **Guess at a fix.** Add `openssh-client`, and give ssh a user it accepts (for example a passwd
   entry written at start, or `nss_wrapper`), then a test that pushes a backup over SSH from the
   image. Or drop the compose comments.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-capabilities-offline-22d48v`: the image installs
+  `openssh-client` and `libnss-wrapper`, and its entrypoint (`deploy/entrypoint.sh`) gives a UID
+  without a passwd entry one through nss_wrapper before it starts the daemon. Checked on the
+  image's runtime layer (same base and packages, a stand-in daemon): as UID 4242, `ssh` without
+  the entrypoint exits "No user exists for uid 4242"; with it, a `git push` over SSH to an sshd
+  container succeeded. Not checked: the full compose stack (`scripts/smoke.sh`), whose images
+  Docker Hub rate-limited in the session.
 
 ## 2026-11-18: M2 stage B, three stops before the first session
 

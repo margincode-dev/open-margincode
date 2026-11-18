@@ -1148,6 +1148,48 @@ fn matches_everything(scope: &str) -> bool {
     s.is_empty() || s.chars().all(|c| c == '*' || c == '/')
 }
 
+/// Whether a script in `args` (an argument holding whitespace) pipes outside quotes without
+/// `pipefail`: its exit status is then the last command's, so `cargo test | tail` passes when
+/// the tests fail. A heuristic, so `av` warns and never refuses.
+fn unguarded_pipeline(args: &[String]) -> bool {
+    !args.iter().any(|a| a.contains("pipefail"))
+        && args
+            .iter()
+            .any(|a| a.contains(char::is_whitespace) && script_pipes(a))
+}
+
+fn script_pipes(script: &str) -> bool {
+    if script.contains("pipefail") {
+        return false;
+    }
+    let mut quote = None;
+    let mut chars = script.chars().peekable();
+    let mut prev = ' ';
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some('\''), _) => {}
+            (_, '\\') => {
+                chars.next();
+            }
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '|') if prev != '|' && chars.peek() != Some(&'|') => return true,
+            _ => {}
+        }
+        prev = c;
+    }
+    false
+}
+
+fn warn_unguarded_pipeline(what: &str) {
+    eprintln!(
+        "av: this {what} pipes without pipefail; a pipeline's exit status is its last command's, \
+         so a failing test piped into a filter passes. Attest the test command itself, or add \
+         `set -o pipefail`."
+    );
+}
+
 fn cwd() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))
 }
@@ -1808,6 +1850,9 @@ fn run(cli: Cli) -> Result<()> {
                     text,
                 },
         } => {
+            if check.as_deref().is_some_and(script_pipes) {
+                warn_unguarded_pipeline("check");
+            }
             let r = client.post(
                 &format!("/v1/repos/{repo}/conventions"),
                 &json!({"scope_glob": scope, "text": text, "required": required, "check": check}),
@@ -2078,6 +2123,9 @@ fn run(cli: Cli) -> Result<()> {
             command,
         } => {
             let (task, _) = resolve_task(&cli)?;
+            if unguarded_pipeline(command) {
+                warn_unguarded_pipeline("command");
+            }
             let cwd = std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))?;
             let found = taskfile::find(&cwd);
             let (generation, not_owner) =
@@ -2130,6 +2178,9 @@ fn run(cli: Cli) -> Result<()> {
             for c in wanted["checks"].as_array().into_iter().flatten() {
                 let expanded = crates_scope::expand(s(&c["command"]), &root, &changed);
                 let cmd = expanded.as_str();
+                if script_pipes(cmd) {
+                    warn_unguarded_pipeline("check");
+                }
                 let (exit, out) = run_capturing(
                     target_dir::apply(&root, std::process::Command::new("sh").args(["-c", cmd])),
                     &root,
@@ -3129,6 +3180,30 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_unguarded_pipeline_in_a_script_argument_is_noticed() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for piped in [
+            &["bash", "-c", "cargo test | grep ok"][..],
+            &["docker", "run", "img", "sh", "-c", "t | tail"],
+            &["sh", "-c", "t |& tee log"],
+            &["sh", "-c", "echo \"a\" | tail"],
+        ] {
+            assert!(super::unguarded_pipeline(&args(piped)), "{piped:?}");
+        }
+        for fine in [
+            &["cargo", "test"][..],
+            &["sh", "-c", "a || b"],
+            &["sh", "-c", "echo 'a | b'"],
+            &["sh", "-c", "echo \"a | b\" && echo a\\|b"],
+            &["bash", "-c", "set -o pipefail; t | tee log"],
+            &["bash", "-o", "pipefail", "-c", "t | tail"],
+            &["grep", "a|b", "f"],
+        ] {
+            assert!(!super::unguarded_pipeline(&args(fine)), "{fine:?}");
+        }
+    }
+
     #[test]
     fn a_scope_that_matches_every_path_is_told_apart() {
         for all in ["**", "*", "**/*", "/", "", "./**", "**/**"] {

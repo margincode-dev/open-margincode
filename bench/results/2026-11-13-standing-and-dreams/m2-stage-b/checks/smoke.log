@@ -1,0 +1,8 @@
+margincode-bench: relay-order-ids · av · rep 1 (spent $-0.00 of $0.10)
+plan: 1 tasks × 1 arms × 1 reps = 1 sessions (seed 1)
+model: claude-haiku-5-5
+  av: 1 sessions (below 30: no significance claim)
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $0.08 at the $0.08 per-session cap
+budget: $0.10; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+report: /m2b/results/smoke/report.md

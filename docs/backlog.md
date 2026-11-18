@@ -7,6 +7,19 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: M2 stage B, three stops before the first session
+
+- **Where.** M2 stage B (`bench/results/2026-11-13-standing-and-dreams/m2-stage-b/checks/`).
+- **Seen.** (1) The first `dream-freeze` stopped at its first agent call: Claude Code answered
+  "Invalid API key" and a direct models request returned 401; the owner replaced the key and the
+  freeze ran again from a fresh seed ($0 spent). (2) The smoke's preflight refused twice:
+  `first-packs` and the freeze leave run and workspace directories open to the agent user, and
+  `useradd -m` gives `benchagent` a home it can write. Closed with `chmod 700` and
+  `usermod -d /nonexistent benchagent`; `m2bchain.sh` now closes `ws/*` too between the arms.
+- **Ruled out.** No session ran in either state; the harness refused before launching.
+- **Guess.** (2) is setup for a new container: M0's container had been set up that way already.
+- **Status.** Worked around. A harness recipe for a new container could name both steps.
+
 ## 2026-11-18: a two-second lease ran out inside a routing test under load
 
 - **Where.** `margincode-daemon` `tests/routing.rs`

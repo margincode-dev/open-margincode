@@ -90,8 +90,12 @@ async fn stamp_version(mut res: axum::response::Response) -> axum::response::Res
     res
 }
 
-async fn version() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "version": VERSION, "routes": ROUTE_FAMILIES }))
+async fn version(State(st): State<AppState>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "version": VERSION,
+        "routes": ROUTE_FAMILIES,
+        "plain_records": st.plain_records,
+    }))
 }
 
 /// Every `/v1` route, without the token check: `router` adds it, and the MCP tools call these
@@ -695,6 +699,7 @@ async fn with_standing(st: &AppState, records: Vec<Record>) -> Result<Vec<Value>
         .map(|r| {
             let standing = origins
                 .get(&r.id)
+                .filter(|_| !st.plain_records)
                 .map(|facts| margincode_core::standing::standing(facts, r.kind, r.created_at));
             let mut v = json!(r);
             if let Some(s) = standing {
@@ -869,6 +874,11 @@ async fn superseded_by_task(
         return Err(AvError::IllegalState(format!(
             "{shown} is not a record of repo {}",
             task.repo
+        )));
+    }
+    if st.plain_records && old.task_id != task.id {
+        return Err(AvError::IllegalState(format!(
+            "{shown} is another task's record: this daemon serves plain records (AV_PLAIN_RECORDS), where a task supersedes only its own"
         )));
     }
     if let Some(why) = supersede_refusal(old.kind, by, old.task_id == task.id) {

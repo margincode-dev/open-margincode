@@ -69,6 +69,9 @@ pub struct Config {
     /// `AV_BUILD_CACHE` (default on; `off`, `0` or `false` turn it off): lean cargo settings and a shared
     /// dependency cache for a repo with a root `Cargo.toml` (`build_cache`, `deps_cache`).
     pub build_cache: bool,
+    /// `AV_PLAIN_RECORDS` (default off; `on`, `1` or `true` turn it on): records without Plan 16's
+    /// correction and origin standing (`AppState::with_plain_records`), for a benchmark arm.
+    pub plain_records: bool,
     /// `AV_EXEC_BIT` (default `auto`; `respect`, `ignore`): whether a snapshot records a workspace
     /// file's executable bit. `ignore` keeps each file's mode from the repo.
     pub exec_bit: ExecBit,
@@ -194,6 +197,10 @@ impl Config {
                 })?,
             },
             build_cache: parse_switch("AV_BUILD_CACHE", get("AV_BUILD_CACHE").as_deref())?,
+            plain_records: parse_off_switch(
+                "AV_PLAIN_RECORDS",
+                get("AV_PLAIN_RECORDS").as_deref(),
+            )?,
             exec_bit: parse_exec_bit(get("AV_EXEC_BIT").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
             token,
@@ -317,6 +324,14 @@ fn parse_switch(name: &str, value: Option<&str>) -> Result<bool> {
     }
 }
 
+/// `parse_switch` for a switch that is off unless set.
+fn parse_off_switch(name: &str, value: Option<&str>) -> Result<bool> {
+    match value.map(str::trim) {
+        None | Some("") => Ok(false),
+        v => parse_switch(name, v),
+    }
+}
+
 fn parse_exec_bit(value: Option<&str>) -> Result<ExecBit> {
     match value.map(str::trim) {
         None | Some("") => Ok(ExecBit::default()),
@@ -408,6 +423,7 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     .with_build_budget(cfg.build_budget_bytes)
     .with_build_idle(cfg.build_idle_secs)
     .with_build_cache(cfg.build_cache)
+    .with_plain_records(cfg.plain_records)
     .with_disk_paths(
         Some(cfg.store_root.clone()),
         cfg.database_url.is_none().then(|| cfg.pg_dir.clone()),
@@ -482,6 +498,16 @@ mod tests {
         assert!(!parse_switch("X", Some("0")).unwrap());
         assert!(!parse_switch("X", Some(" FALSE ")).unwrap());
         assert!(parse_switch("X", Some("maybe")).is_err());
+    }
+
+    #[test]
+    fn plain_records_are_off_unless_turned_on() {
+        assert!(!parse_off_switch("X", None).unwrap());
+        assert!(!parse_off_switch("X", Some(" ")).unwrap());
+        assert!(!parse_off_switch("X", Some("off")).unwrap());
+        assert!(parse_off_switch("X", Some("on")).unwrap());
+        assert!(parse_off_switch("X", Some("1")).unwrap());
+        assert!(parse_off_switch("X", Some("maybe")).is_err());
     }
 
     #[test]

@@ -105,6 +105,11 @@ impl Drop for TestDaemon {
 }
 
 pub fn start_daemon(token: Option<&str>) -> TestDaemon {
+    start_daemon_with(token, false)
+}
+
+/// `plain_records`: as a daemon run with `AV_PLAIN_RECORDS=on`.
+pub fn start_daemon_with(token: Option<&str>, plain_records: bool) -> TestDaemon {
     let token = token.map(str::to_owned);
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -130,7 +135,8 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
                 ws.path().to_path_buf(),
                 ws.path().to_path_buf(),
             )
-            .with_token(token);
+            .with_token(token)
+            .with_plain_records(plain_records);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             ready_tx
                 .send((

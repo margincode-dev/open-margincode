@@ -995,3 +995,174 @@ async fn a_guard_can_refuse_a_memory_write_and_nothing_is_written() {
         ]
     );
 }
+
+/// What an agent on a later task sees of an abandoned task's records, one disputed and one
+/// outdated by accepted verdicts.
+struct Seen {
+    plain_flag: Value,
+    first: String,
+    after: String,
+    stored: Value,
+    at: String,
+    foreign_supersede: StatusCode,
+    refusal: String,
+    own_supersede: StatusCode,
+}
+
+async fn seen_by_a_later_task(plain: bool) -> Seen {
+    let e = env_with(|s| s.with_plain_records(plain)).await;
+    let (_, version) = call(&e.app, "GET", "/v1/version", None).await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let disputed = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let outdated = record_on(
+        &e,
+        &earlier,
+        "note",
+        "hello used to cache names",
+        "app/greeter.py",
+    )
+    .await;
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/abandon", id(&earlier)),
+        json!({"agent": "claude"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first = pack(&e, &reader, "p0").await;
+
+    let d = start_dream(&e, "review", "").await;
+    for (rec, verdict, reason) in [
+        (&disputed, "disputed", "the greeter adds no mark at all"),
+        (&outdated, "outdated", "no cache in the greeter"),
+    ] {
+        let proposed = propose(
+            &e,
+            &d,
+            json!({"record": handle(rec), "verdict": verdict, "reason": reason,
+                   "evidence": [code_quote()]}),
+        )
+        .await;
+        accept(&e, &proposed).await;
+    }
+    let after = pack(&e, &reader, "p1").await;
+
+    let (_, recs) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records", id(&earlier)),
+        None,
+    )
+    .await;
+    let stored = recs["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == disputed["id"])
+        .unwrap()
+        .clone();
+    let (status, at) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/records/at?path=app/greeter.py", id(&reader)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{at}");
+
+    let (foreign_supersede, refusal) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/records", id(&reader)),
+        json!({"kind": "decision", "summary": "hello shouts after all", "agent": "claude",
+               "supersedes": handle(&disputed)}),
+    )
+    .await;
+    let own = record_on(&e, &reader, "note", "hello is loud", "app/greeter.py").await;
+    let (own_supersede, body) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/records", id(&reader)),
+        json!({"kind": "note", "summary": "hello is very loud", "agent": "claude",
+               "supersedes": handle(&own)}),
+    )
+    .await;
+    assert_eq!(own_supersede, StatusCode::OK, "{body}");
+    Seen {
+        plain_flag: version["plain_records"].clone(),
+        first,
+        after,
+        stored,
+        at: at["markdown"].as_str().unwrap().to_owned(),
+        foreign_supersede,
+        refusal: refusal.to_string(),
+        own_supersede,
+    }
+}
+
+/// `AV_PLAIN_RECORDS`: packs show records as they were before an agent could correct another
+/// task's records and before a record carried its task's outcome; verdicts still act.
+#[tokio::test(flavor = "multi_thread")]
+async fn plain_records_keep_verdicts_but_drop_origins_and_corrections() {
+    let full = seen_by_a_later_task(false).await;
+    let plain = seen_by_a_later_task(true).await;
+    assert_eq!(
+        (&full.plain_flag, &plain.plain_flag),
+        (&json!(false), &json!(true))
+    );
+
+    let label = |md: &str| line_of(md, "hello never shouts").contains(" decision, abandoned: ");
+    assert!(label(&full.first) && label(&full.after), "{}", full.after);
+    assert!(
+        !label(&plain.first) && !label(&plain.after),
+        "{}",
+        plain.after
+    );
+    assert!(full.first.contains("--supersedes"), "{}", full.first);
+    assert!(!plain.first.contains("--supersedes"), "{}", plain.first);
+    assert!(full.at.contains("--supersedes"), "{}", full.at);
+    assert!(
+        plain.at.contains("hello never shouts") && !plain.at.contains("--supersedes"),
+        "{}",
+        plain.at
+    );
+
+    for seen in [&full, &plain] {
+        let line = line_of(&seen.after, "hello never shouts");
+        assert!(
+            line.contains("(disputed: the greeter adds no mark"),
+            "{line}"
+        );
+        assert!(!seen.after.contains("used to cache"), "{}", seen.after);
+        assert_eq!(
+            seen.stored["verdict"]["kind"], "disputed",
+            "{}",
+            seen.stored
+        );
+        assert_eq!(seen.own_supersede, StatusCode::OK);
+    }
+    assert_eq!(
+        full.stored["standing"]["origin"], "abandoned",
+        "{}",
+        full.stored
+    );
+    assert!(plain.stored.get("standing").is_none(), "{}", plain.stored);
+
+    assert_eq!(full.foreign_supersede, StatusCode::OK, "{}", full.refusal);
+    assert_eq!(
+        plain.foreign_supersede,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        plain.refusal
+    );
+    assert!(
+        plain.refusal.contains("AV_PLAIN_RECORDS"),
+        "{}",
+        plain.refusal
+    );
+}

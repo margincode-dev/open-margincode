@@ -155,6 +155,17 @@ pub fn standing(facts: &OriginFacts, kind: RecordKind, written: DateTime<Utc>) -
     Standing { origin, factor }
 }
 
+/// `standing` as if every task had merged, so only a verdict counts (a daemon with
+/// `AV_PLAIN_RECORDS` on); the origin is then `Merged`, which carries no label.
+pub fn without_origin(facts: &OriginFacts, kind: RecordKind, written: DateTime<Utc>) -> Standing {
+    let merged = OriginFacts {
+        status: TaskStatus::Merged,
+        reverted_at: None,
+        verdict: facts.verdict.clone(),
+    };
+    standing(&merged, kind, written)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +322,40 @@ mod tests {
         }
         assert!(VerdictKind::Duplicate.hides() && VerdictKind::Outdated.hides());
         assert!(!VerdictKind::Disputed.hides() && !VerdictKind::Confirmed.hides());
+    }
+
+    #[test]
+    fn without_origins_only_a_disputed_verdict_lowers_a_record() {
+        let written = Utc::now();
+        let disputed = EffectiveVerdict {
+            id: uuid::Uuid::nil(),
+            kind: VerdictKind::Disputed,
+            reason: String::new(),
+            anchor_hashes: vec![],
+        };
+        for status in STATUSES {
+            for kind in KINDS {
+                for reverted_at in [None, Some(written + Duration::seconds(60))] {
+                    let facts = OriginFacts {
+                        status,
+                        reverted_at,
+                        verdict: None,
+                    };
+                    let s = without_origin(&facts, kind, written);
+                    assert_eq!((s.origin, s.factor), (Origin::Merged, 1.0), "{status:?}");
+                    let facts = OriginFacts {
+                        verdict: Some(disputed.clone()),
+                        ..facts
+                    };
+                    let s = without_origin(&facts, kind, written);
+                    assert_eq!(
+                        (s.origin, s.factor),
+                        (Origin::Merged, DISPUTED_FACTOR),
+                        "{status:?} {kind:?} {reverted_at:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

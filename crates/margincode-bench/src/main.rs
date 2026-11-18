@@ -492,6 +492,7 @@ fn meta(cfg: &RunConfig, specs: &[TaskSpec], seed: u64) -> Meta {
         // `orchestrate::run` fills it in from the configuration
         agent_isolation: None,
         memory: None,
+        plain_records: None,
     }
 }
 

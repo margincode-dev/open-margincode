@@ -303,6 +303,15 @@ fn a_session_removes_its_clone_after_verify_unless_keep_work() {
 }
 
 #[test]
+fn the_daemon_says_whether_it_serves_plain_records() {
+    for plain in [false, true] {
+        let d = start_daemon_with(None, plain);
+        let daemon = margincode_bench::runner::Daemon::new(&d.url, None);
+        assert_eq!(daemon.plain_records(), Ok(plain));
+    }
+}
+
+#[test]
 fn an_av_session_removes_its_import_clone_and_abandons_its_task() {
     let _g = serial();
     let d = start_daemon(None);

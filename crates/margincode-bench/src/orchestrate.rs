@@ -256,6 +256,26 @@ fn check_memory(out: &Path, meta: &Meta) -> Result<()> {
     ))
 }
 
+/// Rows do not record whether the daemon served plain records, so a results directory holds one setting.
+fn check_plain_records(out: &Path, meta: &Meta) -> Result<()> {
+    let Ok(bytes) = std::fs::read(out.join("meta.json")) else {
+        return Ok(());
+    };
+    let Ok(old) = serde_json::from_slice::<Meta>(&bytes) else {
+        return Ok(());
+    };
+    if old.plain() == meta.plain() || !out.join("rows.jsonl").exists() {
+        return Ok(());
+    }
+    let setting = |m: &Meta| if m.plain() { "on" } else { "off" };
+    Err(format!(
+        "{} holds results with plain records {}, this run has them {}: use one --out per setting",
+        out.display(),
+        setting(&old),
+        setting(meta)
+    ))
+}
+
 /// Sessions already in `out/rows.jsonl` (an interrupted run) are not repeated and their cost counts toward the budget.
 pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunReport> {
     let sessions = plan(specs.len(), &args.arms, args.reps, args.seed);
@@ -270,10 +290,15 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
     if args.budget_usd <= 0.0 {
         return Err("--budget-usd must be positive".into());
     }
-    if args.arms.iter().any(|a| a.uses_av()) {
-        let url = cfg.av_url.as_deref().ok_or("the av arms need --av-url")?;
-        Daemon::new(url, cfg.av_token.as_deref()).preflight()?;
-    }
+    let plain_records = match args.arms.iter().any(|a| a.uses_av()) {
+        true => {
+            let url = cfg.av_url.as_deref().ok_or("the av arms need --av-url")?;
+            let daemon = Daemon::new(url, cfg.av_token.as_deref());
+            daemon.preflight()?;
+            Some(daemon.plain_records()?)
+        }
+        false => None,
+    };
     let run_id = args
         .out
         .file_name()
@@ -286,7 +311,7 @@ pub fn run(specs: &[TaskSpec], args: &RunArgs, cfg: &RunConfig) -> Result<RunRep
         .to_lowercase();
     // with --agent-user: nothing is launched while that user can read what it must not
     crate::isolate::preflight(specs, &args.arms, cfg, &run_id, &args.out)?;
-    let ran = run_sessions(specs, args, cfg, &run_id, &sessions, text);
+    let ran = run_sessions(specs, args, cfg, &run_id, &sessions, text, plain_records);
     if cfg.agent_user.is_none() {
         return ran;
     }
@@ -312,6 +337,7 @@ fn run_sessions(
     run_id: &str,
     sessions: &[Planned],
     text: String,
+    plain_records: Option<bool>,
 ) -> Result<RunReport> {
     let private = cfg.agent_user.is_some();
     std::fs::create_dir_all(&args.out).map_err(|e| format!("{}: {e}", args.out.display()))?;
@@ -343,11 +369,13 @@ fn run_sessions(
                 .map_or_else(|| "none".to_owned(), |u| u.name.clone()),
         ),
         memory: Some(crate::dreamed::memory_of(cfg)?),
+        plain_records,
         ..args.meta.clone()
     };
     check_noise_level(&args.out, &meta)?;
     check_isolation(&args.out, &meta)?;
     check_memory(&args.out, &meta)?;
+    check_plain_records(&args.out, &meta)?;
     write_result(
         &args.out.join("meta.json"),
         serde_json::to_vec_pretty(&meta).expect("json"),

@@ -65,6 +65,10 @@ pub struct Meta {
     /// The store the av arms started from: `raw`, or `wrong-reverted` and `dreamed sha256:<hex>` joined by `, `; absent in older results (reads as `raw`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
+    /// Whether the daemon served plain records (`AV_PLAIN_RECORDS`): no correction lines, no
+    /// origin standing. `None` when no av arm ran, and in older results; both read as off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plain_records: Option<bool>,
 }
 
 impl Meta {
@@ -74,6 +78,10 @@ impl Meta {
 
     pub fn memory(&self) -> &str {
         self.memory.as_deref().unwrap_or("raw")
+    }
+
+    pub fn plain(&self) -> bool {
+        self.plain_records == Some(true)
     }
 }
 
@@ -155,7 +163,7 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
     let _ = writeln!(out, "# margincode-bench report\n");
     let _ = writeln!(
         out,
-        "Date {} · claude {} · av {} · model {} · seed {}{}{}{}{}{} · {} sessions launched, {} spent\n",
+        "Date {} · claude {} · av {} · model {} · seed {}{}{}{}{}{}{} · {} sessions launched, {} spent\n",
         meta.date,
         meta.claude_version,
         meta.av_rev,
@@ -182,6 +190,11 @@ pub fn render_report(rows: &[Row], meta: &Meta) -> String {
         match meta.memory() {
             "raw" => String::new(),
             m => format!(" · memory: {m}"),
+        },
+        if meta.plain() {
+            " · plain records"
+        } else {
+            ""
         },
         rows.iter()
             .filter(|r| r.status != Status::SkippedBudget)

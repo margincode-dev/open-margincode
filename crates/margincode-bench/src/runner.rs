@@ -585,6 +585,11 @@ impl Daemon {
         }
     }
 
+    /// Whether the daemon serves plain records (`AV_PLAIN_RECORDS`); a daemon too old to say does not.
+    pub fn plain_records(&self) -> Result<bool> {
+        Ok(self.get("/v1/version")?["plain_records"] == true)
+    }
+
     /// Up, and accepting our token: run this before anything is spent.
     pub fn preflight(&self) -> Result<()> {
         ureq::get(&format!("{}/healthz", self.url))

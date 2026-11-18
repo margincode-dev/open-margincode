@@ -76,7 +76,8 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** The test's lease is 2 s; with the whole workspace's tests running, the time from the
   renewal to the two `next` calls passed 2 s. A longer lease with the sleeps scaled to it would
   hold.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-capabilities-offline-22d48v`: the test's lease is 5 s and
+  its sleeps 5.5 s, so a loaded run has 5 s from the renewal to the two `next` calls.
 
 ## 2026-11-18: the Workers Builds preview of #49 failed
 

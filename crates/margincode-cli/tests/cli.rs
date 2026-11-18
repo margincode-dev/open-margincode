@@ -6069,6 +6069,600 @@ fn a_review_that_names_no_verdict_is_refused_and_touches_nothing_else() {
     assert!(listed.contains(&vd), "{listed}");
 }
 
+#[test]
+fn dream_budget_is_appended_to_the_agent_command_as_max_budget_usd() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    for bad in ["0", "-1", "nan", "inf", "0.001", "two"] {
+        let o = av_home(
+            &d,
+            home,
+            "dreamer",
+            &[
+                "dream",
+                "--repo",
+                "demo",
+                &format!("--budget-usd={bad}"),
+                "--",
+                "true",
+            ],
+        );
+        assert!(!o.status.success(), "--budget-usd {bad} was taken");
+        assert!(err(&o).contains("--budget-usd"), "{}", err(&o));
+    }
+    assert!(
+        !home.join("dreams").exists(),
+        "a refused budget started a run"
+    );
+    // `sh -c SCRIPT A B` gives the script $0=A, $1=B: what `av dream` appended after the command
+    let script = format!("echo \"$0 $*\" >> argv\n{FAKE_DREAMER}");
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &[
+            "dream",
+            "--repo",
+            "demo",
+            "--budget-usd",
+            "2.5",
+            "--",
+            "sh",
+            "-c",
+            &script,
+        ],
+    ));
+    assert!(got.contains("done: 1 proposed"), "{got}");
+    let (_, dir) = run_dir(home, |_| true);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("argv")).unwrap(),
+        "--max-budget-usd 2.50\n--max-budget-usd 2.50\n",
+        "every round gets the cap"
+    );
+}
+
+#[test]
+fn dream_also_read_names_directories_to_the_agent_and_sends_the_daemon_none() {
+    use sha2::{Digest, Sha256};
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let transcripts = TempDir::new().unwrap();
+    let marked = transcripts.path().join("transcripts-a1b2c3");
+    std::fs::create_dir(&marked).unwrap();
+    std::fs::write(marked.join("session.jsonl"), "secret-transcript-line\n").unwrap();
+    let other = TempDir::new().unwrap();
+    let hex = |b: &[u8]| -> String {
+        Sha256::digest(b)
+            .iter()
+            .map(|x| format!("{x:02x}"))
+            .collect()
+    };
+    let shipped = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/dream/DREAM.md"),
+    )
+    .unwrap();
+
+    // without --also-read the agent gets what it always got, and the run records its hash
+    let script = format!("env | grep '^AV_DREAM_ALSO_READ=' > env.txt\n{FAKE_DREAMER}");
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", &script],
+    ));
+    assert!(got.contains("done: 1 proposed"), "{got}");
+    let (plain_id, plain) = run_dir(home, |_| true);
+    assert_eq!(std::fs::read(plain.join("DREAM.md")).unwrap(), shipped);
+    assert!(!plain.join("also-read.txt").exists());
+    assert_eq!(std::fs::read_to_string(plain.join("env.txt")).unwrap(), "");
+    let run: serde_json::Value = ureq::get(&format!("{}/v1/dreams/{plain_id}", d.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(run["dream"]["instructions_sha"], hex(&shipped));
+
+    // a relative path is made absolute; the agent learns of both directories
+    let rel = marked.strip_prefix(transcripts.path()).unwrap();
+    let script = format!(
+        "cat also-read.txt > seen.txt\necho \"$AV_DREAM_ALSO_READ\" > env.txt\n\
+         cat \"$(head -1 also-read.txt)/session.jsonl\" > read.txt\n{FAKE_VERIFIER}"
+    );
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
+    cmd.current_dir(transcripts.path())
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", "checker")
+        .args(["dream", "--verify", "--repo", "demo", "--also-read"])
+        .arg(rel)
+        .arg("--also-read")
+        .arg(other.path())
+        .args(["--", "sh", "-c", &script]);
+    let got = ok(cmd.output().unwrap());
+    assert!(got.contains("agreed -> effective"), "{got}");
+    let (id, dir) = run_dir(home, |p| p != plain);
+    let marked = std::fs::canonicalize(&marked).unwrap();
+    let other = std::fs::canonicalize(other.path()).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("seen.txt")).unwrap(),
+        format!("{}\n{}\n", marked.display(), other.display())
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("env.txt"))
+            .unwrap()
+            .trim_end(),
+        std::env::join_paths([&marked, &other])
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("read.txt")).unwrap(),
+        "secret-transcript-line\n"
+    );
+    let told = std::fs::read(dir.join("DREAM.md")).unwrap();
+    assert!(told.starts_with(&shipped), "DREAM.md's own text is kept");
+    let told = String::from_utf8(told).unwrap();
+    assert!(
+        told.contains("also-read.txt") && told.contains("not evidence"),
+        "{told}"
+    );
+    let run: serde_json::Value = ureq::get(&format!("{}/v1/dreams/{id}", d.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    assert_eq!(run["dream"]["instructions_sha"], hex(told.as_bytes()));
+    // what the daemon holds of the run names neither directory nor anything in them
+    let verdicts: serde_json::Value = ureq::get(&format!("{}/v1/repos/demo/verdicts", d.url))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    for held in [run.to_string(), verdicts.to_string()] {
+        for word in [
+            "transcripts-a1b2c3",
+            "secret-transcript-line",
+            other.to_str().unwrap(),
+        ] {
+            assert!(!held.contains(word), "the daemon holds {word}: {held}");
+        }
+    }
+}
+
+#[test]
+fn dream_also_read_refuses_what_is_not_a_directory_before_a_run_starts() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let file = home.join("notes.txt");
+    std::fs::write(&file, "x").unwrap();
+    for bad in [home.join("no-such-dir"), file] {
+        let o = av_home(
+            &d,
+            home,
+            "dreamer",
+            &[
+                "dream",
+                "--repo",
+                "demo",
+                "--also-read",
+                bad.to_str().unwrap(),
+                "--",
+                "sh",
+                "-c",
+                "touch ran",
+            ],
+        );
+        assert!(!o.status.success(), "{}", out(&o));
+        assert!(err(&o).contains("--also-read"), "{}", err(&o));
+        assert!(err(&o).contains(bad.to_str().unwrap()), "{}", err(&o));
+    }
+    assert!(!home.join("dreams").exists(), "a run was started");
+}
+
+#[test]
+fn dream_every_goes_on_after_a_failed_run() {
+    use std::io::BufRead;
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    for bad in ["0", "0s", "0h", "soon", "5w", "-1h"] {
+        let o = av_home(
+            &d,
+            home,
+            "dreamer",
+            &[
+                "dream",
+                "--repo",
+                "demo",
+                &format!("--every={bad}"),
+                "--",
+                "true",
+            ],
+        );
+        assert!(!o.status.success(), "--every {bad} was taken");
+        assert!(err(&o).contains("--every"), "{}", err(&o));
+    }
+    let script = format!("{FAKE_DREAMER}\nexit 3");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", "dreamer")
+        .args([
+            "dream", "--repo", "demo", "--every", "1d", "--", "sh", "-c", &script,
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut seen = vec![];
+    for line in std::io::BufReader::new(child.stdout.take().unwrap()).lines() {
+        let line = line.unwrap();
+        let next = line.contains("next run in ");
+        seen.push(line);
+        if next {
+            break;
+        }
+    }
+    // the loop outlived its failed run: it is waiting for the next one, not gone
+    assert!(child.try_wait().unwrap().is_none(), "{seen:?}");
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(
+        seen.iter().any(|l| l.contains("failed; nothing")),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_promoted_decision_is_listed_as_waiting_for_a_person_and_becomes_a_convention() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let promoter = r#"
+rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
+printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings never shout", "scope_glob": "app/**", "evidence": [{"record": "%s", "quote": "hello never shouts"}]}]}' "$rec" "$rec" > verdicts.json
+"#;
+    let o = av_home(
+        &d,
+        home,
+        "checker",
+        &[
+            "dream",
+            "--verify",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "true",
+        ],
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("--promote"),
+        "{}",
+        err(&o)
+    );
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &[
+            "dream",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "sh",
+            "-c",
+            promoter,
+        ],
+    ));
+    assert!(got.contains("promote -> vd:"), "{got}");
+    let (_, dir) = run_dir(home, |_| true);
+    let told = std::fs::read_to_string(dir.join("DREAM.md")).unwrap();
+    let shipped = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/dream/DREAM.md"),
+    )
+    .unwrap();
+    assert!(
+        told.starts_with(&shipped) && told.len() > shipped.len() && told.contains("scope_glob"),
+        "a --promote run is told about promote: {told}"
+    );
+    assert!(!shipped.contains("promote"), "a plain run is not");
+    let vd = word_after(&got, "vd:").to_owned();
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo", "--state", "proposed"],
+    ));
+    let line = listed
+        .lines()
+        .find(|l| l.contains(&vd))
+        .unwrap_or_else(|| panic!("{listed}"));
+    assert!(
+        line.contains("convention for app/**: greetings never shout")
+            && line.contains("waits for a person"),
+        "{line}"
+    );
+    let (id, _) = run_dir(home, |_| true);
+    let shown = ok(av_home(&d, home, "agent", &["dream", "show", &id]));
+    assert!(
+        shown.contains("convention for app/**: greetings never shout"),
+        "{shown}"
+    );
+    // a verify run is handed nothing: a promote is a person's
+    let got = ok(av_home(
+        &d,
+        home,
+        "checker",
+        &["dream", "--verify", "--repo", "demo", "--", "false"],
+    ));
+    assert!(got.contains("nothing to verify in demo"), "{got}");
+
+    let line = ok(av_home(&d, home, "vinh", &["verdict", "accept", &vd]));
+    assert!(
+        line.contains(&format!("{vd}  effective  promote"))
+            && line.contains("a person accepted it"),
+        "{line}"
+    );
+    let conv = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["convention", "list", "--repo", "demo"],
+    ));
+    assert!(
+        conv.contains("(app/**) greetings never shout") && conv.contains("from vd:"),
+        "{conv}"
+    );
+    ok(av_home(&d, home, "vinh", &["verdict", "retract", &vd]));
+    let conv = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["convention", "list", "--repo", "demo"],
+    ));
+    assert!(!conv.contains("greetings never shout"), "{conv}");
+}
+
+/// `av` with no agent name anywhere: no `--agent`, no `AV_AGENT`.
+fn av_unnamed(d: &Daemon, home: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env_remove("AV_AGENT")
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_promote_from_a_default_dream_is_accepted_by_a_default_av_verdict_accept() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let promoter = r#"
+rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
+printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings never shout", "scope_glob": "app/**", "evidence": [{"record": "%s", "quote": "hello never shouts"}]}]}' "$rec" "$rec" > verdicts.json
+"#;
+    let got = ok(av_unnamed(
+        &d,
+        home,
+        &[
+            "dream",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "sh",
+            "-c",
+            promoter,
+        ],
+    ));
+    let vd = word_after(&got, "vd:").to_owned();
+    let line = ok(av_unnamed(&d, home, &["verdict", "accept", &vd]));
+    assert!(line.contains("a person accepted it"), "{line}");
+}
+
+/// Whether `pid` is a live process (a zombie, killed and waiting for its parent, is not).
+fn alive(pid: &str) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {
+        !s.rsplit(')')
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with('Z')
+    })
+}
+
+#[test]
+fn an_interrupted_dream_ends_its_agent_too() {
+    use std::io::BufRead;
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let cases = [
+        (None, "INT"),
+        (None, "TERM"),
+        (None, "HUP"),
+        (None, "QUIT"),
+        (Some("1d"), "INT"),
+        (Some("1d"), "HUP"),
+    ];
+    for (every, signal) in cases {
+        let mut args = vec!["dream", "--repo", "demo"];
+        args.extend(every.map(|e| ["--every", e]).into_iter().flatten());
+        // the agent and a child of its own, both waiting on a pipe nothing writes to
+        let script = "mkfifo hold; cat hold & echo \"agent-started $$ $!\"; wait";
+        args.extend(["--", "sh", "-c", script]);
+        let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
+            .current_dir(home)
+            .env("AV_URL", &d.url)
+            .env("AV_HOME", home)
+            .env_remove("AV_TASK")
+            .env_remove("AV_SESSION")
+            .env_remove("AV_GENERATION")
+            .env_remove("AV_MAX_AGENTS")
+            .env("AV_AGENT", "dreamer")
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let pids: Vec<String> = loop {
+            let line = lines
+                .next()
+                .expect("av ended before its agent started")
+                .unwrap();
+            if let Some(rest) = line.strip_prefix("agent-started ") {
+                break rest.split_whitespace().map(str::to_owned).collect();
+            }
+        };
+        assert_eq!(pids.len(), 2, "{pids:?}");
+        let sent = Command::new("kill")
+            .args([&format!("-{signal}"), &child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let status = child.wait().unwrap();
+        // a SIGKILL takes effect a moment after it is sent: wait for it, up to a deadline
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let left = loop {
+            let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
+            if left.is_empty() || std::time::Instant::now() > deadline {
+                break left;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        for p in &left {
+            let _ = Command::new("kill").args(["-KILL", p]).status();
+        }
+        assert!(
+            left.is_empty(),
+            "{every:?} {signal}: the agent outlived av: {left:?}"
+        );
+        // av ended the agent, then died of the signal it got, so its parent sees that signal
+        use std::os::unix::process::ExitStatusExt;
+        let number = match signal {
+            "HUP" => 1,
+            "INT" => 2,
+            "QUIT" => 3,
+            _ => 15,
+        };
+        assert_eq!(
+            status.signal(),
+            Some(number),
+            "{every:?} {signal}: {status}"
+        );
+        // the run was ended as failed, so the area is free for the next one
+        for dir in std::fs::read_dir(home.join("dreams")).unwrap() {
+            let id = dir.unwrap().file_name().into_string().unwrap();
+            let shown = ok(av_home(&d, home, "dreamer", &["dream", "show", &id]));
+            assert!(shown.contains("· failed"), "{shown}");
+        }
+    }
+}
+
+#[test]
+fn a_dream_started_with_sigint_ignored_keeps_it_ignored() {
+    use std::io::BufRead;
+    use std::os::unix::process::ExitStatusExt;
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    // as a script's background job is started: SIGINT ignored, which exec keeps
+    let mut child = Command::new("sh")
+        .args(["-c", "trap '' INT; exec \"$0\" \"$@\""])
+        .arg(env!("CARGO_BIN_EXE_av"))
+        .args([
+            "dream",
+            "--repo",
+            "demo",
+            "--every",
+            "1d",
+            "--",
+            "sh",
+            "-c",
+            FAKE_DREAMER,
+        ])
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", "dreamer")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut seen = vec![];
+    for line in std::io::BufReader::new(child.stdout.take().unwrap()).lines() {
+        let line = line.unwrap();
+        let next = line.contains("next run in ");
+        seen.push(line);
+        if next {
+            break;
+        }
+    }
+    assert!(
+        seen.iter().any(|l| l.contains("done: 1 proposed")),
+        "{seen:?}"
+    );
+    // SIGINT first (still ignored after the run), then SIGTERM, which ends it
+    for signal in ["-INT", "-TERM"] {
+        Command::new("kill")
+            .args([signal, &child.id().to_string()])
+            .status()
+            .unwrap();
+    }
+    let status = child.wait().unwrap();
+    assert_eq!(status.signal(), Some(15), "{status}");
+}
+
+#[test]
+fn dream_budget_is_refused_when_the_command_carries_its_own_cap() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    for own in [
+        ["--max-budget-usd", "3"].as_slice(),
+        &["--max-budget-usd=3"],
+    ] {
+        let mut args = vec![
+            "dream",
+            "--repo",
+            "demo",
+            "--budget-usd",
+            "2",
+            "--",
+            "claude",
+            "-p",
+            "x",
+        ];
+        args.extend(own);
+        let o = av_home(&d, home, "dreamer", &args);
+        assert!(!o.status.success(), "{}", out(&o));
+        assert!(
+            err(&o).contains("--budget-usd") && err(&o).contains("--max-budget-usd"),
+            "{}",
+            err(&o)
+        );
+    }
+    assert!(!home.join("dreams").exists(), "a run was started");
+}
+
 /// Adds the repo `demo` and starts the task "Over MCP" in it as Claude Code does after
 /// `av init --for claude`: no `X-Av-Agent`, so the MCP session is named after the client,
 /// `claude-code`. Returns the task's workspace.

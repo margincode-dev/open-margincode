@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use margincode_core::standing::{Origin, VerdictKind, standing};
 use margincode_core::*;
-use margincode_store::{Dream, NewDream, NewVerdict, PgStore, VerdictRow};
+use margincode_store::{Dream, NewDream, NewVerdict, PgStore, Promoted, VerdictRow};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -34,6 +34,9 @@ const SHOWN_DAYS: i32 = 30;
 const MIN_QUOTE_CHARS: usize = 12;
 /// Anchored code handed to a dream is clipped to this many characters per anchor.
 const CODE_CLIP: usize = 6000;
+/// A promoted convention's text: "the rule, in a line or two". Once accepted it is never
+/// dropped from a pack (migration 0032 holds the store to it too).
+const PROMOTE_TEXT_MAX: usize = 400;
 /// `AV_DREAM_LEASE_SECS`: how long a run may take. A running dream past it is failed by the
 /// next start in its repository, so one that died holds no area.
 static LEASE_SECS: LazyLock<u64> = LazyLock::new(|| {
@@ -66,6 +69,9 @@ fn vd_handle(id: Uuid) -> String {
 
 fn verdict_json(v: &VerdictRow) -> Value {
     let mut out = json!(v);
+    if out["convention"].is_null() {
+        out.as_object_mut().map(|o| o.remove("convention"));
+    }
     out["handle"] = json!(vd_handle(v.id));
     out["record"] = json!(rec_handle(v.record_id));
     out
@@ -281,10 +287,8 @@ async fn start(
             )
         }
         "verify" => {
-            let mut waiting = st
-                .pg
-                .list_verdicts(&repo, Some("proposed"), None, None, 1000)
-                .await?;
+            // a promote is a person's to accept: no run is handed it
+            let mut waiting = st.pg.proposed_for_verify(&repo, 1000).await?;
             waiting.reverse(); // oldest first
             let mut items = vec![];
             let mut ids = vec![];
@@ -484,10 +488,11 @@ async fn propose_one(
             rec_handle(rec.id)
         ));
     }
-    let kind = item["verdict"]
-        .as_str()
-        .and_then(VerdictKind::parse)
-        .ok_or("verdict must be confirmed, disputed, duplicate or outdated")?;
+    let named_kind = item["verdict"].as_str().unwrap_or("");
+    let kind = VerdictKind::parse(named_kind);
+    if kind.is_none() && named_kind != "promote" {
+        return Err("verdict must be confirmed, disputed, duplicate, outdated or promote".into());
+    }
     let reason = item["reason"].as_str().unwrap_or("").trim();
     if reason.chars().count() > MAX_SUMMARY_CHARS {
         return Err(format!(
@@ -495,19 +500,8 @@ async fn propose_one(
             reason.chars().count()
         ));
     }
-    if kind == VerdictKind::Disputed && reason.is_empty() {
+    if kind == Some(VerdictKind::Disputed) && reason.is_empty() {
         return Err("a disputed verdict needs a reason: it is printed with the record".into());
-    }
-    let already = st
-        .pg
-        .list_verdicts(&d.repo, None, Some(d.id), Some(rec.id), 1)
-        .await
-        .map_err(|e| e.to_string())?;
-    if !already.is_empty() {
-        return Err(format!(
-            "this run already judged {}; one verdict per record and run",
-            rec_handle(rec.id)
-        ));
     }
     let evidence = item["evidence"].as_array().cloned().unwrap_or_default();
     let cited = check_all(st, &d.repo, &dream_commit(d), &evidence).await?;
@@ -520,6 +514,25 @@ async fn propose_one(
     };
     let mut canonical = None;
     let mut hashes = json!([]);
+    let Some(kind) = kind else {
+        let convention = promotion(&rec, item, cites(rec.id))?;
+        return st
+            .pg
+            .insert_verdict(NewVerdict {
+                record: rec.id,
+                verdict: "promote",
+                reason,
+                canonical: None,
+                retracts: None,
+                evidence: json!(evidence),
+                anchor_hashes: json!([]),
+                author_agent: &d.agent,
+                dream: Some(d.id),
+                convention: Some(convention),
+            })
+            .await
+            .map_err(refusal);
+    };
     match kind {
         VerdictKind::Confirmed => {
             if !has_code {
@@ -607,9 +620,54 @@ async fn propose_one(
             anchor_hashes: hashes,
             author_agent: &d.agent,
             dream: Some(d.id),
+            convention: None,
         })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(refusal)
+}
+
+/// A store refusal of a proposal (`insert_verdict`'s locked rules) is the item's answer.
+fn refusal(e: AvError) -> String {
+    match e {
+        AvError::Conflict(why) => why,
+        e => e.to_string(),
+    }
+}
+
+/// What a `promote` proposes: a convention from a decision, its text and path glob checked as
+/// a convention written by hand is (`check_scope_glob`), with a quote of the decision itself.
+fn promotion(rec: &Record, item: &Value, quotes_it: bool) -> std::result::Result<Promoted, String> {
+    if rec.kind != RecordKind::Decision {
+        return Err(format!(
+            "a promote proposes a convention from a decision; {} is a {}",
+            rec_handle(rec.id),
+            rec.kind.as_str()
+        ));
+    }
+    let text = item["text"].as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        return Err("a promote needs the convention's text".into());
+    }
+    if text.chars().count() > PROMOTE_TEXT_MAX {
+        return Err(format!(
+            "the convention's text is {} characters; at most {PROMOTE_TEXT_MAX} (the rule, in \
+             a line or two)",
+            text.chars().count()
+        ));
+    }
+    let scope_glob = item["scope_glob"]
+        .as_str()
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .ok_or("a promote needs the convention's scope_glob (the paths it is for)")?;
+    margincode_store::check_scope_glob(scope_glob).map_err(|e| e.to_string())?;
+    if !quotes_it {
+        return Err("a promote needs a quote of the decision it is made from".into());
+    }
+    Ok(Promoted {
+        text: text.to_owned(),
+        scope_glob: scope_glob.to_owned(),
+    })
 }
 
 /// A review run's verdicts. Each item is accepted (a row with no effect yet) or refused with
@@ -670,6 +728,17 @@ async fn review(
     let repo = repo_of(&st, &rec).await?;
     if b.reviewer.trim().is_empty() {
         return Err(AvError::Invalid("reviewer must not be empty".into()).into());
+    }
+    if v.verdict == "promote" && b.dream.is_some() {
+        return Err(AvError::IllegalState(format!(
+            "{} proposes a convention, which only a person accepts or rejects (no `dream`): \
+             conventions are never dropped from packs, so an agent's agreement is not enough",
+            vd_handle(v.id)
+        ))
+        .into());
+    }
+    if v.verdict == "promote" {
+        promote_review(&st, &v, &rec, b.reviewer.trim(), b.agree).await?;
     }
     let commit = match b.dream {
         Some(run) => {
@@ -740,6 +809,47 @@ async fn review(
     Ok(Json(json!({"verdict": verdict_json(&v)})))
 }
 
+/// The daemon's rules for a person's review of a `promote`. Community has one shared token and
+/// no identities, so these hold the names it is given, not who sent them: the reviewer is not,
+/// in any case, the verdict's author, the agent of the run that proposed it, or a registered
+/// agent profile's name or alias; and an acceptance needs the decision still live (not
+/// superseded). A deployment that must know who decided enforces it in its `MergeGuard`, which
+/// is asked next, as for any review.
+async fn promote_review(
+    st: &AppState,
+    v: &VerdictRow,
+    rec: &Record,
+    reviewer: &str,
+    agree: bool,
+) -> Result<()> {
+    let same = |name: &str| name.to_lowercase() == reviewer.to_lowercase();
+    let run_agent = match v.dream_id {
+        Some(run) => Some(st.pg.get_dream(run).await?.agent),
+        None => None,
+    };
+    let why = if same(&v.author_agent) || run_agent.as_deref().is_some_and(same) {
+        Some("the agent that proposed it")
+    } else if st.pg.agent_profile_named(reviewer).await? {
+        Some("a registered agent's (its profile's name or an alias)")
+    } else {
+        None
+    };
+    if let Some(why) = why {
+        return Err(AvError::IllegalState(format!(
+            "{reviewer:?} is the name of {why}; a promote is reviewed by a person: review it \
+             under your own name, with `av --agent NAME verdict accept` or AV_AGENT=NAME (with \
+             neither, `av verdict accept` reviews as `user`)"
+        )));
+    }
+    if agree && rec.superseded_by.is_some() {
+        return Err(AvError::IllegalState(format!(
+            "{} is superseded: its promote cannot become a convention; reject or retract it",
+            rec_handle(rec.id)
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct ByBody {
     by: String,
@@ -764,6 +874,7 @@ async fn retract_one(
             anchor_hashes: json!([]),
             author_agent: by,
             dream,
+            convention: None,
         })
         .await?;
     feed(
@@ -860,8 +971,12 @@ async fn undo(
         if v.state == "retraction" || v.state == "retracted" {
             continue;
         }
-        retract_one(&st, &d.repo, &v, b.by.trim(), Some(d.id)).await?;
-        retracted += 1;
+        // a verdict retracted by hand since the list was read is already taken back
+        match retract_one(&st, &d.repo, &v, b.by.trim(), Some(d.id)).await {
+            Ok(_) => retracted += 1,
+            Err(AvError::Conflict(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
     }
     let d = st.pg.end_dream(id, "undone", d.counts.clone()).await?;
     feed(

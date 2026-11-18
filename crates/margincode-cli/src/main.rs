@@ -516,8 +516,9 @@ enum Cmd {
         cmd: Vec<String>,
     },
     /// A second look at records: start an agent that checks the records the daemon chose
-    /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated), each
-    /// with quotes the daemon checks word for word. Nothing changes in packs until a second
+    /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated, or
+    /// promote: a decision as a convention, which only a person accepts), each with quotes the
+    /// daemon checks word for word. Nothing changes in packs until a second
     /// look agrees: `av dream --verify -- <agent command>`, or `av verdict accept`. E.g.
     /// `av dream --repo demo -- claude -p "Read DREAM.md and do what it says"`.
     #[command(args_conflicts_with_subcommands = true)]
@@ -546,6 +547,23 @@ enum Cmd {
         /// Wait for one of this many agent slots on this host (shared with `av watch`).
         #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
         max_agents: Option<u32>,
+        /// Tell the agent it may also propose `promote` verdicts: a decision as a repository
+        /// convention, which only a person accepts (`av verdict accept`). Review runs only.
+        #[arg(long, conflicts_with = "verify")]
+        promote: bool,
+        /// Appends `--max-budget-usd X` to the agent command, for a CLI that takes that flag
+        /// (Claude Code does); the cap is the CLI's, and the daemon stores no dollars.
+        #[arg(long, value_name = "USD", value_parser = dream::parse_budget)]
+        budget_usd: Option<f64>,
+        /// A directory on this machine the agent may read for context, e.g. an agent CLI's own
+        /// transcripts (repeatable). Named to the agent in also-read.txt; never evidence, and
+        /// av reads and sends nothing of it.
+        #[arg(long, value_name = "DIR")]
+        also_read: Vec<PathBuf>,
+        /// Run again every D (30s, 90m, 24h, 1d) from each run's start, until Ctrl-C; a failed
+        /// run is printed and the next one comes all the same.
+        #[arg(long, value_name = "D", value_parser = dream::parse_every)]
+        every: Option<std::time::Duration>,
         /// The agent command, after `--`. It runs in the run's directory, beside DREAM.md.
         #[arg(last = true)]
         cmd: Vec<String>,
@@ -1942,8 +1960,14 @@ fn run(cli: Cli) -> Result<()> {
                     .as_str()
                     .map(|cmd| format!(" [check: {cmd}]"))
                     .unwrap_or_default();
+                // a promoted decision's convention names its verdict, in the short form
+                let from = c["source"]
+                    .as_str()
+                    .and_then(|src| src.strip_prefix("vd:"))
+                    .map(|vd| format!(" (from vd:{})", &vd[..vd.len().min(8)]))
+                    .unwrap_or_default();
                 println!(
-                    "conv:{} ({}){required}{check} {}",
+                    "conv:{} ({}){required}{check} {}{from}",
                     c["id"],
                     s(&c["scope_glob"]),
                     s(&c["text"])
@@ -3043,32 +3067,55 @@ fn run(cli: Cli) -> Result<()> {
             fix_rounds,
             timeout,
             max_agents,
+            budget_usd,
+            also_read,
+            every,
+            promote,
             cmd,
         } => {
             let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
                 CliError::NoTask => CliError::Local("dream needs --repo <name>".into()),
                 e => e,
             })?;
-            let finished = dream::run(
-                &client,
-                &dream::Dream {
-                    agent: &cli.agent,
-                    url: &cli.url,
-                    repo: &repo,
-                    verify: *verify,
-                    area: area.as_deref(),
-                    limit: *limit,
-                    fix_rounds: *fix_rounds,
-                    timeout: std::time::Duration::from_secs((*timeout).max(1)),
-                    max_agents: *max_agents,
-                    slots_dir: Kind::Agents.host_dir(),
-                    dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
-                    cmd,
+            dream::check_command(cmd)?;
+            dream::check_budget(cmd, *budget_usd)?;
+            let also_read = dream::also_read_dirs(also_read)?;
+            let d = dream::Dream {
+                agent: &cli.agent,
+                url: &cli.url,
+                repo: &repo,
+                verify: *verify,
+                area: area.as_deref(),
+                limit: *limit,
+                fix_rounds: *fix_rounds,
+                timeout: std::time::Duration::from_secs((*timeout).max(1)),
+                max_agents: *max_agents,
+                budget_usd: *budget_usd,
+                promote: *promote,
+                also_read: &also_read,
+                slots_dir: Kind::Agents.host_dir(),
+                dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
+                cmd,
+            };
+            let outcome = match every {
+                None => match dream::run(&client, &d) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(CliError::Local("the dream's agent command failed".into())),
+                    Err(e) => Err(e),
                 },
-            )?;
-            if !finished {
-                return Err(CliError::Local("the dream's agent command failed".into()));
-            }
+                Some(every) => dream::repeat(
+                    *every,
+                    || dream::run(&client, &d),
+                    |left| {
+                        println!("dream: next run in {}", dream::span(left));
+                        std::thread::sleep(left);
+                        true
+                    },
+                    dream::interrupted,
+                ),
+            };
+            dream::die_of_caught_signal(&outcome);
+            outcome?;
         }
         Cmd::Verdict { cmd } => match cmd {
             VerdictCmd::List {

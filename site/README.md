@@ -20,9 +20,9 @@ Numbers on the page come from these result directories, and only these:
 | Section | Source |
 |---|---|
 | Retrieval (E1), 4000-token rows | `bench/retrieval/results/2026-10-28-packer-rrf/report.md` |
-| Retrieval (E1), 800-token caption | `bench/retrieval/results/2026-10-29-budget-800/report.md` (on PR #21's branch until it merges) |
+| Retrieval (E1), 800-token caption | `bench/retrieval/results/2026-10-29-budget-800/report.md` |
 | End-to-end agents (Haiku) | `bench/results/2026-10-27-haiku/` (the `04-final-shipped-*` runs) |
-| Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md` |
+| Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md`; the first run (MCP) `bench/results/2026-10-28-relay/report.md`; 500 notes `bench/results/2026-11-e4-scale/README.md` |
 
 When a newer run replaces one, change this table, `index.html` and `llms.txt` in the same commit.
 A hero stat must be something av does that a plain file of notes does not.

@@ -250,13 +250,16 @@ Measured so far (details in `bench/README.md` and `bench/retrieval/`): offline, 
 six public repositories (E1), the first pack names the files a fix touches best of all methods
 (0.96–0.98), and since BM25 and rank fusion went in it also shows more of the changed symbols' 
 signatures than BM25 over symbols at 4k and 8k tokens (0.73 vs 0.64 at 4k; level at 2k). With Claude Haiku on a
-25-file Python project (E3, 160 sessions), av took about 12 % fewer turns and 14 % less wall time
-at equal cost (the cost interval contains zero). Merges are fuzzed (E2): about 1,700 random
+25-file Python project (E3; the shipped run, 40 sessions per arm), av took about 13 % fewer turns at equal cost; wall time
+was 2.3 % lower (the cost and wall-time intervals both contain zero). Merges are fuzzed (E2): about 1,700 random
 cases of concurrent edits, conflicts and reverts, each result checked against a line model and
 `git merge-tree`, lost no work and reported no false conflict or false clean merge. Not yet
-measured: larger repositories, and whether records carry knowledge to the next agent at scale. In a relay test (E4, 90 sessions on
+measured: larger repositories. In a relay test (E4, 90 sessions on
 DeepSeek flash), the earlier agent's lessons cut cost per solved task by about 42 % (30/30 solved
-against 18/30 without them), and av delivered them at the same cost as a plain `NOTES.md`. Two
+against 18/30 without them), and av delivered them at the same cost as a plain `NOTES.md`. With
+500 unrelated notes beside those lessons (E4 at scale), cost per accepted task was $0.0143 with av
+against $0.0237 with `NOTES.md` (39.9 % less); both solved 30/30, so that run shows cost, not solve
+rate. Two
 eight-agent stress runs (cheap models, a small Python web app) merged every feature through
 Margincode with main green after every merge, which shows the workflow holds up, not that it is
 cheaper.
@@ -723,8 +726,9 @@ so `sh -c 'cargo test | tail'` passes when the tests fail: `av validate` (for it
 each check it runs) and `av convention add` warn about a script that pipes outside quotes without
 `pipefail` (a heuristic, so they warn and carry on). A change with nothing to build (docs, say)
 can attest `av validate -- av diff --check`: much like `git diff --check` (a task workspace has
-no `.git`), it checks the lines the task added since its base for trailing whitespace, leftover
-conflict markers (labelled ones, as the submit check reads them: a bare `=======` underlines a
+no `.git`), it checks the lines the task added since its base for trailing whitespace, a CRLF
+line ending (an `av` commit applies no `.gitattributes`, so nothing else turns one into LF),
+leftover conflict markers (labelled ones, as the submit check reads them: a bare `=======` underlines a
 heading) and a file left without a final newline, prints each as `path:line: what`, and exits 2
 when it finds any. For more than that, add a required convention scoped to those paths
 (`av convention add --repo NAME --scope 'docs/**' --required --check '...'`). On the pull
@@ -850,8 +854,57 @@ under the run's lease) or writes no file ends the run as failed: nothing of that
 posted, `av dream` exits non-zero, and the area is free for the next run. `--area P` and
 `--limit N` are the route's; `--max-agents N` (or `AV_MAX_AGENTS`) waits for one of the host's
 agent slots, the ones `av watch` uses, so a dream never runs beside more agents than the host
-has room for. Scheduling is cron's: `av dream` runs once. `av verdict accept|reject` is a
-person's second look; the reviewer is `--agent` when one is named, else `user`.
+has room for. `av verdict accept|reject` is a person's second look; the reviewer is `--agent`
+when one is named, else `user`.
+
+- `--budget-usd X` appends `--max-budget-usd X` (two decimals) to the agent command, after
+  everything you gave, in every round. It is for a CLI that takes that flag (Claude Code
+  does); another CLI would refuse it, so give that one its own cap in the command instead. `X`
+  is a positive number, at least 0.01, and is refused when the command already carries
+  `--max-budget-usd`. The cap is the agent CLI's: the daemon stores counts,
+  never dollars.
+- `--also-read DIR` (repeat it for more) names a directory on this machine the agent may read
+  for context, for example an agent CLI's own transcripts. `av dream` checks that each one is a
+  directory before it asks for a run and makes it absolute; a directory whose name is not
+  UTF-8 (`also-read.txt` could not list it) or holds `:` (`AV_DREAM_ALSO_READ` could not)
+  is refused. The run's directory then gets
+  `also-read.txt` (one path per line), `AV_DREAM_ALSO_READ` holds the paths (`:`-separated,
+  like `PATH`), and `DREAM.md` ends with a short section that names them and says they are
+  context, not evidence: a quote from them is refused, since the daemon cannot see them. `av`
+  reads nothing under them and sends neither the paths nor their contents to the daemon. The
+  run's `instructions_sha` is the hash of the `DREAM.md` it was handed, so a run without
+  `--also-read` gets the file and hash it always did. An agent CLI that asks before reading
+  outside its working directory needs its own flag for them (Claude Code's `--add-dir`).
+- `--every D` runs a dream, then another every `D` (`30s`, `90m`, `24h`, `1d`; a bare number is
+  seconds; not zero), counted from each run's start; a run that takes longer than `D` is
+  followed at once by the next, so runs never overlap. A run that fails (the agent command, a
+  `409` because another run holds the area, a daemon out of reach for a moment) is printed and
+  the loop goes on; it ends on Ctrl-C. One mode per process: `--verify --every D` repeats the
+  verify pass.
+- The agent command runs in a process group of its own. SIGINT (Ctrl-C), SIGTERM, SIGHUP (a
+  closed terminal) or SIGQUIT to `av dream` while it runs kills that whole group, ends the run
+  as failed (its area is free) and ends `av dream`, an `--every` loop included: once that is
+  done, `av` puts back the signal's earlier disposition and raises it again, so it dies of the
+  signal, and a shell loop over repositories stops at Ctrl-C instead of going on. A
+  signal that lands as the agent ends cleanly starts no further fix round or run either. A
+  signal `av dream` was started ignoring (a script's background job ignores SIGINT) stays
+  ignored, and after each run the signals are what they were before it.
+
+Two ways to schedule. Cron starts one run at a time:
+
+```bash
+# m h dom mon dow: a review run at 03:17 every night
+17 3 * * * av --agent claude dream --repo myrepo --budget-usd 2 -- claude -p "Read DREAM.md and do what it says"
+```
+
+Or one process per mode, left running; here the second look is another vendor's, and each
+verify run reviews what the review runs proposed before it (start it later than the review
+process to have it follow each one):
+
+```bash
+av --agent claude dream --repo myrepo --every 24h --budget-usd 2 -- claude -p "Read DREAM.md and do what it says"
+av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.md and do what it says"
+```
 
 - `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?}` starts a run and answers what it
   is to look at. `mode` is `review` (the default) or `verify`; `area` is a path prefix (the whole
@@ -886,6 +939,40 @@ person's second look; the reviewer is `--agent` when one is named, else `user`.
 | `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
 | `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
 | `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
+| `promote` | a live `decision` with no other promote waiting or accepted, the convention's `text` (not empty, at most 400 characters) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only an acceptance under a name no agent uses gives it effect (see below): a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
+
+A `promote` proposes a repository convention from a decision that states a rule for a set of
+paths. The agent is told about it only when the run asks: `av dream --promote` (review runs
+only; refused with `--verify`) appends a section on `promote` to that run's `DREAM.md`, and the
+run's `instructions_sha` is the hash of that copy. Without `--promote` (and `--also-read`) a run
+gets `DREAM.md` byte for byte as before. The daemon takes a `promote` from any review run.
+
+Conventions are the one layer of a pack that is never dropped, so an agent's agreement is not
+enough. A verify run is never handed a `promote`, and a review of one that names a `dream` is
+refused (`422`), with nothing written. A review without `dream` is refused too when its
+`reviewer` is, in any letter case, the verdict's author, the agent of the run that proposed it,
+or a registered agent profile's name or alias; the refusal says to review under your own name
+(`av --agent NAME verdict accept`, or `AV_AGENT`; with neither, `av verdict accept` reviews as
+`user`, while `av dream` runs as `agent`, so the defaults never collide). An acceptance is
+refused once the decision is superseded. Community has one shared token and no identities, so these are
+rules about the names a request carries, not authentication: whoever holds the token can send
+any name. A deployment that must know a person decided enforces it in its `MergeGuard`, which
+is asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is written; the
+Commercial edition's guard is that place. `av verdict accept vd:…` writes the convention;
+`av verdict reject` writes none. Two reviews at once leave one: the second answers `409`.
+
+Retracting the verdict, or `av dream undo` of its run, removes that convention (`removed_at`,
+as `av convention rm` does) and no other: a convention written by hand has an empty `source`
+and is never touched. A retraction and an acceptance at once are ordered on the verdict's row,
+so no convention of a retracted promote stays live. A decision has one promote waiting or
+accepted at a time, and a run one verdict per record: proposals of one record are taken one at
+a time under a lock on the record, so two at once leave one. After a retraction or a rejection
+the decision may be promoted again. A decision superseded after its promote was accepted keeps
+its convention: the convention is the person's choice, not the record's, so it stays live until
+someone takes it out, with `av verdict retract vd:…` (which also marks the verdict) or
+`av convention rm conv:…`. `av verdict
+list`, `show` and `av dream show` print a promote's glob and text and whether a person has
+accepted it; `av convention list` ends a promoted one with `(from vd:…)`.
 
 - **The second look.** `POST /v1/verdicts/{id}/review` `{reviewer, agree, dream?, evidence?}`
   (`id`: the full id or `vd:…`). From a `verify` run (`dream`), the verdict must be on that run's

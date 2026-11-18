@@ -1,4 +1,4 @@
-# Handoff: 2026-11-12
+# Handoff: 2026-11-18
 
 Delete this once you've acted on the open items. It links; the detail lives in the files named.
 
@@ -24,21 +24,34 @@ Landed on `main` with the move (detail in `CHANGELOG.md`, `Unreleased`):
 None of it had a second reviewer: the tested tree became the base of the new repository. The
 gate was green on it (fmt, clippy, 1160 tests) before the rename's last commit.
 
+Measured since (2026-11-14 to 2026-11-18; each directory's README has the numbers):
+
+- **M0** (`bench/results/2026-11-14-m0/`): correctable records help. On Claude Haiku 5.5 `av`
+  with them was accepted 30 of 30 and `av` before them 11 of 30; the intervals are disjoint.
+- **M1 Part 2** and **M2 stage B** (`bench/results/2026-11-13-standing-and-dreams/`): not shown
+  at this size. Standing: 30 of 30 with it and without. Dreamed memory against raw: 21 of 30
+  against 14 of 30, and the intervals overlap.
+- A real model has dreamed (M2 stages A and B), and `DREAM.md` was revised from what it did (#63).
+
+Built since, on branch `claude/fable-handoff-solutions-6ccbpz` (not merged; `CHANGELOG.md`,
+`Unreleased`): `av dream --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's
+agent too; the `promote` verdict (with `av dream --promote` a dream proposes a decision as a
+convention, and only `av verdict accept` under a name the daemon does not know as an agent
+gives it effect; migration 0032); the E4-at-scale cost number in the README and on the site. Earlier: the guard for memory writes (`Guarded::MemoryWrite` in
+`ext.rs`, asked before a verdict's review and before a supersede).
+
 Next:
 
-1. **Try a dream with a real model.** `av dream` and `av verdict` are built and tested with
-   agent scripts that run no model (`docs/reference.md`, "A second look at records";
-   `integrations/dream/DREAM.md` is what the agent reads). Nobody has yet read what a model does
-   with those instructions: run `av dream --repo R -- <agent>` on a repository with records,
-   read the refusals, and revise `DREAM.md` (its hash is on each run).
-2. **Measurements, prepared and not run**: seed a wrong note as the record of a reverted task
-   (the free replay for standing), and pre-register raw memory against dreamed memory.
-3. Not built from Plan 16's list for `av dream`: `--every` (cron does it), `--budget-usd` (pass
-   the agent CLI's own flag in the command) and `--also-read DIR`.
-
-Done since: the guard for memory writes (`Guarded::MemoryWrite` in `ext.rs`, asked before a
-verdict's review and before a supersede; the commercial edition's guard needs the new arm at
-its next sync).
+1. **Whether dreaming helps at a larger size.** Stage B leans that way and does not show it.
+   `DREAM.md` was revised from those two stages (#63), and no result under `bench/results/`
+   uses the revised text yet.
+2. **Read what a model does with the new text.** The sections a run with `--promote` or
+   `--also-read` gets appended were tested with agent scripts that run no model. A run with
+   neither flag is handed `DREAM.md` unchanged.
+3. **M0 on a second model.** One model has shown it.
+4. **The first release here** (`release/0.0.4`): see "Release tags" below.
+5. `av watch` leaves its command running when `av` alone gets SIGINT or SIGTERM (a terminal's
+   Ctrl-C reaches both). `av dream` is fixed; `av watch` has no stop flag to share yet.
 
 Left open on purpose:
 

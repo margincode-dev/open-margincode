@@ -3,6 +3,7 @@ mod dreams;
 mod outbox;
 mod pg;
 pub use dreams::{
-    Dream, DreamCandidate, NewDream, NewVerdict, VerdictReview, VerdictRow, areas_overlap,
+    Dream, DreamCandidate, NewDream, NewVerdict, Promoted, VerdictReview, VerdictRow,
+    areas_overlap, promoted_source,
 };
-pub use pg::{PgStore, TaskInFlight, TaskSummary};
+pub use pg::{PgStore, TaskInFlight, TaskSummary, check_scope_glob};

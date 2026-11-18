@@ -18,7 +18,9 @@ the suspected cause, marked as a guess; the status.
   the only two blobs on `main` with a CR.
 - **Guess.** They were written on Windows and committed through `av` (jj), which does not apply
   `.gitattributes`, so nothing normalized them.
-- **Status.** Fixed in #64 (both stored LF). Nothing yet stops the next CRLF file `av` commits.
+- **Status.** Fixed in #64 (both stored LF). `av diff --check` now reports an added CRLF line
+  (branch `claude/cloud-capabilities-offline-22d48v`); a commit that runs no check can still
+  carry one.
 
 ## 2026-11-18: the patch route answered with the previous head
 
@@ -32,6 +34,12 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** The route reads the task's head, or the workspace's files, before the checkpoint's
   write is visible to it.
 - **Status.** Open. A wait of a few seconds before reading the patch has avoided it since.
+  Not reproduced in the daemon itself (2026-11-18): a throwaway test in `tests/remote.rs` that
+  edited a file, then called `checkpoint` or `validate` and at once `GET .../patch?from=main`,
+  60 rounds, three runs, always got the new head (`X-Av-Head`) and the edit. Both routes write
+  the head in one transaction before they answer. So the cause is more likely outside one
+  daemon process's ordering: the client (which head it read the patch for), or the Windows bind
+  mount the edits were made on (a write the snapshot did not see yet).
 
 ## 2026-11-18: the Docker image cannot push a backup over SSH
 
@@ -48,7 +56,13 @@ the suspected cause, marked as a guess; the status.
 - **Guess at a fix.** Add `openssh-client`, and give ssh a user it accepts (for example a passwd
   entry written at start, or `nss_wrapper`), then a test that pushes a backup over SSH from the
   image. Or drop the compose comments.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-capabilities-offline-22d48v`: the image installs
+  `openssh-client` and `libnss-wrapper`, and its entrypoint (`deploy/entrypoint.sh`) gives a UID
+  without a passwd entry one through nss_wrapper before it starts the daemon. Checked on the
+  image's runtime layer (same base and packages, a stand-in daemon): as UID 4242, `ssh` without
+  the entrypoint exits "No user exists for uid 4242"; with it, a `git push` over SSH to an sshd
+  container succeeded. Not checked: the full compose stack (`scripts/smoke.sh`), whose images
+  Docker Hub rate-limited in the session.
 
 ## 2026-11-18: M2 stage B, three stops before the first session
 
@@ -76,7 +90,8 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** The test's lease is 2 s; with the whole workspace's tests running, the time from the
   renewal to the two `next` calls passed 2 s. A longer lease with the sleeps scaled to it would
   hold.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-capabilities-offline-22d48v`: the test's lease is 5 s and
+  its sleeps 5.5 s, so a loaded run has 5 s from the renewal to the two `next` calls.
 
 ## 2026-11-18: the Workers Builds preview of #49 failed
 
@@ -97,8 +112,11 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** Not the goals' length: the fixture's goals are one line each.
 - **Guess.** The task handle is now reserved before the section shares, which moves a few tokens
   between sections at tight budgets.
-- **Status.** Open. The gate prints means only; run `margincode-bench retrieval` on the fixture to
-  see which task changed.
+- **Status.** Answered (2026-11-18, the gate with a per-task print at #48's parent `6721a56` and
+  at `e515440`): at 600, `cache-key-order` lost its one signature of two (0.5 to 0; every other
+  task unchanged, `token-skew` was already 0); at 300, `aging-due-today` gained its file and its
+  signature (0 to 1). Why `cache-key-order`'s signature no longer fits at 600 is not looked at
+  yet. A per-task line in the gate's report would answer the next such question at once.
 
 ## 2026-11-18: `av` on Windows does not read a Git Bash path
 

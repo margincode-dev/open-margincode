@@ -24,7 +24,8 @@ pub(crate) const VERDICT_STATE: &str = "CASE
   END";
 
 const VERDICT_COLS: &str = "v.id, v.record_id, v.verdict, v.reason, v.canonical, v.retracts,
-    v.evidence, v.anchor_hashes, v.author_agent, v.dream_id, v.created_at";
+    v.evidence, v.anchor_hashes, v.author_agent, v.dream_id, v.created_at, v.convention_text,
+    v.scope_glob";
 
 const DREAM_COLS: &str = "id, repo, mode, area, agent, instructions_sha, status, worklist, counts,
     started_at, finished_at, lease_expires";
@@ -62,7 +63,7 @@ pub struct NewDream<'a> {
 pub struct VerdictRow {
     pub id: Uuid,
     pub record_id: RecordId,
-    /// `confirmed`, `disputed`, `duplicate`, `outdated` or `retracted`.
+    /// `confirmed`, `disputed`, `duplicate`, `outdated`, `promote` or `retracted`.
     pub verdict: String,
     pub reason: String,
     pub canonical: Option<RecordId>,
@@ -75,6 +76,20 @@ pub struct VerdictRow {
     pub created_at: DateTime<Utc>,
     /// `proposed`, `effective`, `rejected`, `retracted` or `retraction` (`VERDICT_STATE`).
     pub state: String,
+    /// For `promote`: the convention it proposes.
+    pub convention: Option<Promoted>,
+}
+
+/// The convention a `promote` verdict proposes; a person's acceptance writes it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Promoted {
+    pub text: String,
+    pub scope_glob: String,
+}
+
+/// The `source` of the convention a `promote` verdict wrote.
+pub fn promoted_source(verdict: Uuid) -> String {
+    format!("vd:{}", verdict.simple())
 }
 
 /// One review of a verdict: a verify run's (`dream` set) or a person's.
@@ -97,6 +112,8 @@ pub struct NewVerdict<'a> {
     pub anchor_hashes: Value,
     pub author_agent: &'a str,
     pub dream: Option<Uuid>,
+    /// For `promote`: the convention it proposes.
+    pub convention: Option<Promoted>,
 }
 
 pub struct DreamCandidate {
@@ -141,6 +158,14 @@ fn verdict_from(r: &PgRow) -> Result<VerdictRow> {
         dream_id: r.try_get("dream_id").map_err(serr)?,
         created_at: r.try_get("created_at").map_err(serr)?,
         state: r.try_get("state").map_err(serr)?,
+        convention: match (
+            r.try_get::<Option<String>, _>("convention_text")
+                .map_err(serr)?,
+            r.try_get::<Option<String>, _>("scope_glob").map_err(serr)?,
+        ) {
+            (Some(text), Some(scope_glob)) => Some(Promoted { text, scope_glob }),
+            _ => None,
+        },
     })
 }
 
@@ -266,12 +291,77 @@ impl PgStore {
         d.status == "running" && d.lease_expires > Utc::now()
     }
 
+    /// Writes a verdict. A `retracted` row also removes the convention the verdict it names
+    /// wrote (a `promote` a person accepted), in the same transaction; no other convention.
+    ///
+    /// A run's proposal (`dream` set, not a retraction) first locks its record's row, then
+    /// holds to two rules read after the lock, so a second proposal at once waits and sees the
+    /// first: one verdict per record and run, and one `promote` waiting or accepted per record.
+    /// Either refusal is `Conflict` with the reason.
     pub async fn insert_verdict(&self, v: NewVerdict<'_>) -> Result<VerdictRow> {
         let id = Uuid::new_v4();
+        let mut tx = self.pool().begin().await.map_err(serr)?;
+        let rec = format!("rec:{}", &v.record.0.simple().to_string()[..8]);
+        if let (Some(run), None) = (v.dream, v.retracts) {
+            sqlx::query("SELECT 1 FROM records WHERE id = $1 FOR NO KEY UPDATE")
+                .bind(v.record.0)
+                .execute(&mut *tx)
+                .await
+                .map_err(serr)?;
+            let judged: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM record_verdicts
+                                 WHERE record_id = $1 AND dream_id = $2 AND retracts IS NULL)",
+            )
+            .bind(v.record.0)
+            .bind(run)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(serr)?;
+            if judged {
+                return Err(AvError::Conflict(format!(
+                    "this run already judged {rec}; one verdict per record and run"
+                )));
+            }
+            if v.verdict == "promote" {
+                let standing = sqlx::query(&format!(
+                    "SELECT v.id, ({VERDICT_STATE}) AS state FROM record_verdicts v
+                      WHERE v.record_id = $1 AND v.verdict = 'promote'
+                        AND ({VERDICT_STATE}) IN ('proposed', 'effective')
+                      LIMIT 1"
+                ))
+                .bind(v.record.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(serr)?;
+                if let Some(other) = standing {
+                    let other_id: Uuid = other.try_get("id").map_err(serr)?;
+                    let state: String = other.try_get("state").map_err(serr)?;
+                    return Err(AvError::Conflict(format!(
+                        "{rec} already has a promote that is {} (vd:{}); one convention per \
+                         decision: retract that one first",
+                        if state == "proposed" {
+                            "waiting"
+                        } else {
+                            "accepted"
+                        },
+                        &other_id.simple().to_string()[..8]
+                    )));
+                }
+            }
+        }
+        if let Some(taken_back) = v.retracts {
+            // the lock a review takes too: a review waiting on it then sees this retraction
+            sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+                .bind(taken_back)
+                .execute(&mut *tx)
+                .await
+                .map_err(serr)?;
+        }
         sqlx::query(
             "INSERT INTO record_verdicts (id, record_id, verdict, reason, canonical, retracts,
-                                          evidence, anchor_hashes, author_agent, dream_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                                          evidence, anchor_hashes, author_agent, dream_id,
+                                          convention_text, scope_glob)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(id)
         .bind(v.record.0)
@@ -283,16 +373,32 @@ impl PgStore {
         .bind(&v.anchor_hashes)
         .bind(v.author_agent)
         .bind(v.dream)
-        .execute(self.pool())
+        .bind(v.convention.as_ref().map(|c| &c.text))
+        .bind(v.convention.as_ref().map(|c| &c.scope_glob))
+        .execute(&mut *tx)
         .await
         .map_err(
             |e| match e.as_database_error().and_then(|d| d.constraint()) {
                 Some("record_verdicts_retracts") => {
                     AvError::Conflict("that verdict is already retracted".into())
                 }
+                Some("record_verdicts_promote_per_run") => AvError::Conflict(format!(
+                    "this run already judged {rec}; one verdict per record and run"
+                )),
                 _ => serr(e),
             },
         )?;
+        if let Some(taken_back) = v.retracts {
+            sqlx::query(
+                "UPDATE conventions SET removed_at = now()
+                 WHERE source = $1 AND removed_at IS NULL",
+            )
+            .bind(promoted_source(taken_back))
+            .execute(&mut *tx)
+            .await
+            .map_err(serr)?;
+        }
+        tx.commit().await.map_err(serr)?;
         self.get_verdict(id).await
     }
 
@@ -366,6 +472,39 @@ impl PgStore {
         rows.iter().map(verdict_from).collect()
     }
 
+    /// The proposed verdicts of `repo` a verify run may be handed, newest first, at most
+    /// `limit`: every kind but `promote`, which only a person reviews.
+    pub async fn proposed_for_verify(&self, repo: &str, limit: i64) -> Result<Vec<VerdictRow>> {
+        let rows = sqlx::query(&format!(
+            "SELECT * FROM (
+               SELECT {VERDICT_COLS}, {VERDICT_STATE} AS state
+               FROM record_verdicts v
+               JOIN records r ON r.id = v.record_id JOIN tasks t ON t.id = r.task_id
+               WHERE t.repo = $1 AND v.verdict NOT IN ('promote', 'retracted')
+             ) q WHERE q.state = 'proposed'
+             ORDER BY q.created_at DESC, q.id LIMIT $2"
+        ))
+        .bind(repo)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(serr)?;
+        rows.iter().map(verdict_from).collect()
+    }
+
+    /// Whether `name`, in any case, is a registered agent profile's name or alias.
+    pub async fn agent_profile_named(&self, name: &str) -> Result<bool> {
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM agent_profiles
+                             WHERE lower(name) = lower($1)
+                                OR lower($1) IN (SELECT lower(a) FROM unnest(aliases) a))",
+        )
+        .bind(name)
+        .fetch_one(self.pool())
+        .await
+        .map_err(serr)
+    }
+
     /// A verdict's reviews, oldest first (the newest decides its state).
     pub async fn verdict_reviews(&self, verdict: Uuid) -> Result<Vec<VerdictReview>> {
         let rows = sqlx::query(
@@ -390,7 +529,11 @@ impl PgStore {
     }
 
     /// Writes a review of a proposed verdict. `Conflict` unless the verdict is still proposed:
-    /// checked and written under a lock on the verdict's row, so two reviews at once leave one.
+    /// the verdict's row is locked first and its state read by a later statement, which under
+    /// READ COMMITTED sees what a review or retraction that held the lock committed; so two
+    /// reviews at once leave one, and a review after a retraction is refused.
+    /// An agreeing review of a `promote` also writes its convention (`source` names the
+    /// verdict) in the same transaction; the daemon allows that review only from a person.
     pub async fn add_verdict_review(
         &self,
         verdict: Uuid,
@@ -400,8 +543,13 @@ impl PgStore {
         evidence: &Value,
     ) -> Result<VerdictRow> {
         let mut tx = self.pool().begin().await.map_err(serr)?;
+        sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+            .bind(verdict)
+            .execute(&mut *tx)
+            .await
+            .map_err(serr)?;
         let state: Option<String> = sqlx::query_scalar(&format!(
-            "SELECT {VERDICT_STATE} FROM record_verdicts v WHERE v.id = $1 FOR UPDATE"
+            "SELECT {VERDICT_STATE} FROM record_verdicts v WHERE v.id = $1"
         ))
         .bind(verdict)
         .fetch_optional(&mut *tx)
@@ -428,6 +576,25 @@ impl PgStore {
         .execute(&mut *tx)
         .await
         .map_err(serr)?;
+        if agree {
+            let promoted = sqlx::query(
+                "SELECT t.repo, v.convention_text, v.scope_glob
+                   FROM record_verdicts v JOIN records r ON r.id = v.record_id
+                   JOIN tasks t ON t.id = r.task_id
+                  WHERE v.id = $1 AND v.verdict = 'promote'",
+            )
+            .bind(verdict)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(serr)?;
+            if let Some(p) = promoted {
+                let repo: String = p.try_get("repo").map_err(serr)?;
+                let text: String = p.try_get("convention_text").map_err(serr)?;
+                let glob: String = p.try_get("scope_glob").map_err(serr)?;
+                PgStore::insert_convention(&mut tx, &repo, &glob, &text, &promoted_source(verdict))
+                    .await?;
+            }
+        }
         tx.commit().await.map_err(serr)?;
         self.get_verdict(verdict).await
     }

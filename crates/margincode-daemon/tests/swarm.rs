@@ -1029,3 +1029,283 @@ async fn swarm_loop_runs_backlog_to_merged() {
         "{claude:?} {grok:?}"
     );
 }
+
+/// A decision on `main`'s greeter and a promote of it, proposed by a review run (`dreamer`).
+/// Answers the verdict's full id and its `vd:` handle.
+async fn proposed_promote(e: &Env) -> (uuid::Uuid, String) {
+    let t = start_task(e, "Earlier work").await;
+    let (status, rec) = post(
+        e,
+        &format!("/v1/tasks/{}/records", id(&t)),
+        json!({"kind": "decision", "summary": "hello never shouts", "agent": "claude",
+               "anchors": [{"path": "app/greeter.py"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rec}");
+    let handle = format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8]);
+    let (status, d) = post(e, "/v1/repos/demo/dreams", json!({"agent": "dreamer"})).await;
+    assert_eq!(status, StatusCode::OK, "{d}");
+    let (status, r) = post(
+        e,
+        &format!("/v1/dreams/{}/verdicts", d["dream"]["id"].as_str().unwrap()),
+        json!({"verdicts": [{"record": handle, "verdict": "promote",
+               "text": "greetings never shout", "scope_glob": "app/**",
+               "evidence": [{"record": handle, "quote": "hello never shouts"}]}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    let v = &r["results"][0]["verdict"];
+    assert!(v.is_object(), "{r}");
+    (
+        v["id"].as_str().unwrap().parse().unwrap(),
+        v["handle"].as_str().unwrap().to_owned(),
+    )
+}
+
+/// Holds the verdict's row lock until `release` is called, so requests that need it queue up.
+async fn hold_verdict(e: &Env, verdict: uuid::Uuid) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = e.store.pool().begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+        .bind(verdict)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx
+}
+
+/// Waits (with a deadline) until `n` statements wait for a lock.
+/// Only statements of this test's database whose text names `table` count: on a server shared
+/// by many tests (`AV_TEST_DATABASE_URL`) other tests' lock waits are not this one's.
+async fn lock_waiters(e: &Env, table: &str, n: i64) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock'
+                AND query LIKE '%' || $1 || '%'",
+        )
+        .bind(table)
+        .fetch_one(e.store.pool())
+        .await
+        .unwrap();
+        if waiting >= n {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{waiting} of {n} requests wait for the lock"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn spawn_post(e: &Env, uri: String, body: Value) -> tokio::task::JoinHandle<(StatusCode, Value)> {
+    let app = e.app.clone();
+    tokio::spawn(async move { call(&app, "POST", &uri, Some(body)).await })
+}
+
+async fn promoted_rows(e: &Env, verdict: uuid::Uuid) -> (i64, i64) {
+    let reviews: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM verdict_reviews WHERE verdict_id = $1")
+            .bind(verdict)
+            .fetch_one(e.store.pool())
+            .await
+            .unwrap();
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM conventions WHERE source = $1 AND removed_at IS NULL",
+    )
+    .bind(format!("vd:{}", verdict.simple()))
+    .fetch_one(e.store.pool())
+    .await
+    .unwrap();
+    (reviews, live)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_people_accepting_one_promote_at_once_leave_one_review_and_one_convention() {
+    let e = env().await;
+    let (verdict, vd) = proposed_promote(&e).await;
+    let hold = hold_verdict(&e, verdict).await;
+    let uri = format!("/v1/verdicts/{vd}/review");
+    let first = spawn_post(&e, uri.clone(), json!({"reviewer": "vinh", "agree": true}));
+    let second = spawn_post(&e, uri, json!({"reviewer": "mai", "agree": true}));
+    lock_waiters(&e, "record_verdicts", 2).await;
+    hold.commit().await.unwrap();
+    let mut answers = vec![first.await.unwrap(), second.await.unwrap()];
+    answers.sort_by_key(|(s, _)| s.as_u16());
+    assert_eq!(answers[0].0, StatusCode::OK, "{answers:?}");
+    assert_eq!(answers[1].0, StatusCode::CONFLICT, "{answers:?}");
+    assert_eq!(promoted_rows(&e, verdict).await, (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_retraction_that_races_an_accept_leaves_no_live_convention() {
+    let e = env().await;
+    let (verdict, vd) = proposed_promote(&e).await;
+    let hold = hold_verdict(&e, verdict).await;
+    let retract = spawn_post(
+        &e,
+        format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "vinh"}),
+    );
+    lock_waiters(&e, "record_verdicts", 1).await;
+    let accept = spawn_post(
+        &e,
+        format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "mai", "agree": true}),
+    );
+    lock_waiters(&e, "record_verdicts", 2).await;
+    hold.commit().await.unwrap();
+    let (rs, rb) = retract.await.unwrap();
+    assert_eq!(rs, StatusCode::OK, "{rb}");
+    let (as_, ab) = accept.await.unwrap();
+    assert_eq!(
+        as_,
+        StatusCode::CONFLICT,
+        "the accept sees the retraction: {ab}"
+    );
+    assert_eq!(promoted_rows(&e, verdict).await, (0, 0));
+}
+
+/// A decision on `main`'s greeter and a review run handed it; answers the record's id, its
+/// `rec:` handle and the run.
+async fn decision_in_a_run(e: &Env) -> (uuid::Uuid, String, Value) {
+    let t = start_task(e, "Earlier work").await;
+    let (status, rec) = post(
+        e,
+        &format!("/v1/tasks/{}/records", id(&t)),
+        json!({"kind": "decision", "summary": "hello never shouts", "agent": "claude",
+               "anchors": [{"path": "app/greeter.py"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rec}");
+    let rid: uuid::Uuid = rec["id"].as_str().unwrap().parse().unwrap();
+    let handle = format!("rec:{}", &rid.simple().to_string()[..8]);
+    let (status, d) = post(e, "/v1/repos/demo/dreams", json!({"agent": "dreamer"})).await;
+    assert_eq!(status, StatusCode::OK, "{d}");
+    (rid, handle, d)
+}
+
+fn promote_body(handle: &str) -> Value {
+    json!({"verdicts": [{"record": handle, "verdict": "promote",
+           "text": "greetings never shout", "scope_glob": "app/**",
+           "evidence": [{"record": handle, "quote": "hello never shouts"}]}]})
+}
+
+/// Holds the record's row lock, which stalls a verdict's insert (its foreign key) and, once
+/// proposals lock the record, the proposal itself.
+async fn hold_record(e: &Env, record: uuid::Uuid) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = e.store.pool().begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM records WHERE id = $1 FOR UPDATE")
+        .bind(record)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx
+}
+
+async fn promotes_of(e: &Env, record: uuid::Uuid) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM record_verdicts WHERE record_id = $1 AND verdict = 'promote'",
+    )
+    .bind(record)
+    .fetch_one(e.store.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_identical_promotes_at_once_leave_one_verdict() {
+    let e = env().await;
+    let (rid, handle, d) = decision_in_a_run(&e).await;
+    let uri = format!("/v1/dreams/{}/verdicts", d["dream"]["id"].as_str().unwrap());
+    let hold = hold_record(&e, rid).await;
+    let one = spawn_post(&e, uri.clone(), promote_body(&handle));
+    let two = spawn_post(&e, uri, promote_body(&handle));
+    lock_waiters(&e, "record", 2).await;
+    hold.commit().await.unwrap();
+    let mut accepted = vec![];
+    for answer in [one.await.unwrap(), two.await.unwrap()] {
+        assert_eq!(answer.0, StatusCode::OK, "{answer:?}");
+        accepted.push(answer.1["accepted"].as_u64().unwrap());
+    }
+    accepted.sort();
+    assert_eq!(accepted, [0, 1]);
+    assert_eq!(promotes_of(&e, rid).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_runs_promoting_one_decision_at_once_leave_one_verdict() {
+    let e = env().await;
+    let (rid, handle, d) = decision_in_a_run(&e).await;
+    // a second running review run handed the same record: runs on overlapping areas are refused
+    // at start, so it is written as the daemon would, on an area of its own
+    let other = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO dreams (id, repo, mode, area, agent, worklist, lease_expires)
+         VALUES ($1, 'demo', 'review', 'elsewhere', 'other', $2, now() + interval '1 hour')",
+    )
+    .bind(other)
+    .bind(json!({"commit": d["dream"]["worklist"]["commit"], "records": [rid]}))
+    .execute(e.store.pool())
+    .await
+    .unwrap();
+    let hold = hold_record(&e, rid).await;
+    let one = spawn_post(
+        &e,
+        format!("/v1/dreams/{}/verdicts", d["dream"]["id"].as_str().unwrap()),
+        promote_body(&handle),
+    );
+    let two = spawn_post(
+        &e,
+        format!("/v1/dreams/{other}/verdicts"),
+        promote_body(&handle),
+    );
+    lock_waiters(&e, "record", 2).await;
+    hold.commit().await.unwrap();
+    let mut whys = vec![];
+    for answer in [one.await.unwrap(), two.await.unwrap()] {
+        assert_eq!(answer.0, StatusCode::OK, "{answer:?}");
+        whys.push(
+            answer.1["results"][0]["why"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+        );
+    }
+    whys.sort();
+    assert_eq!(whys[0], "", "{whys:?}");
+    assert!(whys[1].contains("already has a promote"), "{whys:?}");
+    assert_eq!(promotes_of(&e, rid).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_undo_racing_a_retraction_of_one_of_its_verdicts_still_finishes() {
+    let e = env().await;
+    let (verdict, vd) = proposed_promote(&e).await;
+    let dream: uuid::Uuid =
+        sqlx::query_scalar("SELECT dream_id FROM record_verdicts WHERE id = $1")
+            .bind(verdict)
+            .fetch_one(e.store.pool())
+            .await
+            .unwrap();
+    let hold = hold_verdict(&e, verdict).await;
+    let retract = spawn_post(
+        &e,
+        format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "vinh"}),
+    );
+    lock_waiters(&e, "record_verdicts", 1).await;
+    let undo = spawn_post(
+        &e,
+        format!("/v1/dreams/{dream}/undo"),
+        json!({"by": "vinh"}),
+    );
+    lock_waiters(&e, "record_verdicts", 2).await;
+    hold.commit().await.unwrap();
+    let (status, body) = retract.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = undo.await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["dream"]["status"], "undone", "{body}");
+}

@@ -16,6 +16,11 @@ enum EnvOp {
     Clear,
 }
 
+/// What [`AgentCommand::max_budget_usd`] appends, for a caller that builds its own `Command`.
+pub fn max_budget_args(cap: f64) -> [String; 2] {
+    ["--max-budget-usd".into(), format!("{cap:.2}")]
+}
+
 /// An agent CLI to run. Knows nothing about which CLI it is; `max_budget_usd` is the one flag it
 /// adds itself (`--max-budget-usd`, appended last), because every caller wants it the same way.
 pub struct AgentCommand {
@@ -194,7 +199,7 @@ impl AgentCommand {
             );
         }
         if let Some(cap) = self.max_budget_usd {
-            cmd.args(["--max-budget-usd", &format!("{cap:.2}")]);
+            cmd.args(max_budget_args(cap));
         }
         if let Some((uid, gid)) = self.run_as {
             // std drops the supplementary groups itself when a root parent sets a uid

@@ -282,6 +282,10 @@ pub struct Convention {
     /// `av validate` runs it; approval needs it to pass at the head.
     #[serde(default)]
     pub check_command: Option<String>,
+    /// Where it came from: empty when a person wrote it, `vd:<verdict id>` for a decision a
+    /// person promoted (a `promote` verdict, whose retraction removes it).
+    #[serde(default)]
+    pub source: String,
 }
 
 /// Where a task stands with respect to trunk: the last merge (until undone) and the paths of the

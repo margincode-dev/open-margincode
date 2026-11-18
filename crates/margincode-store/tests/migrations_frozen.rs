@@ -129,6 +129,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0031_verdicts.sql",
         "925a4293ef68f04928791d957d03e422ab0cd18d74e0b647025fa212e210cdef",
     ),
+    (
+        "0032_promote.sql",
+        "8be5c64ce701b66ce2a582fe7e760190892b139963aa079e0e7f03b0ab2ab038",
+    ),
 ];
 
 #[test]

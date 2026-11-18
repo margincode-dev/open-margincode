@@ -570,10 +570,10 @@ async fn a_rescued_task_refuses_the_old_owners_writes() {
 /// task back still may not rescue it, while another agent may.
 #[tokio::test]
 async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
-    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let e = env_with(|s| s.with_lease_secs(5)).await;
     three_agents(&e).await;
     let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5500)).await;
     let (status, b) = task_op(
         &e,
         &id(&t),
@@ -590,7 +590,7 @@ async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
         assert_eq!(body["task"], Value::Null, "{agent}: {body}");
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5500)).await;
     assert_eq!(peek(&e, "grok").await["would"], Value::Null);
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["task"], Value::Null, "{body}");

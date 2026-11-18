@@ -65,6 +65,10 @@ Measured so far, including where it didn't help:
 - When one agent's lessons were passed on to the next, cost per solved task dropped by about
   **42 %**, and 30 of 30 tasks were solved instead of 18. Margincode did as well as a hand-written
   `NOTES.md`, without anyone having to write it.
+- With 500 unrelated notes next to the ten that matter, a flat `NOTES.md` got more expensive and
+  Margincode did not: on DeepSeek Flash, cost per accepted task was **$0.0143 with Margincode
+  against $0.0237 with `NOTES.md`, 39.9 % less**. Both solved 30 of 30 tasks, so this shows cost,
+  not solve rate ([results](bench/results/2026-11-e4-scale/)).
 - Not measured yet: large repositories.
 
 ## Try it

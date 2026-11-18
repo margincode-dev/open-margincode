@@ -723,8 +723,9 @@ so `sh -c 'cargo test | tail'` passes when the tests fail: `av validate` (for it
 each check it runs) and `av convention add` warn about a script that pipes outside quotes without
 `pipefail` (a heuristic, so they warn and carry on). A change with nothing to build (docs, say)
 can attest `av validate -- av diff --check`: much like `git diff --check` (a task workspace has
-no `.git`), it checks the lines the task added since its base for trailing whitespace, leftover
-conflict markers (labelled ones, as the submit check reads them: a bare `=======` underlines a
+no `.git`), it checks the lines the task added since its base for trailing whitespace, a CRLF
+line ending (an `av` commit applies no `.gitattributes`, so nothing else turns one into LF),
+leftover conflict markers (labelled ones, as the submit check reads them: a bare `=======` underlines a
 heading) and a file left without a final newline, prints each as `path:line: what`, and exits 2
 when it finds any. For more than that, add a required convention scoped to those paths
 (`av convention add --repo NAME --scope 'docs/**' --required --check '...'`). On the pull

@@ -18,7 +18,9 @@ the suspected cause, marked as a guess; the status.
   the only two blobs on `main` with a CR.
 - **Guess.** They were written on Windows and committed through `av` (jj), which does not apply
   `.gitattributes`, so nothing normalized them.
-- **Status.** Fixed in #64 (both stored LF). Nothing yet stops the next CRLF file `av` commits.
+- **Status.** Fixed in #64 (both stored LF). `av diff --check` now reports an added CRLF line
+  (branch `claude/cloud-capabilities-offline-22d48v`); a commit that runs no check can still
+  carry one.
 
 ## 2026-11-18: the patch route answered with the previous head
 

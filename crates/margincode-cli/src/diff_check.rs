@@ -12,7 +12,8 @@ pub fn problems(path: &str, diff: &str) -> Vec<String> {
     let mut line = 0;
     let mut in_hunk = false;
     let mut last_added = false;
-    for l in diff.lines() {
+    // not `lines()`, which would drop a CR before each newline and hide a CRLF file
+    for l in diff.split_terminator('\n') {
         if let Some(header) = l.strip_prefix("@@ ") {
             line = header
                 .split_whitespace()
@@ -27,7 +28,9 @@ pub fn problems(path: &str, diff: &str) -> Vec<String> {
             continue;
         }
         if let Some(text) = l.strip_prefix('+') {
-            if text.ends_with([' ', '\t']) {
+            if text.ends_with('\r') {
+                out.push(format!("{path}:{line}: CRLF line ending"));
+            } else if text.ends_with([' ', '\t']) {
                 out.push(format!("{path}:{line}: trailing whitespace"));
             }
             if MARKERS.iter().any(|m| text.starts_with(m)) {
@@ -68,6 +71,13 @@ mod tests {
                 "doc.md:13: no newline at end of file",
             ]
         );
+    }
+
+    #[test]
+    fn a_crlf_line_is_reported_and_a_removed_one_is_not() {
+        let diff = "--- a/r.jsonl\n+++ b/r.jsonl\n@@ -1,2 +1,2 @@\n-{\"a\":1}\r\n+{\"a\":1}\n \
+                    ctx\r\n+{\"b\":2}\r\n";
+        assert_eq!(problems("r.jsonl", diff), ["r.jsonl:3: CRLF line ending"]);
     }
 
     #[test]

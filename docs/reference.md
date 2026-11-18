@@ -382,7 +382,8 @@ Several agents work against one daemon at once:
 - Backup remote down or rejecting the push: the merge still succeeds. The push runs in the
   background (60 s timeout, no credential prompts, never forced); a failure is stored and retried
   after 1 s, 2 s, 4 s … up to 5 min, and `margincode status` / `margincode repo backup` show it. Credentials are the
-  daemon's own (for SSH, a read-only mounted key and `AV_BACKUP_SSH_COMMAND` in compose).
+  daemon's own: the host's in lite mode; the Docker image has no SSH client, so there it backs up to a
+  path on a mount (see [Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted)).
   By default main is pushed to a branch of the same name; `margincode repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.
@@ -553,9 +554,9 @@ export AV_AGENT=claude   # the agent named in .av-task; another name is refused,
 To run the repo's tests in a container against a task's workspace, see "Running the bar in a container"
 in `CONTRIBUTING.md`.
 
-The daemon does not reach GitHub, and `main` is protected: push the backup to a branch from Windows git,
-`git -C D:/avexport/NAME.git push https://github.com/OWNER/REPO.git main:refs/heads/av/NAME`, then open a
-pull request from that branch.
+The daemon does not reach GitHub from here, and `main` is protected: push the backup to a branch from
+Windows git and open a pull request from it, as
+[Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted) describes.
 
 ### Workspaces on a volume (Windows)
 
@@ -627,6 +628,97 @@ docker run --rm --privileged rust:1.97.1 sh -c 'sync; echo 1 > /proc/sys/vm/drop
 
 One cold `cargo test --workspace --no-run` of margincode needs about 1.6 GB of process memory; how
 many agents fit on one host is worked out in Plan 12 ("Memory").
+
+### Getting main to GitHub (self-hosted)
+
+A merge moves Margincode's main, not GitHub's. To review and land that work through GitHub pull
+requests, the daemon pushes main to a branch, a person merges a pull request from it, and
+Margincode takes GitHub's merge back. Keep `main` protected on GitHub throughout. The steps assume
+GitHub's default branch is `main`: the workflow below and `av repo advance` both use that name.
+
+**1. A remote the daemon can push to.** Name the backup branch `av-main`, so the branch Margincode
+pushes is never GitHub's `main`.
+
+- Lite mode (`av up`, the daemon on the host): the daemon's git uses the host's SSH setup, so it
+  can push to GitHub itself with a key it can use without a prompt:
+  `av repo backup NAME --remote git@github.com:OWNER/REPO.git --branch av-main --advance`.
+- The Docker stack, on any platform: the image has no SSH client, and the daemon runs as your
+  host UID, which has no passwd entry in the container, so it cannot push over SSH. Back up to a
+  bare repository on a mount and push on from the host with your own credentials. Create it
+  (`git init --bare HOST_DIR/NAME.git`), add `HOST_DIR:/export` to the daemon service's volumes
+  in an override file (on Windows, as in [Native av.exe on Windows](#native-avexe-on-windows)),
+  then `av repo backup NAME --remote /export/NAME.git --branch av-main`. If you also set
+  `AV_BACKUP_REMOTES` for the repo, give it the same URL: at start-up a different one replaces
+  the stored remote and drops `--branch` and `--advance`.
+
+Below, `EXPORT` is where the host sees the backup: the bare repository (`HOST_DIR/NAME.git`), or,
+in lite mode, a clone of GitHub where you run `git fetch origin av-main:av-main` after each
+merge, once the daemon's push has landed (`margincode repo backup NAME` shows it).
+
+**2. One pull request per task, or one rolling pull request.**
+
+- Per task (this repository's convention): after each `av merge`, push the merged commit to a
+  branch named after the task and open a pull request from it:
+
+  ```bash
+  git -C EXPORT push git@github.com:OWNER/REPO.git av-main:refs/heads/av/SLUG
+  gh pr create --repo OWNER/REPO --base main --head av/SLUG
+  ```
+
+  Each branch holds every task merged before it, so merge the pull requests in the order the
+  tasks merged; a pull request opened before the previous one lands shows both diffs until it
+  does.
+- Rolling: GitHub gets `av-main` itself (lite mode pushes it; from a bare repository,
+  `git -C EXPORT push git@github.com:OWNER/REPO.git av-main`). Copy
+  [`integrations/github/av-main-pr.yml`](../integrations/github/av-main-pr.yml) to
+  `.github/workflows/`: on each push to `av-main` it opens one pull request "Margincode: av-main"
+  when none is open, and never merges. It needs "Allow GitHub Actions to create and approve pull
+  requests" (Settings > Actions > General) and a few seconds of Actions time per push. One pull
+  request then carries every task merged since the last one landed.
+
+Either way, post each task's records on the pull request after it opens, so its decisions, dead
+ends, findings and checks are there:
+`av notes TASK --pr N --gh-repo OWNER/REPO` (a task workspace has no `.git` for `gh` to read the
+repository from; see [Records on the pull request](#records-on-the-pull-request)).
+
+**3. Merge commits only.** On GitHub, allow merge commits and turn off squash and rebase merging
+(Settings > General > Pull Requests), and protect `main` against direct pushes. A squash or
+rebase merge gives `main` commits Margincode's main does not have, and `av repo advance` answers
+`diverged` until a later merge-commit pull request lands.
+
+**4. Take the merge back** right after the pull request merges, before the next `av merge`:
+
+```bash
+git -C HOST_DIR/NAME.git fetch git@github.com:OWNER/REPO.git main:main   # Docker stack only
+av repo advance NAME
+```
+
+`av repo advance` reads the backup remote's `main` and fast-forwards Margincode's main to it. In
+lite mode, `--advance` also does this before each backup push, but that push follows a merge in
+Margincode, so it does not replace advancing here. It answers `diverged` when Margincode merged
+another task after the merged pull request's branch was last pushed (GitHub's merge commit then
+does not contain it). Nothing is lost: keep going, and advance again after the pull request
+that carries that task merges, since its merge contains both.
+
+**A gate without GitHub Actions.** A pull request's GitHub checks only say what your workflows
+ran; with Actions off or out of minutes, nothing tested the change there. Make the test command a
+required convention, so `av review --verdict approve` is refused until it has passed at the task's
+head:
+
+```bash
+av convention add --repo NAME --scope '**' --required --check 'cargo test --workspace' 'Tests pass'
+```
+
+An approval already needs some passing `av validate -- CMD` at the head; the convention fixes
+which command: `av validate` runs it after CMD and records each exit code. The result is what the
+client that ran it reports (the daemon never runs repository commands), so this is a gate for
+agents that follow the process, not a sandbox. On the pull request, `av notes` lists each `av validate` run
+under "Checks": its CMD, that command's exit code and who ran it (the convention's own result is
+in the record, not on that line). For main itself, set a post-merge
+check and run `margincode runner` where it can build (`margincode repo settings NAME --check
+'...'`, then `margincode runner --repo NAME --trust`): a red main shows as `main_red` in
+`av attention` and at the top of every pack. Do not make a disabled workflow a required status
+check on GitHub: every pull request would wait for it.
 
 ## Use
 

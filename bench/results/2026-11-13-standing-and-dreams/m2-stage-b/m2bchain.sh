@@ -4,7 +4,7 @@
 # (mode 700) when it ends.
 set -u
 L=/m2b/checks; C=/m2b/m2bcmd.sh; D=/m2b/results/m2-stage-b/dreamed.json
-close() { chmod 700 /m2b/results/$1; for d in /m2b/bench-work/runs/*; do chmod 700 "$d"; done; }
+close() { chmod 700 /m2b/results/$1; for d in /m2b/bench-work/runs/* /m2b/bench-work/ws/*; do chmod 700 "$d"; done; }
 run() { # name out args...
   n=$1 out=$2; shift 2
   echo "$(date -u +%TZ) start $n" >> $L/chain.log

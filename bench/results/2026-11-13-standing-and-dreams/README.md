@@ -420,3 +420,54 @@ sessions' agents, and P1 has 0 and 37.
   `content.txt` and `analyze.txt`.
 - Transcripts are not committed. They stay in `lp-harness` under `/m1/bench-work/runs`, closed to
   the agent user.
+
+## M2 stage B: raw against dreamed memory, results, 2026-11-18
+
+Run as `AMENDMENT-1-stage-b.md` registers it (committed and merged in #52 before the first
+session): one build of `main` at `aa2547b`, one daemon with `AV_PLAIN_RECORDS=on` (both arms'
+`meta.json`: `plain_records: true`), the M0 tasks, Claude Haiku 5.5, 30 sessions per arm, back to
+back (raw 04:58 to 05:14 UTC, dreamed 05:14 to 05:29). Results in `m2-stage-b/` (`m2-raw/`,
+`m2-dreamed/`, `smoke/`, `dreamed.json`, `checks/`).
+
+**Primary (pooled, valid sessions; Wilson 95 %, `margincode_bench::stats`):**
+
+| arm | valid | accepted | rate | 95 % Wilson | cost |
+|---|---|---|---|---|---|
+| raw | 30 | 14 | 0.467 | 0.302 to 0.639 | $0.1615 |
+| dreamed | 30 | 21 | 0.700 | 0.521 to 0.833 | $0.1500 |
+
+**Decision by the claim rule: not shown at this size.** The intervals overlap (dreamed's lower
+end 0.521 is below raw's upper end 0.639).
+
+**Per task** (described, below the claim size): quote-split raw 0/10, dreamed 1/10;
+bus-resubscribe raw 4/10, dreamed 10/10; tax-with-rate raw 10/10, dreamed 10/10.
+
+**Beside the primary.**
+
+- Dream cost: $0.5677 for both passes on the three tasks (6 Sonnet 5.5 calls, Claude Code's
+  `total_cost_usd`).
+- Verdicts each task's own wrong note ended with: bus-resubscribe `disputed` (effective);
+  quote-split **`confirmed`** (effective, verified, as in all six stage A passes); tax-with-rate
+  undecided (handed, not judged). Over all three stores 17 wrong-note verdicts were `disputed`,
+  3 `confirmed` (quote-split's note, once per store); one true lesson ended `disputed`
+  (`customer-region`, in the bus-resubscribe store); none `outdated`. Undecided: 5, 6 and 7 of
+  13 handed.
+- **The confirmed wrong note.** quote-split's note ended `confirmed`, and quote-split is the task
+  where both arms failed (raw 0/10, dreamed 1/10). With the note confirmed the dream changed
+  nothing for it, so the task gives the dreamed arm no room to move. Not claimed: 10 sessions a
+  task is below the claim size.
+- Sessions that tried `--supersedes` on another task's record: 0 of 60.
+- Smoke (order-ids, raw, not a result): passed; $0.0070, largest request 32 K tokens.
+
+**Spend:** stage B $0.886 (freeze $0.568, smoke $0.007, raw $0.162, dreamed $0.150), under
+the $5 ceiling. The largest session cost $0.0078.
+
+**Deviations and stops** (none changes the question, the arms or the claim rule):
+
+- The first freeze attempt was refused by the API (a bad key, $0). After the key was replaced and
+  the host restarted, the same command ran again on the same binaries, daemon setting and
+  database. Its Build records both attempts.
+- The smoke preflight refused twice before any session (directories left open to the agent user
+  by `first-packs` and the freeze, and the agent user's home). Fixed by closing them;
+  `m2bchain.sh` was changed after the amendment's commit to also close the kept workspaces
+  between the arms, so the dreamed arm's preflight would not refuse. `docs/backlog.md` has it.

@@ -7,6 +7,19 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: the patch route answered with the previous head
+
+- **Where.** `GET /v1/tasks/{id}/patch?from=main`, called by hand right after `av validate` or
+  `av checkpoint` returned, while preparing fix-plan PR 22 (F29) for review.
+- **Seen.** On two occasions the patch did not hold the edit the checkpoint had just taken: it was
+  the previous head's. The same request a few seconds later held it. `av validate` had already
+  printed the new head.
+- **Ruled out.** Nothing yet: not reproduced on purpose, and no test reads the patch right after a
+  checkpoint.
+- **Guess.** The route reads the task's head, or the workspace's files, before the checkpoint's
+  write is visible to it.
+- **Status.** Open. A wait of a few seconds before reading the patch has avoided it since.
+
 ## 2026-11-18: the Docker image cannot push a backup over SSH
 
 - **Where.** `deploy/Dockerfile` (the apt line), `deploy/docker-compose.yml` (the SSH key and
@@ -82,7 +95,9 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** `av.exe` is a Windows program and Git Bash converts paths only for arguments it
   recognises as paths; with `MSYS_NO_PATHCONV=1` (which `docs/reference.md` recommends for `/import/...`)
   it converts none.
-- **Status.** Open. Related to the Git Bash hint in the fix plan's PR 23 (F2, F13).
+- **Status.** Documented in #60 (F2, F13): `docs/reference.md` says Git Bash converts only
+  arguments and that a Windows program needs `C:/...` (`cygpath -m`). `av` still reads such a path
+  as given.
 
 ## 2026-11-17: a checkpoint during another task's start took 2.2 s once
 

@@ -286,16 +286,31 @@ struct Refused {
 /// Ctrl-C reaches only `av`, and `av` must end that group before it goes.
 #[cfg(unix)]
 mod interrupt {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     pub static STOP: AtomicBool = AtomicBool::new(false);
+    /// The signal that raised `STOP`, so `av` can die of it once it has cleaned up.
+    pub static SIGNAL: AtomicI32 = AtomicI32::new(0);
 
     /// Each of these ends `av` by default and leaves the agent's own process group running:
     /// Ctrl-C, `kill`, a closed terminal, Ctrl-\.
     const SIGNALS: [libc::c_int; 4] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT];
 
-    extern "C" fn on_signal(_: libc::c_int) {
+    extern "C" fn on_signal(sig: libc::c_int) {
+        SIGNAL.store(sig, Ordering::SeqCst);
         STOP.store(true, Ordering::SeqCst);
+    }
+
+    /// Raises the caught signal again, under the disposition it had before `av` caught it
+    /// (`Caught` has put it back by now): the process dies of it, as a parent expects.
+    pub fn raise_caught() {
+        let sig = SIGNAL.load(Ordering::SeqCst);
+        if sig != 0 {
+            // SAFETY: raising a signal on this process
+            unsafe {
+                libc::raise(sig);
+            }
+        }
     }
 
     /// Catches the signals until it is dropped, then puts back what was there before. A signal
@@ -346,6 +361,20 @@ pub fn interrupted() -> bool {
     return interrupt::STOP.load(std::sync::atomic::Ordering::SeqCst);
     #[cfg(not(unix))]
     false
+}
+
+/// After a signal ended an agent (its group killed, the run failed at the daemon), `av` dies of
+/// that signal, so a shell loop stops and a supervisor records a stop; a no-op otherwise.
+pub fn die_of_caught_signal(outcome: &Result<()>) {
+    #[cfg(unix)]
+    if interrupted() {
+        if let Err(e) = outcome {
+            eprintln!("av: {e}");
+        }
+        interrupt::raise_caught();
+    }
+    #[cfg(not(unix))]
+    let _ = outcome;
 }
 
 /// Runs the agent command in the run's directory. `Ok(false)`: it failed or ran out of time.

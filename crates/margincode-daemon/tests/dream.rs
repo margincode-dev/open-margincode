@@ -1511,7 +1511,9 @@ async fn a_promote_is_not_accepted_under_a_name_the_daemon_knows_as_an_agent() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["dream"].is_object(), "{body}");
-    for agent in ["dreamer", "grok", "grok-cli", "checker"] {
+    // the proposing run's agent and registered profiles, in any case; a name that only ran a
+    // verify run is a person's as far as the daemon can tell
+    for agent in ["dreamer", "Dreamer", "grok", "GROK-cli"] {
         let (status, body) = post_json(
             &e,
             &format!("/v1/verdicts/{vd}/review"),
@@ -1519,13 +1521,19 @@ async fn a_promote_is_not_accepted_under_a_name_the_daemon_knows_as_an_agent() {
         )
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{agent}: {body}");
+        let why = body["error"].as_str().unwrap();
         assert!(
-            body["error"].as_str().unwrap().contains("agent"),
+            why.contains("agent") && why.contains("--agent") && why.contains("AV_AGENT"),
             "{agent}: {body}"
         );
     }
     assert!(conventions(&e).await.is_empty());
-    let (status, body) = person_review(&e, vd, true).await;
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "checker", "agree": true}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(conventions(&e).await.len(), 1);
 }

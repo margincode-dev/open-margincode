@@ -6433,6 +6433,49 @@ printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings 
     assert!(!conv.contains("greetings never shout"), "{conv}");
 }
 
+/// `av` with no agent name anywhere: no `--agent`, no `AV_AGENT`.
+fn av_unnamed(d: &Daemon, home: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_av"))
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env_remove("AV_AGENT")
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_promote_from_a_default_dream_is_accepted_by_a_default_av_verdict_accept() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let promoter = r#"
+rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
+printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings never shout", "scope_glob": "app/**", "evidence": [{"record": "%s", "quote": "hello never shouts"}]}]}' "$rec" "$rec" > verdicts.json
+"#;
+    let got = ok(av_unnamed(
+        &d,
+        home,
+        &[
+            "dream",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "sh",
+            "-c",
+            promoter,
+        ],
+    ));
+    let vd = word_after(&got, "vd:").to_owned();
+    let line = ok(av_unnamed(&d, home, &["verdict", "accept", &vd]));
+    assert!(line.contains("a person accepted it"), "{line}");
+}
+
 /// Whether `pid` is a live process (a zombie, killed and waiting for its parent, is not).
 fn alive(pid: &str) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {
@@ -6510,8 +6553,19 @@ fn an_interrupted_dream_ends_its_agent_too() {
             left.is_empty(),
             "{every:?} {signal}: the agent outlived av: {left:?}"
         );
-        // av ended the agent and exited itself, rather than being ended by the signal
-        assert_eq!(status.code(), Some(1), "{every:?} {signal}: {status}");
+        // av ended the agent, then died of the signal it got, so its parent sees that signal
+        use std::os::unix::process::ExitStatusExt;
+        let number = match signal {
+            "HUP" => 1,
+            "INT" => 2,
+            "QUIT" => 3,
+            _ => 15,
+        };
+        assert_eq!(
+            status.signal(),
+            Some(number),
+            "{every:?} {signal}: {status}"
+        );
         // the run was ended as failed, so the area is free for the next one
         for dir in std::fs::read_dir(home.join("dreams")).unwrap() {
             let id = dir.unwrap().file_name().into_string().unwrap();

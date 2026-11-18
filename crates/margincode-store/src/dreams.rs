@@ -293,9 +293,62 @@ impl PgStore {
 
     /// Writes a verdict. A `retracted` row also removes the convention the verdict it names
     /// wrote (a `promote` a person accepted), in the same transaction; no other convention.
+    ///
+    /// A run's proposal (`dream` set, not a retraction) first locks its record's row, then
+    /// holds to two rules read after the lock, so a second proposal at once waits and sees the
+    /// first: one verdict per record and run, and one `promote` waiting or accepted per record.
+    /// Either refusal is `Conflict` with the reason.
     pub async fn insert_verdict(&self, v: NewVerdict<'_>) -> Result<VerdictRow> {
         let id = Uuid::new_v4();
         let mut tx = self.pool().begin().await.map_err(serr)?;
+        let rec = format!("rec:{}", &v.record.0.simple().to_string()[..8]);
+        if let (Some(run), None) = (v.dream, v.retracts) {
+            sqlx::query("SELECT 1 FROM records WHERE id = $1 FOR NO KEY UPDATE")
+                .bind(v.record.0)
+                .execute(&mut *tx)
+                .await
+                .map_err(serr)?;
+            let judged: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM record_verdicts
+                                 WHERE record_id = $1 AND dream_id = $2 AND retracts IS NULL)",
+            )
+            .bind(v.record.0)
+            .bind(run)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(serr)?;
+            if judged {
+                return Err(AvError::Conflict(format!(
+                    "this run already judged {rec}; one verdict per record and run"
+                )));
+            }
+            if v.verdict == "promote" {
+                let standing = sqlx::query(&format!(
+                    "SELECT v.id, ({VERDICT_STATE}) AS state FROM record_verdicts v
+                      WHERE v.record_id = $1 AND v.verdict = 'promote'
+                        AND ({VERDICT_STATE}) IN ('proposed', 'effective')
+                      LIMIT 1"
+                ))
+                .bind(v.record.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(serr)?;
+                if let Some(other) = standing {
+                    let other_id: Uuid = other.try_get("id").map_err(serr)?;
+                    let state: String = other.try_get("state").map_err(serr)?;
+                    return Err(AvError::Conflict(format!(
+                        "{rec} already has a promote that is {} (vd:{}); one convention per \
+                         decision: retract that one first",
+                        if state == "proposed" {
+                            "waiting"
+                        } else {
+                            "accepted"
+                        },
+                        &other_id.simple().to_string()[..8]
+                    )));
+                }
+            }
+        }
         if let Some(taken_back) = v.retracts {
             // the lock a review takes too: a review waiting on it then sees this retraction
             sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
@@ -329,6 +382,9 @@ impl PgStore {
                 Some("record_verdicts_retracts") => {
                     AvError::Conflict("that verdict is already retracted".into())
                 }
+                Some("record_verdicts_promote_per_run") => AvError::Conflict(format!(
+                    "this run already judged {rec}; one verdict per record and run"
+                )),
                 _ => serr(e),
             },
         )?;
@@ -436,12 +492,12 @@ impl PgStore {
         rows.iter().map(verdict_from).collect()
     }
 
-    /// Whether `name` is one the daemon knows as an agent's: an agent profile's name or alias,
-    /// or the agent of a dream run.
-    pub async fn known_agent(&self, name: &str) -> Result<bool> {
+    /// Whether `name`, in any case, is a registered agent profile's name or alias.
+    pub async fn agent_profile_named(&self, name: &str) -> Result<bool> {
         sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM agent_profiles WHERE name = $1 OR $1 = ANY(aliases))
-                 OR EXISTS (SELECT 1 FROM dreams WHERE agent = $1)",
+            "SELECT EXISTS (SELECT 1 FROM agent_profiles
+                             WHERE lower(name) = lower($1)
+                                OR lower($1) IN (SELECT lower(a) FROM unnest(aliases) a))",
         )
         .bind(name)
         .fetch_one(self.pool())

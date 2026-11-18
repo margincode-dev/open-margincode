@@ -3097,12 +3097,12 @@ fn run(cli: Cli) -> Result<()> {
                 dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
                 cmd,
             };
-            match every {
-                None => {
-                    if !dream::run(&client, &d)? {
-                        return Err(CliError::Local("the dream's agent command failed".into()));
-                    }
-                }
+            let outcome = match every {
+                None => match dream::run(&client, &d) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(CliError::Local("the dream's agent command failed".into())),
+                    Err(e) => Err(e),
+                },
                 Some(every) => dream::repeat(
                     *every,
                     || dream::run(&client, &d),
@@ -3112,8 +3112,10 @@ fn run(cli: Cli) -> Result<()> {
                         true
                     },
                     dream::interrupted,
-                )?,
-            }
+                ),
+            };
+            dream::die_of_caught_signal(&outcome);
+            outcome?;
         }
         Cmd::Verdict { cmd } => match cmd {
             VerdictCmd::List {

@@ -883,7 +883,9 @@ when one is named, else `user`.
   verify pass.
 - The agent command runs in a process group of its own. SIGINT (Ctrl-C), SIGTERM, SIGHUP (a
   closed terminal) or SIGQUIT to `av dream` while it runs kills that whole group, ends the run
-  as failed (its area is free) and ends `av dream`, an `--every` loop included, with exit 1. A
+  as failed (its area is free) and ends `av dream`, an `--every` loop included: once that is
+  done, `av` puts back the signal's earlier disposition and raises it again, so it dies of the
+  signal, and a shell loop over repositories stops at Ctrl-C instead of going on. A
   signal that lands as the agent ends cleanly starts no further fix round or run either. A
   signal `av dream` was started ignoring (a script's background job ignores SIGINT) stays
   ignored, and after each run the signals are what they were before it.
@@ -948,9 +950,11 @@ gets `DREAM.md` byte for byte as before. The daemon takes a `promote` from any r
 Conventions are the one layer of a pack that is never dropped, so an agent's agreement is not
 enough. A verify run is never handed a `promote`, and a review of one that names a `dream` is
 refused (`422`), with nothing written. A review without `dream` is refused too when its
-`reviewer` is the agent that proposed the verdict, or any name the daemon knows as an agent's
-(an agent profile's name or alias, or a dream run's agent), and an acceptance is refused once
-the decision is superseded. Community has one shared token and no identities, so these are
+`reviewer` is, in any letter case, the verdict's author, the agent of the run that proposed it,
+or a registered agent profile's name or alias; the refusal says to review under your own name
+(`av --agent NAME verdict accept`, or `AV_AGENT`; with neither, `av verdict accept` reviews as
+`user`, while `av dream` runs as `agent`, so the defaults never collide). An acceptance is
+refused once the decision is superseded. Community has one shared token and no identities, so these are
 rules about the names a request carries, not authentication: whoever holds the token can send
 any name. A deployment that must know a person decided enforces it in its `MergeGuard`, which
 is asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is written; the
@@ -961,7 +965,12 @@ Retracting the verdict, or `av dream undo` of its run, removes that convention (
 as `av convention rm` does) and no other: a convention written by hand has an empty `source`
 and is never touched. A retraction and an acceptance at once are ordered on the verdict's row,
 so no convention of a retracted promote stays live. A decision has one promote waiting or
-accepted at a time; after a retraction or a rejection it may be promoted again. `av verdict
+accepted at a time, and a run one verdict per record: proposals of one record are taken one at
+a time under a lock on the record, so two at once leave one. After a retraction or a rejection
+the decision may be promoted again. A decision superseded after its promote was accepted keeps
+its convention: the convention is the person's choice, not the record's, so it stays live until
+someone takes it out, with `av verdict retract vd:…` (which also marks the verdict) or
+`av convention rm conv:…`. `av verdict
 list`, `show` and `av dream show` print a promote's glob and text and whether a person has
 accepted it; `av convention list` ends a promoted one with `(from vd:…)`.
 

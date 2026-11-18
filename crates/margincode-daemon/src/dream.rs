@@ -503,17 +503,6 @@ async fn propose_one(
     if kind == Some(VerdictKind::Disputed) && reason.is_empty() {
         return Err("a disputed verdict needs a reason: it is printed with the record".into());
     }
-    let already = st
-        .pg
-        .list_verdicts(&d.repo, None, Some(d.id), Some(rec.id), 1)
-        .await
-        .map_err(|e| e.to_string())?;
-    if !already.is_empty() {
-        return Err(format!(
-            "this run already judged {}; one verdict per record and run",
-            rec_handle(rec.id)
-        ));
-    }
     let evidence = item["evidence"].as_array().cloned().unwrap_or_default();
     let cited = check_all(st, &d.repo, &dream_commit(d), &evidence).await?;
     let has_code = cited.iter().any(|c| matches!(c, Cited::Code));
@@ -527,27 +516,6 @@ async fn propose_one(
     let mut hashes = json!([]);
     let Some(kind) = kind else {
         let convention = promotion(&rec, item, cites(rec.id))?;
-        let standing = st
-            .pg
-            .list_verdicts(&d.repo, None, None, Some(rec.id), 1000)
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Some(other) = standing
-            .iter()
-            .find(|v| v.verdict == "promote" && (v.state == "proposed" || v.state == "effective"))
-        {
-            return Err(format!(
-                "{} already has a promote that is {} ({}); one convention per decision: retract \
-                 that one first",
-                rec_handle(rec.id),
-                if other.state == "proposed" {
-                    "waiting"
-                } else {
-                    "accepted"
-                },
-                vd_handle(other.id)
-            ));
-        }
         return st
             .pg
             .insert_verdict(NewVerdict {
@@ -563,7 +531,7 @@ async fn propose_one(
                 convention: Some(convention),
             })
             .await
-            .map_err(|e| e.to_string());
+            .map_err(refusal);
     };
     match kind {
         VerdictKind::Confirmed => {
@@ -655,7 +623,15 @@ async fn propose_one(
             convention: None,
         })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(refusal)
+}
+
+/// A store refusal of a proposal (`insert_verdict`'s locked rules) is the item's answer.
+fn refusal(e: AvError) -> String {
+    match e {
+        AvError::Conflict(why) => why,
+        e => e.to_string(),
+    }
 }
 
 /// What a `promote` proposes: a convention from a decision, its text and path glob checked as
@@ -834,10 +810,11 @@ async fn review(
 }
 
 /// The daemon's rules for a person's review of a `promote`. Community has one shared token and
-/// no identities, so these hold the names it is given, not who sent them: the reviewer is not
-/// the agent that proposed it, nor any name the daemon knows as an agent's; and an acceptance
-/// needs the decision still live (not superseded). A deployment that must know who decided
-/// enforces it in its `MergeGuard`, which is asked next, as for any review.
+/// no identities, so these hold the names it is given, not who sent them: the reviewer is not,
+/// in any case, the verdict's author, the agent of the run that proposed it, or a registered
+/// agent profile's name or alias; and an acceptance needs the decision still live (not
+/// superseded). A deployment that must know who decided enforces it in its `MergeGuard`, which
+/// is asked next, as for any review.
 async fn promote_review(
     st: &AppState,
     v: &VerdictRow,
@@ -845,10 +822,23 @@ async fn promote_review(
     reviewer: &str,
     agree: bool,
 ) -> Result<()> {
-    if reviewer == v.author_agent || st.pg.known_agent(reviewer).await? {
+    let same = |name: &str| name.to_lowercase() == reviewer.to_lowercase();
+    let run_agent = match v.dream_id {
+        Some(run) => Some(st.pg.get_dream(run).await?.agent),
+        None => None,
+    };
+    let why = if same(&v.author_agent) || run_agent.as_deref().is_some_and(same) {
+        Some("the agent that proposed it")
+    } else if st.pg.agent_profile_named(reviewer).await? {
+        Some("a registered agent's (its profile's name or an alias)")
+    } else {
+        None
+    };
+    if let Some(why) = why {
         return Err(AvError::IllegalState(format!(
-            "{reviewer:?} is the name of an agent (its profile, or a dream run's); a promote is \
-             reviewed by a person, under a name no agent uses"
+            "{reviewer:?} is the name of {why}; a promote is reviewed by a person: review it \
+             under your own name, with `av --agent NAME verdict accept` or AV_AGENT=NAME (with \
+             neither, `av verdict accept` reviews as `user`)"
         )));
     }
     if agree && rec.superseded_by.is_some() {
@@ -981,8 +971,12 @@ async fn undo(
         if v.state == "retraction" || v.state == "retracted" {
             continue;
         }
-        retract_one(&st, &d.repo, &v, b.by.trim(), Some(d.id)).await?;
-        retracted += 1;
+        // a verdict retracted by hand since the list was read is already taken back
+        match retract_one(&st, &d.repo, &v, b.by.trim(), Some(d.id)).await {
+            Ok(_) => retracted += 1,
+            Err(AvError::Conflict(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
     }
     let d = st.pg.end_dream(id, "undone", d.counts.clone()).await?;
     feed(

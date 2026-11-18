@@ -106,8 +106,11 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** Not the goals' length: the fixture's goals are one line each.
 - **Guess.** The task handle is now reserved before the section shares, which moves a few tokens
   between sections at tight budgets.
-- **Status.** Open. The gate prints means only; run `margincode-bench retrieval` on the fixture to
-  see which task changed.
+- **Status.** Answered (2026-11-18, the gate with a per-task print at #48's parent `6721a56` and
+  at `e515440`): at 600, `cache-key-order` lost its one signature of two (0.5 to 0; every other
+  task unchanged, `token-skew` was already 0); at 300, `aging-due-today` gained its file and its
+  signature (0 to 1). Why `cache-key-order`'s signature no longer fits at 600 is not looked at
+  yet. A per-task line in the gate's report would answer the next such question at once.
 
 ## 2026-11-18: `av` on Windows does not read a Git Bash path
 

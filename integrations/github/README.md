@@ -40,9 +40,16 @@ av notes --pr               # gh finds the pull request of the current branch
 
 How a task's change reaches a pull request is up to you: push the task's work as a branch, or
 let the daemon push main to its own branch and open the pull request from that
-(`av repo backup NAME --remote URL --branch av-main`). For the workflow below, name the branch
-after the task's slug or put `Margincode-Task: <id or repo/slug>` lines in the description (one
-per task, when a pull request carries several merges).
+(`av repo backup NAME --remote URL --branch av-main`). To have GitHub open one pull request from
+`av-main` whenever it is pushed and none is open, copy [`av-main-pr.yml`](av-main-pr.yml) to
+`.github/workflows/`. The whole path (credentials in lite mode and in Docker, merge commits only,
+taking the merge back with `av repo advance`, and a merge gate without GitHub Actions) is
+"Getting main to GitHub (self-hosted)" in `docs/reference.md`.
+
+For the workflow below, name the branch after the task's slug or put `Margincode-Task: <id or
+repo/slug>` lines in the description, one per task. The rolling `av-main` pull request carries
+several merges and its opening description has no such lines: add them as tasks land, or post
+each task's block by hand with `av notes TASK --pr N`.
 
 **From CI on a self-hosted runner** that can reach the daemon and has `av` and `gh` installed:
 copy [`margincode-notes.yml`](margincode-notes.yml) to `.github/workflows/`, label the runner

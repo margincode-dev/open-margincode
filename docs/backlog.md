@@ -7,6 +7,23 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: the Docker image cannot push a backup over SSH
+
+- **Where.** `deploy/Dockerfile` (the apt line), `deploy/docker-compose.yml` (the SSH key and
+  `AV_BACKUP_SSH_COMMAND` comments), found reviewing fix-plan PR 24 (F7, F8, F19, F20).
+- **Seen.** The image installs `git ca-certificates curl` with `--no-install-recommends`, and
+  `ssh-client` is only a Recommends of Debian's `git`: `which ssh` finds nothing in the image. With
+  `openssh-client` added, ssh still exits "No user exists for uid 4242" for a UID with no passwd
+  entry, and compose runs the daemon as the host `${UID}` (its own comment says that UID has no
+  passwd entry). So the compose file's SSH backup comments describe a setup that cannot work.
+- **Ruled out.** Lite mode: the daemon runs on the host and uses the host's ssh.
+- **Done for now.** `docs/reference.md` ("Getting main to GitHub (self-hosted)") sends the Docker
+  stack to a bare repository on a mount and a push from the host.
+- **Guess at a fix.** Add `openssh-client`, and give ssh a user it accepts (for example a passwd
+  entry written at start, or `nss_wrapper`), then a test that pushes a backup over SSH from the
+  image. Or drop the compose comments.
+- **Status.** Open.
+
 ## 2026-11-18: M2 stage B, three stops before the first session
 
 - **Where.** M2 stage B (`bench/results/2026-11-13-standing-and-dreams/m2-stage-b/checks/`).

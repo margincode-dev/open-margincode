@@ -1,0 +1,58 @@
+name: av-main-pr
+
+# Opens ONE pull request from av-main to main when none is open, so a person can review and
+# merge the work Margincode merged. It never merges anything. Copy it to .github/workflows/ in the
+# repository that receives the daemon's backup (`av repo backup NAME --remote URL --branch av-main`).
+# It assumes the default branch is main.
+#
+# Needs: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+# Each run is a few seconds of Actions time per push to av-main. A pull request opened with the
+# built-in token does not start your other workflows by itself; push an empty commit to av-main
+# or close and reopen the pull request to run them. Uses GITHUB_TOKEN only.
+
+on:
+  push:
+    branches: [av-main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: av-main-pr
+  cancel-in-progress: false
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open the av-main pull request when none is open
+        run: |
+          open="$(gh pr list --head av-main --base main --state open --json number --jq 'length')"
+          if [ "$open" != "0" ]; then
+            echo "A pull request from av-main is already open; nothing to do."
+            exit 0
+          fi
+          ahead="$(gh api "repos/$GH_REPO/compare/main...av-main" --jq '.ahead_by')"
+          if [ "$ahead" = "0" ]; then
+            echo "av-main has no commits that main lacks; nothing to open."
+            exit 0
+          fi
+          cat > "$RUNNER_TEMP/body.md" <<'BODY'
+          This branch is Margincode's main for this repository: agents' tasks, each merged in
+          Margincode after a review. Each task's `av notes` comment on this pull request carries its
+          records (decisions, dead ends, findings), so the reasoning is here and not only the diff.
+
+          **Merge it with a merge commit.** Do not squash and do not rebase: Margincode's main and
+          this `main` must reconverge (`av repo advance`), and a squash or rebase leaves the next
+          `av-main` pull request built on commits `main` no longer has.
+
+          Margincode never merges `main` itself. Review the diff, check the records, and merge it.
+          BODY
+          gh pr create --base main --head av-main \
+            --title "Margincode: av-main" \
+            --body-file "$RUNNER_TEMP/body.md"

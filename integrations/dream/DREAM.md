@@ -28,22 +28,51 @@ Every verdict and every review carries `evidence`, a list of:
 A quote is copied exactly, white space included, keeps to one line where it can, and has at
 least 12 characters that are not white space. Quote the line that decides the matter.
 
+## Judging a record
+
+Both modes judge the same way.
+
+- **Leave an item out when you cannot tell.** No verdict is better than a guess: a wrong
+  `outdated` hides a true record from every agent after you.
+- **Standing is not evidence.** A record's standing (`reverted`, `abandoned`) is a reason to look
+  closely, not evidence by itself; a reverted task's note may still be true.
+- **Judge what it says, not what you would have done.** Do not judge a record wrong because you
+  would have decided differently. Judge whether all of what it says holds: the facts it states
+  about the code and the advice it draws from them.
+- **Advice holds or fails with its fact.** A record that recommends one way and warns off another
+  (use this, do not use that) is `confirmed` only when the advice holds too. A true fact under
+  wrong advice is not confirmed. Check the way it recommends as well as the one it rejects. When
+  the code shows that the rejected way is there for the job the record names (its name,
+  docstring or tests say so; callers that merely use it do not count), or that the recommended
+  way breaks something the code relies on, dispute the record and quote that line. When the
+  record gives a reason for its advice (a cost, a side effect), check that reason in the code; a
+  reason that holds keeps the advice. When you can check the fact but not the advice, leave it
+  out.
+- **A fact is contradicted by code; a rule is not.** A record that says what the code does (the
+  cache drops entries after an hour, `send` retries three times) states a fact: code that does
+  not do it contradicts it, so dispute it and quote that code. A record that says how code must or
+  must not be (never log the token, always lead with the id) states a rule. Code on `main` that
+  breaks a rule may be the very bug the rule was written against, so it does not dispute the
+  rule. Dispute a rule only when a docstring, a test or a later outcome (an `event`) shows it is
+  wrong, or when code works only because it does the opposite. A rule that rejects one way in
+  favour of another is also judged as advice, by the bullet above. Judge by what the record
+  claims, not by its kind or its grammar: words about what a named function or module does now
+  (`load` reads the file once, `Client` retries on a timeout) are a fact, in a `decision` too,
+  and in a sentence that says "never". A record that states both a fact and a rule is judged on
+  each: a contradicted fact is enough to dispute it.
+
 ## `review`: propose verdicts
 
 For each item, read the record and the code, then choose one verdict or none:
 
 | Verdict | When | Needs |
 |---|---|---|
-| `confirmed` | You checked it against the code and it is still true. | a `code` quote |
+| `confirmed` | You checked it against the code and all of it still holds, its advice too. | a `code` quote |
 | `disputed` | The code or a later outcome contradicts it. | `reason` (one line, at most 200 characters; agents will read it beside the record) and a `code` quote or an `event` |
 | `outdated` | It was true, and the code it describes is gone or replaced. | a `code` quote or an `event` |
 | `duplicate` | It says the same as another live record of the same kind on the same anchor. | `canonical` (the record to keep, from `others`) and a `record` quote from each of the two |
 
-Leave an item out when you cannot tell. No verdict is better than a guess: a wrong `outdated`
-hides a true record from every agent after you. A record's standing (`reverted`, `abandoned`)
-is a reason to look closely, not evidence by itself; a reverted task's note may still be true.
-Do not judge a record wrong because you would have decided differently. Judge whether what it
-says about the code holds.
+Judge each item as "Judging a record" above says.
 
 Write `verdicts.json` in this directory, then stop:
 
@@ -63,7 +92,11 @@ Write `verdicts.json` in this directory, then stop:
 Each item has a `verdict` another run proposed (`handle` `vd:…`, `verdict`, `reason`,
 `evidence`) with its record and the code. You are the second look, and the verdict has no
 effect unless you agree. Check it yourself from the code; do not take the first run's word or
-reuse its quote as your only evidence. Agree only when you would have reached the same verdict.
+reuse its quote as your only evidence. Agree only when you would have reached the same verdict
+by "Judging a record" above. Do not agree with a `confirmed` that checks a record's fact and
+leaves its advice unchecked, or with a `disputed` that shows only code breaking a rule the record
+states. A `disputed` that shows code not doing what the record says it does is a fact
+contradicted: check that code yourself and agree if it holds.
 
 Write `reviews.json` in this directory, then stop:
 

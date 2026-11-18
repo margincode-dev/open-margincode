@@ -21,7 +21,7 @@ pub const MIN_MESSAGE_CHARS: usize = 20;
 
 static TRAILER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"^[A-Z][A-Za-z-]+: .*(@|https?://)|^(Co-Authored-By|Co-authored-by|Signed-off-by|Claude-Session|Change-Id|Reviewed-by|Acked-by|Reviewed-on|Tested-by):",
+        r"^[A-Z][A-Za-z-]+: .*(@|https?://)|^(Co-Authored-By|Co-authored-by|Signed-off-by|Claude-Session|Change-Id|Reviewed-by|Acked-by|Reviewed-on|Tested-by|Av-Owner|Av-Reviewer|Av-Merged-By):",
     )
     .unwrap()
 });
@@ -100,7 +100,7 @@ mod tests {
     fn clean_message_drops_trailers_and_links() {
         let g = clean_message(
             "Fix rounding in allocate",
-            "\nCents were lost when splitting.\nSee https://example.com/issue/4\n\n\nCo-Authored-By: X <x@y>\nSigned-off-by: A <a@b>\n",
+            "\nCents were lost when splitting.\nSee https://example.com/issue/4\n\n\nCo-Authored-By: X <x@y>\nSigned-off-by: A <a@b>\nAv-Owner: claude\nAv-Merged-By: merger\n",
             1500,
         );
         assert_eq!(

@@ -75,6 +75,9 @@ pub struct Config {
     /// `AV_EXEC_BIT` (default `auto`; `respect`, `ignore`): whether a snapshot records a workspace
     /// file's executable bit. `ignore` keeps each file's mode from the repo.
     pub exec_bit: ExecBit,
+    /// `AV_COMMIT_AUTHOR` (`Name <email>`; default `Margincode <margincode@localhost>`): the author
+    /// and committer of every commit the daemon writes.
+    pub commit_author: Option<(String, String)>,
     /// `AV_BACKUP_REMOTES`: whitespace-separated `repo=url` pairs, pushed after every merge.
     /// `POST /v1/repos/{name}/backup` sets one at runtime.
     pub backup_remotes: Vec<(String, String)>,
@@ -202,6 +205,7 @@ impl Config {
                 get("AV_PLAIN_RECORDS").as_deref(),
             )?,
             exec_bit: parse_exec_bit(get("AV_EXEC_BIT").as_deref())?,
+            commit_author: parse_commit_author(get("AV_COMMIT_AUTHOR").as_deref())?,
             backup_remotes: parse_backup_remotes(get("AV_BACKUP_REMOTES").as_deref())?,
             token,
         })
@@ -332,6 +336,26 @@ fn parse_off_switch(name: &str, value: Option<&str>) -> Result<bool> {
     }
 }
 
+/// `Name <email>`. Refused: a missing part, and `"`, `\`, `<`, `>` or a control character
+/// inside either (they are written into jj's settings as quoted strings).
+fn parse_commit_author(value: Option<&str>) -> Result<Option<(String, String)>> {
+    let Some(v) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let bad = |s: &str| s.is_empty() || s.chars().any(|c| c.is_control() || "\"\\<>".contains(c));
+    let parsed = v
+        .strip_suffix('>')
+        .and_then(|rest| rest.split_once('<'))
+        .map(|(name, email)| (name.trim(), email.trim()))
+        .filter(|(name, email)| !bad(name) && !bad(email) && !email.contains(char::is_whitespace));
+    match parsed {
+        Some((name, email)) => Ok(Some((name.to_owned(), email.to_owned()))),
+        None => Err(AvError::Invalid(format!(
+            "AV_COMMIT_AUTHOR must be `Name <email>`: both parts non-empty, no quotes, backslashes, angle brackets or control characters, no space in the email; got {v:?}"
+        ))),
+    }
+}
+
 fn parse_exec_bit(value: Option<&str>) -> Result<ExecBit> {
     match value.map(str::trim) {
         None | Some("") => Ok(ExecBit::default()),
@@ -405,9 +429,12 @@ pub fn embed_authorization(api_key: Option<&str>) -> Option<String> {
 pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     let store = Arc::new(PgStore::connect_with(database_url, cfg.pg_max_connections).await?);
     let index = Arc::new(PgIndex::new(store.pool().clone()).with_max_fanout(cfg.index_max_fanout));
-    let vcs = Arc::new(
-        JjVcs::new(cfg.store_root.clone(), cfg.ws_root.clone()).with_exec_bit(cfg.exec_bit),
-    );
+    let mut jj =
+        JjVcs::new(cfg.store_root.clone(), cfg.ws_root.clone()).with_exec_bit(cfg.exec_bit);
+    if let Some((name, email)) = &cfg.commit_author {
+        jj = jj.with_author(name, email);
+    }
+    let vcs = Arc::new(jj);
     let state = AppState::new(
         vcs,
         store,
@@ -508,6 +535,29 @@ mod tests {
         assert!(parse_off_switch("X", Some("on")).unwrap());
         assert!(parse_off_switch("X", Some("1")).unwrap());
         assert!(parse_off_switch("X", Some("maybe")).is_err());
+    }
+
+    #[test]
+    fn a_commit_author_is_a_name_and_an_email() {
+        let ada = Some(("Ada Lovelace".to_owned(), "ada@example.com".to_owned()));
+        assert_eq!(parse_commit_author(None).unwrap(), None);
+        assert_eq!(parse_commit_author(Some("  ")).unwrap(), None);
+        assert_eq!(
+            parse_commit_author(Some(" Ada Lovelace <ada@example.com> ")).unwrap(),
+            ada
+        );
+        for bad in [
+            "Ada Lovelace",
+            "<ada@example.com>",
+            "Ada <>",
+            "Ada \"x\" <ada@example.com>",
+            "Ada\\ <ada@example.com>",
+            "Ada <ada @example.com>",
+            "Ada <a<b@example.com>",
+            "Ada\nLovelace <ada@example.com>",
+        ] {
+            assert!(parse_commit_author(Some(bad)).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

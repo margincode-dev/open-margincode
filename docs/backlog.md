@@ -7,6 +7,21 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: a two-second lease ran out inside a routing test under load
+
+- **Where.** `margincode-daemon` `tests/routing.rs`
+  `the_reviewer_who_requested_changes_does_not_rescue_the_task` (line 590), in the full
+  `cargo test --workspace` run for fix-plan PR 21 (F6).
+- **Seen.** Right after grok's `request_changes`, which renews the owner's lease, `next` for
+  `codex` returned the task `from: abandoned` where the test expects nothing offered. Alone the
+  test passed five runs out of five (5.9 s each).
+- **Ruled out.** Not F6's change: F6 touches the merge message and the commit author, not
+  leases, reviews or `next`.
+- **Guess.** The test's lease is 2 s; with the whole workspace's tests running, the time from the
+  renewal to the two `next` calls passed 2 s. A longer lease with the sleeps scaled to it would
+  hold.
+- **Status.** Open.
+
 ## 2026-11-18: the Workers Builds preview of #49 failed
 
 - **Where.** The Cloudflare Workers Builds preview check on #49 (`constitution.md` and this file;

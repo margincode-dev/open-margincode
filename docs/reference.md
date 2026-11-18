@@ -434,6 +434,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_BUILD_IDLE_SECS` | `1800` | over the build budget, an unfinished (open, handed-off, in-review or conflicted) task's `target/` is removed only when nothing in it changed for this long |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos |
 | `AV_EXEC_BIT` | `auto` | whether a snapshot records a workspace file's executable bit: `auto` (as jj does: when the filesystem can hold it), `respect`, or `ignore` (each file keeps its mode from the repo, a new file is not executable, and checkouts write no executable bit). Set `ignore` when workspaces are edited from Windows through a Docker Desktop bind mount, where every file Windows creates reads as executable in the container |
+| `AV_COMMIT_AUTHOR` | `Margincode <margincode@localhost>` | `Name <email>`: the author and committer of every commit the daemon writes (merges, reverts, snapshots). It is one value for the whole daemon; who did a task's work is in the merge message's trailers (`Av-Owner`, `Av-Reviewer`, `Av-Merged-By`). Both parts non-empty; no quotes, backslashes, angle brackets or control characters, and no space in the email: the daemon refuses to start otherwise. The daemon holds no key, so commits are not signed |
 | `AV_PLAIN_RECORDS` | off | `on`: serve records as they were before an agent could correct another task's records and before a record carried its task's outcome, for a benchmark arm that measures those two. Packs and `records/at` print no line inviting `--supersedes`, a record's rank and line ignore what became of its task (verdicts still mark, lower and hide records), record lists carry no `standing`, and superseding another task's record is refused (422). `GET /v1/version` says `plain_records`, and `margincode-bench run` writes it into `meta.json`. |
 | `AV_DATABASE_URL` | (none) | use this Postgres instead of the daemon's own |
 | `AV_PG_DIR` | `$AV_HOME/pg` | data, password and binaries of the daemon's own Postgres |
@@ -501,6 +502,7 @@ Defaults (override with environment variables before `up`):
 | `AV_ATTN_REVIEW_SECS`, `AV_ATTN_APPROVED_SECS`, `AV_ATTN_HANDOFF_SECS`, `AV_ATTN_FOOTPRINT_BYTES`, `AV_ATTN_FOOTPRINT_SECS` | `7200`, `3600`, `3600`, 512 MiB, `86400` | when `GET /v1/attention` lists a waiting task or a footprint (see [Needs attention](#needs-attention-get-v1attention)). |
 | `AV_BUILD_CACHE` | `on` | `off`: write no cargo config (lean builds) for Rust repos. |
 | `AV_EXEC_BIT` | `auto` | whether a snapshot records a workspace file's executable bit: `auto` (as jj does: when the filesystem can hold it), `respect`, or `ignore` (each file keeps its mode from the repo, a new file is not executable, and checkouts write no executable bit). Set `ignore` when workspaces are edited from Windows through a Docker Desktop bind mount, where every file Windows creates reads as executable in the container. |
+| `AV_COMMIT_AUTHOR` | (unset: `Margincode <margincode@localhost>`) | `Name <email>`: the author and committer of every commit the daemon writes. |
 | `AV_PLAIN_RECORDS` | off | `on`: serve records as they were before an agent could correct another task's records and before a record carried its task's outcome, for a benchmark arm that measures those two. Packs and `records/at` print no line inviting `--supersedes`, a record's rank and line ignore what became of its task (verdicts still mark, lower and hide records), record lists carry no `standing`, and superseding another task's record is refused (422). `GET /v1/version` says `plain_records`, and `margincode-bench run` writes it into `meta.json`. |
 | `AV_INDEX_MAX_FANOUT` | (none) | a call whose bare name more than N other symbols define (`new`, `get`) links to none of them in the code graph. Cuts the edges of big repos (tokio: 71% at 64) without a measured loss in packs (`bench/results/2026-11-03-e1-fanout-cap/`). Set it before importing: stored edges keep the cap they were built with, and `reindex` skips unchanged files. |
 
@@ -697,7 +699,10 @@ the MCP tool).
   changed, restate the intent before you submit:
   `av record --kind intent --summary "..." --body "..." --supersedes rec:…` (the intent `task
   start` made from the goal, or the last restatement). The merge then writes the live intent
-  (summary, then body) in the goal's place, and `av notes` quotes it too.
+  (summary, then body) in the goal's place, and `av notes` quotes it too. A last paragraph of git
+  trailers names who did the work: `Av-Owner` (the task's owner), `Av-Reviewer` (the approval at
+  the merged head, or for one `av` carried across a rebase, who gave it) and `Av-Merged-By`. The
+  commit's author is `AV_COMMIT_AUTHOR`.
 
 Agents are told. A pack whose *Decisions & dead ends* section shows another task's decision,
 attempt or note starts that section with one line, inside the token budget: ``Claims by earlier

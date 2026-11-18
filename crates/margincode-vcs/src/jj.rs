@@ -119,6 +119,8 @@ struct Inner {
     store_root: PathBuf,
     ws_root: PathBuf,
     exec_bit: ExecBit,
+    /// `(name, email)` of every commit; `None` = `Margincode <margincode@localhost>`.
+    author: Option<(String, String)>,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     loaders: Mutex<HashMap<String, RepoLoader>>,
     write_hook: Option<WriteHook>,
@@ -147,6 +149,7 @@ impl JjVcs {
                 store_root,
                 ws_root,
                 exec_bit: ExecBit::default(),
+                author: None,
                 locks: Mutex::new(HashMap::new()),
                 loaders: Mutex::new(HashMap::new()),
                 write_hook: None,
@@ -159,6 +162,16 @@ impl JjVcs {
         Arc::get_mut(&mut self.inner)
             .expect("with_exec_bit on a JjVcs already cloned")
             .exec_bit = exec_bit;
+        self
+    }
+
+    /// The author and committer of every commit the daemon writes. Neither may hold `"`, `\`,
+    /// `<`, `>` or a control character (`AV_COMMIT_AUTHOR` is checked at start). Set before the
+    /// `JjVcs` is cloned or used.
+    pub fn with_author(mut self, name: &str, email: &str) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_author on a JjVcs already cloned")
+            .author = Some((name.to_owned(), email.to_owned()));
         self
     }
 
@@ -222,12 +235,15 @@ impl JjVcs {
     }
 }
 
-fn settings(exec_bit: ExecBit) -> Result<UserSettings> {
+fn settings(exec_bit: ExecBit, author: Option<&(String, String)>) -> Result<UserSettings> {
+    let (name, email) = author.map_or(("Margincode", "margincode@localhost"), |(n, e)| {
+        (n.as_str(), e.as_str())
+    });
     let mut config = StackedConfig::with_defaults();
     let layer = ConfigLayer::parse(
         ConfigSource::User,
         &format!(
-            "user.name = \"Margincode\"\nuser.email = \"margincode@localhost\"\n\
+            "user.name = \"{name}\"\nuser.email = \"{email}\"\n\
              working-copy.exec-bit-change = \"{}\"\n",
             exec_bit.as_jj()
         ),
@@ -343,7 +359,7 @@ impl Inner {
             return Err(AvError::NotFound(format!("repo {repo}")));
         }
         let loader = RepoLoader::init_from_file_system(
-            &settings(self.exec_bit)?,
+            &settings(self.exec_bit, self.author.as_ref())?,
             &path,
             &default_backend_factories(),
         )
@@ -373,7 +389,7 @@ impl Inner {
                 loader.store().clone(),
                 root.to_path_buf(),
                 root.join(".jj").join("working_copy"),
-                &settings(self.exec_bit)?,
+                &settings(self.exec_bit, self.author.as_ref())?,
             )
             .map_err(verr)?;
         let ws = Workspace::new(root, self.jj_repo_path(repo), working_copy, loader.clone())
@@ -439,7 +455,7 @@ impl Inner {
         std::fs::write(dir.join("trunk"), &trunk).map_err(verr)?;
 
         let (_ws, repo_ro) = block_on(Workspace::init_external_git(
-            &settings(self.exec_bit)?,
+            &settings(self.exec_bit, self.author.as_ref())?,
             &dir.join("main"),
             &git_dir,
         ))
@@ -726,7 +742,7 @@ impl Inner {
             None => store.empty_merged_tree(),
         };
         // the style the working copy writes conflicts in, so a patch shows what a workspace has
-        let style: ConflictMarkerStyle = settings(self.exec_bit)?
+        let style: ConflictMarkerStyle = settings(self.exec_bit, self.author.as_ref())?
             .get("ui.conflict-marker-style")
             .map_err(verr)?;
         block_on(async {
@@ -1068,7 +1084,7 @@ impl Inner {
             .get_wc_commit_id(ws.workspace_name())
             .ok_or_else(|| AvError::Vcs("workspace has no working-copy commit".into()))?;
         let tree = ro.store().get_commit(wc_id).map_err(verr)?.tree();
-        let style: ConflictMarkerStyle = settings(self.exec_bit)?
+        let style: ConflictMarkerStyle = settings(self.exec_bit, self.author.as_ref())?
             .get("ui.conflict-marker-style")
             .map_err(verr)?;
         Ok(Some(OffDisk {

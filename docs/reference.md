@@ -860,11 +860,14 @@ when one is named, else `user`.
 - `--budget-usd X` appends `--max-budget-usd X` (two decimals) to the agent command, after
   everything you gave, in every round. It is for a CLI that takes that flag (Claude Code
   does); another CLI would refuse it, so give that one its own cap in the command instead. `X`
-  is a positive number, at least 0.01. The cap is the agent CLI's: the daemon stores counts,
+  is a positive number, at least 0.01, and is refused when the command already carries
+  `--max-budget-usd`. The cap is the agent CLI's: the daemon stores counts,
   never dollars.
 - `--also-read DIR` (repeat it for more) names a directory on this machine the agent may read
   for context, for example an agent CLI's own transcripts. `av dream` checks that each one is a
-  directory before it asks for a run and makes it absolute. The run's directory then gets
+  directory before it asks for a run and makes it absolute; a directory whose name is not
+  UTF-8 (`also-read.txt` could not list it) or holds `:` (`AV_DREAM_ALSO_READ` could not)
+  is refused. The run's directory then gets
   `also-read.txt` (one path per line), `AV_DREAM_ALSO_READ` holds the paths (`:`-separated,
   like `PATH`), and `DREAM.md` ends with a short section that names them and says they are
   context, not evidence: a quote from them is refused, since the daemon cannot see them. `av`
@@ -878,9 +881,12 @@ when one is named, else `user`.
   `409` because another run holds the area, a daemon out of reach for a moment) is printed and
   the loop goes on; it ends on Ctrl-C. One mode per process: `--verify --every D` repeats the
   verify pass.
-- The agent command runs in a process group of its own. Ctrl-C (SIGINT) or SIGTERM to `av dream`
-  while it runs kills that whole group, ends the run as failed (its area is free) and ends
-  `av dream`, an `--every` loop included, with a non-zero exit.
+- The agent command runs in a process group of its own. SIGINT (Ctrl-C), SIGTERM, SIGHUP (a
+  closed terminal) or SIGQUIT to `av dream` while it runs kills that whole group, ends the run
+  as failed (its area is free) and ends `av dream`, an `--every` loop included, with exit 1. A
+  signal that lands as the agent ends cleanly starts no further fix round or run either. A
+  signal `av dream` was started ignoring (a script's background job ignores SIGINT) stays
+  ignored, and after each run the signals are what they were before it.
 
 Two ways to schedule. Cron starts one run at a time:
 

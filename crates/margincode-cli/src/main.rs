@@ -3078,6 +3078,7 @@ fn run(cli: Cli) -> Result<()> {
                 e => e,
             })?;
             dream::check_command(cmd)?;
+            dream::check_budget(cmd, *budget_usd)?;
             let also_read = dream::also_read_dirs(also_read)?;
             let d = dream::Dream {
                 agent: &cli.agent,
@@ -3110,6 +3111,7 @@ fn run(cli: Cli) -> Result<()> {
                         std::thread::sleep(left);
                         true
                     },
+                    dream::interrupted,
                 )?,
             }
         }

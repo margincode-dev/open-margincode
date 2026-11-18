@@ -6449,7 +6449,15 @@ fn an_interrupted_dream_ends_its_agent_too() {
     use std::io::BufRead;
     let (d, home) = decision_recorded();
     let home = home.path();
-    for every in [None, Some("1d")] {
+    let cases = [
+        (None, "INT"),
+        (None, "TERM"),
+        (None, "HUP"),
+        (None, "QUIT"),
+        (Some("1d"), "INT"),
+        (Some("1d"), "HUP"),
+    ];
+    for (every, signal) in cases {
         let mut args = vec!["dream", "--repo", "demo"];
         args.extend(every.map(|e| ["--every", e]).into_iter().flatten());
         // the agent and a child of its own, both waiting on a pipe nothing writes to
@@ -6481,20 +6489,29 @@ fn an_interrupted_dream_ends_its_agent_too() {
         };
         assert_eq!(pids.len(), 2, "{pids:?}");
         let sent = Command::new("kill")
-            .args(["-INT", &child.id().to_string()])
+            .args([&format!("-{signal}"), &child.id().to_string()])
             .status()
             .unwrap();
         assert!(sent.success());
         let status = child.wait().unwrap();
-        let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
+        // a SIGKILL takes effect a moment after it is sent: wait for it, up to a deadline
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let left = loop {
+            let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
+            if left.is_empty() || std::time::Instant::now() > deadline {
+                break left;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
         for p in &left {
             let _ = Command::new("kill").args(["-KILL", p]).status();
         }
         assert!(
             left.is_empty(),
-            "{every:?}: the agent outlived av: {left:?}"
+            "{every:?} {signal}: the agent outlived av: {left:?}"
         );
-        assert!(!status.success(), "{every:?}: {status}");
+        // av ended the agent and exited itself, rather than being ended by the signal
+        assert_eq!(status.code(), Some(1), "{every:?} {signal}: {status}");
         // the run was ended as failed, so the area is free for the next one
         for dir in std::fs::read_dir(home.join("dreams")).unwrap() {
             let id = dir.unwrap().file_name().into_string().unwrap();
@@ -6502,6 +6519,94 @@ fn an_interrupted_dream_ends_its_agent_too() {
             assert!(shown.contains("· failed"), "{shown}");
         }
     }
+}
+
+#[test]
+fn a_dream_started_with_sigint_ignored_keeps_it_ignored() {
+    use std::io::BufRead;
+    use std::os::unix::process::ExitStatusExt;
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    // as a script's background job is started: SIGINT ignored, which exec keeps
+    let mut child = Command::new("sh")
+        .args(["-c", "trap '' INT; exec \"$0\" \"$@\""])
+        .arg(env!("CARGO_BIN_EXE_av"))
+        .args([
+            "dream",
+            "--repo",
+            "demo",
+            "--every",
+            "1d",
+            "--",
+            "sh",
+            "-c",
+            FAKE_DREAMER,
+        ])
+        .current_dir(home)
+        .env("AV_URL", &d.url)
+        .env("AV_HOME", home)
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_GENERATION")
+        .env_remove("AV_MAX_AGENTS")
+        .env("AV_AGENT", "dreamer")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut seen = vec![];
+    for line in std::io::BufReader::new(child.stdout.take().unwrap()).lines() {
+        let line = line.unwrap();
+        let next = line.contains("next run in ");
+        seen.push(line);
+        if next {
+            break;
+        }
+    }
+    assert!(
+        seen.iter().any(|l| l.contains("done: 1 proposed")),
+        "{seen:?}"
+    );
+    // SIGINT first (still ignored after the run), then SIGTERM, which ends it
+    for signal in ["-INT", "-TERM"] {
+        Command::new("kill")
+            .args([signal, &child.id().to_string()])
+            .status()
+            .unwrap();
+    }
+    let status = child.wait().unwrap();
+    assert_eq!(status.signal(), Some(15), "{status}");
+}
+
+#[test]
+fn dream_budget_is_refused_when_the_command_carries_its_own_cap() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    for own in [
+        ["--max-budget-usd", "3"].as_slice(),
+        &["--max-budget-usd=3"],
+    ] {
+        let mut args = vec![
+            "dream",
+            "--repo",
+            "demo",
+            "--budget-usd",
+            "2",
+            "--",
+            "claude",
+            "-p",
+            "x",
+        ];
+        args.extend(own);
+        let o = av_home(&d, home, "dreamer", &args);
+        assert!(!o.status.success(), "{}", out(&o));
+        assert!(
+            err(&o).contains("--budget-usd") && err(&o).contains("--max-budget-usd"),
+            "{}",
+            err(&o)
+        );
+    }
+    assert!(!home.join("dreams").exists(), "a run was started");
 }
 
 /// Adds the repo `demo` and starts the task "Over MCP" in it as Claude Code does after

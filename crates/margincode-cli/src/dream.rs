@@ -135,14 +135,42 @@ pub fn also_read_dirs(given: &[PathBuf]) -> Result<Vec<PathBuf>> {
             return Err(bad("not a directory".into()));
         }
         let abs = std::fs::canonicalize(p).map_err(|e| bad(e.to_string()))?;
-        if abs.to_string_lossy().contains('\n') {
+        let Some(text) = abs.to_str() else {
+            return Err(bad(
+                "its name is not UTF-8, so also-read.txt cannot list it; rename it or give \
+                 another directory"
+                    .into(),
+            ));
+        };
+        if text.contains('\n') {
             return Err(bad("a path with a line break cannot be listed".into()));
+        }
+        // the check `run_agent` makes when it sets AV_DREAM_ALSO_READ
+        if std::env::join_paths([&abs]).is_err() {
+            let sep = if cfg!(windows) { "';'" } else { "':'" };
+            return Err(bad(format!(
+                "a path holding {sep} cannot go in AV_DREAM_ALSO_READ, which {sep} separates; \
+                 rename it or give another directory"
+            )));
         }
         dirs.push(abs);
     }
-    // the same check `run_agent` makes when it sets AV_DREAM_ALSO_READ
-    std::env::join_paths(&dirs).map_err(|e| local(format!("--also-read: {e}")))?;
     Ok(dirs)
+}
+
+/// `--budget-usd` appends `--max-budget-usd`, so a command that carries its own is refused:
+/// the CLI would get the flag twice.
+pub fn check_budget(cmd: &[String], budget: Option<f64>) -> Result<()> {
+    let own = cmd
+        .iter()
+        .any(|a| a == "--max-budget-usd" || a.starts_with("--max-budget-usd="));
+    if budget.is_some() && own {
+        return Err(local(
+            "--budget-usd appends --max-budget-usd to the agent command, and the command already \
+             has --max-budget-usd; give the cap one way",
+        ));
+    }
+    Ok(())
 }
 
 /// The agent command is required; checked once, before a run or a loop of them.
@@ -161,17 +189,23 @@ pub fn check_command(cmd: &[String]) -> Result<()> {
 /// left) answers false. A run that fails is printed and the next one comes all the same. Runs
 /// follow one another, so they never overlap; one that took longer than `every` is followed at
 /// once. A signal that stopped an agent ([`interrupted`]) ends the loop with that run's error.
+/// `stopped` is [`interrupted`]: a signal that came while an agent ran, even one that landed as
+/// it ended cleanly, starts no further run.
 pub fn repeat(
     every: Duration,
     mut run: impl FnMut() -> Result<bool>,
     mut wait: impl FnMut(Duration) -> bool,
+    stopped: impl Fn() -> bool,
 ) -> Result<()> {
     loop {
+        if stopped() {
+            return Err(local("interrupted; no further run was started"));
+        }
         let started = std::time::Instant::now();
         match run() {
             Ok(true) => {}
             Ok(false) => eprintln!("dream: the agent command failed; trying again next time"),
-            Err(e) if interrupted() => return Err(e),
+            Err(e) if stopped() => return Err(e),
             Err(e) => eprintln!("dream: {e}; trying again next time"),
         }
         if !wait(every.saturating_sub(started.elapsed())) {
@@ -256,36 +290,57 @@ mod interrupt {
 
     pub static STOP: AtomicBool = AtomicBool::new(false);
 
+    /// Each of these ends `av` by default and leaves the agent's own process group running:
+    /// Ctrl-C, `kill`, a closed terminal, Ctrl-\.
+    const SIGNALS: [libc::c_int; 4] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT];
+
     extern "C" fn on_signal(_: libc::c_int) {
         STOP.store(true, Ordering::SeqCst);
     }
 
-    /// Catches both signals until it is dropped; outside it they end `av` as usual (no agent
-    /// runs then).
-    pub struct Caught;
+    /// Catches the signals until it is dropped, then puts back what was there before. A signal
+    /// `av` was started ignoring (a script's background job ignores SIGINT) stays ignored.
+    /// Outside it the signals do what they did (no agent runs then).
+    pub struct Caught(Vec<(libc::c_int, libc::sigaction)>);
 
     pub fn catch() -> Caught {
-        let handler = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
-        // SAFETY: the handler only stores into an atomic, which is async-signal-safe
-        unsafe {
-            libc::signal(libc::SIGINT, handler);
-            libc::signal(libc::SIGTERM, handler);
+        let mut saved = vec![];
+        for sig in SIGNALS {
+            // SAFETY: plain sigaction calls on zeroed structs; the handler only stores into an
+            // atomic, which is async-signal-safe
+            unsafe {
+                let mut old: libc::sigaction = std::mem::zeroed();
+                if libc::sigaction(sig, std::ptr::null(), &mut old) != 0
+                    || old.sa_sigaction == libc::SIG_IGN
+                {
+                    continue;
+                }
+                let mut new: libc::sigaction = std::mem::zeroed();
+                new.sa_sigaction = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+                new.sa_flags = libc::SA_RESTART;
+                libc::sigemptyset(&mut new.sa_mask);
+                if libc::sigaction(sig, &new, &mut old) == 0 {
+                    saved.push((sig, old));
+                }
+            }
         }
-        Caught
+        Caught(saved)
     }
 
     impl Drop for Caught {
         fn drop(&mut self) {
-            // SAFETY: restoring the default disposition
-            unsafe {
-                libc::signal(libc::SIGINT, libc::SIG_DFL);
-                libc::signal(libc::SIGTERM, libc::SIG_DFL);
+            for (sig, old) in &self.0 {
+                // SAFETY: restoring the disposition sigaction gave back
+                unsafe {
+                    libc::sigaction(*sig, old, std::ptr::null_mut());
+                }
             }
         }
     }
 }
 
-/// Whether a SIGINT or SIGTERM stopped an agent: `av` should end now, `--every` too.
+/// Whether a signal (SIGINT, SIGTERM, SIGHUP, SIGQUIT) came while an agent ran: `av` starts no
+/// other round or run and ends, `--every` too.
 pub fn interrupted() -> bool {
     #[cfg(unix)]
     return interrupt::STOP.load(std::sync::atomic::Ordering::SeqCst);
@@ -482,6 +537,10 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     let mut waiting: Option<Vec<Refused>> = None;
     let mut refused_total = 0;
     for round in 1..=d.fix_rounds + 1 {
+        if interrupted() {
+            // a signal that landed as the last round ended: no new agent, the run fails
+            return Err(fail(local("interrupted; no further round was started")));
+        }
         if !run_agent(d, &dir, id, round).map_err(fail)? {
             client.post(&format!("/v1/dreams/{id}/finish"), &json!({"failed": true}))?;
             println!(
@@ -745,6 +804,7 @@ mod tests {
                 waits.push(left);
                 waits.len() < 3
             },
+            || false,
         )
         .unwrap();
         assert_eq!(runs, 3, "a failed run does not end the loop; the stop does");
@@ -753,6 +813,42 @@ mod tests {
             waits.iter().all(|w| *w <= every && *w > every / 2),
             "{waits:?}"
         );
+    }
+
+    #[test]
+    fn repeat_starts_no_run_after_a_signal_that_landed_as_an_agent_ended() {
+        // the signal comes during the first run, whose agent still ends cleanly
+        let runs = std::cell::Cell::new(0);
+        let got = repeat(
+            Duration::from_secs(3600),
+            || {
+                runs.set(runs.get() + 1);
+                Ok(true)
+            },
+            |_| true,
+            || runs.get() > 0,
+        );
+        assert_eq!(runs.get(), 1, "the next run was started");
+        assert!(got.unwrap_err().to_string().contains("interrupted"));
+    }
+
+    #[test]
+    fn also_read_refuses_a_name_also_read_txt_cannot_hold() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = std::env::temp_dir().join(format!("av-also-{}", uuid::Uuid::new_v4()));
+        let odd = dir.join(std::ffi::OsStr::from_bytes(b"trans\xffcripts"));
+        let colon = dir.join("a:b");
+        std::fs::create_dir_all(&odd).unwrap();
+        std::fs::create_dir_all(&colon).unwrap();
+        let e = also_read_dirs(std::slice::from_ref(&odd))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("--also-read") && e.contains("UTF-8"), "{e}");
+        let e = also_read_dirs(std::slice::from_ref(&colon))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("a:b") && e.contains("':'"), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

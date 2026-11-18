@@ -34,6 +34,12 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** The route reads the task's head, or the workspace's files, before the checkpoint's
   write is visible to it.
 - **Status.** Open. A wait of a few seconds before reading the patch has avoided it since.
+  Not reproduced in the daemon itself (2026-11-18): a throwaway test in `tests/remote.rs` that
+  edited a file, then called `checkpoint` or `validate` and at once `GET .../patch?from=main`,
+  60 rounds, three runs, always got the new head (`X-Av-Head`) and the edit. Both routes write
+  the head in one transaction before they answer. So the cause is more likely outside one
+  daemon process's ordering: the client (which head it read the patch for), or the Windows bind
+  mount the edits were made on (a write the snapshot did not see yet).
 
 ## 2026-11-18: the Docker image cannot push a backup over SSH
 

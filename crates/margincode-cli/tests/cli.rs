@@ -3730,6 +3730,38 @@ fn init_outside_a_git_repository_says_so() {
     assert!(err(&o).contains("inside a git repository"), "{}", err(&o));
 }
 
+/// Run in git repo A, `--source` imports B: the path the daemon reads, as with a daemon in Docker.
+#[test]
+fn init_imports_from_a_daemon_side_source() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let a = TempDir::new().unwrap();
+    let git = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(a.path())
+        .status()
+        .unwrap();
+    assert!(git.success());
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let src = d.src.to_str().unwrap();
+    let added = ok(av_env(
+        &d.url,
+        a.path(),
+        &env,
+        &["init", "--no-claude", "--name", "demo", "--source", src],
+    ));
+    assert!(
+        added.contains(&format!("repo demo added from {src}")),
+        "{added}"
+    );
+    let shown = ok(av(
+        &d,
+        a.path(),
+        &["show", "app/greeter.py", "--repo", "demo"],
+    ));
+    assert!(shown.contains("def hello"), "B's file: {shown}");
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()

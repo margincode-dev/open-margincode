@@ -276,17 +276,24 @@ pub fn repo_name(dir: &Path) -> String {
     }
 }
 
+/// The repo `av init` adds: its name and the path the daemon imports (defaults: from the git root).
+pub struct Repo<'a> {
+    pub name: Option<&'a str>,
+    pub source: Option<&'a str>,
+}
+
 /// `mcp_json` is the file for [`Agent::McpJson`]; `agent_name` is written as `X-Av-Agent`.
 pub fn init(
     client: &Client,
     url: &str,
     token: Option<&str>,
-    name: Option<&str>,
+    Repo { name, source }: Repo,
     agents: &[Agent],
     mcp_json: Option<&Path>,
     agent_name: &str,
 ) -> Result<String> {
     let root = git_root()?;
+    let source = source.map_or_else(|| root.to_string_lossy().into_owned(), str::to_owned);
     if !healthy(client) {
         if local_port(url).is_none() {
             return Err(CliError::Unreachable {
@@ -303,14 +310,15 @@ pub fn init(
     if exists {
         println!("repo {name} already added");
     } else {
-        client.post(
-            "/v1/repos",
-            &json!({"name": name, "git_source": root.to_string_lossy(), "wait": false}),
-        )?;
+        client
+            .post(
+                "/v1/repos",
+                &json!({"name": name, "git_source": source, "wait": false}),
+            )
+            .map_err(|e| crate::with_msys_hint(e, &source))?;
         let r = crate::wait_import(client, &name)?;
         println!(
-            "repo {name} added from {} (main {}, {} files indexed)",
-            root.display(),
+            "repo {name} added from {source} (main {}, {} files indexed)",
             r["main_change"]
                 .as_str()
                 .unwrap_or_default()

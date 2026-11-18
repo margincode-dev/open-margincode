@@ -4,7 +4,9 @@
 
 use std::io::Write as _;
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde_json::{Value, json};
 
 use crate::client::{CliError, Result};
@@ -57,6 +59,102 @@ pub fn sanitize(text: &str) -> String {
         prev = Some(c);
     }
     out
+}
+
+/// The root of a home directory, up to its user name. Windows forms (`C:\Users` and
+/// `/mnt/c/Users` in any case, `/c/Users`) are group 2; Unix forms (`/home`,
+/// `/var|usr|export/home`, `/Users`, macOS's data volume, WSL's `\\wsl$\DISTRO\home`) are group 3
+/// and case-sensitive, so a route such as `/users/42` is not one. Separators may be doubled or JSON-escaped. The root
+/// must start a path: not after a path character, `/` or `~` (`/srv/home`, `~/home`,
+/// `https://home`), but after a short flag (`-I/home/...`) or `file://`.
+static HOME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)(^-[a-zA-Z]|^|:/{2,}|[^a-zA-Z0-9_.~/\-]-[a-zA-Z]|[^a-zA-Z0-9_.~/\-])(?:((?i:[a-z]:[\\/]+users)|[\\/]+mnt[\\/]+[a-zA-Z][\\/]+(?i:users)|[\\/]+[a-zA-Z][\\/]+Users)|((?i:[\\/]{2,}wsl(?:\$|\.localhost))[\\/]+[^\\/\s]+[\\/]+home|\\?/(?:(?:var|usr|export)\\?/)?home|\\?/(?:System\\?/Volumes\\?/Data\\?/)?Users))[\\/]+",
+    )
+    .unwrap()
+});
+
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || "._-$@+'%".contains(c)
+}
+
+/// The length of the user name at the start of `rest`. A Windows name may hold spaces, but only
+/// before a capitalised word that a separator closes: `C:\Users\Vinh Q\x` is one name, while
+/// `cd C:\Users\vinh && dir` and `xcopy C:\Users\vinh backup\x` are not.
+fn home_name(rest: &str, windows: bool) -> usize {
+    let word = |s: &str| s.find(|c: char| !is_name_char(c)).unwrap_or(s.len());
+    let mut end = word(rest);
+    let mut at = end;
+    while windows && rest[at..].starts_with(' ') {
+        let next = &rest[at + 1..];
+        let w = word(next);
+        if w == 0 || !next.starts_with(|c: char| c.is_uppercase() || c.is_ascii_digit()) {
+            break;
+        }
+        at += 1 + w;
+        if rest[at..].starts_with(['\\', '/']) {
+            end = at;
+            break;
+        }
+    }
+    rest[..end].trim_end_matches(['.', '\'']).len()
+}
+
+/// Every home directory in `text` as `~`. By pattern rather than this machine's home, because the
+/// block may hold paths from whichever machine validated.
+fn hide_homes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for c in HOME.captures_iter(text) {
+        let m = c.get(0).unwrap();
+        if m.start() < last {
+            continue;
+        }
+        let name = home_name(&text[m.end()..], c.get(2).is_some());
+        if name == 0 {
+            continue;
+        }
+        out.push_str(&text[last..m.start()]);
+        out.push_str(&c[1]);
+        out.push('~');
+        last = m.end() + name;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// A check's command and exit code, from its body.
+fn check_run(rec: &Value) -> Option<(String, i64)> {
+    if s(&rec["kind"]) != "validation" {
+        return None;
+    }
+    let body = serde_json::from_str::<Value>(s(&rec["body"])).ok()?;
+    Some((s(&body["command"]).to_owned(), body["exit_code"].as_i64()?))
+}
+
+/// The records the block shows: not superseded, and not a check that failed at an older head
+/// when the same command has since passed at the task's head (a failure that was never fixed
+/// stays, however the head moved).
+pub fn shown<'a>(task: &Value, records: &'a [Value]) -> Vec<&'a Value> {
+    let head = s(&task["task"]["head_change"]);
+    let at_head = |r: &Value| !head.is_empty() && s(&r["change_id"]) == head;
+    let passed: Vec<String> = records
+        .iter()
+        .filter(|r| at_head(r))
+        .filter_map(check_run)
+        .filter(|(cmd, code)| *code == 0 && !cmd.is_empty())
+        .map(|(cmd, _)| cmd)
+        .collect();
+    records
+        .iter()
+        .filter(|r| r["superseded_by"].is_null())
+        .filter(|r| {
+            let fixed = !at_head(r)
+                && !s(&r["change_id"]).is_empty()
+                && check_run(r).is_some_and(|(cmd, code)| code != 0 && passed.contains(&cmd));
+            !fixed
+        })
+        .collect()
 }
 
 fn one_line(text: &str) -> String {
@@ -136,10 +234,7 @@ const SECTIONS: [(&str, &str); 6] = [
 pub fn render(task: &Value, records: &[Value], files: &[FileNotes]) -> String {
     let t = &task["task"];
     let id = s(&t["id"]);
-    let live: Vec<&Value> = records
-        .iter()
-        .filter(|r| r["superseded_by"].is_null())
-        .collect();
+    let live = shown(task, records);
     let mut out = vec![
         start_marker(id),
         "### Margincode: why this change".to_owned(),
@@ -243,7 +338,7 @@ pub fn render(task: &Value, records: &[Value], files: &[FileNotes]) -> String {
          full; after the merge, `av why path:line` names this task.</sub>"
     ));
     out.push(END.to_owned());
-    out.join("\n") + "\n"
+    hide_homes(&out.join("\n")) + "\n"
 }
 
 /// The daemon's merge message rule (`flow::stated_intent`): once the intent made from the goal
@@ -534,6 +629,139 @@ mod tests {
             "{got}"
         );
         assert!(!got.contains("crash cannot truncate"), "{got}");
+    }
+
+    #[test]
+    fn home_directories_are_not_published() {
+        for (text, want) in [
+            (
+                "cd /home/zoltan/src && cargo test",
+                "cd ~/src && cargo test",
+            ),
+            (
+                "PATH=/usr/bin:/home/zoltan/.cargo/bin",
+                "PATH=/usr/bin:~/.cargo/bin",
+            ),
+            ("PATH=/home/zoltan:/usr/bin", "PATH=~:/usr/bin"),
+            ("-v /home/zoltan:/work", "-v ~:/work"),
+            ("gcc -I/home/zoltan/inc x.c", "gcc -I~/inc x.c"),
+            (
+                "cat x >/home/zoltan/out 2>/Users/zoltan/err",
+                "cat x >~/out 2>~/err",
+            ),
+            (
+                "file:///home/zoltan/x and [/home/zoltan/a]",
+                "file://~/x and [~/a]",
+            ),
+            ("**/home/zoltan/a** {/home/zoltan,/x}", "**~/a** {~,/x}"),
+            ("/var/home/zoltan/x", "~/x"),
+            ("see /home/zoltan. Next", "see ~. Next"),
+            ("`/home/zoltan`, \"/Users/zoltan/z\"", "`~`, \"~/z\""),
+            (
+                r"logs in C:\Users\Zoltan Q\proj\out.txt",
+                r"logs in ~\proj\out.txt",
+            ),
+            (r"cd C:\Users\zoltan && dir D:\proj", r"cd ~ && dir D:\proj"),
+            (r"xcopy C:\Users\zoltan D:\backup\x", r"xcopy ~ D:\backup\x"),
+            (r"c:\users\zoltan\x and C:\USERS\zoltan\y", r"~\x and ~\y"),
+            (r"\\?\C:\Users\zoltan\x", r"\\?\~\x"),
+            (
+                r#""C:\\Users\\zoltan\\x" \/home\/zoltan\/x"#,
+                r#""~\\x" ~\/x"#,
+            ),
+            (
+                "C:/Users/zoltan/x /c/Users/zoltan/y /mnt/c/Users/zoltan/z",
+                "~/x ~/y ~/z",
+            ),
+            ("file:///C:/Users/zoltan/x", "file:///~/x"),
+            (
+                "https://example.com/home/page/ /srv/home/x/ ./home/x",
+                "https://example.com/home/page/ /srv/home/x/ ./home/x",
+            ),
+            (
+                "already ~/x and /home/ alone",
+                "already ~/x and /home/ alone",
+            ),
+            (
+                "GET /users/42 ~/home/foo cd ~/Users/x https://home/dash release-a/home/x",
+                "GET /users/42 ~/home/foo cd ~/Users/x https://home/dash release-a/home/x",
+            ),
+            (
+                r"\\wsl$\Ubuntu\home\zoltan\x \\wsl.localhost\Debian\home\zoltan\y",
+                r"~\x ~\y",
+            ),
+            (
+                "/usr/home/zoltan/x /export/home/zoltan/y /System/Volumes/Data/Users/zoltan/z",
+                "~/x ~/y ~/z",
+            ),
+            (
+                "/Users/O'Zoltan/x '/home/zoltan' file:///C:/Users/Zoltan%20Q/x",
+                "~/x '~' file:///~/x",
+            ),
+            (r"xcopy C:\Users\zoltan backup\x", r"xcopy ~ backup\x"),
+            (
+                "RUSTFLAGS=\"-L/home/zoltan/lib\" CFLAGS='-I/home/zoltan/inc'",
+                "RUSTFLAGS=\"-L~/lib\" CFLAGS='-I~/inc'",
+            ),
+            ("-I/home/zoltan/x", "-I~/x"),
+            ("/mnt/c/users/zoltan/x /c/users/list", "~/x /c/users/list"),
+        ] {
+            assert_eq!(hide_homes(text), want, "{text}");
+        }
+        let (task, mut records, files) = fixture();
+        records.push(
+            json!({"id": "b9000000-0000-4000-8000-000000000000", "kind": "validation",
+            "summary": "`cd /home/zoltan/src && cargo test` exit 0", "body": "",
+            "author_agent": "claude", "anchors": [], "superseded_by": null}),
+        );
+        let got = render(&task, &records, &files);
+        assert!(
+            !got.contains("zoltan") && got.contains("`cd ~/src && cargo test` exit 0"),
+            "{got}"
+        );
+    }
+
+    #[test]
+    fn failed_checks_at_older_heads_are_left_out() {
+        let (mut task, mut records, files) = fixture();
+        task["task"]["head_change"] = json!("h2");
+        let check = |n: u8, cmd: &str, code: i64, head: &str| {
+            json!({"id": format!("c{n}000000-0000-4000-8000-000000000000"), "kind": "validation",
+                   "summary": format!("`{cmd}` exit {code}"),
+                   "body": json!({"command": cmd, "exit_code": code, "head_change": head}).to_string(),
+                   "change_id": head, "author_agent": "claude", "anchors": [], "superseded_by": null})
+        };
+        records.extend([
+            check(1, "fixed", 1, "h1"),
+            check(2, "never-rerun", 1, "h1"),
+            check(3, "old-pass", 0, "h1"),
+            check(4, "head-fail", 2, "h2"),
+            check(5, "fixed", 0, "h2"),
+        ]);
+        let got = render(&task, &records, &files);
+        assert!(
+            !got.contains("`fixed` exit 1") && !got.contains("rec:c1000000"),
+            "{got}"
+        );
+        for kept in [
+            "`never-rerun` exit 1",
+            "`old-pass` exit 0",
+            "`head-fail` exit 2",
+            "`fixed` exit 0",
+        ] {
+            assert!(got.contains(kept), "{kept} not in {got}");
+        }
+        let ids: Vec<&str> = shown(&task, &records).iter().map(|r| s(&r["id"])).collect();
+        assert!(
+            !ids.contains(&"c1000000-0000-4000-8000-000000000000"),
+            "{ids:?}"
+        );
+        records.retain(|r| s(&r["id"]) != "c5000000-0000-4000-8000-000000000000");
+        let got = render(&task, &records, &files);
+        assert!(
+            got.contains("`fixed` exit 1"),
+            "the command has not passed at the head, so its failure stays: {got}"
+        );
     }
 
     #[test]

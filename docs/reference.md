@@ -1554,9 +1554,16 @@ av notes demo/atomic-save --pr 123 --gh-repo owner/name
 `av notes [TASK]` renders a task's decisions, dead ends, notes, review findings, handoffs and
 checks, and what other tasks recorded about the files it changes (`records/at` for the first 20,
 with no session, so nothing counts as sent), between `<!-- margincode:notes v1 task=<id> -->` and
-`<!-- /margincode:notes -->`. It only reads `/v1`. `TASK` is an id, a slug (`--repo` when two repos
-share one) or `repo/slug`; without it, `--task` or the nearest `.av-task`. `--format json` adds the
-task id, record ids and files. `--pr [N]` posts the block as a comment through `gh` (`AV_GH` names
+`<!-- /margincode:notes -->`. A home directory in the common forms (`/home/NAME`,
+`/var/home/NAME`, `/Users/NAME`, `C:\Users\NAME` in any case, `C:/Users/NAME`, `/c/Users/NAME`,
+`/mnt/c/Users/NAME`, `\\wsl$\DISTRO\home\NAME`) is written `~` in every line; this is a
+pattern, not a guarantee, so read the block before posting text that may hold other private
+paths. A check that failed at an older head is left out once the same command has passed at the
+task's head; every check at the head stays, failed ones too, and so does a failure whose command
+has not passed there. It only reads `/v1`.
+`TASK` is an id, a slug (`--repo` when two repos share one) or `repo/slug`; without it, `--task`
+or the nearest `.av-task`. `--format json` adds the task id, the ids of the records the block
+shows, and the files. `--pr [N]` posts the block as a comment through `gh` (`AV_GH` names
 another program), or edits the comment that already holds this task's block; an unchanged block is
 not sent. Exit codes: `0` done (or up to date), `1` daemon, task or `gh` failure, `2` usage. The
 daemon runs on the developer's machine, out of a GitHub-hosted runner's reach, so the CLI posts;

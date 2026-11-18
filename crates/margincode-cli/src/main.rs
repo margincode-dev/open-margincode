@@ -2460,9 +2460,8 @@ fn run(cli: Cli) -> Result<()> {
             let block = notes::render(&task, &records, &files);
             match pr {
                 None if format == "json" => {
-                    let ids: Vec<String> = records
-                        .iter()
-                        .filter(|r| r["superseded_by"].is_null())
+                    let ids: Vec<String> = notes::shown(&task, &records)
+                        .into_iter()
                         .map(|r| format!("rec:{}", short(s(&r["id"]))))
                         .collect();
                     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();

@@ -90,8 +90,10 @@ not a failure.
   stay. `v1` changes only if the markers do.
 - Sections, each only when it has records: Decisions, Dead ends (`attempt`), Notes, Review
   findings, Handoffs (done / remaining / broken / questions), Checks (`validation`). Superseded
-  records are left out. A body shows as quoted lines, clipped to 600 characters
-  (`av expand rec:…` prints the rest).
+  records are left out, and so is a check that failed at an older head once the same command
+  has passed at the task's head. A home directory in its common forms (`/home/NAME`, `/Users/NAME`,
+  `C:\Users\NAME`, …) is written `~`: a pattern, not a guarantee. A body shows as quoted lines,
+  clipped to 600 characters (`av expand rec:…` prints the rest).
 - "Recorded earlier about the changed files" is what other tasks anchored to the files this task
   changes (the first 20 files), the same lines the Claude Code `PreToolUse` hook shows an agent
   opening that file.

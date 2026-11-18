@@ -5726,3 +5726,59 @@ async fn mcp_call(e: &Env, session: &str, msg: Value) -> Value {
         .unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
+
+async fn last_commit_message(e: &Env) -> String {
+    let (_, log) = call(&e.app, "GET", "/v1/repos/demo/log?limit=1", None).await;
+    log["commits"][0]["description"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restated_intent_is_the_merge_commit_message() {
+    let e = env().await;
+    merged_task(&e, "Upper names", "app/util.py", UPPER).await;
+    let msg = last_commit_message(&e).await;
+    assert!(
+        msg.contains("Make hello louder"),
+        "unrestated: the goal: {msg}"
+    );
+
+    let t = start_task(&e, "Lower names").await;
+    let first = task_records(&e, &t)
+        .await
+        .into_iter()
+        .find(|r| r["kind"] == "intent")
+        .unwrap();
+    let (status, body) = post(
+        &e,
+        &t,
+        "records",
+        json!({"kind": "intent", "summary": "final design: lower-case names",
+               "body": "Upper case was the first design.", "agent": "claude",
+               "supersedes": first["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    write_file(&e, &t, "app/util.py", LOWER);
+    decide(&e, &t).await;
+    assert_eq!(submit(&e, &t).await.0, StatusCode::OK);
+    validate(&e, &t, 0).await;
+    assert_eq!(
+        review(&e, &t, "reviewer", "approve").await.0,
+        StatusCode::OK
+    );
+    let (_, merged) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(merged["status"], "merged", "{merged}");
+
+    let msg = last_commit_message(&e).await;
+    assert!(
+        msg.starts_with(
+            "Lower names\n\nfinal design: lower-case names\n\nUpper case was the first design."
+        ),
+        "{msg}"
+    );
+    assert!(!msg.contains("Make hello louder"), "{msg}");
+    assert!(msg.contains(&format!("av task {}", id(&t))), "{msg}");
+}

@@ -7,6 +7,16 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: the Workers Builds preview of #49 failed
+
+- **Where.** The Cloudflare Workers Builds preview check on #49 (`constitution.md` and this file;
+  build `63832ff8`).
+- **Seen.** The preview build failed. `main`'s production build after #49 merged passed.
+- **Ruled out.** Not the change's content, as far as can be told without the log: #49 touched only
+  Markdown, and the same tree built on `main`.
+- **Guess.** Something in the preview environment, not the repository. The build log was not read.
+- **Status.** Open. Read the build's log before the next preview fails the same way.
+
 ## 2026-11-18: which retrieval task lost a signature at 600 tokens
 
 - **Where.** `margincode-bench` `tests/retrieval_gate.rs`, on #48 (F17).

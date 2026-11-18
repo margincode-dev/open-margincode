@@ -546,6 +546,19 @@ enum Cmd {
         /// Wait for one of this many agent slots on this host (shared with `av watch`).
         #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
         max_agents: Option<u32>,
+        /// Appends `--max-budget-usd X` to the agent command, for a CLI that takes that flag
+        /// (Claude Code does); the cap is the CLI's, and the daemon stores no dollars.
+        #[arg(long, value_name = "USD", value_parser = dream::parse_budget)]
+        budget_usd: Option<f64>,
+        /// A directory on this machine the agent may read for context, e.g. an agent CLI's own
+        /// transcripts (repeatable). Named to the agent in also-read.txt; never evidence, and
+        /// av reads and sends nothing of it.
+        #[arg(long, value_name = "DIR")]
+        also_read: Vec<PathBuf>,
+        /// Run again every D (30s, 90m, 24h, 1d) from each run's start, until Ctrl-C; a failed
+        /// run is printed and the next one comes all the same.
+        #[arg(long, value_name = "D", value_parser = dream::parse_every)]
+        every: Option<std::time::Duration>,
         /// The agent command, after `--`. It runs in the run's directory, beside DREAM.md.
         #[arg(last = true)]
         cmd: Vec<String>,
@@ -3043,31 +3056,48 @@ fn run(cli: Cli) -> Result<()> {
             fix_rounds,
             timeout,
             max_agents,
+            budget_usd,
+            also_read,
+            every,
             cmd,
         } => {
             let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
                 CliError::NoTask => CliError::Local("dream needs --repo <name>".into()),
                 e => e,
             })?;
-            let finished = dream::run(
-                &client,
-                &dream::Dream {
-                    agent: &cli.agent,
-                    url: &cli.url,
-                    repo: &repo,
-                    verify: *verify,
-                    area: area.as_deref(),
-                    limit: *limit,
-                    fix_rounds: *fix_rounds,
-                    timeout: std::time::Duration::from_secs((*timeout).max(1)),
-                    max_agents: *max_agents,
-                    slots_dir: Kind::Agents.host_dir(),
-                    dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
-                    cmd,
-                },
-            )?;
-            if !finished {
-                return Err(CliError::Local("the dream's agent command failed".into()));
+            dream::check_command(cmd)?;
+            let also_read = dream::also_read_dirs(also_read)?;
+            let d = dream::Dream {
+                agent: &cli.agent,
+                url: &cli.url,
+                repo: &repo,
+                verify: *verify,
+                area: area.as_deref(),
+                limit: *limit,
+                fix_rounds: *fix_rounds,
+                timeout: std::time::Duration::from_secs((*timeout).max(1)),
+                max_agents: *max_agents,
+                budget_usd: *budget_usd,
+                also_read: &also_read,
+                slots_dir: Kind::Agents.host_dir(),
+                dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),
+                cmd,
+            };
+            match every {
+                None => {
+                    if !dream::run(&client, &d)? {
+                        return Err(CliError::Local("the dream's agent command failed".into()));
+                    }
+                }
+                Some(every) => dream::repeat(
+                    *every,
+                    || dream::run(&client, &d),
+                    |left| {
+                        println!("dream: next run in {}", dream::span(left));
+                        std::thread::sleep(left);
+                        true
+                    },
+                ),
             }
         }
         Cmd::Verdict { cmd } => match cmd {

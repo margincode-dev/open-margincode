@@ -851,8 +851,46 @@ under the run's lease) or writes no file ends the run as failed: nothing of that
 posted, `av dream` exits non-zero, and the area is free for the next run. `--area P` and
 `--limit N` are the route's; `--max-agents N` (or `AV_MAX_AGENTS`) waits for one of the host's
 agent slots, the ones `av watch` uses, so a dream never runs beside more agents than the host
-has room for. Scheduling is cron's: `av dream` runs once. `av verdict accept|reject` is a
-person's second look; the reviewer is `--agent` when one is named, else `user`.
+has room for. `av verdict accept|reject` is a person's second look; the reviewer is `--agent`
+when one is named, else `user`.
+
+- `--budget-usd X` appends `--max-budget-usd X` (two decimals) to the agent command, after
+  everything you gave, in every round. It is for a CLI that takes that flag (Claude Code
+  does); another CLI would refuse it, so give that one its own cap in the command instead. `X`
+  is a positive number, at least 0.01. The cap is the agent CLI's: the daemon stores counts,
+  never dollars.
+- `--also-read DIR` (repeat it for more) names a directory on this machine the agent may read
+  for context, for example an agent CLI's own transcripts. `av dream` checks that each one is a
+  directory before it asks for a run and makes it absolute. The run's directory then gets
+  `also-read.txt` (one path per line), `AV_DREAM_ALSO_READ` holds the paths (`:`-separated,
+  like `PATH`), and `DREAM.md` ends with a short section that names them and says they are
+  context, not evidence: a quote from them is refused, since the daemon cannot see them. `av`
+  reads nothing under them and sends neither the paths nor their contents to the daemon. The
+  run's `instructions_sha` is the hash of the `DREAM.md` it was handed, so a run without
+  `--also-read` gets the file and hash it always did. An agent CLI that asks before reading
+  outside its working directory needs its own flag for them (Claude Code's `--add-dir`).
+- `--every D` runs a dream, then another every `D` (`30s`, `90m`, `24h`, `1d`; a bare number is
+  seconds; not zero), counted from each run's start; a run that takes longer than `D` is
+  followed at once by the next, so runs never overlap. A run that fails (the agent command, a
+  `409` because another run holds the area, a daemon out of reach for a moment) is printed and
+  the loop goes on; it ends on Ctrl-C. One mode per process: `--verify --every D` repeats the
+  verify pass.
+
+Two ways to schedule. Cron starts one run at a time:
+
+```bash
+# m h dom mon dow: a review run at 03:17 every night
+17 3 * * * av --agent claude dream --repo myrepo --budget-usd 2 -- claude -p "Read DREAM.md and do what it says"
+```
+
+Or one process per mode, left running; here the second look is another vendor's, and each
+verify run reviews what the review runs proposed before it (start it later than the review
+process to have it follow each one):
+
+```bash
+av --agent claude dream --repo myrepo --every 24h --budget-usd 2 -- claude -p "Read DREAM.md and do what it says"
+av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.md and do what it says"
+```
 
 - `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?}` starts a run and answers what it
   is to look at. `mode` is `review` (the default) or `verify`; `area` is a path prefix (the whole

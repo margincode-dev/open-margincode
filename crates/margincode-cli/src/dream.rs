@@ -5,6 +5,10 @@
 //! agent wrote: `verdicts.json` of a review run, `reviews.json` of a verify run. What the
 //! daemon refuses goes back to the agent once (`--fix-rounds`). The agent has no workspace and
 //! this writes nothing but those files; the daemon still never starts a process.
+//!
+//! `--also-read` directories are named to the agent (`also-read.txt`, `AV_DREAM_ALSO_READ` and a
+//! section appended to that run's `DREAM.md`); nothing under them is read or sent here.
+//! `--every` is [`repeat`] around [`run`].
 
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
@@ -17,14 +21,138 @@ use sha2::{Digest, Sha256};
 use crate::client::{CliError, Client, Result};
 use margincode_agentrun::slots;
 
-/// What the dreaming agent reads; its hash is stored on the run, so a result traces to its instructions.
+/// What the dreaming agent reads; the hash of what a run was handed (this, plus `ALSO_READ` when
+/// it was given `--also-read`) is stored on the run, so a result traces to its instructions.
 pub const INSTRUCTIONS: &str = include_str!("../../../integrations/dream/DREAM.md");
 
-pub fn instructions_sha() -> String {
-    Sha256::digest(INSTRUCTIONS.as_bytes())
+/// Appended to `DREAM.md` only in a run given `--also-read`, so every other run is handed
+/// `INSTRUCTIONS` as it is.
+const ALSO_READ: &str = "
+## More to read
+
+The person who started this run lets you read the directories listed in `also-read.txt`, in
+this directory, one absolute path per line (`$AV_DREAM_ALSO_READ` holds them too), for example
+an agent CLI's own transcripts. Read them for context when you judge an item: why a record was
+written, what happened after it. They are not evidence. The daemon cannot see them, so a quote
+from them is refused: quote only what \"Evidence\" above allows. Change nothing in them.
+";
+
+/// What the agent reads as `DREAM.md`.
+pub fn instructions(also_read: bool) -> String {
+    if also_read {
+        format!("{INSTRUCTIONS}{ALSO_READ}")
+    } else {
+        INSTRUCTIONS.to_owned()
+    }
+}
+
+pub fn sha_hex(text: &str) -> String {
+    Sha256::digest(text.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// `--budget-usd`: a positive amount that does not print as `0.00` (the flag has two decimals).
+pub fn parse_budget(s: &str) -> std::result::Result<f64, String> {
+    match s.trim().parse::<f64>() {
+        Ok(x) if x.is_finite() && x >= 0.01 => Ok(x),
+        _ => Err("a number of US dollars, at least 0.01".into()),
+    }
+}
+
+/// `--every`: a whole number with `s`, `m`, `h` or `d` (seconds without one), never zero.
+pub fn parse_every(s: &str) -> std::result::Result<Duration, String> {
+    let s = s.trim();
+    let (num, unit) = match s.char_indices().last() {
+        Some((i, c)) if c.is_ascii_alphabetic() => (&s[..i], c),
+        _ => (s, 's'),
+    };
+    let per = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86400,
+        _ => 0,
+    };
+    let n: u64 = num.parse().unwrap_or(0);
+    match n.checked_mul(per) {
+        Some(secs) if secs > 0 && num.bytes().all(|b| b.is_ascii_digit()) => {
+            Ok(Duration::from_secs(secs))
+        }
+        _ => Err("a time above zero, such as 30s, 90m, 24h or 1d".into()),
+    }
+}
+
+/// A wait as `1d2h3m4s`, whole seconds rounded up, zero parts left out.
+pub fn span(d: Duration) -> String {
+    let mut left = d.as_secs() + u64::from(d.subsec_nanos() > 0);
+    if left == 0 {
+        return "0s".into();
+    }
+    let mut out = String::new();
+    for (unit, secs) in [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)] {
+        if left >= secs {
+            out.push_str(&format!("{}{unit}", left / secs));
+            left %= secs;
+        }
+    }
+    out
+}
+
+/// `--also-read`: each one must be a directory; answered absolute, symlinks resolved. Nothing
+/// in them is read.
+pub fn also_read_dirs(given: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut dirs = vec![];
+    for p in given {
+        let bad = |why: String| local(format!("--also-read {}: {why}", p.display()));
+        let meta = std::fs::metadata(p).map_err(|e| bad(e.to_string()))?;
+        if !meta.is_dir() {
+            return Err(bad("not a directory".into()));
+        }
+        let abs = std::fs::canonicalize(p).map_err(|e| bad(e.to_string()))?;
+        if abs.to_string_lossy().contains('\n') {
+            return Err(bad("a path with a line break cannot be listed".into()));
+        }
+        dirs.push(abs);
+    }
+    // the same check `run_agent` makes when it sets AV_DREAM_ALSO_READ
+    std::env::join_paths(&dirs).map_err(|e| local(format!("--also-read: {e}")))?;
+    Ok(dirs)
+}
+
+/// The agent command is required; checked once, before a run or a loop of them.
+pub fn check_command(cmd: &[String]) -> Result<()> {
+    if cmd.is_empty() {
+        return Err(CliError::Local(
+            "dream needs an agent command after --, e.g. `av dream -- claude -p \"Read DREAM.md \
+             and do what it says\"`"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// `--every`: `run` once, then again `every` after each start, until `wait` (given how long is
+/// left) answers false. A run that fails is printed and the next one comes all the same. Runs
+/// follow one another, so they never overlap; one that took longer than `every` is followed at
+/// once.
+pub fn repeat(
+    every: Duration,
+    mut run: impl FnMut() -> Result<bool>,
+    mut wait: impl FnMut(Duration) -> bool,
+) {
+    loop {
+        let started = std::time::Instant::now();
+        match run() {
+            Ok(true) => {}
+            Ok(false) => eprintln!("dream: the agent command failed; trying again next time"),
+            Err(e) => eprintln!("dream: {e}; trying again next time"),
+        }
+        if !wait(every.saturating_sub(started.elapsed())) {
+            return;
+        }
+    }
 }
 
 pub struct Dream<'a> {
@@ -41,6 +169,11 @@ pub struct Dream<'a> {
     pub timeout: Duration,
     /// Agents allowed to run at once on this host; `None` = no limit.
     pub max_agents: Option<u32>,
+    /// Appended to the agent command as `--max-budget-usd`.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub budget_usd: Option<f64>,
+    /// Absolute directories the agent may read for context, from [`also_read_dirs`].
+    pub also_read: &'a [PathBuf],
     pub slots_dir: PathBuf,
     pub dreams_dir: PathBuf,
     pub cmd: &'a [String],
@@ -93,8 +226,15 @@ struct Refused {
 fn run_agent(d: &Dream, dir: &Path, id: &str, round: u32) -> Result<bool> {
     let (program, args) = d.cmd.split_first().expect("checked by run");
     let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    cmd.args(args);
+    if let Some(cap) = d.budget_usd {
+        cmd.args(margincode_agentrun::command::max_budget_args(cap));
+    }
+    if !d.also_read.is_empty() {
+        let joined = std::env::join_paths(d.also_read).map_err(local)?;
+        cmd.env("AV_DREAM_ALSO_READ", joined);
+    }
+    cmd.current_dir(dir)
         .env("AV_AGENT", d.agent)
         .env("AV_URL", d.url)
         .env("AV_REPO", d.repo)
@@ -205,13 +345,8 @@ fn key_of(item: &Value, verify: bool) -> Option<&str> {
 /// Runs one dream. `Ok(false)` when the agent failed: the run is marked failed and nothing it
 /// wrote in that round is posted.
 pub fn run(client: &Client, d: &Dream) -> Result<bool> {
-    if d.cmd.is_empty() {
-        return Err(CliError::Local(
-            "dream needs an agent command after --, e.g. `av dream -- claude -p \"Read DREAM.md \
-             and do what it says\"`"
-                .into(),
-        ));
-    }
+    check_command(d.cmd)?;
+    let told = instructions(!d.also_read.is_empty());
     // the slot before the run: a run holds its area, and should not while it only waits
     let _slot = match d.max_agents {
         None => None,
@@ -225,7 +360,7 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     let started = client.post(
         &format!("/v1/repos/{}/dreams", d.repo),
         &json!({"agent": d.agent, "mode": d.mode(), "area": d.area, "limit": d.limit,
-                "instructions_sha": instructions_sha()}),
+                "instructions_sha": sha_hex(&told)}),
     )?;
     let Some(id) = started["dream"]["id"].as_str() else {
         println!(
@@ -243,7 +378,15 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     std::fs::create_dir_all(&dir).map_err(|e| fail(local(format!("{}: {e}", dir.display()))))?;
     let pretty = serde_json::to_string_pretty(&started).map_err(local)?;
     write(&dir.join("bundle.json"), &pretty).map_err(fail)?;
-    write(&dir.join("DREAM.md"), INSTRUCTIONS).map_err(fail)?;
+    write(&dir.join("DREAM.md"), &told).map_err(fail)?;
+    if !d.also_read.is_empty() {
+        let list: String = d
+            .also_read
+            .iter()
+            .map(|p| format!("{}\n", p.display()))
+            .collect();
+        write(&dir.join("also-read.txt"), &list).map_err(fail)?;
+    }
     let (file, key) = d.output();
     let out = dir.join(file);
     let _ = std::fs::remove_file(&out);
@@ -407,7 +550,7 @@ mod tests {
 
     #[test]
     fn the_instructions_hash_is_sha256_hex() {
-        let sha = instructions_sha();
+        let sha = sha_hex(INSTRUCTIONS);
         assert_eq!(sha.len(), 64);
         assert!(sha.chars().all(|c| c.is_ascii_hexdigit()));
     }
@@ -422,6 +565,94 @@ mod tests {
         ] {
             assert!(INSTRUCTIONS.contains(name), "{name}");
         }
+    }
+
+    #[test]
+    fn a_run_without_also_read_is_handed_dream_md_as_it_is() {
+        assert_eq!(instructions(false), INSTRUCTIONS);
+        let more = instructions(true);
+        assert!(more.starts_with(INSTRUCTIONS) && more.contains("also-read.txt"));
+        assert!(more.contains("not evidence"));
+    }
+
+    #[test]
+    fn every_takes_seconds_minutes_hours_and_days_and_never_zero() {
+        let s = |n| Ok(Duration::from_secs(n));
+        assert_eq!(parse_every("30s"), s(30));
+        assert_eq!(parse_every("90m"), s(5400));
+        assert_eq!(parse_every("24h"), s(86400));
+        assert_eq!(parse_every("1d"), s(86400));
+        assert_eq!(parse_every("45"), s(45));
+        for bad in [
+            "", "0", "0s", "0d", "h", "-1h", "1.5h", "5w", "1h30m", "soon",
+        ] {
+            assert!(parse_every(bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(span(Duration::from_secs(86400)), "1d");
+        assert_eq!(span(Duration::from_millis(5_399_200)), "1h30m");
+        assert_eq!(span(Duration::from_secs(90061)), "1d1h1m1s");
+    }
+
+    #[test]
+    fn a_budget_is_a_positive_finite_number() {
+        assert_eq!(parse_budget("2.5"), Ok(2.5));
+        assert_eq!(parse_budget("0.01"), Ok(0.01));
+        for bad in ["0", "-1", "0.001", "nan", "inf", "-inf", "two", ""] {
+            assert!(parse_budget(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn repeat_goes_on_after_a_failed_run_and_stops_when_told() {
+        let every = Duration::from_secs(3600);
+        let mut answers = vec![
+            Ok(true),
+            Err(CliError::Api {
+                status: 409,
+                message: "another run holds the area".into(),
+                body: Value::Null,
+            }),
+            Ok(false),
+        ]
+        .into_iter();
+        let mut runs = 0;
+        let mut waits = vec![];
+        repeat(
+            every,
+            || {
+                runs += 1;
+                answers.next().unwrap()
+            },
+            |left| {
+                waits.push(left);
+                waits.len() < 3
+            },
+        );
+        assert_eq!(runs, 3, "a failed run does not end the loop; the stop does");
+        assert_eq!(waits.len(), 3);
+        assert!(
+            waits.iter().all(|w| *w <= every && *w > every / 2),
+            "{waits:?}"
+        );
+    }
+
+    #[test]
+    fn also_read_takes_directories_only_and_makes_them_absolute() {
+        let dir = std::env::temp_dir().join(format!("av-also-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("t")).unwrap();
+        std::fs::write(dir.join("f"), "x").unwrap();
+        let got = also_read_dirs(&[dir.join("t")]).unwrap();
+        assert_eq!(got, vec![std::fs::canonicalize(dir.join("t")).unwrap()]);
+        for bad in [dir.join("f"), dir.join("missing")] {
+            let e = also_read_dirs(std::slice::from_ref(&bad))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                e.contains("--also-read") && e.contains(&*bad.to_string_lossy()),
+                "{e}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -34,6 +34,9 @@ const SHOWN_DAYS: i32 = 30;
 const MIN_QUOTE_CHARS: usize = 12;
 /// Anchored code handed to a dream is clipped to this many characters per anchor.
 const CODE_CLIP: usize = 6000;
+/// A promoted convention's text: "the rule, in a line or two". Once accepted it is never
+/// dropped from a pack (migration 0032 holds the store to it too).
+const PROMOTE_TEXT_MAX: usize = 400;
 /// `AV_DREAM_LEASE_SECS`: how long a run may take. A running dream past it is failed by the
 /// next start in its repository, so one that died holds no area.
 static LEASE_SECS: LazyLock<u64> = LazyLock::new(|| {
@@ -284,12 +287,8 @@ async fn start(
             )
         }
         "verify" => {
-            let mut waiting = st
-                .pg
-                .list_verdicts(&repo, Some("proposed"), None, None, 1000)
-                .await?;
             // a promote is a person's to accept: no run is handed it
-            waiting.retain(|v| v.verdict != "promote");
+            let mut waiting = st.pg.proposed_for_verify(&repo, 1000).await?;
             waiting.reverse(); // oldest first
             let mut items = vec![];
             let mut ids = vec![];
@@ -528,6 +527,27 @@ async fn propose_one(
     let mut hashes = json!([]);
     let Some(kind) = kind else {
         let convention = promotion(&rec, item, cites(rec.id))?;
+        let standing = st
+            .pg
+            .list_verdicts(&d.repo, None, None, Some(rec.id), 1000)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(other) = standing
+            .iter()
+            .find(|v| v.verdict == "promote" && (v.state == "proposed" || v.state == "effective"))
+        {
+            return Err(format!(
+                "{} already has a promote that is {} ({}); one convention per decision: retract \
+                 that one first",
+                rec_handle(rec.id),
+                if other.state == "proposed" {
+                    "waiting"
+                } else {
+                    "accepted"
+                },
+                vd_handle(other.id)
+            ));
+        }
         return st
             .pg
             .insert_verdict(NewVerdict {
@@ -652,6 +672,13 @@ fn promotion(rec: &Record, item: &Value, quotes_it: bool) -> std::result::Result
     if text.is_empty() {
         return Err("a promote needs the convention's text".into());
     }
+    if text.chars().count() > PROMOTE_TEXT_MAX {
+        return Err(format!(
+            "the convention's text is {} characters; at most {PROMOTE_TEXT_MAX} (the rule, in \
+             a line or two)",
+            text.chars().count()
+        ));
+    }
     let scope_glob = item["scope_glob"]
         .as_str()
         .map(str::trim)
@@ -734,6 +761,9 @@ async fn review(
         ))
         .into());
     }
+    if v.verdict == "promote" {
+        promote_review(&st, &v, &rec, b.reviewer.trim(), b.agree).await?;
+    }
     let commit = match b.dream {
         Some(run) => {
             let d = st.pg.get_dream(run).await?;
@@ -801,6 +831,33 @@ async fn review(
     )
     .await;
     Ok(Json(json!({"verdict": verdict_json(&v)})))
+}
+
+/// The daemon's rules for a person's review of a `promote`. Community has one shared token and
+/// no identities, so these hold the names it is given, not who sent them: the reviewer is not
+/// the agent that proposed it, nor any name the daemon knows as an agent's; and an acceptance
+/// needs the decision still live (not superseded). A deployment that must know who decided
+/// enforces it in its `MergeGuard`, which is asked next, as for any review.
+async fn promote_review(
+    st: &AppState,
+    v: &VerdictRow,
+    rec: &Record,
+    reviewer: &str,
+    agree: bool,
+) -> Result<()> {
+    if reviewer == v.author_agent || st.pg.known_agent(reviewer).await? {
+        return Err(AvError::IllegalState(format!(
+            "{reviewer:?} is the name of an agent (its profile, or a dream run's); a promote is \
+             reviewed by a person, under a name no agent uses"
+        )));
+    }
+    if agree && rec.superseded_by.is_some() {
+        return Err(AvError::IllegalState(format!(
+            "{} is superseded: its promote cannot become a convention; reject or retract it",
+            rec_handle(rec.id)
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

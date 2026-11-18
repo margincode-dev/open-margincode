@@ -547,6 +547,10 @@ enum Cmd {
         /// Wait for one of this many agent slots on this host (shared with `av watch`).
         #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
         max_agents: Option<u32>,
+        /// Tell the agent it may also propose `promote` verdicts: a decision as a repository
+        /// convention, which only a person accepts (`av verdict accept`). Review runs only.
+        #[arg(long, conflicts_with = "verify")]
+        promote: bool,
         /// Appends `--max-budget-usd X` to the agent command, for a CLI that takes that flag
         /// (Claude Code does); the cap is the CLI's, and the daemon stores no dollars.
         #[arg(long, value_name = "USD", value_parser = dream::parse_budget)]
@@ -3066,6 +3070,7 @@ fn run(cli: Cli) -> Result<()> {
             budget_usd,
             also_read,
             every,
+            promote,
             cmd,
         } => {
             let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
@@ -3085,6 +3090,7 @@ fn run(cli: Cli) -> Result<()> {
                 timeout: std::time::Duration::from_secs((*timeout).max(1)),
                 max_agents: *max_agents,
                 budget_usd: *budget_usd,
+                promote: *promote,
                 also_read: &also_read,
                 slots_dir: Kind::Agents.host_dir(),
                 dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),

@@ -21,8 +21,9 @@ use sha2::{Digest, Sha256};
 use crate::client::{CliError, Client, Result};
 use margincode_agentrun::slots;
 
-/// What the dreaming agent reads; the hash of what a run was handed (this, plus `ALSO_READ` when
-/// it was given `--also-read`) is stored on the run, so a result traces to its instructions.
+/// What the dreaming agent reads; the hash of what a run was handed (this, plus `PROMOTE` with
+/// `--promote` and `ALSO_READ` with `--also-read`) is stored on the run, so a result traces to
+/// its instructions.
 pub const INSTRUCTIONS: &str = include_str!("../../../integrations/dream/DREAM.md");
 
 /// Appended to `DREAM.md` only in a run given `--also-read`, so every other run is handed
@@ -37,13 +38,36 @@ written, what happened after it. They are not evidence. The daemon cannot see th
 from them is refused: quote only what \"Evidence\" above allows. Change nothing in them.
 ";
 
-/// What the agent reads as `DREAM.md`.
-pub fn instructions(also_read: bool) -> String {
-    if also_read {
-        format!("{INSTRUCTIONS}{ALSO_READ}")
-    } else {
-        INSTRUCTIONS.to_owned()
+/// Appended to `DREAM.md` only in a review run given `--promote`.
+const PROMOTE: &str = r#"
+## `promote`: a decision as a convention
+
+This run may also propose conventions. A `decision` that states a rule for a set of paths (how
+all code under them is written), not a one-off choice, may get `promote` instead of another
+verdict: a proposed repository convention, with `text` (the rule, in a line or two, at most 400
+characters), `scope_glob` (the paths it is for) and a `record` quote of the decision itself.
+It goes in `verdicts.json` with the others:
+
+```json
+{"record": "rec:1a2b3c4d", "verdict": "promote", "text": "handlers never log a request body",
+ "scope_glob": "app/api/**",
+ "evidence": [{"record": "rec:1a2b3c4d", "quote": "we never log request bodies"}]}
+```
+
+A convention is shown to every agent working on those paths and is never dropped, so a person
+decides whether it becomes one; promote only a decision you checked holds.
+"#;
+
+/// What the agent reads as `DREAM.md`: `INSTRUCTIONS` as it is, unless the run asked for more.
+pub fn instructions(promote: bool, also_read: bool) -> String {
+    let mut text = INSTRUCTIONS.to_owned();
+    if promote {
+        text.push_str(PROMOTE);
     }
+    if also_read {
+        text.push_str(ALSO_READ);
+    }
+    text
 }
 
 pub fn sha_hex(text: &str) -> String {
@@ -173,6 +197,8 @@ pub struct Dream<'a> {
     /// Appended to the agent command as `--max-budget-usd`.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub budget_usd: Option<f64>,
+    /// `--promote`: the agent is told it may propose conventions (review runs only).
+    pub promote: bool,
     /// Absolute directories the agent may read for context, from [`also_read_dirs`].
     pub also_read: &'a [PathBuf],
     pub slots_dir: PathBuf,
@@ -399,7 +425,7 @@ fn key_of(item: &Value, verify: bool) -> Option<&str> {
 /// wrote in that round is posted.
 pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     check_command(d.cmd)?;
-    let told = instructions(!d.also_read.is_empty());
+    let told = instructions(d.promote, !d.also_read.is_empty());
     // the slot before the run: a run holds its area, and should not while it only waits
     let _slot = match d.max_agents {
         None => None,
@@ -640,10 +666,29 @@ mod tests {
         }
     }
 
+    /// DREAM.md as it was before `promote` existed (commit 8244812): what a run asked for
+    /// neither `--promote` nor `--also-read` is handed, byte for byte.
+    #[test]
+    fn a_plain_run_is_handed_dream_md_as_it_was() {
+        assert_eq!(
+            sha_hex(&instructions(false, false)),
+            "f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa"
+        );
+        let promote = instructions(true, false);
+        assert!(
+            promote.starts_with(INSTRUCTIONS),
+            "DREAM.md's own text is kept"
+        );
+        assert!(promote.contains("\"verdict\": \"promote\"") && promote.contains("at most 400"));
+        assert!(!promote.contains("also-read.txt"));
+        let both = instructions(true, true);
+        assert!(both.starts_with(&promote) && both.contains("also-read.txt"));
+    }
+
     #[test]
     fn a_run_without_also_read_is_handed_dream_md_as_it_is() {
-        assert_eq!(instructions(false), INSTRUCTIONS);
-        let more = instructions(true);
+        assert_eq!(instructions(false, false), INSTRUCTIONS);
+        let more = instructions(false, true);
         assert!(more.starts_with(INSTRUCTIONS) && more.contains("also-read.txt"));
         assert!(more.contains("not evidence"));
     }

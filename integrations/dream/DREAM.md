@@ -74,12 +74,6 @@ For each item, read the record and the code, then choose one verdict or none:
 
 Judge each item as "Judging a record" above says.
 
-A `decision` that states a rule for a set of paths (how all code under them is written), not a
-one-off choice, may instead get `promote`: a proposed repository convention, with `text` (the
-rule, in a line or two), `scope_glob` (the paths, e.g. `app/api/**`) and a `record` quote of the
-decision itself. A convention is shown to every agent on those paths and never dropped, so a
-person decides; promote only a decision you checked holds.
-
 Write `verdicts.json` in this directory, then stop:
 
 ```json

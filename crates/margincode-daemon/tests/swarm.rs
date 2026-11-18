@@ -1029,3 +1029,133 @@ async fn swarm_loop_runs_backlog_to_merged() {
         "{claude:?} {grok:?}"
     );
 }
+
+/// A decision on `main`'s greeter and a promote of it, proposed by a review run (`dreamer`).
+/// Answers the verdict's full id and its `vd:` handle.
+async fn proposed_promote(e: &Env) -> (uuid::Uuid, String) {
+    let t = start_task(e, "Earlier work").await;
+    let (status, rec) = post(
+        e,
+        &format!("/v1/tasks/{}/records", id(&t)),
+        json!({"kind": "decision", "summary": "hello never shouts", "agent": "claude",
+               "anchors": [{"path": "app/greeter.py"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rec}");
+    let handle = format!("rec:{}", &rec["id"].as_str().unwrap().replace('-', "")[..8]);
+    let (status, d) = post(e, "/v1/repos/demo/dreams", json!({"agent": "dreamer"})).await;
+    assert_eq!(status, StatusCode::OK, "{d}");
+    let (status, r) = post(
+        e,
+        &format!("/v1/dreams/{}/verdicts", d["dream"]["id"].as_str().unwrap()),
+        json!({"verdicts": [{"record": handle, "verdict": "promote",
+               "text": "greetings never shout", "scope_glob": "app/**",
+               "evidence": [{"record": handle, "quote": "hello never shouts"}]}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{r}");
+    let v = &r["results"][0]["verdict"];
+    assert!(v.is_object(), "{r}");
+    (
+        v["id"].as_str().unwrap().parse().unwrap(),
+        v["handle"].as_str().unwrap().to_owned(),
+    )
+}
+
+/// Holds the verdict's row lock until `release` is called, so requests that need it queue up.
+async fn hold_verdict(e: &Env, verdict: uuid::Uuid) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = e.store.pool().begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+        .bind(verdict)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx
+}
+
+/// Waits (with a deadline) until `n` statements wait for a lock.
+async fn lock_waiters(e: &Env, n: i64) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_locks WHERE NOT granted")
+            .fetch_one(e.store.pool())
+            .await
+            .unwrap();
+        if waiting >= n {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{waiting} of {n} requests wait for the lock"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn spawn_post(e: &Env, uri: String, body: Value) -> tokio::task::JoinHandle<(StatusCode, Value)> {
+    let app = e.app.clone();
+    tokio::spawn(async move { call(&app, "POST", &uri, Some(body)).await })
+}
+
+async fn promoted_rows(e: &Env, verdict: uuid::Uuid) -> (i64, i64) {
+    let reviews: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM verdict_reviews WHERE verdict_id = $1")
+            .bind(verdict)
+            .fetch_one(e.store.pool())
+            .await
+            .unwrap();
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM conventions WHERE source = $1 AND removed_at IS NULL",
+    )
+    .bind(format!("vd:{}", verdict.simple()))
+    .fetch_one(e.store.pool())
+    .await
+    .unwrap();
+    (reviews, live)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_people_accepting_one_promote_at_once_leave_one_review_and_one_convention() {
+    let e = env().await;
+    let (verdict, vd) = proposed_promote(&e).await;
+    let hold = hold_verdict(&e, verdict).await;
+    let uri = format!("/v1/verdicts/{vd}/review");
+    let first = spawn_post(&e, uri.clone(), json!({"reviewer": "vinh", "agree": true}));
+    let second = spawn_post(&e, uri, json!({"reviewer": "mai", "agree": true}));
+    lock_waiters(&e, 2).await;
+    hold.commit().await.unwrap();
+    let mut answers = vec![first.await.unwrap(), second.await.unwrap()];
+    answers.sort_by_key(|(s, _)| s.as_u16());
+    assert_eq!(answers[0].0, StatusCode::OK, "{answers:?}");
+    assert_eq!(answers[1].0, StatusCode::CONFLICT, "{answers:?}");
+    assert_eq!(promoted_rows(&e, verdict).await, (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_retraction_that_races_an_accept_leaves_no_live_convention() {
+    let e = env().await;
+    let (verdict, vd) = proposed_promote(&e).await;
+    let hold = hold_verdict(&e, verdict).await;
+    let retract = spawn_post(
+        &e,
+        format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "vinh"}),
+    );
+    lock_waiters(&e, 1).await;
+    let accept = spawn_post(
+        &e,
+        format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "mai", "agree": true}),
+    );
+    lock_waiters(&e, 2).await;
+    hold.commit().await.unwrap();
+    let (rs, rb) = retract.await.unwrap();
+    assert_eq!(rs, StatusCode::OK, "{rb}");
+    let (as_, ab) = accept.await.unwrap();
+    assert_eq!(
+        as_,
+        StatusCode::CONFLICT,
+        "the accept sees the retraction: {ab}"
+    );
+    assert_eq!(promoted_rows(&e, verdict).await, (0, 0));
+}

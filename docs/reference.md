@@ -931,18 +931,33 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
 | `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
 | `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
 | `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
-| `promote` | a `decision`, the convention's `text` (not empty) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only a **person's** acceptance gives it effect: a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
+| `promote` | a live `decision` with no other promote waiting or accepted, the convention's `text` (not empty, at most 400 characters) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only an acceptance under a name no agent uses gives it effect (see below): a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
 
 A `promote` proposes a repository convention from a decision that states a rule for a set of
-paths. Conventions are the one layer of a pack that is never dropped, so an agent's agreement
-is not enough: a verify run is never handed a `promote`, and a review of one that names a
-`dream` is refused (`422`), with nothing written. `av verdict accept vd:…` (no `dream`) writes
-the convention, through the same `MergeGuard` question as any review; `av verdict reject`
-writes none. Retracting the verdict, or `av dream undo` of its run, removes that convention
-(`removed_at`, as `av convention rm` does) and no other: a convention written by hand has an
-empty `source` and is never touched. `av verdict list`, `show` and `av dream show` print a
-promote's glob and text and whether a person has accepted it; `av convention list` ends a
-promoted one with `(from vd:…)`.
+paths. The agent is told about it only when the run asks: `av dream --promote` (review runs
+only; refused with `--verify`) appends a section on `promote` to that run's `DREAM.md`, and the
+run's `instructions_sha` is the hash of that copy. Without `--promote` (and `--also-read`) a run
+gets `DREAM.md` byte for byte as before. The daemon takes a `promote` from any review run.
+
+Conventions are the one layer of a pack that is never dropped, so an agent's agreement is not
+enough. A verify run is never handed a `promote`, and a review of one that names a `dream` is
+refused (`422`), with nothing written. A review without `dream` is refused too when its
+`reviewer` is the agent that proposed the verdict, or any name the daemon knows as an agent's
+(an agent profile's name or alias, or a dream run's agent), and an acceptance is refused once
+the decision is superseded. Community has one shared token and no identities, so these are
+rules about the names a request carries, not authentication: whoever holds the token can send
+any name. A deployment that must know a person decided enforces it in its `MergeGuard`, which
+is asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is written; the
+Commercial edition's guard is that place. `av verdict accept vd:…` writes the convention;
+`av verdict reject` writes none. Two reviews at once leave one: the second answers `409`.
+
+Retracting the verdict, or `av dream undo` of its run, removes that convention (`removed_at`,
+as `av convention rm` does) and no other: a convention written by hand has an empty `source`
+and is never touched. A retraction and an acceptance at once are ordered on the verdict's row,
+so no convention of a retracted promote stays live. A decision has one promote waiting or
+accepted at a time; after a retraction or a rejection it may be promoted again. `av verdict
+list`, `show` and `av dream show` print a promote's glob and text and whether a person has
+accepted it; `av convention list` ends a promoted one with `(from vd:…)`.
 
 - **The second look.** `POST /v1/verdicts/{id}/review` `{reviewer, agree, dream?, evidence?}`
   (`id`: the full id or `vd:…`). From a `verify` run (`dream`), the verdict must be on that run's

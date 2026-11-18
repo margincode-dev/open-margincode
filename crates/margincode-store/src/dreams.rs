@@ -296,6 +296,14 @@ impl PgStore {
     pub async fn insert_verdict(&self, v: NewVerdict<'_>) -> Result<VerdictRow> {
         let id = Uuid::new_v4();
         let mut tx = self.pool().begin().await.map_err(serr)?;
+        if let Some(taken_back) = v.retracts {
+            // the lock a review takes too: a review waiting on it then sees this retraction
+            sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+                .bind(taken_back)
+                .execute(&mut *tx)
+                .await
+                .map_err(serr)?;
+        }
         sqlx::query(
             "INSERT INTO record_verdicts (id, record_id, verdict, reason, canonical, retracts,
                                           evidence, anchor_hashes, author_agent, dream_id,
@@ -408,6 +416,39 @@ impl PgStore {
         rows.iter().map(verdict_from).collect()
     }
 
+    /// The proposed verdicts of `repo` a verify run may be handed, newest first, at most
+    /// `limit`: every kind but `promote`, which only a person reviews.
+    pub async fn proposed_for_verify(&self, repo: &str, limit: i64) -> Result<Vec<VerdictRow>> {
+        let rows = sqlx::query(&format!(
+            "SELECT * FROM (
+               SELECT {VERDICT_COLS}, {VERDICT_STATE} AS state
+               FROM record_verdicts v
+               JOIN records r ON r.id = v.record_id JOIN tasks t ON t.id = r.task_id
+               WHERE t.repo = $1 AND v.verdict NOT IN ('promote', 'retracted')
+             ) q WHERE q.state = 'proposed'
+             ORDER BY q.created_at DESC, q.id LIMIT $2"
+        ))
+        .bind(repo)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await
+        .map_err(serr)?;
+        rows.iter().map(verdict_from).collect()
+    }
+
+    /// Whether `name` is one the daemon knows as an agent's: an agent profile's name or alias,
+    /// or the agent of a dream run.
+    pub async fn known_agent(&self, name: &str) -> Result<bool> {
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM agent_profiles WHERE name = $1 OR $1 = ANY(aliases))
+                 OR EXISTS (SELECT 1 FROM dreams WHERE agent = $1)",
+        )
+        .bind(name)
+        .fetch_one(self.pool())
+        .await
+        .map_err(serr)
+    }
+
     /// A verdict's reviews, oldest first (the newest decides its state).
     pub async fn verdict_reviews(&self, verdict: Uuid) -> Result<Vec<VerdictReview>> {
         let rows = sqlx::query(
@@ -432,7 +473,9 @@ impl PgStore {
     }
 
     /// Writes a review of a proposed verdict. `Conflict` unless the verdict is still proposed:
-    /// checked and written under a lock on the verdict's row, so two reviews at once leave one.
+    /// the verdict's row is locked first and its state read by a later statement, which under
+    /// READ COMMITTED sees what a review or retraction that held the lock committed; so two
+    /// reviews at once leave one, and a review after a retraction is refused.
     /// An agreeing review of a `promote` also writes its convention (`source` names the
     /// verdict) in the same transaction; the daemon allows that review only from a person.
     pub async fn add_verdict_review(
@@ -444,8 +487,13 @@ impl PgStore {
         evidence: &Value,
     ) -> Result<VerdictRow> {
         let mut tx = self.pool().begin().await.map_err(serr)?;
+        sqlx::query("SELECT 1 FROM record_verdicts WHERE id = $1 FOR UPDATE")
+            .bind(verdict)
+            .execute(&mut *tx)
+            .await
+            .map_err(serr)?;
         let state: Option<String> = sqlx::query_scalar(&format!(
-            "SELECT {VERDICT_STATE} FROM record_verdicts v WHERE v.id = $1 FOR UPDATE"
+            "SELECT {VERDICT_STATE} FROM record_verdicts v WHERE v.id = $1"
         ))
         .bind(verdict)
         .fetch_optional(&mut *tx)

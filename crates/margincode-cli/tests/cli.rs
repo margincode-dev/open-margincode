@@ -6330,13 +6330,52 @@ fn a_promoted_decision_is_listed_as_waiting_for_a_person_and_becomes_a_conventio
 rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
 printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings never shout", "scope_glob": "app/**", "evidence": [{"record": "%s", "quote": "hello never shouts"}]}]}' "$rec" "$rec" > verdicts.json
 "#;
+    let o = av_home(
+        &d,
+        home,
+        "checker",
+        &[
+            "dream",
+            "--verify",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "true",
+        ],
+    );
+    assert!(
+        !o.status.success() && err(&o).contains("--promote"),
+        "{}",
+        err(&o)
+    );
     let got = ok(av_home(
         &d,
         home,
         "dreamer",
-        &["dream", "--repo", "demo", "--", "sh", "-c", promoter],
+        &[
+            "dream",
+            "--promote",
+            "--repo",
+            "demo",
+            "--",
+            "sh",
+            "-c",
+            promoter,
+        ],
     ));
     assert!(got.contains("promote -> vd:"), "{got}");
+    let (_, dir) = run_dir(home, |_| true);
+    let told = std::fs::read_to_string(dir.join("DREAM.md")).unwrap();
+    let shipped = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../integrations/dream/DREAM.md"),
+    )
+    .unwrap();
+    assert!(
+        told.starts_with(&shipped) && told.len() > shipped.len() && told.contains("scope_glob"),
+        "a --promote run is told about promote: {told}"
+    );
+    assert!(!shipped.contains("promote"), "a plain run is not");
     let vd = word_after(&got, "vd:").to_owned();
     let listed = ok(av_home(
         &d,

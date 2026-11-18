@@ -1462,3 +1462,216 @@ async fn a_promotes_acceptance_is_the_guards_memory_write_question() {
         ]
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promote_is_not_accepted_under_a_name_the_daemon_knows_as_an_agent() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/grok",
+        Some(json!({"best": ["image"], "can": [], "cost_rank": 2, "aliases": ["grok-cli"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let other = record_on(
+        &e,
+        &earlier,
+        "note",
+        "names are title case",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = promoted["verdict"]["handle"].as_str().unwrap();
+    let disputed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&other), "verdict": "disputed",
+               "reason": "names are kept as given", "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(disputed["accepted"], true, "{disputed}");
+    // a verify run's agent is a name the daemon has seen run a dream
+    let (status, body) = post_json(
+        &e,
+        "/v1/repos/demo/dreams",
+        json!({"agent": "checker", "mode": "verify"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["dream"].is_object(), "{body}");
+    for agent in ["dreamer", "grok", "grok-cli", "checker"] {
+        let (status, body) = post_json(
+            &e,
+            &format!("/v1/verdicts/{vd}/review"),
+            json!({"reviewer": agent, "agree": true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{agent}: {body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("agent"),
+            "{agent}: {body}"
+        );
+    }
+    assert!(conventions(&e).await.is_empty());
+    let (status, body) = person_review(&e, vd, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(conventions(&e).await.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn waiting_promotes_do_not_crowd_a_verify_run_out() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let disputed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&rec), "verdict": "disputed",
+               "reason": "the greeter adds no mark at all", "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(disputed["accepted"], true, "{disputed}");
+    // more waiting promotes, all newer than it, than a verify run's window holds
+    sqlx::query(
+        "INSERT INTO record_verdicts (id, record_id, verdict, author_agent, convention_text,
+                                      scope_glob, created_at)
+         SELECT gen_random_uuid(), $1, 'promote', 'dreamer', 'rule ' || n, 'app/**',
+                now() + make_interval(secs => n)
+           FROM generate_series(1, 1200) n",
+    )
+    .bind(rec["id"].as_str().unwrap().parse::<uuid::Uuid>().unwrap())
+    .execute(e.store.pool())
+    .await
+    .unwrap();
+    let v = start_dream(&e, "verify", "").await;
+    assert_eq!(
+        v["dream"]["worklist"]["verdicts"],
+        json!([disputed["verdict"]["id"]]),
+        "{v}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promotes_text_is_at_most_400_characters() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let r = propose(&e, &d, promote_of(&rec, &"x".repeat(401), "app/**")).await;
+    assert_eq!(r["accepted"], false, "{r}");
+    assert!(r["why"].as_str().unwrap().contains("at most 400"), "{r}");
+    let r = propose(&e, &d, promote_of(&rec, &"x".repeat(400), "app/**")).await;
+    assert_eq!(r["accepted"], true, "{r}");
+    // the store holds to it too, and to which rows carry a convention at all
+    let rid: uuid::Uuid = rec["id"].as_str().unwrap().parse().unwrap();
+    for (verdict, text, glob) in [
+        ("promote", Some("x".repeat(401)), Some("app/**")),
+        ("confirmed", Some("a rule".to_owned()), None),
+        ("confirmed", None, Some("app/**")),
+        ("confirmed", Some("a rule".to_owned()), Some("app/**")),
+    ] {
+        let wrote = sqlx::query(
+            "INSERT INTO record_verdicts (id, record_id, verdict, author_agent, convention_text,
+                                          scope_glob)
+             VALUES (gen_random_uuid(), $1, $2, 'dreamer', $3, $4)",
+        )
+        .bind(rid)
+        .bind(verdict)
+        .bind(&text)
+        .bind(glob)
+        .execute(e.store.pool())
+        .await;
+        assert!(wrote.is_err(), "{verdict} {text:?} {glob:?} was stored");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_decision_has_one_promote_at_a_time_and_a_superseded_one_is_not_accepted() {
+    let e = env().await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let first = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = first["verdict"]["handle"].as_str().unwrap().to_owned();
+    post_json(
+        &e,
+        &format!("/v1/dreams/{}/finish", dream_id(&d)),
+        json!({}),
+    )
+    .await;
+    // a run is not handed a record whose verdict waits; once a person accepted it, a later
+    // run is handed the record again, and a second promote of it is refused
+    let (status, body) = person_review(&e, &vd, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let d2 = start_dream(&e, "review", "").await;
+    let r = propose(&e, &d2, promote_of(&rec, "another rule", "app/**")).await;
+    assert_eq!(r["accepted"], false, "{r}");
+    assert!(r["why"].as_str().unwrap().contains("already"), "{r}");
+    post_json(
+        &e,
+        &format!("/v1/dreams/{}/finish", dream_id(&d2)),
+        json!({}),
+    )
+    .await;
+    // once the first is retracted, the decision may be promoted again
+    post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "vinh"}),
+    )
+    .await;
+    let d3 = start_dream(&e, "review", "").await;
+    let r = propose(&e, &d3, promote_of(&rec, "another rule", "app/**")).await;
+    assert_eq!(r["accepted"], true, "{r}");
+    let vd3 = r["verdict"]["handle"].as_str().unwrap().to_owned();
+    // the decision is superseded before a person looks: the promote is not accepted
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/records", id(&reader)),
+        json!({"kind": "decision", "summary": "hello may shout now", "agent": "claude",
+               "supersedes": handle(&rec), "anchors": [{"path": "app/greeter.py"}]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = person_review(&e, &vd3, true).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("superseded"),
+        "{body}"
+    );
+    assert!(conventions(&e).await.is_empty());
+}

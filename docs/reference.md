@@ -691,6 +691,11 @@ the MCP tool).
   Only a correction another task writes at that same moment can still leave a submit with its
   earlier entries written and a `409` for a later one.
 - The feed gets a `record:superseded` event (`{old, new, by}`).
+- The merge commit's message is the task's title, its goal and `av task <id>`. If the design
+  changed, restate the intent before you submit:
+  `av record --kind intent --summary "..." --body "..." --supersedes rec:…` (the intent `task
+  start` made from the goal, or the last restatement). The merge then writes the live intent
+  (summary, then body) in the goal's place, and `av notes` quotes it too.
 
 Agents are told. A pack whose *Decisions & dead ends* section shows another task's decision,
 attempt or note starts that section with one line, inside the token budget: ``Claims by earlier

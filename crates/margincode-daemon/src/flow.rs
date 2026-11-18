@@ -974,6 +974,21 @@ async fn merged_already(st: &AppState, task: &Task) -> Result<Option<(ChangeId, 
     Ok(None)
 }
 
+/// What the task says it does now: once the intent made from its goal was superseded, its newest
+/// live intent; until then the goal.
+fn stated_intent(task: &Task, records: &[margincode_core::Record]) -> String {
+    let intents: Vec<_> = records
+        .iter()
+        .filter(|r| r.kind == RecordKind::Intent)
+        .collect();
+    let restated = intents.first().is_some_and(|r| r.superseded_by.is_some());
+    match intents.iter().rev().find(|r| r.superseded_by.is_none()) {
+        Some(live) if restated && live.body.trim().is_empty() => live.summary.clone(),
+        Some(live) if restated => format!("{}\n\n{}", live.summary, live.body.trim()),
+        _ => task.goal.clone(),
+    }
+}
+
 /// How far back on trunk `merge` looks for its own earlier, unrecorded merge.
 const RECOVERY_DEPTH: usize = 50;
 
@@ -1022,10 +1037,11 @@ pub(crate) async fn merge(
     if let Err(reason) = st.guard.check(action).await {
         return Err(AvError::IllegalState(format!("cannot merge: {reason}")).into());
     }
+    let records = st.store.task_records(task.id).await?;
     let message = format!(
         "{}\n\n{}\n\n{} ({})",
         task.title,
-        task.goal,
+        stated_intent(&task, &records),
         merge_marker(&task),
         task.slug
     );

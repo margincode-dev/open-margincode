@@ -167,7 +167,8 @@ pub fn render(task: &Value, records: &[Value], files: &[FileNotes]) -> String {
         s(&t["slug"]),
         one_line(s(&t["owner_agent"]))
     ));
-    let goal = s(&t["goal"]).trim();
+    let goal = stated_intent(t, records);
+    let goal = goal.trim();
     if !goal.is_empty() && goal != s(&t["title"]).trim() {
         out.push(String::new());
         for l in sanitize(goal).lines() {
@@ -243,6 +244,25 @@ pub fn render(task: &Value, records: &[Value], files: &[FileNotes]) -> String {
     ));
     out.push(END.to_owned());
     out.join("\n") + "\n"
+}
+
+/// The daemon's merge message rule (`flow::stated_intent`): once the intent made from the goal
+/// was superseded, the newest live intent; until then the goal.
+fn stated_intent(task: &Value, records: &[Value]) -> String {
+    let intents: Vec<&Value> = records
+        .iter()
+        .filter(|r| s(&r["kind"]) == "intent")
+        .collect();
+    let restated = intents
+        .first()
+        .is_some_and(|r| !r["superseded_by"].is_null());
+    match intents.iter().rev().find(|r| r["superseded_by"].is_null()) {
+        Some(live) if restated && s(&live["body"]).trim().is_empty() => {
+            s(&live["summary"]).to_owned()
+        }
+        Some(live) if restated => format!("{}\n\n{}", s(&live["summary"]), s(&live["body"]).trim()),
+        _ => s(&task["goal"]).to_owned(),
+    }
 }
 
 pub fn find_block(text: &str, task_id: &str) -> Option<std::ops::Range<usize>> {
@@ -497,6 +517,23 @@ mod tests {
             );
         }
         assert_eq!(got, want, "see tests/golden/notes.md.actual");
+    }
+
+    #[test]
+    fn a_restated_intent_is_the_goal_quoted() {
+        let (task, mut records, files) = fixture();
+        records[0]["superseded_by"] = json!("b8000000-0000-4000-8000-000000000000");
+        records.push(json!({"id": "b8000000-0000-4000-8000-000000000000", "kind": "intent",
+            "summary": "Atomic save through a temp file", "body": "The lock file was the first design.",
+            "author_agent": "claude", "anchors": [], "superseded_by": null}));
+        let got = render(&task, &records, &files);
+        assert!(
+            got.contains(
+                "> Atomic save through a temp file\n>\n> The lock file was the first design.\n"
+            ),
+            "{got}"
+        );
+        assert!(!got.contains("crash cannot truncate"), "{got}");
     }
 
     #[test]

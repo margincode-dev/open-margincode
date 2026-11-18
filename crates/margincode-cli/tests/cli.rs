@@ -806,6 +806,56 @@ fn validate_builds_a_cargo_workspace_into_its_own_target_dir() {
     }
 }
 
+/// `sh -c "false | true"` exits 0: the warning says so, and the attestation still goes in.
+#[test]
+fn validate_warns_about_an_unguarded_pipeline_and_still_attests() {
+    let (d, ws, scratch) = started();
+    let o = av(&d, &ws, &["validate", "--", "sh", "-c", "false | true"]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(out(&o).contains("validation passed"), "{}", out(&o));
+    assert!(err(&o).contains("set -o pipefail"), "{}", err(&o));
+    let o = av(
+        &d,
+        &ws,
+        &[
+            "validate",
+            "--",
+            "sh",
+            "-c",
+            "set -o pipefail; false | true",
+        ],
+    );
+    assert!(!err(&o).contains("pipeline"), "{}", err(&o));
+    let o = av(
+        &d,
+        scratch.path(),
+        &[
+            "convention",
+            "add",
+            "--repo",
+            "demo",
+            "--scope",
+            "app/**",
+            "--required",
+            "--check",
+            "t | tail",
+            "tests",
+        ],
+    );
+    assert!(
+        o.status.success() && err(&o).contains("set -o pipefail"),
+        "{}",
+        err(&o)
+    );
+    std::fs::write(ws.join("app/greeter.py"), "def hello():\n    pass\n").unwrap();
+    let o = av(&d, &ws, &["validate", "--", "true"]);
+    assert!(
+        err(&o).contains("this check pipes without pipefail"),
+        "a stored check is warned about where it runs: {}",
+        err(&o)
+    );
+}
+
 #[test]
 fn validate_runs_the_required_convention_checks() {
     let (d, ws, scratch) = started();

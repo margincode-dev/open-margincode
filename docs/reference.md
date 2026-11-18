@@ -712,7 +712,10 @@ av convention add --repo NAME --scope '**' --required --check 'cargo test --work
 An approval already needs some passing `av validate -- CMD` at the head; the convention fixes
 which command: `av validate` runs it after CMD and records each exit code. The result is what the
 client that ran it reports (the daemon never runs repository commands), so this is a gate for
-agents that follow the process, not a sandbox. On the pull request, `av notes` lists each `av validate` run
+agents that follow the process, not a sandbox. A pipeline's exit status is its last command's,
+so `sh -c 'cargo test | tail'` passes when the tests fail: `av validate` (for its command and
+each check it runs) and `av convention add` warn about a script that pipes outside quotes without
+`pipefail` (a heuristic, so they warn and carry on). On the pull request, `av notes` lists each `av validate` run
 under "Checks": its CMD, that command's exit code and who ran it (the convention's own result is
 in the record, not on that line). For main itself, set a post-merge
 check and run `margincode runner` where it can build (`margincode repo settings NAME --check

@@ -87,6 +87,10 @@ enum Cmd {
         /// first; commits mined before are skipped, so running it again only adds new ones).
         #[arg(long, value_name = "N", default_value_t = 0)]
         mine_history: usize,
+        /// The path to import as the daemon sees it (default: this git root). For the Docker
+        /// stack, the repo under its /import mount, e.g. /import/NAME.
+        #[arg(long, value_name = "PATH")]
+        source: Option<String>,
     },
     /// Register a git repository (path as seen by the daemon).
     Repo {
@@ -1196,6 +1200,36 @@ fn warn_unguarded_pipeline(what: &str) {
     );
 }
 
+/// The daemon-side path Git Bash turned into `path`: MSYS rewrites an argument like
+/// `/import/NAME` to `<Git for Windows root>/import/NAME` before `av` sees it. `exepath` is
+/// Git Bash's `EXEPATH`, which may name the root's `bin` or `usr/bin` instead.
+fn msys_rewritten(path: &str, exepath: Option<&str>) -> Option<String> {
+    let root = exepath?.replace('\\', "/").to_ascii_lowercase();
+    let root = root.trim_end_matches('/');
+    let root = root
+        .strip_suffix("/usr/bin")
+        .or_else(|| root.strip_suffix("/bin"))
+        .unwrap_or(root);
+    let path = path.replace('\\', "/");
+    let rest = &path[path
+        .to_ascii_lowercase()
+        .strip_prefix(root)
+        .map(|_| root.len())?..];
+    (!root.is_empty() && rest.starts_with('/')).then(|| rest.to_owned())
+}
+
+/// A refused import source with the way around Git Bash's path rewriting, when that is the cause.
+fn with_msys_hint(e: CliError, source: &str) -> CliError {
+    let exepath = std::env::var("EXEPATH").ok();
+    match msys_rewritten(source, exepath.as_deref()) {
+        Some(meant) if matches!(e, CliError::Api { status: 400, .. }) => CliError::Local(format!(
+            "{e}\nGit Bash rewrote the path from `{meant}`: pass `/{meant}` (two leading slashes) \
+             or set MSYS_NO_PATHCONV=1"
+        )),
+        _ => e,
+    }
+}
+
 fn cwd() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| CliError::Local(e.to_string()))
 }
@@ -1520,6 +1554,7 @@ fn run(cli: Cli) -> Result<()> {
             no_claude,
             path,
             mine_history,
+            source,
         } => {
             let mut agents = if agents.is_empty() {
                 vec![agents::Agent::Claude]
@@ -1540,7 +1575,10 @@ fn run(cli: Cli) -> Result<()> {
                 &client,
                 &cli.url,
                 cli.token.as_deref(),
-                name.as_deref(),
+                local::Repo {
+                    name: name.as_deref(),
+                    source: source.as_deref(),
+                },
                 &agents,
                 path.as_deref(),
                 &cli.agent,
@@ -1558,11 +1596,13 @@ fn run(cli: Cli) -> Result<()> {
                 },
         } => {
             // a large repo takes longer than any request timeout: start the import, then poll it
-            client.post(
-                "/v1/repos",
-                &json!({"name": name, "git_source": git_source, "wait": false,
-                        "mine_history": mine_history}),
-            )?;
+            client
+                .post(
+                    "/v1/repos",
+                    &json!({"name": name, "git_source": git_source, "wait": false,
+                            "mine_history": mine_history}),
+                )
+                .map_err(|e| with_msys_hint(e, git_source))?;
             let r = wait_import(&client, name)?;
             println!(
                 "repo {} added (main {}, {} files indexed)",
@@ -3235,6 +3275,32 @@ mod tests {
         ] {
             assert!(!super::unguarded_pipeline(&args(fine)), "{fine:?}");
         }
+    }
+
+    #[test]
+    fn a_path_git_bash_rewrote_is_named_with_the_way_around_it() {
+        for root in [
+            r"C:\Program Files\Git\bin",
+            r"C:\Program Files\Git",
+            r"C:\Program Files\Git\",
+            r"C:\Program Files\Git\usr\bin",
+        ] {
+            for (path, meant) in [
+                ("C:/Program Files/Git/import/x", Some("/import/x")),
+                (r"C:\Program Files\Git\import\x", Some("/import/x")),
+                ("c:/program files/git/srv/Ünï", Some("/srv/Ünï")),
+                ("D:/src/x", None),
+                ("C:/Program Files/Github/x", None),
+            ] {
+                assert_eq!(
+                    super::msys_rewritten(path, Some(root)).as_deref(),
+                    meant,
+                    "{path} under {root}"
+                );
+            }
+        }
+        assert_eq!(super::msys_rewritten("C:/Program Files/Git/x", None), None);
+        assert_eq!(super::msys_rewritten("/import/x", Some("")), None);
     }
 
     #[test]

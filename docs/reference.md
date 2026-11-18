@@ -442,9 +442,11 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
 | `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `margincode-daemon` that `av up` starts |
 
-`av init [--name NAME] [--for claude|codex|grok|gemini|cursor|mcp-json]...` adds the git repository of the current
+`av init [--name NAME] [--source PATH] [--for claude|codex|grok|gemini|cursor|mcp-json]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
-(default: Claude Code). `--for mcp-json` also needs `--path FILE`. See
+(default: Claude Code). `--for mcp-json` also needs `--path FILE`. `--source PATH` imports PATH
+as the daemon sees it instead of this directory's git root: a daemon in Docker reads its own
+mounts, so give it `/import/NAME`. A repo already added is left as it is. See
 [Agent integrations](#agent-integrations) and [Many agents at once](#many-agents-at-once).
 
 ### Full stack (Docker)
@@ -543,13 +545,17 @@ The bundled compose file has no `/export` mount and does not pass `AV_BACKUP_REM
 on the host does nothing. In an override file, add `D:/avexport:/export` to the daemon service's volumes
 and `AV_BACKUP_REMOTES=NAME=/export/NAME.git` to its environment. Then start the stack as in Full stack (Docker).
 
-In Git Bash, set `MSYS_NO_PATHCONV=1` for each `av` command, or `/import/...` is rewritten to a Windows path:
+In Git Bash, set `MSYS_NO_PATHCONV=1` for each `av` command, or write `//import/NAME`: Git Bash
+rewrites `/import/...` to a path under its own install directory before `av` sees it. When the
+daemon refuses such a source, `av repo add` and `av init` say so and name the path you meant.
 
 ```bash
-MSYS_NO_PATHCONV=1 av repo add NAME /import/NAME   # before av init: init posts the Windows
-av init                                             # path, which the daemon cannot read
+MSYS_NO_PATHCONV=1 av init --source /import/NAME   # the path the daemon reads, not this checkout's
 export AV_AGENT=claude   # the agent named in .av-task; another name is refused, none only warns
 ```
+
+Git Bash converts only arguments: a Windows program such as Python cannot open a `/c/...` path
+found in a file or a variable, so give it `C:/...` (`cygpath -m`).
 
 To run the repo's tests in a container against a task's workspace, see "Running the bar in a container"
 in `CONTRIBUTING.md`.

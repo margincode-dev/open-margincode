@@ -7,6 +7,19 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: two result files were stored with CRLF line endings
+
+- **Where.** `bench/results/2026-11-17-f4-storage/baseline.jsonl` and `volume-checkout.jsonl`
+  (#46), found by the Cloud's vendor sync to `d0102c0`.
+- **Seen.** Both blobs on `main` had CRLF endings (6 lines each). `.gitattributes` asks for LF,
+  so the Cloud's `git add` stored them LF, and `scripts/sync-margincode.sh --check` then found the
+  vendored tree's sha256 different from the one it recorded.
+- **Ruled out.** Not the sync script: `git archive` of `main` gives the CRLF bytes, and they are
+  the only two blobs on `main` with a CR.
+- **Guess.** They were written on Windows and committed through `av` (jj), which does not apply
+  `.gitattributes`, so nothing normalized them.
+- **Status.** Fixed in #64 (both stored LF). Nothing yet stops the next CRLF file `av` commits.
+
 ## 2026-11-18: the patch route answered with the previous head
 
 - **Where.** `GET /v1/tasks/{id}/patch?from=main`, called by hand right after `av validate` or

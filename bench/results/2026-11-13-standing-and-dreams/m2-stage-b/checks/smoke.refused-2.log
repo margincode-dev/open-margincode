@@ -1,0 +1,5 @@
+margincode-bench: --agent-user benchagent: refusing to run.
+As user benchagent (uid 1000) a session could:
+  write to /home/benchagent (that user's home in the password database: what a session leaves there, a later one finds)
+  list /home/benchagent (that user's home in the password database: what a session leaves there, a later one finds)
+Close each of them to that user. For a directory only the harness needs, `chmod 700` on it (or on the top of a mounted bench tree) is enough: root still reads it. The daemon's workspace root needs `chmod 711`. The user's own home is closed by giving the user one that does not exist (`usermod -d /nonexistent benchagent`) or by making it root's alone (`chown root:root /home/benchagent && chmod 700 /home/benchagent`).

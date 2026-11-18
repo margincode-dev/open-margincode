@@ -210,3 +210,24 @@ m2bcmd.sh run bench/tasks-m0 --arms av --jit-hooks --reps 10 --session-cap-usd 0
 - **Money**: before each command, what stage B has spent plus that command's budget (freeze
   $3.00, smoke $0.10, each arm $0.70) stays under $5. An arm that stops part-way is reported as
   it stands and not rerun.
+
+**Results of the freeze and the free checks** (second commit, before the first session):
+
+- **The freeze.** The first attempt stopped at its first agent call: the API key was refused
+  ("Invalid API key", $0, nothing posted; `m2-stage-b/checks/freeze-1-badkey.log`). After the
+  owner replaced the key, the host restarted; the container and the daemon were started again
+  as above (same binaries by sha256, same database `m2b`, `plain_records: true`), and the
+  command ran again as written, with a new run id and freshly seeded repositories. It exited 0.
+  Each task's review run was handed all 13 records: the freeze is used.
+  `dreamed.json` sha256 `a7daeb192c351585e6d8b816e9c47e4b0a74d02f7c098a35525be244b8041516`.
+  Cost: $0.5677 over 6 agent calls (none hit the $0.25 cap).
+- **The verdicts it ended with** (each verified, `effective`): each task's own wrong note:
+  `bus-resubscribe` **disputed**; `quote-split` **confirmed** (as in all six stage A passes);
+  `tax-with-rate` **undecided** (not judged in its own store). One true lesson ended `disputed`
+  (`customer-region`, in the bus-resubscribe store). Undecided: 5, 6 and 7 of 13 handed.
+- **Free checks: pass.** `first-packs-raw/` and `first-packs-dreamed/`: no pack line contains
+  `--supersedes` and none carries an origin label (`reverted`, `abandoned`, `open`); each task's
+  wrong note is in its hook pack (3 of 3). Raw and dreamed packs differ in each task, and only by
+  `(disputed)` marks and the re-ranking the ×0.3 brings (records and symbols moving into or out of
+  the budget); no record is hidden (no verdict was `duplicate` or `outdated`). Record and symbol
+  ids differ because each run seeds its own repository.

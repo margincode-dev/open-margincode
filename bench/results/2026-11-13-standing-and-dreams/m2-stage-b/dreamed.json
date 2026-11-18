@@ -1,0 +1,818 @@
+{
+  "version": 1,
+  "tasks": {
+    "relay-bus-resubscribe": {
+      "pool": [
+        "quote-split: Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits.",
+        "store-count: Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends.",
+        "line-taxes: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed.",
+        "coupon-remove: CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already.",
+        "money-plain: Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format().",
+        "customer-region: Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value.",
+        "refund-event: Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages.",
+        "product-slug: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads.",
+        "ledger-refund: A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id.",
+        "order-ids: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs.",
+        "order-merge: Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds.",
+        "bus-resubscribe: EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects.",
+        "tax-with-rate: Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+          },
+          "note": 2,
+          "pair": "line-taxes",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "quote_order taxes one aggregate taxable base once, after proportional discounts; there is no per-line taxing.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/quote.py",
+              "quote": "tax = taxes.tax(taxable, order.customer.region)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/quote.py",
+                "quote": "taxable = Money(taxable.minor * discounted.minor // subtotal.minor, order.currency)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 12,
+            "nth": 0,
+            "summary": "Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+          },
+          "note": 12,
+          "pair": "tax-with-rate",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "replace() is shallow: the copy shares the rates dict, so t.rates[region] = percent also changes the original table.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "rates: dict[str, Decimal] = field(default_factory=dict)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/tax.py",
+                "quote": "rates: dict[str, Decimal] = field(default_factory=dict)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+          },
+          "note": 4,
+          "pair": "money-plain",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Not every currency has two decimals: JPY is 0 and KWD is 3, and Money.format/amount use _exponent for plain amounts.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+          },
+          "note": 1,
+          "pair": "store-count",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "list_page caps at max_page_size (100), so a huge limit does not return every record; the count would be wrong past 100.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "at most ``min(limit, max_page_size)``."
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/base.py",
+                "quote": "max_page_size: int = 100"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value."
+          },
+          "note": 5,
+          "pair": "customer-region",
+          "wrong": false,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "check_region still echoes the rejected value in its error message.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid region {region!r}\", field=\"region\")"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/validate.py",
+                "quote": "raise ValidationError(f\"invalid region {region!r}\", field=\"region\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+          },
+          "note": 3,
+          "pair": "coupon-remove",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "CouponBook upper-cases codes on add and strips/upper-cases on get; it does not key by the code as passed.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "self._by_code = {c.code.upper(): c for c in coupons or []}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "return self._by_code.get(code.strip().upper())"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 11,
+            "nth": 0,
+            "summary": "EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects."
+          },
+          "note": 11,
+          "pair": "bus-resubscribe",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "EventBus.subscribe does not dedupe; it appends every handler unconditionally.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/events.py",
+              "quote": "self._handlers[event].append(handler)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/events.py",
+                "quote": "self._handlers[event].append(handler)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+          },
+          "note": 0,
+          "pair": "quote-split",
+          "wrong": true,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "return [Money(base + (1 if i < rest else 0), self.currency) for i in range(parts)]"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "base, rest = divmod(self.minor, parts)"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 8,
+        "effective": 8,
+        "wrong_notes": 8,
+        "wrong_disputed": 6,
+        "true_notes": 5,
+        "true_hit": 1,
+        "judged_wrong": 7,
+        "judged_true": 1,
+        "handed": 13,
+        "undecided": 5,
+        "handed_wrong": 8,
+        "handed_true": 5
+      }
+    },
+    "relay-quote-split": {
+      "pool": [
+        "quote-split: Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits.",
+        "store-count: Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends.",
+        "line-taxes: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed.",
+        "coupon-remove: CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already.",
+        "money-plain: Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format().",
+        "customer-region: Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value.",
+        "refund-event: Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages.",
+        "product-slug: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads.",
+        "ledger-refund: A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id.",
+        "order-ids: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs.",
+        "order-merge: Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds.",
+        "bus-resubscribe: EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects.",
+        "tax-with-rate: Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+          },
+          "note": 0,
+          "pair": "quote-split",
+          "wrong": true,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "return [Money(base + (1 if i < rest else 0), self.currency) for i in range(parts)]"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "base, rest = divmod(self.minor, parts)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+          },
+          "note": 4,
+          "pair": "money-plain",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Not every currency has two decimals: JPY has 0, KWD 3; format() uses _exponent for the amount itself.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+          },
+          "note": 3,
+          "pair": "coupon-remove",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "CouponBook upper-cases codes for keys, and get() also strips and upper-cases; it does not use codes as passed.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "return self._by_code.get(code.strip().upper())"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "self._by_code = {c.code.upper(): c for c in coupons or []}"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+          },
+          "note": 1,
+          "pair": "store-count",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "list_page returns at most min(limit, max_page_size) (100), so a huge limit does not return every record.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "at most ``min(limit, max_page_size)``."
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/base.py",
+                "quote": "max_page_size: int = 100"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 12,
+            "nth": 0,
+            "summary": "Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+          },
+          "note": 12,
+          "pair": "tax-with-rate",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "replace() is shallow: the copy shares the rates dict, so t.rates[region] = percent also changes the original.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "rates: dict[str, Decimal] = field(default_factory=dict)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/tax.py",
+                "quote": "rates: dict[str, Decimal] = field(default_factory=dict)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 11,
+            "nth": 0,
+            "summary": "EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects."
+          },
+          "note": 11,
+          "pair": "bus-resubscribe",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "subscribe() just appends; it does no __qualname__ dedupe.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/events.py",
+              "quote": "self._handlers[event].append(handler)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/events.py",
+                "quote": "self._handlers[event].append(handler)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+          },
+          "note": 2,
+          "pair": "line-taxes",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "quote_order taxes one aggregated taxable amount once, not per line.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/quote.py",
+              "quote": "tax = taxes.tax(taxable, order.customer.region)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/quote.py",
+                "quote": "tax = taxes.tax(taxable, order.customer.region)"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 7,
+        "effective": 7,
+        "wrong_notes": 8,
+        "wrong_disputed": 6,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 7,
+        "judged_true": 0,
+        "handed": 13,
+        "undecided": 6,
+        "handed_wrong": 8,
+        "handed_true": 5
+      }
+    },
+    "relay-tax-with-rate": {
+      "pool": [
+        "quote-split: Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits.",
+        "store-count: Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends.",
+        "line-taxes: Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed.",
+        "coupon-remove: CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already.",
+        "money-plain: Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format().",
+        "customer-region: Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value.",
+        "refund-event: Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages.",
+        "product-slug: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads.",
+        "ledger-refund: A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id.",
+        "order-ids: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs.",
+        "order-merge: Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds.",
+        "bus-resubscribe: EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects.",
+        "tax-with-rate: Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 11,
+            "nth": 0,
+            "summary": "EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects."
+          },
+          "note": 11,
+          "pair": "bus-resubscribe",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "subscribe appends the handler unconditionally; there is no dedupe by __qualname__.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/events.py",
+              "quote": "self._handlers[event].append(handler)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/events.py",
+                "quote": "self._handlers[event].append(handler)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+          },
+          "note": 3,
+          "pair": "coupon-remove",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "The book normalizes codes itself: it keys by code.upper() and get() strips and uppercases the lookup code.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "return self._by_code.get(code.strip().upper())"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "self._by_code = {c.code.upper(): c for c in coupons or []}"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+          },
+          "note": 2,
+          "pair": "line-taxes",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "quote_order taxes one aggregate discounted taxable base, not each line; no per-line tax.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/quote.py",
+              "quote": "tax = taxes.tax(taxable, order.customer.region)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/quote.py",
+                "quote": "tax = taxes.tax(taxable, order.customer.region)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+          },
+          "note": 4,
+          "pair": "money-plain",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Not all currencies have two decimals (JPY 0, KWD 3), and format() uses _exponent for plain amounts.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "return Decimal(self.minor).scaleb(-_exponent(self.currency))"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+          },
+          "note": 1,
+          "pair": "store-count",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "list_page is capped at max_page_size (100), so a huge limit does not return every record; the count would be wrong.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "at most ``min(limit, max_page_size)``."
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/base.py",
+                "quote": "max_page_size: int = 100"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+          },
+          "note": 0,
+          "pair": "quote-split",
+          "wrong": true,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/money.py",
+              "quote": "return [Money(base + (1 if i < rest else 0), self.currency) for i in range(parts)]"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/money.py",
+                "quote": "base, rest = divmod(self.minor, parts)"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 6,
+        "effective": 6,
+        "wrong_notes": 8,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 6,
+        "judged_true": 0,
+        "handed": 13,
+        "undecided": 7,
+        "handed_wrong": 8,
+        "handed_true": 5
+      }
+    }
+  }
+}

@@ -1,0 +1,188 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-18T04:53:48.336343+00:00",
+  "head_change": "3e4a72830148a8615d7b26aa55ac1a591dc074d2",
+  "id": "rcp:ce926611",
+  "items": [
+    {
+      "id": "task:relay-tax-with-rate",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 102
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:eefb4a60",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:b684493d",
+      "reason": "goal-lead",
+      "score": 0.6096006035804749,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:c8a41ca2",
+      "reason": "semantic",
+      "score": 0.5953207612037659,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:3d5ec71c",
+      "reason": "semantic",
+      "score": 0.5872641205787659,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "sym:1568",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        12,
+        26
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:1569",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        19,
+        23
+      ],
+      "tier": "summary",
+      "tokens": 34
+    },
+    {
+      "id": "sym:1570",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/pricing/tax.py",
+        25,
+        26
+      ],
+      "tier": "summary",
+      "tokens": 38
+    },
+    {
+      "id": "sym:1571",
+      "reason": "lexical",
+      "score": 0.7631069421768188,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "summary",
+      "tokens": 32
+    },
+    {
+      "id": "sym:1500",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1559",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        27,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1567",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1499",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:1560",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        30,
+        32
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:1535",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:7181bc43 decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:fa1fa1ef decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:8ca15cd7 decision: Merge orders with self.lines.extend(other.lines) after the draft check…",
+    "- rec:f9434b10 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:a11388fb decision: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:eb1124ff intent: Earlier work on this code"
+  ],
+  "packer_version": 11,
+  "session": "99dc67dc-8311-4bac-9925-89fba2aaec22",
+  "task_id": "495b130c-641c-4470-8624-c25d05e4b1e4",
+  "tokens": 694
+}

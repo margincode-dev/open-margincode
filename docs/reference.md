@@ -715,10 +715,16 @@ client that ran it reports (the daemon never runs repository commands), so this 
 agents that follow the process, not a sandbox. A pipeline's exit status is its last command's,
 so `sh -c 'cargo test | tail'` passes when the tests fail: `av validate` (for its command and
 each check it runs) and `av convention add` warn about a script that pipes outside quotes without
-`pipefail` (a heuristic, so they warn and carry on). On the pull request, `av notes` lists each `av validate` run
-under "Checks": its CMD, that command's exit code and who ran it (the convention's own result is
-in the record, not on that line). For main itself, set a post-merge
-check and run `margincode runner` where it can build (`margincode repo settings NAME --check
+`pipefail` (a heuristic, so they warn and carry on). A change with nothing to build (docs, say)
+can attest `av validate -- av diff --check`: much like `git diff --check` (a task workspace has
+no `.git`), it checks the lines the task added since its base for trailing whitespace, leftover
+conflict markers (labelled ones, as the submit check reads them: a bare `=======` underlines a
+heading) and a file left without a final newline, prints each as `path:line: what`, and exits 2
+when it finds any. For more than that, add a required convention scoped to those paths
+(`av convention add --repo NAME --scope 'docs/**' --required --check '...'`). On the pull
+request, `av notes` lists each `av validate` run under "Checks": its CMD, that command's exit
+code and who ran it (the convention's own result is in the record, not on that line). For main
+itself, set a post-merge check and run `margincode runner` where it can build (`margincode repo settings NAME --check
 '...'`, then `margincode runner --repo NAME --trust`): a red main shows as `main_red` in
 `av attention` and at the top of every pack. Do not make a disabled workflow a required status
 check on GitHub: every pull request would wait for it.

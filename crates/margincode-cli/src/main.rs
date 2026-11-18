@@ -3,6 +3,7 @@ mod attention;
 mod client;
 mod containers;
 mod crates_scope;
+mod diff_check;
 mod disk;
 mod dream;
 mod footprint;
@@ -381,14 +382,19 @@ enum Cmd {
         #[arg(long)]
         repo: Option<String>,
     },
-    /// Unified diff between two commits (each main, task:<slug> or a commit id).
+    /// Unified diff between two commits (each main, task:<slug> or a commit id). With --check,
+    /// the task's added lines since its base are checked instead, much like `git diff --check`:
+    /// trailing whitespace, conflict markers, no final newline (exit 2). For a docs-only task:
+    /// `av validate -- av diff --check`.
     Diff {
-        #[arg(long)]
-        from: String,
+        #[arg(long, required_unless_present = "check")]
+        from: Option<String>,
         #[arg(long, default_value = "main")]
         to: String,
         #[arg(long)]
         repo: Option<String>,
+        #[arg(long, conflicts_with_all = ["from", "to", "repo"])]
+        check: bool,
     },
     /// End the current task for good (only its owner can); its records stay searchable.
     Abandon,
@@ -2591,11 +2597,38 @@ fn run(cli: Cli) -> Result<()> {
                 None => println!("binary file, {} bytes", r["bytes"]),
             }
         }
-        Cmd::Diff { from, to, repo } => {
+        Cmd::Diff { check: true, .. } => {
+            let (task, _) = resolve_task(&cli)?;
+            let t = &client.get(&format!("/v1/tasks/{task}"), &[])?["task"];
+            if s(&t["base_change"]).is_empty() {
+                return Err(CliError::Local("the task has no workspace yet".into()));
+            }
+            let head = format!("task:{}", s(&t["slug"]));
+            let r = client.get(
+                &format!("/v1/repos/{}/diff", s(&t["repo"])),
+                &[("from", s(&t["base_change"])), ("to", head.as_str())],
+            )?;
+            let files = r["files"].as_array().cloned().unwrap_or_default();
+            let found: Vec<String> = files
+                .iter()
+                .filter_map(|f| Some(diff_check::problems(s(&f["path"]), f["diff"].as_str()?)))
+                .flatten()
+                .collect();
+            if !found.is_empty() {
+                println!("{}", found.join("\n"));
+                std::process::exit(2);
+            }
+            let checked = files.iter().filter(|f| f["diff"].is_string()).count();
+            println!(
+                "no whitespace, conflict marker or final newline problems in {checked} text file(s)"
+            );
+        }
+        Cmd::Diff { from, to, repo, .. } => {
             let repo = repo_for(&cli, &client, repo)?;
+            let from = from.as_deref().unwrap_or("main");
             let r = client.get(
                 &format!("/v1/repos/{repo}/diff"),
-                &[("from", from.as_str()), ("to", to.as_str())],
+                &[("from", from), ("to", to.as_str())],
             )?;
             for f in r["files"].as_array().into_iter().flatten() {
                 match f["diff"].as_str() {

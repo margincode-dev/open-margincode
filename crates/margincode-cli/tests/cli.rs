@@ -856,6 +856,33 @@ fn validate_warns_about_an_unguarded_pipeline_and_still_attests() {
     );
 }
 
+/// The task's change since its base, as of its last checkpoint (`av validate` checkpoints first).
+#[test]
+fn diff_check_fails_on_trailing_whitespace_and_passes_clean() {
+    let (d, ws, _scratch) = started();
+    std::fs::write(ws.join("notes.md"), "fine\nspace \n").unwrap();
+    ok(av(&d, &ws, &["checkpoint"]));
+    let o = av(&d, &ws, &["diff", "--check"]);
+    assert_eq!(o.status.code(), Some(2), "{}{}", out(&o), err(&o));
+    assert!(
+        out(&o).contains("notes.md:2: trailing whitespace"),
+        "{}",
+        out(&o)
+    );
+    std::fs::write(ws.join("notes.md"), "fine\nclean").unwrap();
+    let bin = env!("CARGO_BIN_EXE_av");
+    let o = av(&d, &ws, &["validate", "--", bin, "diff", "--check"]);
+    assert!(
+        out(&o).contains("notes.md:2: no newline at end of file"),
+        "validate checkpoints first: {}",
+        out(&o)
+    );
+    std::fs::write(ws.join("notes.md"), "fine\nclean\n").unwrap();
+    ok(av(&d, &ws, &["checkpoint"]));
+    let clean = ok(av(&d, &ws, &["diff", "--check"]));
+    assert!(clean.contains("in 1 text file(s)"), "{clean}");
+}
+
 #[test]
 fn validate_runs_the_required_convention_checks() {
     let (d, ws, scratch) = started();

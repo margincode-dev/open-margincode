@@ -79,8 +79,8 @@ fn is_name_char(c: char) -> bool {
 }
 
 /// The length of the user name at the start of `rest`. A Windows name may hold spaces, but only
-/// before a capitalised word that a separator closes: `C:\Users\Vinh Q\x` is one name, while
-/// `cd C:\Users\vinh && dir` and `xcopy C:\Users\vinh backup\x` are not.
+/// before a capitalised word that a separator closes: `C:\Users\Ana B\x` is one name, while
+/// `cd C:\Users\ana && dir` and `xcopy C:\Users\ana backup\x` are not.
 fn home_name(rest: &str, windows: bool) -> usize {
     let word = |s: &str| s.find(|c: char| !is_name_char(c)).unwrap_or(s.len());
     let mut end = word(rest);

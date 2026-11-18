@@ -167,13 +167,14 @@ jobs:
     env:
       AV_DATABASE_URL: postgres://av:av@localhost:5432/postgres
       # Floors: the E1 CI gate's own, `FLOORS` in crates/margincode-bench/tests/retrieval_gate.rs
-      # (the fixture's means when the gate was added, minus 0.03, rounded down; measured
-      # 300 -> 1.000 / 0.444 / 0.333, 450 -> 1.000 / 0.833 / 0.556, 600 -> 1.000 / 1.000 / 0.833).
+      # (the fixture's means, minus 0.03, rounded down; measured when the task item began to carry
+      # the goal (F17): 300 -> 1.000 / 0.556 / 0.444, 450 -> 1.000 / 0.833 / 0.556,
+      # 600 -> 1.000 / 1.000 / 0.778).
       # Same fixture, budgets, scorer and no semantic layer, but through the shipped binaries
       # (release daemon on a service Postgres, the CLI) instead of an in-process daemon. When the
       # gate's floors change on purpose, change these with them.
       # budget: [files_named, files_code, symbols_sig], means of the `pack` rows over the 9 tasks
-      E1_FLOORS: '{"300": [0.97, 0.41, 0.30], "450": [0.97, 0.80, 0.52], "600": [0.97, 0.97, 0.80]}'
+      E1_FLOORS: '{"300": [0.97, 0.52, 0.41], "450": [0.97, 0.80, 0.52], "600": [0.97, 0.97, 0.74]}'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain (from rust-toolchain.toml)

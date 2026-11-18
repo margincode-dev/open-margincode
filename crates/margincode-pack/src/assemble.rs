@@ -4,7 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use futures::future::join_all;
 use margincode_core::standing::{
-    EffectiveVerdict, Origin, OriginFacts, Standing, VerdictKind, standing,
+    EffectiveVerdict, Origin, OriginFacts, Standing, VerdictKind, standing, without_origin,
 };
 use margincode_core::*;
 use margincode_index::{AnchorResolution, CodeIndex, IndexedSymbol, ScopeView};
@@ -18,17 +18,26 @@ pub(crate) struct Deps<'a> {
     pub store: &'a dyn IntentStore,
     pub index: &'a dyn CodeIndex,
     pub semantic: Option<Arc<dyn Semantic>>,
+    pub plain_records: bool,
 }
 
+/// `plain`: what became of a record's task is not used (`margincode_core::standing::without_origin`).
 #[derive(Default)]
-pub(crate) struct Origins(HashMap<RecordId, OriginFacts>);
+pub(crate) struct Origins {
+    facts: HashMap<RecordId, OriginFacts>,
+    plain: bool,
+}
 
 impl Origins {
     pub(crate) async fn load<'r>(
         store: &dyn IntentStore,
         recs: impl IntoIterator<Item = &'r Record>,
+        plain: bool,
     ) -> Result<Self> {
-        let mut origins = Origins::default();
+        let mut origins = Origins {
+            plain,
+            ..Origins::default()
+        };
         origins
             .extend(store, recs.into_iter().map(|r| r.id).collect())
             .await?;
@@ -42,10 +51,10 @@ impl Origins {
     ) -> Result<()> {
         let new: Vec<RecordId> = ids
             .into_iter()
-            .filter(|id| !self.0.contains_key(id))
+            .filter(|id| !self.facts.contains_key(id))
             .collect();
         if !new.is_empty() {
-            self.0.extend(store.record_origins(&new).await?);
+            self.facts.extend(store.record_origins(&new).await?);
         }
         Ok(())
     }
@@ -57,9 +66,10 @@ impl Origins {
         if rec.task_id == reader || history::is_mined(&rec.author_agent) {
             return None;
         }
-        self.0
+        let of = if self.plain { without_origin } else { standing };
+        self.facts
             .get(&rec.id)
-            .map(|facts| standing(facts, rec.kind, rec.created_at))
+            .map(|facts| of(facts, rec.kind, rec.created_at))
     }
 
     /// None on the reader's own records and on mined ones: a dream judges what agents wrote for others.
@@ -67,7 +77,7 @@ impl Origins {
         if rec.task_id == reader || history::is_mined(&rec.author_agent) {
             return None;
         }
-        self.0.get(&rec.id)?.verdict.as_ref()
+        self.facts.get(&rec.id)?.verdict.as_ref()
     }
 
     pub(crate) fn hidden(&self, rec: &Record, reader: TaskId) -> bool {
@@ -938,7 +948,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
     // The owner works through review findings first: pinned at full tier until resubmitted.
     let owner_at_work = matches!(task.status, TaskStatus::Open | TaskStatus::Conflicted);
     let now = Utc::now();
-    let mut origins = Origins::load(d.store, records.values()).await?;
+    let mut origins = Origins::load(d.store, records.values(), d.plain_records).await?;
     let mut facts: HashMap<String, RecordFacts> = HashMap::new();
     for rec in records.values() {
         if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {

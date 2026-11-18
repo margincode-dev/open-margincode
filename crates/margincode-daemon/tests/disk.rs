@@ -703,6 +703,7 @@ fn config(db: &TestDb, dir: &Path, retain: Option<u64>) -> Config {
         lease_secs: 1800,
         attention: Default::default(),
         build_cache: true,
+        plain_records: false,
         exec_bit: Default::default(),
         ws_retain_secs: retain,
         disk_min_free_bytes: 0,

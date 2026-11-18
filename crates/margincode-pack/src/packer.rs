@@ -93,6 +93,7 @@ pub struct Packer {
     store: Arc<dyn IntentStore>,
     index: Arc<dyn CodeIndex>,
     semantic: Option<Arc<dyn Semantic>>,
+    plain_records: bool,
 }
 
 impl Packer {
@@ -111,7 +112,16 @@ impl Packer {
             store,
             index,
             semantic,
+            plain_records: false,
         }
+    }
+
+    /// Records as they were before Plan 16's correction and standing: no line inviting an agent
+    /// to supersede another task's record, and no origin in a record's rank or line. Verdicts
+    /// still mark, lower and hide records.
+    pub fn with_plain_records(mut self, on: bool) -> Self {
+        self.plain_records = on;
+        self
     }
 
     fn deps(&self) -> Deps<'_> {
@@ -120,6 +130,7 @@ impl Packer {
             store: self.store.as_ref(),
             index: self.index.as_ref(),
             semantic: self.semantic.clone(),
+            plain_records: self.plain_records,
         }
     }
 
@@ -161,7 +172,10 @@ impl Packer {
             collapse_sent(&mut gathered.items, &sent);
         }
 
-        let foreign = std::mem::take(&mut gathered.foreign);
+        let mut foreign = std::mem::take(&mut gathered.foreign);
+        if self.plain_records {
+            foreign.clear();
+        }
         // Room for the correction line is kept only when `render` may print it (another task's record shown as more than a
         // back-reference). Tiers are not chosen yet, so a record later left out still keeps ~25 tokens: accepted, the cost must be known first.
         let claims = gathered
@@ -426,7 +440,8 @@ impl Packer {
                     margincode_core::RecordKind::Intent | margincode_core::RecordKind::Validation
                 )
         });
-        let origins = crate::assemble::Origins::load(&*self.store, recs.iter()).await?;
+        let origins =
+            crate::assemble::Origins::load(&*self.store, recs.iter(), self.plain_records).await?;
         recs.retain(|r| !origins.hidden(r, task.id));
         // agents' records first, then what was mined from git history; within each, what matches
         // the reading task's goal best, then the stronger kind, then the newer record
@@ -465,7 +480,12 @@ impl Packer {
                 .is_some_and(|t| *t as usize >= Tier::Summary as usize)
         };
         let correctable = |rec: &margincode_core::Record| {
-            margincode_core::supersede_refusal(rec.kind, margincode_core::RecordKind::Note, false)
+            !self.plain_records
+                && margincode_core::supersede_refusal(
+                    rec.kind,
+                    margincode_core::RecordKind::Note,
+                    false,
+                )
                 .is_none()
         };
         // Once per session, and counted while the records are chosen, so the answer stays
@@ -555,7 +575,8 @@ impl Packer {
             if self.store.get_task(rec.task_id).await?.repo != task.repo {
                 return Err(elsewhere());
             }
-            let origins = crate::assemble::Origins::load(&*self.store, [&rec]).await?;
+            let origins =
+                crate::assemble::Origins::load(&*self.store, [&rec], self.plain_records).await?;
             let whence = origins.whence(&rec, task.id);
             return Ok(record_texts(&rec, false, false, whence).1[Tier::Full as usize].clone());
         }

@@ -94,6 +94,9 @@ pub struct AppState {
     pub(crate) pg_dir: Option<PathBuf>,
     /// `AV_BUILD_CACHE`: lean cargo settings and a shared dependency cache per repo (`build_cache`, `deps_cache`).
     pub(crate) build_cache: bool,
+    /// `AV_PLAIN_RECORDS`: packs and record lists without the correction lines and the origin
+    /// standing (`Packer::with_plain_records`), and no superseding another task's record.
+    pub(crate) plain_records: bool,
     /// What sessions reported adding outside any task workspace (`POST /v1/footprint`), newest
     /// first, one per session, in memory only.
     pub(crate) footprints: disk::Footprints,
@@ -155,6 +158,7 @@ impl AppState {
             store_root: None,
             pg_dir: None,
             build_cache: true,
+            plain_records: false,
             footprints: Arc::default(),
             mcp: Arc::default(),
             task_locks: Arc::default(),
@@ -270,13 +274,27 @@ impl AppState {
     /// Only `sync_repos` runs on the bare engine before `customize`; it keeps nothing.
     pub fn with_vcs_layer(mut self, layer: impl FnOnce(Arc<dyn Vcs>) -> Arc<dyn Vcs>) -> Self {
         self.vcs = layer(self.vcs);
-        self.packer = Arc::new(Packer::with_semantic(
-            self.vcs.clone(),
-            self.store.clone(),
-            self.index.clone(),
-            self.semantic.clone(),
-        ));
+        self.rebuild_packer()
+    }
+
+    fn rebuild_packer(mut self) -> Self {
+        self.packer = Arc::new(
+            Packer::with_semantic(
+                self.vcs.clone(),
+                self.store.clone(),
+                self.index.clone(),
+                self.semantic.clone(),
+            )
+            .with_plain_records(self.plain_records),
+        );
         self
+    }
+
+    /// Records as they were before agents could correct each other's and before a record carried
+    /// its task's outcome (`AV_PLAIN_RECORDS`, default off); verdicts still act.
+    pub fn with_plain_records(mut self, on: bool) -> Self {
+        self.plain_records = on;
+        self.rebuild_packer()
     }
 
     /// Lifecycle events (`GET /v1/events`, of every repo) committed from now on, in process.
@@ -397,14 +415,8 @@ impl AppState {
 
     /// Packs search `semantic` (and fall back to full-text when it fails). Does not start a worker.
     pub fn with_semantic(mut self, semantic: Arc<dyn Semantic>) -> Self {
-        self.packer = Arc::new(Packer::with_semantic(
-            self.vcs.clone(),
-            self.store.clone(),
-            self.index.clone(),
-            Some(semantic.clone()),
-        ));
         self.semantic = Some(semantic);
-        self
+        self.rebuild_packer()
     }
 
     /// Embedder + vector index: packs search them, `reindex` and `worker` write to them.

@@ -236,7 +236,9 @@ reviewed before the next, since a record with a proposed verdict is on no review
 every verdict ended in the state it was frozen in; anything else stops the session with an
 error. `meta.json` says which memory a run's av arms started from (`memory`: `raw`,
 `wrong-reverted`, `dreamed sha256:…`), the report prints it when it is not `raw`, and a results
-directory holds one.
+directory holds one. Whether the daemon served plain records (`AV_PLAIN_RECORDS`: no correction
+lines, no origin standing) is asked of the daemon itself and written as `plain_records`; the
+report says `plain records` when it was on, and a results directory holds one setting.
 
 ## Agent isolation (`run --agent-user NAME`)
 

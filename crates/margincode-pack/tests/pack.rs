@@ -2974,3 +2974,42 @@ async fn the_repo_map_lists_every_top_level_directory_before_any_directory_fills
     }
     assert!(md.contains("\n    … +492 more"), "{md}");
 }
+
+#[tokio::test]
+async fn plain_records_rank_and_print_a_record_without_its_tasks_outcome() {
+    let mut fx = fixture().await;
+    fx.packer =
+        Packer::new(fx.vcs.clone(), fx.store.clone(), fx.index.clone()).with_plain_records(true);
+    decision_of_task(&fx, "kept", "hello upper-cases the name", "merged").await;
+    // written last, so recency alone puts it first: the order of two merged decisions
+    let rec = decision_of_task(&fx, "undone", "hello lower-cases the name", "reverted").await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 4000, "rank"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        pos(&md, "lower-cases") < pos(&md, "upper-cases"),
+        "the reverted decision is not ranked down:\n{md}"
+    );
+    assert!(
+        line_of(&md, "lower-cases").contains(" decision: hello"),
+        "{md}"
+    );
+    let at = fx
+        .packer
+        .records_at(fx.task.id, "app/greeter.py", None)
+        .await
+        .unwrap();
+    assert!(
+        line_of(&at.markdown, "lower-cases").contains(" decision: "),
+        "{}",
+        at.markdown
+    );
+    let text = fx.packer.expand(fx.task.id, &short(&rec)).await.unwrap();
+    assert!(
+        text.contains(" decision: ") && !text.contains("reverted"),
+        "{text}"
+    );
+}

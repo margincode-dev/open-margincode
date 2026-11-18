@@ -95,6 +95,7 @@ fn meta() -> Meta {
         noise_seed: None,
         agent_isolation: None,
         memory: None,
+        plain_records: None,
     }
 }
 
@@ -541,6 +542,41 @@ fn a_run_writes_its_memory_and_refuses_to_resume_into_results_of_another() {
         text.contains(" · memory: wrong-reverted, dreamed sha256:00ff · "),
         "{text}"
     );
+}
+
+/// Rows do not say whether the daemon served plain records (`AV_PLAIN_RECORDS`), so `meta.json`
+/// does, from the daemon, and a results directory holds one setting; older results read as off.
+#[test]
+fn a_results_directory_of_plain_records_is_not_resumed_by_a_run_without_them() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let s = setup();
+    // SAFETY: SERIAL is held.
+    unsafe { std::env::set_var("FAKE_MARKER", &s.marker) };
+    let a = args(&s, 5.0, true);
+    run(&s.specs, &a, &s.cfg).unwrap();
+    let meta_path = s.out.join("meta.json");
+    let written: Meta = serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
+    assert_eq!(written.plain_records, None, "no av arm, no daemon asked");
+    assert!(!written.plain());
+
+    let plain = Meta {
+        plain_records: Some(true),
+        ..written.clone()
+    };
+    std::fs::write(&meta_path, serde_json::to_vec(&plain).unwrap()).unwrap();
+    let err = run(&s.specs, &a, &s.cfg).err().unwrap();
+    assert!(err.contains("plain records"), "{err}");
+    let text = margincode_bench::report::render_report(&[], &plain);
+    assert!(text.contains(" · plain records · "), "{text}");
+    let text = margincode_bench::report::render_report(&[], &written);
+    assert!(!text.contains("plain records"), "{text}");
+
+    let off = Meta {
+        plain_records: Some(false),
+        ..written
+    };
+    std::fs::write(&meta_path, serde_json::to_vec(&off).unwrap()).unwrap();
+    run(&s.specs, &a, &s.cfg).expect("off and absent are the same setting");
 }
 
 #[test]

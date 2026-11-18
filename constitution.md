@@ -68,8 +68,9 @@ owner's own word wins over both.
 ## 8. The bar runs locally
 
 - fmt, clippy with `-D warnings` and `cargo test --workspace`, green on the head being proposed,
-  before a pull request. GitHub Actions is on a free tier: start a workflow only when the work
-  cannot land without it, and then once.
+  before a pull request that changes anything the build or the tests read (rule 12). GitHub
+  Actions is on a free tier: start a workflow only when the work cannot land without it, and then
+  once.
 
 ## 9. Public text is clean
 
@@ -86,3 +87,21 @@ owner's own word wins over both.
 
 - Docs, pull requests and messages say what happens in short sentences, with the numbers. Text an
   agent reads (packs, MCP tool descriptions, hook messages) says `av`, not `margincode`.
+
+## 12. Write less to disk
+
+- Every byte written wears the SSD, and drives are expensive now. Before a build, a test run, a
+  bench or a script, look for the way that writes least without weakening the check, and take it.
+- Keep build output lean: set `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`
+  and `CARGO_PROFILE_TEST_DEBUG=line-tables-only` for the bar, and keep one `CARGO_TARGET_DIR`
+  per checkout, reused across that checkout's runs instead of starting from an empty one. Never
+  share one between task workspaces: a build there can run another task's binary.
+- Don't move files back and forth. Where the build runs in a container or a VM, keep the sources
+  it reads on a volume native to it and copy in only what changed (for example rsync with
+  `--checksum --delete`, so a changed file gets a new mtime and cargo rebuilds it); copy back only
+  what a person needs, and read a log where it is.
+- Don't run what a change cannot affect. A change nothing in the build or the tests reads (prose
+  docs alone) is not built; say so in the pull request. A test that failed is rerun alone before
+  the whole suite runs again.
+- Remove the scratch copies and temporary files your work made once they are no longer needed
+  (rule 10); keep the target directory that later runs reuse.

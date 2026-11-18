@@ -509,6 +509,12 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
             "dream {} done: {proposed} proposed, {refused_total} refused",
             short(id)
         );
+        if done["dream"]["counts"]["promote"].as_u64().unwrap_or(0) > 0 {
+            println!(
+                "a promote becomes a convention only when a person accepts it: \
+                 `av verdict accept vd:…`"
+            );
+        }
         if proposed > 0 {
             println!(
                 "nothing changes until a second look agrees: `av dream --verify --repo {} -- \
@@ -533,6 +539,20 @@ pub fn verdict_line(v: &Value) -> String {
     );
     if !s("reason").is_empty() {
         line.push_str(&format!("  {}", s("reason")));
+    }
+    if let Some(c) = v["convention"].as_object() {
+        let field = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default();
+        let decided = match s("state") {
+            "proposed" => "waits for a person",
+            "effective" => "a person accepted it",
+            "rejected" => "a person rejected it",
+            _ => "taken back",
+        };
+        line.push_str(&format!(
+            "  convention for {}: {} ({decided})",
+            field("scope_glob"),
+            field("text")
+        ));
     }
     line
 }

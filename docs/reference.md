@@ -928,6 +928,18 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
 | `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
 | `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
 | `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
+| `promote` | a `decision`, the convention's `text` (not empty) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only a **person's** acceptance gives it effect: a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
+
+A `promote` proposes a repository convention from a decision that states a rule for a set of
+paths. Conventions are the one layer of a pack that is never dropped, so an agent's agreement
+is not enough: a verify run is never handed a `promote`, and a review of one that names a
+`dream` is refused (`422`), with nothing written. `av verdict accept vd:…` (no `dream`) writes
+the convention, through the same `MergeGuard` question as any review; `av verdict reject`
+writes none. Retracting the verdict, or `av dream undo` of its run, removes that convention
+(`removed_at`, as `av convention rm` does) and no other: a convention written by hand has an
+empty `source` and is never touched. `av verdict list`, `show` and `av dream show` print a
+promote's glob and text and whether a person has accepted it; `av convention list` ends a
+promoted one with `(from vd:…)`.
 
 - **The second look.** `POST /v1/verdicts/{id}/review` `{reviewer, agree, dream?, evidence?}`
   (`id`: the full id or `vd:…`). From a `verify` run (`dream`), the verdict must be on that run's

@@ -1166,3 +1166,299 @@ async fn plain_records_keep_verdicts_but_drop_origins_and_corrections() {
         plain.refusal
     );
 }
+
+const RULE: &str = "greetings in app/ never shout";
+
+fn promote_of(rec: &Value, text: &str, glob: &str) -> Value {
+    json!({"record": handle(rec), "verdict": "promote", "text": text, "scope_glob": glob,
+           "evidence": [{"record": handle(rec), "quote": "hello never shouts"}]})
+}
+
+async fn conventions(e: &Env) -> Vec<Value> {
+    let (status, body) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["conventions"].as_array().unwrap().clone()
+}
+
+async fn person_review(e: &Env, vd: &str, agree: bool) -> (StatusCode, Value) {
+    post_json(
+        e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "vinh", "agree": agree}),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promote_is_refused_off_a_decision_without_text_or_with_a_bad_glob() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let note = record_on(&e, &earlier, "note", "names are title case", "app/util.py").await;
+    let d = start_dream(&e, "review", "").await;
+    let on_note = json!({"record": handle(&note), "verdict": "promote", "text": RULE,
+                         "scope_glob": "app/**",
+                         "evidence": [{"record": handle(&note), "quote": "names are title case"}]});
+    let mut no_quote = promote_of(&rec, RULE, "app/**");
+    no_quote["evidence"] = json!([code_quote()]);
+    let mut no_glob = promote_of(&rec, RULE, "");
+    no_glob.as_object_mut().unwrap().remove("scope_glob");
+    for (verdict, why) in [
+        (on_note, "decision"),
+        (promote_of(&rec, "  ", "app/**"), "text"),
+        (no_glob, "scope_glob"),
+        (promote_of(&rec, RULE, "["), "bad glob"),
+        (no_quote, "quote of the decision"),
+        (
+            json!({"record": handle(&rec), "verdict": "wrong", "evidence": [code_quote()]}),
+            "promote",
+        ),
+    ] {
+        let r = propose(&e, &d, verdict.clone()).await;
+        assert_eq!(r["accepted"], false, "{verdict}: {r}");
+        assert!(
+            r["why"].as_str().unwrap().contains(why),
+            "wanted {why:?}: {r}"
+        );
+    }
+    let (_, listed) = call(&e.app, "GET", "/v1/repos/demo/verdicts", None).await;
+    assert_eq!(listed["verdicts"], json!([]), "{listed}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promote_takes_effect_only_when_a_person_accepts_it() {
+    let e = env().await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let other = record_on(
+        &e,
+        &earlier,
+        "note",
+        "names are title case",
+        "app/greeter.py",
+    )
+    .await;
+    let before = pack(&e, &reader, "p0").await;
+    assert!(!before.contains(RULE), "{before}");
+
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    assert_eq!(promoted["accepted"], true, "{promoted}");
+    assert_eq!(promoted["verdict"]["verdict"], "promote", "{promoted}");
+    assert_eq!(
+        promoted["verdict"]["convention"]["text"], RULE,
+        "{promoted}"
+    );
+    assert_eq!(
+        promoted["verdict"]["convention"]["scope_glob"], "app/**",
+        "{promoted}"
+    );
+    let disputed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&other), "verdict": "disputed",
+               "reason": "names are kept as given", "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(disputed["accepted"], true, "{disputed}");
+    assert_eq!(pack(&e, &reader, "p1").await, before, "proposed: no effect");
+
+    // a verify run is not handed the promote, and its agreement is refused
+    let v = start_dream(&e, "verify", "").await;
+    assert_eq!(
+        v["dream"]["worklist"]["verdicts"],
+        json!([disputed["verdict"]["id"]]),
+        "{v}"
+    );
+    let vd = promoted["verdict"]["handle"].as_str().unwrap();
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "checker", "agree": true, "dream": dream_id(&v),
+               "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("a person"),
+        "{body}"
+    );
+    let (_, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(one["verdict"]["state"], "proposed", "{one}");
+    assert_eq!(one["reviews"], json!([]), "{one}");
+    assert!(conventions(&e).await.is_empty());
+    let p2 = pack(&e, &reader, "p2").await;
+    assert!(!p2.contains(RULE), "{p2}");
+
+    let (status, body) = person_review(&e, vd, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "effective", "{body}");
+    let conv = conventions(&e).await;
+    assert_eq!(conv.len(), 1, "{conv:?}");
+    assert_eq!(conv[0]["text"], RULE);
+    assert_eq!(conv[0]["scope_glob"], "app/**");
+    let full = promoted["verdict"]["id"].as_str().unwrap().replace('-', "");
+    assert_eq!(conv[0]["source"], format!("vd:{full}"));
+    let after = pack(&e, &reader, "p3").await;
+    assert!(after.contains(RULE), "the next pack carries it:\n{after}");
+    // the decision itself is shown as before: a promote judges no record
+    assert_eq!(
+        line_of(&after, "hello never shouts"),
+        line_of(&before, "hello never shouts")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promote_a_person_rejects_writes_no_convention() {
+    let e = env().await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = promoted["verdict"]["handle"].as_str().unwrap();
+    let (status, body) = person_review(&e, vd, false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "rejected", "{body}");
+    assert!(conventions(&e).await.is_empty());
+    assert!(!pack(&e, &reader, "p0").await.contains(RULE));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retract_and_undo_take_a_promoted_convention_out_and_leave_a_hand_written_one() {
+    let e = env().await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let (status, hand) = post_json(
+        &e,
+        "/v1/repos/demo/conventions",
+        json!({"scope_glob": "app/**", "text": "a hand-written rule stays"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{hand}");
+    let only_hand = |conv: &[Value]| {
+        assert_eq!(conv.len(), 1, "{conv:?}");
+        assert_eq!(conv[0]["text"], "a hand-written rule stays");
+        assert_eq!(conv[0]["source"], "");
+    };
+
+    // retract
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = promoted["verdict"]["handle"].as_str().unwrap().to_owned();
+    person_review(&e, &vd, true).await;
+    post_json(
+        &e,
+        &format!("/v1/dreams/{}/finish", dream_id(&d)),
+        json!({}),
+    )
+    .await;
+    assert_eq!(conventions(&e).await.len(), 2);
+    assert!(pack(&e, &reader, "p0").await.contains(RULE));
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "vinh"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    only_hand(&conventions(&e).await);
+    let p1 = pack(&e, &reader, "p1").await;
+    assert!(
+        !p1.contains(RULE) && p1.contains("a hand-written rule stays"),
+        "{p1}"
+    );
+
+    // dream undo
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    assert_eq!(promoted["accepted"], true, "{promoted}");
+    person_review(&e, promoted["verdict"]["handle"].as_str().unwrap(), true).await;
+    post_json(
+        &e,
+        &format!("/v1/dreams/{}/finish", dream_id(&d)),
+        json!({}),
+    )
+    .await;
+    assert_eq!(conventions(&e).await.len(), 2);
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/dreams/{}/undo", dream_id(&d)),
+        json!({"by": "vinh"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    only_hand(&conventions(&e).await);
+    let p2 = pack(&e, &reader, "p2").await;
+    assert!(
+        !p2.contains(RULE) && p2.contains("a hand-written rule stays"),
+        "{p2}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_promotes_acceptance_is_the_guards_memory_write_question() {
+    let guard = std::sync::Arc::new(MemoryPolicy::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = promoted["verdict"]["handle"].as_str().unwrap();
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "someone", "agree": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        conventions(&e).await.is_empty(),
+        "a refused review writes nothing"
+    );
+    let (status, body) = person_review(&e, vd, true).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(conventions(&e).await.len(), 1);
+    assert_eq!(
+        *guard.0.lock().unwrap(),
+        [
+            "demo: review promote of \"hello never shouts\" agree=true by someone",
+            "demo: review promote of \"hello never shouts\" agree=true by vinh",
+        ]
+    );
+}

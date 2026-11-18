@@ -516,8 +516,9 @@ enum Cmd {
         cmd: Vec<String>,
     },
     /// A second look at records: start an agent that checks the records the daemon chose
-    /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated), each
-    /// with quotes the daemon checks word for word. Nothing changes in packs until a second
+    /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated, or
+    /// promote: a decision as a convention, which only a person accepts), each with quotes the
+    /// daemon checks word for word. Nothing changes in packs until a second
     /// look agrees: `av dream --verify -- <agent command>`, or `av verdict accept`. E.g.
     /// `av dream --repo demo -- claude -p "Read DREAM.md and do what it says"`.
     #[command(args_conflicts_with_subcommands = true)]
@@ -1955,8 +1956,14 @@ fn run(cli: Cli) -> Result<()> {
                     .as_str()
                     .map(|cmd| format!(" [check: {cmd}]"))
                     .unwrap_or_default();
+                // a promoted decision's convention names its verdict, in the short form
+                let from = c["source"]
+                    .as_str()
+                    .and_then(|src| src.strip_prefix("vd:"))
+                    .map(|vd| format!(" (from vd:{})", &vd[..vd.len().min(8)]))
+                    .unwrap_or_default();
                 println!(
-                    "conv:{} ({}){required}{check} {}",
+                    "conv:{} ({}){required}{check} {}{from}",
                     c["id"],
                     s(&c["scope_glob"]),
                     s(&c["text"])

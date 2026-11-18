@@ -320,7 +320,56 @@ pub struct TaskSummary {
     pub record_count: i64,
 }
 
+/// The one check of a convention's path glob, for one written by hand and one a `promote`
+/// verdict proposes.
+pub fn check_scope_glob(scope_glob: &str) -> Result<()> {
+    Glob::new(scope_glob)
+        .map(|_| ())
+        .map_err(|e| AvError::Invalid(format!("bad glob {scope_glob}: {e}")))
+}
+
 impl PgStore {
+    /// Writes a convention (its glob already checked) and queues it for the semantic index,
+    /// inside the caller's transaction. `source` is empty for one a person wrote.
+    pub(crate) async fn insert_convention(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        repo: &str,
+        scope_glob: &str,
+        text: &str,
+        source: &str,
+    ) -> Result<ConventionId> {
+        let (id,): (i64,) = sqlx::query_as(
+            "INSERT INTO conventions (repo, scope_glob, text, source) VALUES ($1,$2,$3,$4)
+             RETURNING id",
+        )
+        .bind(repo)
+        .bind(scope_glob)
+        .bind(text)
+        .bind(source)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(serr)?;
+        PgStore::enqueue(
+            &mut **tx,
+            &NewOutbox {
+                kind: SemanticKind::Convention,
+                op: OutboxOp::Upsert,
+                entity_id: id.to_string(),
+                repo: repo.to_owned(),
+                task_id: None,
+                record_id: None,
+                symbol_id: None,
+                convention_id: Some(ConventionId(id)),
+                path: None,
+                change_id: None,
+                superseded: false,
+                text: Some(text.to_owned()),
+            },
+        )
+        .await?;
+        Ok(ConventionId(id))
+    }
+
     /// Puts a taken item whose task was abandoned back to `queued` with no task, so `next` starts
     /// a new task from it. Also returns the abandoned task, which the item no longer names.
     pub async fn requeue_backlog(&self, id: Uuid) -> Result<(BacklogEntry, TaskId)> {
@@ -1772,7 +1821,7 @@ impl IntentStore for PgStore {
              FROM records r JOIN tasks t ON t.id = r.task_id
              LEFT JOIN LATERAL (
                SELECT v.id, v.verdict, v.reason, v.anchor_hashes FROM record_verdicts v
-               WHERE v.record_id = r.id AND ({state}) = 'effective'
+               WHERE v.record_id = r.id AND v.verdict <> 'promote' AND ({state}) = 'effective'
                ORDER BY v.created_at DESC, v.id LIMIT 1
              ) ev ON true
              WHERE r.id = ANY($1)"
@@ -1857,38 +1906,11 @@ impl IntentStore for PgStore {
         scope_glob: &str,
         text: &str,
     ) -> Result<ConventionId> {
-        Glob::new(scope_glob)
-            .map_err(|e| AvError::Invalid(format!("bad glob {scope_glob}: {e}")))?;
+        check_scope_glob(scope_glob)?;
         let mut tx = self.pool.begin().await.map_err(serr)?;
-        let (id,): (i64,) = sqlx::query_as(
-            "INSERT INTO conventions (repo, scope_glob, text) VALUES ($1,$2,$3) RETURNING id",
-        )
-        .bind(repo)
-        .bind(scope_glob)
-        .bind(text)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(serr)?;
-        PgStore::enqueue(
-            &mut *tx,
-            &NewOutbox {
-                kind: SemanticKind::Convention,
-                op: OutboxOp::Upsert,
-                entity_id: id.to_string(),
-                repo: repo.to_owned(),
-                task_id: None,
-                record_id: None,
-                symbol_id: None,
-                convention_id: Some(ConventionId(id)),
-                path: None,
-                change_id: None,
-                superseded: false,
-                text: Some(text.to_owned()),
-            },
-        )
-        .await?;
+        let id = PgStore::insert_convention(&mut tx, repo, scope_glob, text, "").await?;
         tx.commit().await.map_err(serr)?;
-        Ok(ConventionId(id))
+        Ok(id)
     }
 
     async fn set_convention_required(&self, id: ConventionId, required: bool) -> Result<()> {
@@ -1950,7 +1972,7 @@ impl IntentStore for PgStore {
 
     async fn conventions(&self, repo: &str) -> Result<Vec<Convention>> {
         let rows = sqlx::query(
-            "SELECT id, repo, scope_glob, text, required, check_command FROM conventions
+            "SELECT id, repo, scope_glob, text, required, check_command, source FROM conventions
              WHERE repo = $1 AND removed_at IS NULL ORDER BY id",
         )
         .bind(repo)
@@ -1966,6 +1988,7 @@ impl IntentStore for PgStore {
                     text: r.try_get("text").map_err(serr)?,
                     required: r.try_get("required").map_err(serr)?,
                     check_command: r.try_get("check_command").map_err(serr)?,
+                    source: r.try_get("source").map_err(serr)?,
                 })
             })
             .collect()

@@ -6322,6 +6322,78 @@ fn dream_every_goes_on_after_a_failed_run() {
     );
 }
 
+#[test]
+fn a_promoted_decision_is_listed_as_waiting_for_a_person_and_becomes_a_convention() {
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    let promoter = r#"
+rec=$(grep -o 'rec:[0-9a-f]*' bundle.json | head -1)
+printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings never shout", "scope_glob": "app/**", "evidence": [{"record": "%s", "quote": "hello never shouts"}]}]}' "$rec" "$rec" > verdicts.json
+"#;
+    let got = ok(av_home(
+        &d,
+        home,
+        "dreamer",
+        &["dream", "--repo", "demo", "--", "sh", "-c", promoter],
+    ));
+    assert!(got.contains("promote -> vd:"), "{got}");
+    let vd = word_after(&got, "vd:").to_owned();
+    let listed = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["verdict", "list", "--repo", "demo", "--state", "proposed"],
+    ));
+    let line = listed
+        .lines()
+        .find(|l| l.contains(&vd))
+        .unwrap_or_else(|| panic!("{listed}"));
+    assert!(
+        line.contains("convention for app/**: greetings never shout")
+            && line.contains("waits for a person"),
+        "{line}"
+    );
+    let (id, _) = run_dir(home, |_| true);
+    let shown = ok(av_home(&d, home, "agent", &["dream", "show", &id]));
+    assert!(
+        shown.contains("convention for app/**: greetings never shout"),
+        "{shown}"
+    );
+    // a verify run is handed nothing: a promote is a person's
+    let got = ok(av_home(
+        &d,
+        home,
+        "checker",
+        &["dream", "--verify", "--repo", "demo", "--", "false"],
+    ));
+    assert!(got.contains("nothing to verify in demo"), "{got}");
+
+    let line = ok(av_home(&d, home, "vinh", &["verdict", "accept", &vd]));
+    assert!(
+        line.contains(&format!("{vd}  effective  promote"))
+            && line.contains("a person accepted it"),
+        "{line}"
+    );
+    let conv = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["convention", "list", "--repo", "demo"],
+    ));
+    assert!(
+        conv.contains("(app/**) greetings never shout") && conv.contains("from vd:"),
+        "{conv}"
+    );
+    ok(av_home(&d, home, "vinh", &["verdict", "retract", &vd]));
+    let conv = ok(av_home(
+        &d,
+        home,
+        "agent",
+        &["convention", "list", "--repo", "demo"],
+    ));
+    assert!(!conv.contains("greetings never shout"), "{conv}");
+}
+
 /// Whether `pid` is a live process (a zombie, killed and waiting for its parent, is not).
 fn alive(pid: &str) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {

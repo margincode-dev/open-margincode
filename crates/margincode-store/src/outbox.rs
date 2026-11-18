@@ -180,7 +180,7 @@ impl PgStore {
 
     pub async fn list_all_conventions(&self, repo: Option<&str>) -> Result<Vec<Convention>> {
         let rows = sqlx::query(
-            "SELECT id, repo, scope_glob, text, required FROM conventions
+            "SELECT id, repo, scope_glob, text, required, source FROM conventions
              WHERE ($1::text IS NULL OR repo = $1) AND removed_at IS NULL
              ORDER BY id",
         )
@@ -197,6 +197,7 @@ impl PgStore {
                 text: row.try_get("text").map_err(serr)?,
                 required: row.try_get("required").map_err(serr)?,
                 check_command: None,
+                source: row.try_get("source").map_err(serr)?,
             });
         }
         Ok(out)

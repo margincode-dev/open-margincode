@@ -35,9 +35,9 @@ Measured since (2026-11-14 to 2026-11-18; each directory's README has the number
 
 Built since, on branch `claude/fable-handoff-solutions-6ccbpz` (not merged; `CHANGELOG.md`,
 `Unreleased`): `av dream --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's
-agent too; the `promote` verdict (a dream proposes a decision as a convention and only a
-person's `av verdict accept` gives it effect; migration 0032); the E4-at-scale cost number in
-the README and on the site. Earlier: the guard for memory writes (`Guarded::MemoryWrite` in
+agent too; the `promote` verdict (with `av dream --promote` a dream proposes a decision as a
+convention, and only `av verdict accept` under a name the daemon does not know as an agent
+gives it effect; migration 0032); the E4-at-scale cost number in the README and on the site. Earlier: the guard for memory writes (`Guarded::MemoryWrite` in
 `ext.rs`, asked before a verdict's review and before a supersede).
 
 Next:
@@ -45,8 +45,9 @@ Next:
 1. **Whether dreaming helps at a larger size.** Stage B leans that way and does not show it.
    `DREAM.md` was revised from those two stages (#63), and no result under `bench/results/`
    uses the revised text yet.
-2. **Read what a model does with the new text.** `DREAM.md`'s `promote` paragraph and the
-   section a run with `--also-read` gets were tested with agent scripts that run no model.
+2. **Read what a model does with the new text.** The sections a run with `--promote` or
+   `--also-read` gets appended were tested with agent scripts that run no model. A run with
+   neither flag is handed `DREAM.md` unchanged.
 3. **M0 on a second model.** One model has shown it.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
 5. `av watch` leaves its command running when `av` alone gets SIGINT or SIGTERM (a terminal's

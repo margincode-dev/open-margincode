@@ -108,6 +108,8 @@ services:
       AV_EXEC_BIT: ${AV_EXEC_BIT:-auto}
       # on: records without correction lines or origin standing (a benchmark arm).
       AV_PLAIN_RECORDS: ${AV_PLAIN_RECORDS:-off}
+      # Name <email> of every commit the daemon writes (empty: Margincode <margincode@localhost>).
+      AV_COMMIT_AUTHOR: ${AV_COMMIT_AUTHOR:-}
       # A call whose name more than N other symbols define links to none (empty: no cap).
       AV_INDEX_MAX_FANOUT: ${AV_INDEX_MAX_FANOUT:-}
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.

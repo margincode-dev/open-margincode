@@ -81,10 +81,17 @@ impl Env {
 }
 
 async fn env() -> Env {
+    env_with(|v| v).await
+}
+
+async fn env_with(tweak: impl FnOnce(JjVcs) -> JjVcs) -> Env {
     let src = fixture_git_repo();
     let store = TempDir::new().unwrap();
     let ws = TempDir::new().unwrap();
-    let vcs = JjVcs::new(store.path().to_path_buf(), ws.path().to_path_buf());
+    let vcs = tweak(JjVcs::new(
+        store.path().to_path_buf(),
+        ws.path().to_path_buf(),
+    ));
     let main = vcs.init_repo("demo", src.path()).await.unwrap();
     Env {
         _src: src,
@@ -111,6 +118,54 @@ async fn merge_advances_main_and_exports_git_ref() {
     assert_eq!(e.vcs.trunk("demo").await.unwrap(), main);
     assert_eq!(e.git_ref(), main.0);
     assert_eq!(e.main_file("c.py").await, "c = 3\n");
+}
+
+fn main_author(e: &Env) -> String {
+    git(
+        &e.store.path().join("demo/git"),
+        &[
+            "log",
+            "-1",
+            "--format=%an <%ae>|%cn <%ce>",
+            "refs/heads/main",
+        ],
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_commit_carries_the_configured_author() {
+    let e = env_with(|v| v.with_author("Ada Lovelace", "ada@example.com")).await;
+    let head = e
+        .task(
+            "t1",
+            &[(
+                "c.py", "c = 3
+",
+            )],
+        )
+        .await;
+    merged(e.merge("t1", &head).await);
+    assert_eq!(
+        main_author(&e),
+        "Ada Lovelace <ada@example.com>|Ada Lovelace <ada@example.com>"
+    );
+
+    let e = env().await;
+    let head = e
+        .task(
+            "t1",
+            &[(
+                "c.py", "c = 3
+",
+            )],
+        )
+        .await;
+    merged(e.merge("t1", &head).await);
+    assert_eq!(
+        main_author(&e),
+        "Margincode <margincode@localhost>|Margincode <margincode@localhost>",
+        "unset: as before"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

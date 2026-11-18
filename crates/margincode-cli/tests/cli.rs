@@ -6592,3 +6592,84 @@ fn widen_in_a_full_workspace_writes_nothing_and_needs_a_path() {
     let o = av(&d, &ws, &["widen"]);
     assert!(!o.status.success());
 }
+
+/// The image builds from `deploy/Dockerfile`, which copies `crates/` and little else, under a
+/// `.dockerignore` that drops `docs/` and every `*.md`: a file embedded from outside `crates/`
+/// must be copied and not ignored, or the image breaks with nothing else failing (F1).
+#[test]
+fn the_docker_build_context_has_every_file_the_crates_embed() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap();
+    let copied: Vec<String> = read("deploy/Dockerfile")
+        .lines()
+        .filter_map(|l| l.strip_prefix("COPY "))
+        .filter(|l| !l.starts_with("--"))
+        .filter_map(|l| l.split_whitespace().next())
+        .map(|src| src.trim_end_matches('/').to_owned())
+        .collect();
+    let ignore = read(".dockerignore");
+    let rules: Vec<(bool, regex::Regex)> = ignore
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            let (keep, glob) = l.strip_prefix('!').map_or((false, l), |g| (true, g));
+            let glob = glob.trim_matches('/');
+            let re = regex::escape(glob)
+                .replace(r"\*\*/", "(.*/)?")
+                .replace(r"\*\*", ".*")
+                .replace(r"\*", "[^/]*")
+                .replace(r"\?", "[^/]");
+            (keep, regex::Regex::new(&format!("^{re}(/.*)?$")).unwrap())
+        })
+        .collect();
+    let ignored = |path: &str| {
+        rules
+            .iter()
+            .rfind(|(_, re)| re.is_match(path))
+            .is_some_and(|(keep, _)| !keep)
+    };
+    let embed = regex::Regex::new(r#"include_(?:str|bytes)!\(\s*"([^"]+)"\s*,?\s*\)"#).unwrap();
+    let mut sources = vec![];
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("crates"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("src"))
+        .collect();
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(&dir).into_iter().flatten() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                sources.push(p);
+            }
+        }
+    }
+    let mut outside = vec![];
+    for src in sources {
+        for c in embed.captures_iter(&std::fs::read_to_string(&src).unwrap()) {
+            let file = src.parent().unwrap().join(&c[1]);
+            let file = file
+                .canonicalize()
+                .unwrap_or_else(|e| panic!("{} (from {}): {e}", file.display(), src.display()));
+            let rel = file.strip_prefix(root.canonicalize().unwrap()).unwrap();
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if rel.starts_with("crates/") {
+                continue;
+            }
+            assert!(
+                copied
+                    .iter()
+                    .any(|c| rel == *c || rel.starts_with(&format!("{c}/"))),
+                "{rel} (embedded by {}) is not copied by deploy/Dockerfile: {copied:?}",
+                src.display()
+            );
+            assert!(!ignored(&rel), "{rel} is excluded by .dockerignore");
+            outside.push(rel);
+        }
+    }
+    assert!(
+        outside.contains(&"integrations/dream/DREAM.md".to_owned()),
+        "the scan finds the one embedded file known to sit outside crates/: {outside:?}"
+    );
+}

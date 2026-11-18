@@ -3097,7 +3097,7 @@ fn run(cli: Cli) -> Result<()> {
                         std::thread::sleep(left);
                         true
                     },
-                ),
+                )?,
             }
         }
         Cmd::Verdict { cmd } => match cmd {

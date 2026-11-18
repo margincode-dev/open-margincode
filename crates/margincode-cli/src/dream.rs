@@ -136,21 +136,22 @@ pub fn check_command(cmd: &[String]) -> Result<()> {
 /// `--every`: `run` once, then again `every` after each start, until `wait` (given how long is
 /// left) answers false. A run that fails is printed and the next one comes all the same. Runs
 /// follow one another, so they never overlap; one that took longer than `every` is followed at
-/// once.
+/// once. A signal that stopped an agent ([`interrupted`]) ends the loop with that run's error.
 pub fn repeat(
     every: Duration,
     mut run: impl FnMut() -> Result<bool>,
     mut wait: impl FnMut(Duration) -> bool,
-) {
+) -> Result<()> {
     loop {
         let started = std::time::Instant::now();
         match run() {
             Ok(true) => {}
             Ok(false) => eprintln!("dream: the agent command failed; trying again next time"),
+            Err(e) if interrupted() => return Err(e),
             Err(e) => eprintln!("dream: {e}; trying again next time"),
         }
         if !wait(every.saturating_sub(started.elapsed())) {
-            return;
+            return Ok(());
         }
     }
 }
@@ -221,7 +222,53 @@ struct Refused {
     why: String,
 }
 
+/// SIGINT and SIGTERM while an agent runs: the agent runs in a process group of its own, so a
+/// Ctrl-C reaches only `av`, and `av` must end that group before it goes.
+#[cfg(unix)]
+mod interrupt {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    pub static STOP: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_signal(_: libc::c_int) {
+        STOP.store(true, Ordering::SeqCst);
+    }
+
+    /// Catches both signals until it is dropped; outside it they end `av` as usual (no agent
+    /// runs then).
+    pub struct Caught;
+
+    pub fn catch() -> Caught {
+        let handler = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+        // SAFETY: the handler only stores into an atomic, which is async-signal-safe
+        unsafe {
+            libc::signal(libc::SIGINT, handler);
+            libc::signal(libc::SIGTERM, handler);
+        }
+        Caught
+    }
+
+    impl Drop for Caught {
+        fn drop(&mut self) {
+            // SAFETY: restoring the default disposition
+            unsafe {
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                libc::signal(libc::SIGTERM, libc::SIG_DFL);
+            }
+        }
+    }
+}
+
+/// Whether a SIGINT or SIGTERM stopped an agent: `av` should end now, `--every` too.
+pub fn interrupted() -> bool {
+    #[cfg(unix)]
+    return interrupt::STOP.load(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(not(unix))]
+    false
+}
+
 /// Runs the agent command in the run's directory. `Ok(false)`: it failed or ran out of time.
+/// `Err` when a signal stopped it; its process group is ended by then.
 #[cfg(unix)]
 fn run_agent(d: &Dream, dir: &Path, id: &str, round: u32) -> Result<bool> {
     let (program, args) = d.cmd.split_first().expect("checked by run");
@@ -247,7 +294,13 @@ fn run_agent(d: &Dream, dir: &Path, id: &str, round: u32) -> Result<bool> {
         .env_remove("AV_SESSION")
         .env_remove("AV_GENERATION");
     let shown = d.cmd.join(" ");
-    match margincode_agentrun::process::run_with_timeout(cmd, d.timeout) {
+    let caught = interrupt::catch();
+    let waited = margincode_agentrun::process::run_until(cmd, d.timeout, &interrupt::STOP);
+    drop(caught);
+    match waited {
+        Ok(w) if w.stopped => Err(local(format!(
+            "interrupted; {shown} and its processes were ended"
+        ))),
         Ok(w) if w.exit == Some(0) => Ok(true),
         Ok(w) if w.killed => {
             eprintln!(
@@ -627,7 +680,8 @@ mod tests {
                 waits.push(left);
                 waits.len() < 3
             },
-        );
+        )
+        .unwrap();
         assert_eq!(runs, 3, "a failed run does not end the loop; the stop does");
         assert_eq!(waits.len(), 3);
         assert!(

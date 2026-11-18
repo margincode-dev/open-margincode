@@ -26,6 +26,9 @@ ureq = { version = "2", features = ["json"] }
 uuid.workspace = true
 toml_edit = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 margincode-daemon = { path = "../margincode-daemon" }
 margincode-index = { path = "../margincode-index" }

@@ -6322,6 +6322,77 @@ fn dream_every_goes_on_after_a_failed_run() {
     );
 }
 
+/// Whether `pid` is a live process (a zombie, killed and waiting for its parent, is not).
+fn alive(pid: &str) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| {
+        !s.rsplit(')')
+            .next()
+            .unwrap_or("")
+            .trim_start()
+            .starts_with('Z')
+    })
+}
+
+#[test]
+fn an_interrupted_dream_ends_its_agent_too() {
+    use std::io::BufRead;
+    let (d, home) = decision_recorded();
+    let home = home.path();
+    for every in [None, Some("1d")] {
+        let mut args = vec!["dream", "--repo", "demo"];
+        args.extend(every.map(|e| ["--every", e]).into_iter().flatten());
+        // the agent and a child of its own, both waiting on a pipe nothing writes to
+        let script = "mkfifo hold; cat hold & echo \"agent-started $$ $!\"; wait";
+        args.extend(["--", "sh", "-c", script]);
+        let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
+            .current_dir(home)
+            .env("AV_URL", &d.url)
+            .env("AV_HOME", home)
+            .env_remove("AV_TASK")
+            .env_remove("AV_SESSION")
+            .env_remove("AV_GENERATION")
+            .env_remove("AV_MAX_AGENTS")
+            .env("AV_AGENT", "dreamer")
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let pids: Vec<String> = loop {
+            let line = lines
+                .next()
+                .expect("av ended before its agent started")
+                .unwrap();
+            if let Some(rest) = line.strip_prefix("agent-started ") {
+                break rest.split_whitespace().map(str::to_owned).collect();
+            }
+        };
+        assert_eq!(pids.len(), 2, "{pids:?}");
+        let sent = Command::new("kill")
+            .args(["-INT", &child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let status = child.wait().unwrap();
+        let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
+        for p in &left {
+            let _ = Command::new("kill").args(["-KILL", p]).status();
+        }
+        assert!(
+            left.is_empty(),
+            "{every:?}: the agent outlived av: {left:?}"
+        );
+        assert!(!status.success(), "{every:?}: {status}");
+        // the run was ended as failed, so the area is free for the next one
+        for dir in std::fs::read_dir(home.join("dreams")).unwrap() {
+            let id = dir.unwrap().file_name().into_string().unwrap();
+            let shown = ok(av_home(&d, home, "dreamer", &["dream", "show", &id]));
+            assert!(shown.contains("· failed"), "{shown}");
+        }
+    }
+}
+
 /// Adds the repo `demo` and starts the task "Over MCP" in it as Claude Code does after
 /// `av init --for claude`: no `X-Av-Agent`, so the MCP session is named after the client,
 /// `claude-code`. Returns the task's workspace.

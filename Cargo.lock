@@ -2724,6 +2724,7 @@ dependencies = [
  "axum 0.8.9",
  "chrono",
  "clap",
+ "libc",
  "margincode-agentrun",
  "margincode-core",
  "margincode-daemon",

@@ -875,6 +875,9 @@ when one is named, else `user`.
   `409` because another run holds the area, a daemon out of reach for a moment) is printed and
   the loop goes on; it ends on Ctrl-C. One mode per process: `--verify --every D` repeats the
   verify pass.
+- The agent command runs in a process group of its own. Ctrl-C (SIGINT) or SIGTERM to `av dream`
+  while it runs kills that whole group, ends the run as failed (its area is free) and ends
+  `av dream`, an `--every` loop included, with a non-zero exit.
 
 Two ways to schedule. Cron starts one run at a time:
 

@@ -473,6 +473,28 @@ async fn refuse_conflict_markers(
 
 const CARRIER: &str = "av";
 
+/// The reviewer of the human approval `av` carried to the task's head.
+async fn carried_approver(st: &AppState, task: &Task) -> Result<Option<String>> {
+    let Some(last) = st.store.latest_verdict_any(task.id).await? else {
+        return Ok(None);
+    };
+    let Some(h0) = &last.carried_from else {
+        return Ok(None);
+    };
+    Ok(st
+        .store
+        .human_verdict_at(task.id, h0)
+        .await?
+        .map(|v| v.reviewer))
+}
+
+/// An agent name kept on its trailer line: a line break in it could forge an `av task` marker.
+fn one_line(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
 /// Carries the task's last human approval to its current head when the head only moved by a
 /// rebase that kept the approved change: reviewers judge the change, not every commit id it is
 /// rebased to. It carries only when
@@ -1008,8 +1030,8 @@ pub(crate) async fn merge(
     next(task.status, Event::MergeOk)?;
     let head = task.head_change.clone();
     carry_approval(&st, &task).await?;
-    match st.store.latest_verdict(task.id, &head).await? {
-        Some((_, Verdict::Approve)) => {}
+    let reviewer = match st.store.latest_verdict(task.id, &head).await? {
+        Some((reviewer, Verdict::Approve)) => reviewer,
         Some((reviewer, Verdict::RequestChanges)) => {
             return Err(AvError::IllegalState(format!(
                 "{reviewer} requested changes at head {}",
@@ -1024,7 +1046,7 @@ pub(crate) async fn merge(
             ))
             .into());
         }
-    }
+    };
     if let Some((pre_merge, main)) = merged_already(&st, &task).await? {
         return Ok(Json(
             record_merge(&st, &task, pre_merge, main, b.agent, true).await?,
@@ -1037,13 +1059,21 @@ pub(crate) async fn merge(
     if let Err(reason) = st.guard.check(action).await {
         return Err(AvError::IllegalState(format!("cannot merge: {reason}")).into());
     }
+    let reviewer = match reviewer.as_str() {
+        CARRIER => carried_approver(&st, &task).await?.unwrap_or(reviewer),
+        _ => reviewer,
+    };
     let records = st.store.task_records(task.id).await?;
+    // git trailers: the last paragraph, after the marker `merged_already` looks for
     let message = format!(
-        "{}\n\n{}\n\n{} ({})",
+        "{}\n\n{}\n\n{} ({})\n\nAv-Owner: {}\nAv-Reviewer: {}\nAv-Merged-By: {}",
         task.title,
         stated_intent(&task, &records),
         merge_marker(&task),
-        task.slug
+        task.slug,
+        one_line(&task.owner_agent),
+        one_line(&reviewer),
+        one_line(&b.agent)
     );
     match st
         .vcs

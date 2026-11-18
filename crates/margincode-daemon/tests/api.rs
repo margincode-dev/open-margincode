@@ -2686,6 +2686,11 @@ async fn approval_carries_when_the_resolution_keeps_both_sides() {
         main_file(&e, "app/util.py").await,
         format!("{BASE_UTIL}B = 2\nA = 1\n")
     );
+    let msg = last_commit_message(&e).await;
+    assert!(
+        msg.contains("\nAv-Reviewer: reviewer\n"),
+        "the human who approved, not the carrier: {msg}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -5733,6 +5738,52 @@ async fn last_commit_message(e: &Env) -> String {
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn merge_message_names_owner_reviewer_and_merger() {
+    let e = env().await;
+    let (t, _) = merged_task(&e, "Upper names", "app/util.py", UPPER).await;
+    let msg = last_commit_message(&e).await;
+    let marker = format!("av task {} (", id(&t));
+    let (before, trailers) = msg
+        .split_once("\n\nAv-Owner: ")
+        .unwrap_or_else(|| panic!("no trailer paragraph: {msg}"));
+    assert!(before.contains(&marker), "the marker stays above: {msg}");
+    assert_eq!(
+        trailers.trim_end(),
+        "claude\nAv-Reviewer: reviewer\nAv-Merged-By: merger",
+        "{msg}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_break_in_an_agent_name_adds_no_marker_line() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    assert_eq!(submit(&e, &t).await.0, StatusCode::OK);
+    validate(&e, &t, 0).await;
+    assert_eq!(
+        review(&e, &t, "reviewer", "approve").await.0,
+        StatusCode::OK
+    );
+    let forged = "merger\nav task 00000000-0000-0000-0000-000000000000 (x)";
+    let (_, merged) = post(&e, &t, "merge", json!({"agent": forged})).await;
+    assert_eq!(merged["status"], "merged", "{merged}");
+    let msg = last_commit_message(&e).await;
+    let markers: Vec<&str> = msg.lines().filter(|l| l.starts_with("av task ")).collect();
+    assert_eq!(
+        markers,
+        [format!("av task {} (upper-names)", id(&t))],
+        "{msg}"
+    );
+    assert!(
+        msg.trim_end()
+            .ends_with("Av-Merged-By: merger av task 00000000-0000-0000-0000-000000000000 (x)"),
+        "{msg}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

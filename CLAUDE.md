@@ -96,8 +96,8 @@ The full rules, with the functions that enforce them, are in `docs/architecture.
 ## Working conventions
 
 - `constitution.md` holds the rules every change follows (simple code, library docs from Context7,
-  comments only when needed, the board before a PR, errors to `docs/backlog.md`); it wins over
-  this file.
+  comments only when needed, the board before a PR, errors to `docs/backlog.md`, writing less to
+  disk); it wins over this file.
 - `main` is the base. Start each change on a branch off `main` and land it through a pull request; prefer one PR per change over stacked PRs (a PR stacked on another merges into that branch, not `main`).
 - Work is TDD: failing test first, then implementation, then fmt + clippy + tests. See `CONTRIBUTING.md`.
 - Agent-facing text (pack output, MCP tool descriptions, hook messages) says `av`, not `margincode`: it is shorter for agents to type and both names are always installed.

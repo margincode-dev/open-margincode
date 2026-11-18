@@ -48,6 +48,7 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
 
 ## How changes are made
 
+- **`constitution.md` first.** It holds the rules every change follows; what is below is how.
 - **Tests first.** Write the failing test, then the code. Daemon behaviour is tested through the
   HTTP API in `crates/margincode-daemon/tests/api.rs` (helpers in `tests/common/mod.rs`); many
   agents at once in `tests/swarm.rs`; MCP in `tests/mcp.rs`; context-pack output against golden

@@ -168,7 +168,12 @@ const FOCUS_LIMIT: usize = 10;
 const NAMED_PER_IDENT: usize = 4;
 const MAX_CODE_LINES: usize = 120;
 const MAX_SKELETON_LINES: usize = 30;
-const MAX_TREE_LINES: usize = 80;
+/// Children listed per top-level directory in the full repo map, so a large directory early in
+/// the alphabet cannot keep the later ones out.
+const MAX_TREE_CHILDREN: usize = 8;
+/// The task item is required and its handle carries the goal, so every first pack has the goal
+/// whatever the Task share; a longer one is clipped here.
+const MAX_GOAL_CHARS: usize = 1200;
 const MAX_CHANGED_LISTED: usize = 20;
 const MAX_UNREADABLE_NOTED: usize = 3;
 /// Above every `score::record_score` result: pinned review findings lead the History section.
@@ -812,6 +817,18 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         )
     };
     let summary = format!("{handle}\nGoal: {}{off_line}", task.goal);
+    let goal = task.goal.trim();
+    let handle = if goal.is_empty() {
+        handle
+    } else if goal.chars().count() <= MAX_GOAL_CHARS {
+        format!("{handle}\nGoal: {goal}")
+    } else {
+        format!(
+            "{handle}\nGoal: {} (`av expand task:{}` prints the rest)",
+            clip(goal, MAX_GOAL_CHARS),
+            task.slug
+        )
+    };
     let full = format!(
         "{summary}\nWorkspace: {}\nChanged ({}): {}",
         task.workspace_path.display(),
@@ -829,7 +846,8 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             1.0,
             [handle, summary, full],
         )
-        .because("task"),
+        .because("task")
+        .required_if(true),
     );
 
     for l in &located {
@@ -1738,24 +1756,23 @@ fn repo_tree_item(files: &[String], skeletons: &BTreeSet<String>) -> Option<Item
         }
     }
     let mut full = format!("- repo map ({} files):", files.len());
-    let mut lines = 0;
-    'outer: for (name, (is_dir, n)) in &top {
+    for (name, (is_dir, n)) in &top {
         if *is_dir {
             full.push_str(&format!("\n  {name} ({n} files)"));
         } else {
             full.push_str(&format!("\n  {name}"));
         }
-        for (child, (child_dir, m)) in children.get(name).into_iter().flatten() {
-            if lines >= MAX_TREE_LINES {
-                full.push_str("\n    …");
-                break 'outer;
-            }
-            lines += 1;
+        let listed = children.get(name);
+        let more = listed.map_or(0, |c| c.len().saturating_sub(MAX_TREE_CHILDREN));
+        for (child, (child_dir, m)) in listed.into_iter().flatten().take(MAX_TREE_CHILDREN) {
             if *child_dir {
                 full.push_str(&format!("\n    {child} ({m} files)"));
             } else {
                 full.push_str(&format!("\n    {child}"));
             }
+        }
+        if more > 0 {
+            full.push_str(&format!("\n    … +{more} more"));
         }
     }
     Some(

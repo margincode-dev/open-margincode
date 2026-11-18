@@ -2826,3 +2826,151 @@ async fn records_at_and_expand_say_the_origin_too() {
     let text = fx.packer.expand(fx.task.id, &short(&rec)).await.unwrap();
     assert!(text.contains(" decision, reverted: "), "{text}");
 }
+
+/// A task of `fx`'s repo with `goal`, on `fx`'s base and head.
+async fn task_with_goal(fx: &Fx, title: &str, goal: &str) -> Task {
+    let t = fx
+        .store
+        .create_task(NewTask {
+            goal: goal.into(),
+            ..new_task(title)
+        })
+        .await
+        .unwrap();
+    fx.store
+        .set_workspace(
+            t.id,
+            std::path::Path::new("/ws/demo/goal"),
+            &ChangeId("base".into()),
+        )
+        .await
+        .unwrap();
+    fx.store
+        .set_head(t.id, &ChangeId("head".into()), &["app/greeter.py".into()])
+        .await
+        .unwrap();
+    fx.store.get_task(t.id).await.unwrap()
+}
+
+#[tokio::test]
+async fn the_first_pack_prints_a_long_goal_at_the_default_budget() {
+    let fx = fixture().await;
+    let points = [
+        "alphapoint",
+        "bravopoint",
+        "charliepoint",
+        "deltapoint",
+        "echopoint",
+        "foxtrotpoint",
+    ];
+    let goal: String = points
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            format!(
+                "{}) {p}: make the greeter say hello louder for every caller, keep goodbye as it \
+                 is, and add a test that pins the new text so a later change cannot quietly \
+                 undo it.\n",
+                i + 1
+            )
+        })
+        .collect();
+    assert!(goal.len() > 900 && goal.len() <= 1200, "{}", goal.len());
+    let task = task_with_goal(&fx, "Louder greeter", &goal).await;
+    crowd(&fx).await;
+    let md = fx
+        .packer
+        .build(req(&task, 800, "s"))
+        .await
+        .unwrap()
+        .markdown;
+    for p in points {
+        assert!(md.contains(p), "{p} not in the first pack:\n{md}");
+    }
+}
+
+/// As in a real repository, what else is relevant fills an 800-token pack, so nothing is left
+/// over to upgrade the task item with.
+async fn crowd(fx: &Fx) {
+    for i in 0..40 {
+        fx.store
+            .add_record(record(
+                fx.task.id,
+                RecordKind::Decision,
+                &format!(
+                    "Greeter.hello decision {i}: keep the greeting short and the name \
+                     title-cased, as callers print it on one line of a narrow terminal"
+                ),
+                &"Why: callers print the greeting on one line. ".repeat(20),
+                vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+            ))
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_goal_too_long_for_the_first_pack_is_clipped_with_where_the_rest_is() {
+    let fx = fixture().await;
+    let goal = format!(
+        "{} tailmarker",
+        "make hello louder for every caller. ".repeat(80)
+    );
+    let task = task_with_goal(&fx, "Very long goal", &goal).await;
+    crowd(&fx).await;
+    let md = fx
+        .packer
+        .build(req(&task, 800, "s"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(md.contains("make hello louder for every caller."), "{md}");
+    assert!(
+        md.contains(&format!("`av expand task:{}`", task.slug)),
+        "{md}"
+    );
+    assert!(!md.contains("tailmarker"), "{md}");
+}
+
+#[tokio::test]
+async fn the_repo_map_lists_every_top_level_directory_before_any_directory_fills_it() {
+    let fx = fixture().await;
+    let mut files: Vec<(String, String)> = (0..500)
+        .map(|i| (format!("bench/case{i:03}/input.txt"), String::new()))
+        .collect();
+    for f in [
+        "crates/alpha/src/lib.rs",
+        "crates/beta/src/lib.rs",
+        "docs/guide.md",
+    ] {
+        files.push((f.to_owned(), String::new()));
+    }
+    let refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, c)| (p.as_str(), c.as_str()))
+        .collect();
+    fx.vcs.set("big", &refs);
+    let t = fx.store.create_task(new_task("Big tree")).await.unwrap();
+    fx.store
+        .set_workspace(
+            t.id,
+            std::path::Path::new("/ws/demo/big"),
+            &ChangeId("big".into()),
+        )
+        .await
+        .unwrap();
+    let t = fx.store.get_task(t.id).await.unwrap();
+    let md = fx
+        .packer
+        .build(req(&t, 20_000, "s"))
+        .await
+        .unwrap()
+        .markdown;
+    for child in ["alpha/", "beta/", "guide.md"] {
+        assert!(
+            md.contains(&format!("\n    {child}")),
+            "{child} not listed:\n{md}"
+        );
+    }
+    assert!(md.contains("\n    … +492 more"), "{md}");
+}

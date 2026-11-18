@@ -20,13 +20,15 @@ const BUDGETS: [u32; 3] = [300, 450, 600];
 /// Each mean over the 9 fixture tasks as measured when the gate was added, minus `MARGIN`,
 /// rounded down: (budget, files_named, files_code, symbols_sig).
 ///
-/// measured: 300 -> 1.000 / 0.444 / 0.333; 450 -> 1.000 / 0.833 / 0.556; 600 -> 1.000 / 1.000 / 0.833
-/// (`files_named` stays at 1.0 because the pack's map lists every path of a repo this small)
+/// measured: 300 -> 1.000 / 0.556 / 0.444; 450 -> 1.000 / 0.833 / 0.556; 600 -> 1.000 / 1.000 / 0.778
+/// (`files_named` stays at 1.0 because the pack's map lists every path of a repo this small).
+/// Re-measured when the task item's handle began to carry the goal and was reserved (F17): 300 rose
+/// from 0.444 / 0.333, and 600's `symbols_sig` fell from 0.833 (one task's signature, half of it).
 #[rustfmt::skip]
 const FLOORS: [(u32, f64, f64, f64); 3] = [
-    (300, 0.97, 0.41, 0.30),
+    (300, 0.97, 0.52, 0.41),
     (450, 0.97, 0.80, 0.52),
-    (600, 0.97, 0.97, 0.80),
+    (600, 0.97, 0.97, 0.74),
 ];
 
 fn ci_dir() -> PathBuf {

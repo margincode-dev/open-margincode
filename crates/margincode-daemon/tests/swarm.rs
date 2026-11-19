@@ -1302,3 +1302,214 @@ async fn an_undo_racing_a_retraction_of_one_of_its_verdicts_still_finishes() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["dream"]["status"], "undone", "{body}");
 }
+
+fn spawn_call(
+    e: &Env,
+    method: &'static str,
+    uri: String,
+    body: Option<Value>,
+) -> tokio::task::JoinHandle<(StatusCode, Value)> {
+    let app = e.app.clone();
+    tokio::spawn(async move { call(&app, method, &uri, body).await })
+}
+
+async fn joined(
+    calls: Vec<tokio::task::JoinHandle<(StatusCode, Value)>>,
+) -> Vec<(StatusCode, Value)> {
+    join_all(calls)
+        .await
+        .into_iter()
+        .map(Result::unwrap)
+        .collect()
+}
+
+const OTHERS: [&str; 4] = ["codex", "gemini", "grok", "claude"];
+
+/// muse takes an item and abandons its task, and four other agents could take the item next.
+/// Answers the item and the abandoned task.
+async fn abandoned_item(e: &Env) -> (uuid::Uuid, uuid::Uuid) {
+    set_profile(e, "muse", &[], &["code"], 1).await;
+    let (status, item) = post(
+        e,
+        "/v1/backlog",
+        json!({"repo": "demo", "title": "louder hello", "goal": "Extend the greeter",
+               "reserve_secs": 0}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{item}");
+    let (status, t) = post(
+        e,
+        "/v1/backlog/next",
+        json!({"agent": "muse", "session": "sess-muse"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["from"], "backlog", "{t}");
+    let abandoned: uuid::Uuid = id(&t).parse().unwrap();
+    let (status, body) = post(
+        e,
+        &format!("/v1/tasks/{abandoned}/abandon"),
+        json!({"agent": "muse"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (rank, agent) in (2..).zip(OTHERS) {
+        set_profile(e, agent, &[], &["code"], rank).await;
+    }
+    (item["id"].as_str().unwrap().parse().unwrap(), abandoned)
+}
+
+fn spawn_nexts(e: &Env) -> Vec<tokio::task::JoinHandle<(StatusCode, Value)>> {
+    OTHERS
+        .iter()
+        .map(|a| {
+            spawn_call(
+                e,
+                "POST",
+                "/v1/backlog/next".into(),
+                Some(json!({"agent": a, "session": format!("sess-{a}")})),
+            )
+        })
+        .collect()
+}
+
+fn spawn_requeues(e: &Env, item: uuid::Uuid) -> Vec<tokio::task::JoinHandle<(StatusCode, Value)>> {
+    (0..8)
+        .map(|_| spawn_call(e, "POST", format!("/v1/backlog/{item}/requeue"), None))
+        .collect()
+}
+
+fn count_status(answers: &[(StatusCode, Value)], status: StatusCode) -> usize {
+    answers.iter().filter(|(s, _)| *s == status).count()
+}
+
+async fn requeue_events(e: &Env) -> usize {
+    let (_, events) = call(
+        &e.app,
+        "GET",
+        "/v1/events?repo=demo&since=0&limit=500",
+        None,
+    )
+    .await;
+    events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| v["kind"] == "backlog:requeued")
+        .count()
+}
+
+/// The ids and statuses of the tasks started from the item, the abandoned one among them.
+async fn item_tasks(e: &Env) -> Vec<(uuid::Uuid, String)> {
+    sqlx::query_as("SELECT id, status FROM tasks WHERE title = 'louder hello'")
+        .fetch_all(e.store.pool())
+        .await
+        .unwrap()
+}
+
+async fn item_row(e: &Env, item: uuid::Uuid) -> (String, Option<uuid::Uuid>) {
+    sqlx::query_as("SELECT state, task_id FROM backlog WHERE id = $1")
+        .bind(item)
+        .fetch_one(e.store.pool())
+        .await
+        .unwrap()
+}
+
+/// The tasks `next` answered with; each must be the item's.
+fn taken(nexted: &[(StatusCode, Value)]) -> Vec<uuid::Uuid> {
+    let mut took = vec![];
+    for (s, b) in nexted {
+        assert_eq!(*s, StatusCode::OK, "{b}");
+        if !b["task"].is_null() {
+            assert_eq!(b["from"], "backlog", "{b}");
+            assert_eq!(b["task"]["title"], "louder hello", "{b}");
+            took.push(id(b).parse().unwrap());
+        }
+    }
+    took
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_requeue_is_won_once_and_a_drop_ends_the_item() {
+    let e = env().await;
+    let (item, abandoned) = abandoned_item(&e).await;
+    let nexts = spawn_nexts(&e);
+    let requeues = spawn_requeues(&e, item);
+    let drops: Vec<_> = (0..2)
+        .map(|_| spawn_call(&e, "DELETE", format!("/v1/backlog/{item}"), None))
+        .collect();
+    let requeued = joined(requeues).await;
+    let dropped = joined(drops).await;
+    let nexted = joined(nexts).await;
+
+    for (s, b) in requeued.iter().chain(&dropped) {
+        assert!(
+            *s == StatusCode::OK || *s == StatusCode::UNPROCESSABLE_ENTITY,
+            "{s}: {b}"
+        );
+    }
+    let requeues_ok = count_status(&requeued, StatusCode::OK);
+    let drops_ok = count_status(&dropped, StatusCode::OK);
+    assert!(requeues_ok <= 1, "{requeued:?}");
+    assert!(drops_ok <= 1, "{dropped:?}");
+    assert!(requeues_ok + drops_ok >= 1, "{requeued:?} {dropped:?}");
+    assert_eq!(requeue_events(&e).await, requeues_ok);
+
+    let took = taken(&nexted);
+    let tasks = item_tasks(&e).await;
+    assert!(
+        tasks.contains(&(abandoned, "abandoned".to_owned())),
+        "{tasks:?}"
+    );
+    let new: Vec<uuid::Uuid> = tasks
+        .iter()
+        .map(|(t, _)| *t)
+        .filter(|t| *t != abandoned)
+        .collect();
+    assert!(new.len() <= 1, "{tasks:?}");
+    assert_eq!(new, took, "{nexted:?}");
+
+    let (state, task_id) = item_row(&e, item).await;
+    // a drop also accepts a queued item, so one may land after the winning requeue; it can never
+    // land on an item a new task holds, and nothing takes a dropped item back
+    if drops_ok == 1 {
+        assert_eq!(state, "dropped");
+        assert!(new.is_empty(), "{tasks:?}");
+    } else if let Some(t) = new.first() {
+        assert_eq!((state.as_str(), task_id), ("taken", Some(*t)));
+    } else {
+        assert_eq!((state.as_str(), task_id), ("queued", None));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_requeued_item_starts_one_task() {
+    let e = env().await;
+    let (item, abandoned) = abandoned_item(&e).await;
+    let nexts = spawn_nexts(&e);
+    let requeued = joined(spawn_requeues(&e, item)).await;
+    let mut nexted = joined(nexts).await;
+    assert_eq!(count_status(&requeued, StatusCode::OK), 1, "{requeued:?}");
+    assert_eq!(
+        count_status(&requeued, StatusCode::UNPROCESSABLE_ENTITY),
+        7,
+        "{requeued:?}"
+    );
+    assert_eq!(requeue_events(&e).await, 1);
+    // every `next` may have looked before the requeue landed
+    if item_row(&e, item).await.0 == "queued" {
+        nexted.extend(joined(spawn_nexts(&e)).await);
+    }
+
+    let took = taken(&nexted);
+    assert_eq!(took.len(), 1, "{nexted:?}");
+    let mut tasks = item_tasks(&e).await;
+    tasks.sort_by_key(|(t, _)| *t != abandoned);
+    assert_eq!(tasks.len(), 2, "{tasks:?}");
+    assert_eq!(tasks[0], (abandoned, "abandoned".to_owned()));
+    assert_eq!(tasks[1].0, took[0], "{tasks:?}");
+    assert_eq!(
+        item_row(&e, item).await,
+        ("taken".to_owned(), Some(took[0]))
+    );
+}

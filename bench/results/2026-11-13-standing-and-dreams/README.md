@@ -599,20 +599,24 @@ registered floor of 50 with 10 a task. The margin is thin: 99 of 100 would have 
   dreamed 20/20, 0.839 to 1.000). The amendment named it as the task closest to the notes the text
   was fitted on (a fact contradicted by one line of the anchored code, as coupon-remove and
   money-plain) and kept it as the in-route contrast. Without it, raw and dreamed are 80 of 80 each
-  (Wilson 0.954 to 1.000 both): no difference. Without delete-order as well (the other task the
-  amendment called close to a fitted note, store-count), 60 of 60 each.
+  (Wilson 0.954 to 1.000 both): no difference. Without delete-order alone (the other task the
+  amendment called close to a fitted note, store-count), raw 71 of 80 (0.800 to 0.940) and dreamed
+  80 of 80 (0.954 to 1.000); without both, 60 of 60 each (`m2-heldout/checks/wilson-results.txt`).
 - **On the other four tasks raw had no room.** Raw was 20 of 20 on each, so the sessions did not
   test whether a dream helps against a wrong note whose evidence is in another file. The three
-  cross-file tasks, which were what this set added, are 20/20 in both arms. Every raw session's
-  transcript holds the start of its task's wrong note (20 of 20 on each task,
-  `m2-heldout/checks/delivery.txt`), so the note reached the agent (in the hook pack, at least as
-  its handle line, or in a pre-read answer) and Haiku did not follow it on those four.
+  cross-file tasks, which were what this set added, are 20/20 in both arms. The wrong note reached
+  every raw session on those four tasks in full, its advice included: each transcript holds the
+  note's last 60 characters (20 of 20 on each, `m2-heldout/checks/delivery-full.txt`), as a pre-read
+  answer or a pack line, and Haiku did not follow it. In the dreamed arm the note mostly came cut
+  short with its `(disputed)` mark: its last 60 characters were in 0 of 20 transcripts on each of
+  those four tasks, and in 17 of 20 on coupon-days-left; its opening, with the mark, in 20 of 20
+  (19 on order-comments; `m2-heldout/checks/delivery.txt`).
 - **On coupon-days-left the note misled raw.** Cold, with no notes, was 10 of 10 on it. All 9
   failed raw sessions ended with the note's formula, `(expires - today).days` floored at 0, in
   their `days_left`; one of them (rep 18) first wrote the correct `+ 1` and then replaced it with
   the note's version, and one (rep 16) also wrote `today >= self.expires` into `usable`.
-  In the dreamed arm the note carried its `(disputed: A coupon is still usable on its expires day
-  …)` mark in all 20 transcripts.
+  The full note reached 19 of the 20 raw sessions. In the dreamed arm the note carried its
+  `(disputed: A coupon is still usable on its expires day …)` mark in all 20 transcripts.
 - **What the freeze did is the only held-out evidence on the cross-file notes, and it is beside
   the claim, not under it.** One freeze, ten Sonnet 5.5 calls: every wrong note `disputed` in every
   store (25 of 25, so 15 of 15 on the three cross-file notes), each with a reason that names the
@@ -673,9 +677,9 @@ no room.
   no part of the wrong note (19 of 20 on that task); it passed.
 - **Smoke** (order-ids, raw, not a result): passed under amendment 1's conditions. It cost $0.0063,
   its largest request was 31 K tokens, `hook-count` was not empty, and verify ran.
-- **Recounted** a second time on the host from the committed `rows.jsonl` with `grep`
-  (`m2-heldout/checks/recount-host.txt`), apart from `analyze.py`: the same counts per arm and per
-  task. The copied files' sha256 match the container's.
+- **Recounted** a second time on the host from the committed `rows.jsonl` (`git show` of the
+  results commit) with `grep` (`m2-heldout/checks/recount-host.txt`), apart from `analyze.py`: the
+  same counts per arm and per task. The copied files' sha256 match the container's.
 
 **Spend:** run 3 cost **$3.0215** in all, under the $5.00 ceiling (`m2-heldout/checks/spend-*.txt`):
 

@@ -1,3 +1,4 @@
+# Recount from the committed rows (git show acc9e9d:<path>), with grep, apart from analyze.py
 m2-raw-ho rows=100 ok=100 accepted=91
      11 "task":"relay-coupon-days-left"      20 "task":"relay-delete-order"      20 "task":"relay-ledger-revenue"      20 "task":"relay-order-can-cancel"      20 "task":"relay-order-comments" 
 m2-dreamed-ho rows=100 ok=100 accepted=100

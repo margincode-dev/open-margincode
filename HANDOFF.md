@@ -1,4 +1,4 @@
-# Handoff: 2026-11-19
+# Handoff: 2026-11-18
 
 Delete this once you've acted on the open items. It links; the detail lives in the files named.
 

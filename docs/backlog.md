@@ -67,7 +67,10 @@ the suspected cause, marked as a guess; the status.
   (`MAX_BACKOFF`), so the push comes at most 5 min late. It looks harmless.
 - **Guess.** Not known which is meant: the comments, or the code (keep a backoff across
   restarts). Either the comments or the `WHERE` should change.
-- **Status.** Open.
+- **Status.** Fixed in this change. The owner chose the comments' behaviour (a restart is usually
+  someone fixing the remote): start-up now makes every configured backup due, one in backoff
+  too. Only the next retry moves; the failure count and last error stay, so the status still
+  shows them and a remote that is still down goes on backing off from where it was.
 
 ## 2026-11-18: two result files were stored with CRLF line endings
 

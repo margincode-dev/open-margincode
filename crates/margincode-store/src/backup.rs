@@ -134,15 +134,13 @@ impl PgStore {
         .map_err(serr)
     }
 
-    /// Makes every configured backup due, e.g. at startup, so a push lost to a restart is retried.
+    /// Makes every configured backup due, e.g. at startup, so a push lost to a restart is retried;
+    /// one in backoff too (a restart is usually someone fixing the remote). Failures are kept.
     pub async fn mark_backups_due(&self) -> Result<()> {
-        sqlx::query(
-            "UPDATE backup_state SET next_retry = now()
-             WHERE remote IS NOT NULL AND next_retry IS NULL",
-        )
-        .execute(self.pool())
-        .await
-        .map_err(serr)?;
+        sqlx::query("UPDATE backup_state SET next_retry = now() WHERE remote IS NOT NULL")
+            .execute(self.pool())
+            .await
+            .map_err(serr)?;
         Ok(())
     }
 }

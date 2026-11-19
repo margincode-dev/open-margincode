@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
@@ -34,6 +34,14 @@ use crate::error::ApiResult;
 
 /// How often the daemon looks for workspaces to reclaim.
 pub const RECLAIM_TICK: Duration = Duration::from_secs(60);
+
+/// How long the reclaim loop leaves a workspace it failed to remove before it tries again: what
+/// blocks a removal (a directory the daemon's user may not delete in) rarely goes by itself, and
+/// every try walks the workspace and logs a warning.
+const RECLAIM_RETRY: Duration = Duration::from_secs(3600);
+
+/// When the reclaim last failed to remove each task's workspace; `POST /v1/gc` ignores it.
+pub(crate) type FailedReclaims = Arc<Mutex<HashMap<TaskId, Instant>>>;
 
 /// `<ws_root>/<repo>/.scratch/<slug>`: a task's temporary files, removed with its workspace.
 const SCRATCH: &str = ".scratch";
@@ -779,12 +787,14 @@ pub(crate) async fn reclaim(
     reclaim_with(st, retain, dry_run, build_cache, true).await
 }
 
+/// `asked`: a client asked (`POST /v1/gc`), so the younger workspaces are listed and a workspace
+/// whose removal failed within `RECLAIM_RETRY` is tried too; the reclaim loop skips it.
 async fn reclaim_with(
     st: &AppState,
     retain: Option<u64>,
     dry_run: bool,
     build_cache: bool,
-    with_kept: bool,
+    asked: bool,
 ) -> Result<Reclaimed> {
     let mut out = Reclaimed {
         dry_run,
@@ -803,20 +813,44 @@ async fn reclaim_with(
             if !on_disk {
                 continue;
             }
+            let failed_at = st
+                .reclaim_failed
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&task.id)
+                .copied();
+            if !asked && failed_at.is_some_and(|at| at.elapsed() < RECLAIM_RETRY) {
+                continue;
+            }
             let _guard = st.lock_task(task.id).await;
             // an undo or revert may have brought it back while this waited for the lock
             let task = st.store.get_task(task.id).await?;
             if !ended(task.status) {
                 continue;
             }
-            match reclaim_locked(st, &task, dry_run).await {
+            let outcome = reclaim_locked(st, &task, dry_run).await;
+            if !dry_run {
+                let mut failed = st.reclaim_failed.lock().unwrap_or_else(|e| e.into_inner());
+                if outcome.is_err() {
+                    failed.insert(task.id, Instant::now());
+                } else {
+                    failed.remove(&task.id);
+                }
+            }
+            match outcome {
                 Ok(Some(gone)) => {
                     out.freed_bytes += gone.bytes;
                     out.reclaimed.push(gone);
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    tracing::warn!(task = %task.slug, error = %e, "reclaiming a workspace failed");
+                    tracing::warn!(
+                        task = %task.slug,
+                        error = %e,
+                        retry_secs = RECLAIM_RETRY.as_secs(),
+                        "reclaiming a workspace failed; the reclaim loop tries it again after \
+                         retry_secs (`av gc` tries it at once)"
+                    );
                     out.errors.push(Failed {
                         repo: task.repo.clone(),
                         slug: task.slug.clone(),
@@ -826,7 +860,7 @@ async fn reclaim_with(
             }
         }
     }
-    if with_kept {
+    if asked {
         let now = Utc::now();
         for (task, since) in st.store.tasks_with_status_since(None).await? {
             if !ended(task.status) || due.contains(&task.id) {

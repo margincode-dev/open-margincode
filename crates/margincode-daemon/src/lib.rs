@@ -82,6 +82,7 @@ pub struct AppState {
     /// good, `Some(0)` = removed by the merge or abandon itself.
     pub(crate) ws_retain: Option<u64>,
     pub(crate) reclaim_tick: std::time::Duration,
+    pub(crate) reclaim_failed: disk::FailedReclaims,
     /// `AV_DISK_MIN_FREE_GB`: the free space under `ws_root` below which the daemon reclaims on
     /// its own and makes no new task workspace (`disk::Floor`; off unless set).
     pub(crate) floor: disk::Floor,
@@ -153,6 +154,7 @@ impl AppState {
             token: None,
             ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
             reclaim_tick: disk::RECLAIM_TICK,
+            reclaim_failed: Arc::default(),
             floor: disk::Floor::default(),
             budget: disk::Budget::default(),
             store_root: None,

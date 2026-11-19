@@ -1147,6 +1147,119 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
     served.unwrap();
 }
 
+/// A workspace the tick failed to remove is not tried again on the next ticks; `POST /v1/gc`
+/// still tries it and says why it failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_reclaim_tick_backs_off_from_a_workspace_it_could_not_remove() {
+    let db = TestDb::new().await;
+    let dir = TempDir::new().unwrap();
+    let src = fixture_git_repo();
+    let cfg = config(&db, dir.path(), Some(1));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let ws = dir.path().join("ws");
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let seen: Arc<std::sync::Mutex<Vec<&'static str>>> = Arc::default();
+    let (hand, held) = tokio::sync::oneshot::channel::<AppState>();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let (layer_fail, layer_seen) = (fail.clone(), seen.clone());
+    let server = serve_with(
+        cfg,
+        listener,
+        |state: AppState| async move {
+            let state = state
+                .with_reclaim_tick(Duration::from_millis(200))
+                .with_vcs_layer(|inner| {
+                    Arc::new(CountingVcs {
+                        fail_remove: layer_fail,
+                        seen: layer_seen,
+                        ..CountingVcs::new(inner)
+                    })
+                });
+            let _ = hand.send(state.clone());
+            Ok::<_, BoxError>((state, Router::new()))
+        },
+        async move {
+            let _ = stopped.await;
+        },
+    );
+    let removes = move || {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter(|m| **m == "remove_workspace")
+            .count()
+    };
+    let client = async move {
+        let state = held.await.expect("serve_with ran the extension closure");
+        let mut passes = state.reclaim_passes();
+        ok(
+            addr,
+            "/v1/repos",
+            json!({"name": "demo", "git_source": src.path()}),
+        )
+        .await;
+        let t = ok(
+            addr,
+            "/v1/tasks",
+            json!({"repo": "demo", "title": "Wave hello", "goal": "Make hello louder",
+                   "agent": "claude", "session": "s-1"}),
+        )
+        .await;
+        let tid = t["task"]["id"].as_str().unwrap().to_owned();
+        let slug = t["task"]["slug"].as_str().unwrap().to_owned();
+        let wdir = ws.join("demo").join(&slug);
+        std::fs::write(wdir.join("app/greeter.py"), "def wave():\n    return 1\n").unwrap();
+        ok(
+            addr,
+            &format!("/v1/tasks/{tid}/records"),
+            json!({"kind": "decision", "summary": "wave", "agent": "claude"}),
+        )
+        .await;
+        for (op, body) in [
+            ("submit", json!({"agent": "claude"})),
+            (
+                "validate",
+                json!({"agent": "claude", "command": "pytest", "exit_code": 0}),
+            ),
+            (
+                "review",
+                json!({"reviewer": "reviewer", "verdict": "approve"}),
+            ),
+            ("merge", json!({"agent": "merger"})),
+        ] {
+            ok(addr, &format!("/v1/tasks/{tid}/{op}"), body).await;
+        }
+        eventually("the tick to try the workspace", async || removes() >= 1).await;
+        // the pass that failed may still run; the second one began after it
+        whole_passes(&mut passes, 2).await;
+        assert_eq!(removes(), 1, "the tick tried the failed workspace again");
+        assert!(wdir.exists());
+
+        let out = ok(addr, "/v1/gc", json!({})).await;
+        assert_eq!(removes(), 2, "a gc tries it whatever the tick does: {out}");
+        assert_eq!(out["errors"][0]["slug"], slug.as_str(), "{out}");
+        assert!(
+            out["errors"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("Permission denied"),
+            "{out}"
+        );
+
+        fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        let out = ok(addr, "/v1/gc", json!({})).await;
+        assert_eq!(out["reclaimed"][0]["slug"], slug.as_str(), "{out}");
+        assert!(out.get("errors").is_none(), "{out}");
+        assert!(!wdir.exists());
+        stop.send(()).unwrap();
+    };
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
+    served.unwrap();
+}
+
 const SERDE_LIB: &str = "a266d54d01e4376a";
 const SERDE_SCRIPT: &str = "1f0e2d3c4b5a6978";
 const SERDE_RUN: &str = "77a0bc3e1d2f4a55";

@@ -25,7 +25,10 @@ the suspected cause, marked as a guess; the status.
   root-owned, and the daemon's user cannot delete inside it. Two things could change: the test
   could build into a temporary directory instead of the checkout, and the tick could say once,
   not every minute, that a workspace cannot be reclaimed and why.
-- **Status.** Open. The three workspaces are gone; nothing in the code changed.
+- **Status.** The tick's half is fixed in this change: a workspace the tick failed to remove is
+  left for an hour (`RECLAIM_RETRY`) before it is tried again, so it warns once an hour, and
+  `av gc` still tries it at once and lists the error. The other half is open: `routing_tasks.rs`
+  still builds `bench/tasks-routing/repo` inside the checkout.
 
 ## 2026-11-18: the post-edit debounce test needs three CLI calls inside 2 s
 

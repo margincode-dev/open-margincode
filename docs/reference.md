@@ -1366,7 +1366,10 @@ av gc --containers          # also what merged and abandoned tasks left in docke
 **Workspaces of finished tasks.** Once a task has been merged or abandoned for
 `AV_WS_RETAIN_SECS` (default 3600), the daemon removes its workspace `<ws_root>/<repo>/<slug>` and
 its scratch dir, and forgets the jj workspace. The task's commits stay in the store. A sweep looks
-every 60 s; `av gc` does it on demand (`--retain SECS` overrides the setting for one run).
+every 60 s; `av gc` does it on demand (`--retain SECS` overrides the setting for one run). A
+workspace the sweep fails to remove (a directory in it the daemon's user may not delete) is logged
+once and left for an hour before the sweep tries it again; `av gc` tries it at once and lists why
+it failed under `errors`.
 `AV_WS_RETAIN_SECS=0` removes the workspace with the merge or abandon itself (their answer says
 `workspace: removed`); `never` leaves it to `av gc --retain`. Whatever the retention (but `never`), the merge
 or abandon removes the workspace's build output (`target/`) at once: it is the bulk of a Rust

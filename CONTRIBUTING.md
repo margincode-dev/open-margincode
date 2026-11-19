@@ -56,6 +56,10 @@ CLI's end-to-end flow, also run `scripts/smoke.sh`.
   Each crate's `tests/*.rs` files are modules of one test binary, `it` (declared in `tests/main.rs`;
   add a `mod` line for a new file): `cargo test -p margincode-daemon --test it api::NAME`. One
   executable per crate instead of one per file keeps a task's build output small.
+- **Timing.** "A test may wait for something to happen. It may not fail because something took long."
+  A: a test that needs a lapsed lease writes it (`expire_lease`) instead of sleeping past it.
+  B: to show "woken" or "does not wait", give the wrong path an hour: an answer at all is the proof.
+  C: one guard, `HANG` (120 s; `eventually` polls up to it); no other `elapsed() <` comparison.
 - **Migrations** live in `crates/margincode-store/migrations/`, numbered `000N_*.sql`. Take the next
   number after `main`'s highest; two branches with the same number break every database test.
   A merged migration is never edited, not even a comment: databases store its checksum and refuse

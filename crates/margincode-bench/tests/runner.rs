@@ -177,9 +177,7 @@ fn verify_timeout_kills_command_and_counts_failure() {
     let mut f = fixture("fix");
     f.spec.verify_cmd = "sleep 30".into();
     f.spec.verify_timeout_secs = 1;
-    let start = std::time::Instant::now();
     let o = run_session(&f.spec, Arm::Baseline, 1, "t3", &f.cfg).unwrap();
-    assert!(start.elapsed().as_secs() < 15);
     assert!(o.verify_timed_out);
     assert_eq!(o.verify_exit, None);
     assert!(!o.success());
@@ -190,9 +188,7 @@ fn session_timeout_kills_claude_and_leaves_a_truncated_stream() {
     let _g = serial();
     let mut f = fixture("sleep");
     f.spec.session_timeout_secs = 1;
-    let start = std::time::Instant::now();
     let o = run_session(&f.spec, Arm::Baseline, 1, "t4", &f.cfg).unwrap();
-    assert!(start.elapsed().as_secs() < 15);
     assert!(o.claude_killed);
     let events = std::fs::read_to_string(&o.events_path).unwrap();
     assert!(!events.contains("result"), "{events}");
@@ -791,7 +787,7 @@ fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
         verifier: "verifier".into(),
         verify_cmd: agent,
         limit: None,
-        timeout: std::time::Duration::from_secs(60),
+        timeout: HANG,
         fix_rounds: 0,
         rounds: 1,
         until_empty: false,

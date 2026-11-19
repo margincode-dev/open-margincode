@@ -11,6 +11,9 @@ use margincode_pack::{CodeDetail, PackRequest, Packer};
 use margincode_store::PgStore;
 use margincode_testutil::TestDb;
 
+/// The one bound on any wait in a test: past it, the test hung.
+pub const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// In-memory `Vcs`: a change id maps to a complete file set.
 #[derive(Default)]
 pub struct FakeVcs {

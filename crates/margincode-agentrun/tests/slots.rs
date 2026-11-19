@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 use margincode_agentrun::slots::{self, Kind};
 use tempfile::TempDir;
 
+use crate::HANG;
+
 #[test]
 fn a_host_hands_out_no_more_than_n_slots() {
     let dir = TempDir::new().unwrap();
@@ -14,10 +16,7 @@ fn a_host_hands_out_no_more_than_n_slots() {
     // shares the lock until it execs (see the module doc)
     let t = Instant::now();
     while slots::take(dir.path(), 2).unwrap().is_none() {
-        assert!(
-            t.elapsed() < Duration::from_secs(5),
-            "a freed slot is free again"
-        );
+        assert!(t.elapsed() < HANG, "hung: a freed slot is never free again");
         std::thread::sleep(Duration::from_millis(10));
     }
 }

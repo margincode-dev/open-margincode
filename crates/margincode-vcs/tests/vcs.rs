@@ -8,6 +8,9 @@ use margincode_core::{ChangeId, Vcs};
 use margincode_vcs::JjVcs;
 use tempfile::TempDir;
 
+/// The one bound on any wait in a test: past it, the test hung.
+const HANG: Duration = Duration::from_secs(120);
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .current_dir(dir)
@@ -84,10 +87,7 @@ fn hold(
     let hook = move |s: &str| {
         if s == slug && seen.fetch_add(1, Ordering::SeqCst) == skip {
             entered_tx.send(()).unwrap();
-            let _ = release_rx
-                .lock()
-                .unwrap()
-                .recv_timeout(Duration::from_secs(120));
+            let _ = release_rx.lock().unwrap().recv_timeout(10 * HANG);
         }
     };
     (entered, release, hook)
@@ -112,11 +112,11 @@ async fn snapshot_while_held(
     entered: mpsc::Receiver<()>,
     release: mpsc::Sender<()>,
 ) -> ChangeId {
-    tokio::task::spawn_blocking(move || entered.recv_timeout(Duration::from_secs(60)))
+    tokio::task::spawn_blocking(move || entered.recv_timeout(HANG))
         .await
         .unwrap()
         .expect("the held write never began");
-    let other = tokio::time::timeout(Duration::from_secs(60), vcs.snapshot("demo", "one")).await;
+    let other = tokio::time::timeout(HANG, vcs.snapshot("demo", "one")).await;
     release.send(()).unwrap();
     other
         .expect("a snapshot of another task waited for the held write")

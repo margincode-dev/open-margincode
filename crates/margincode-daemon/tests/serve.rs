@@ -1,7 +1,7 @@
 //! `serve_with` / `run_with`: the daemon's start-up as a library call, so a binary built on
 //! Margincode starts like `margincode-daemon` and adds its own routes and migrations.
 
-use std::time::Duration;
+use crate::common::{HANG, eventually};
 
 use axum::Router;
 use axum::extract::State;
@@ -67,13 +67,10 @@ async fn get_raw(addr: std::net::SocketAddr, path: &str, token: Option<&str>) ->
 }
 
 async fn wait_up(addr: std::net::SocketAddr) {
-    for _ in 0..200 {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    panic!("daemon never listened on {addr}");
+    eventually(&format!("the daemon to listen on {addr}"), async || {
+        tokio::net::TcpStream::connect(addr).await.is_ok()
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -112,11 +109,9 @@ async fn serve_with_serves_core_and_extension_routes_and_runs_extension_migratio
         );
         stop.send(()).unwrap();
     };
-    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
-        tokio::join!(server, client)
-    })
-    .await
-    .expect("daemon stops on the shutdown future");
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
     served.unwrap();
 }
 
@@ -179,10 +174,8 @@ async fn customize_can_watch_for_the_daemons_shutdown() {
             .expect("the extension task saw the shutdown");
         assert!(seen.load(Ordering::SeqCst));
     };
-    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
-        tokio::join!(server, client)
-    })
-    .await
-    .expect("daemon stops on the shutdown future");
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
     served.unwrap();
 }

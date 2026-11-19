@@ -1002,6 +1002,40 @@ async fn backup_state_tracks_remote_failures_and_due_repos() {
 }
 
 #[tokio::test]
+async fn backup_in_backoff_is_made_due_at_startup_and_keeps_its_failures() {
+    let (_db, s) = store().await;
+    for repo in ["at-rest", "in-backoff", "no-remote"] {
+        s.set_backup_remote(repo, Some("/srv/b.git"), None)
+            .await
+            .unwrap();
+    }
+    s.backup_succeeded("at-rest", &ChangeId("abc".into()))
+        .await
+        .unwrap();
+    s.backup_failed(
+        "in-backoff",
+        "unreachable",
+        std::time::Duration::from_secs(300),
+    )
+    .await
+    .unwrap();
+    s.set_backup_remote("no-remote", None, None).await.unwrap();
+    assert!(s.due_backups().await.unwrap().is_empty());
+
+    s.mark_backups_due().await.unwrap();
+
+    assert_eq!(
+        s.due_backups().await.unwrap(),
+        vec!["at-rest".to_owned(), "in-backoff".to_owned()]
+    );
+    let st = s.backup_state("in-backoff").await.unwrap();
+    assert_eq!(
+        (st.failures, st.last_error.as_deref()),
+        (1, Some("unreachable"))
+    );
+}
+
+#[tokio::test]
 async fn backup_state_keeps_the_branch_until_the_target_is_set_again() {
     let (_db, s) = store().await;
     let st = s

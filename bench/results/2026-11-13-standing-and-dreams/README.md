@@ -522,8 +522,13 @@ in the frozen dream, where stage B's freeze had confirmed quote-split's note.
 - **True lessons:** none got a verdict (judged 0 of 5 in each store). So "no true lesson
   `disputed` or `outdated`" holds only because none was judged, as in pilot 3.
 - **Undecided:** 7, 6 and 7 of 13 handed.
-- **Sessions that tried `--supersedes` on another task's record:** 0 of 180.
+- **Sessions that tried `--supersedes` on another task's record:** 0 of 180 (no session's
+  commands, in its `events.jsonl`, contained `--supersedes` at all; 155 of 180 ran `av`).
 - **Repeated dead ends** (the harness's count): raw 42, dreamed 0.
+- **Stage B beside this run** (not pooled; the old `DREAM.md`, 30 sessions a side): raw 14 of 30
+  (0.302 to 0.639), dreamed 21 of 30 (0.521 to 0.833); per task quote-split 0/10 and 1/10,
+  bus-resubscribe 4/10 and 10/10, tax-with-rate 10/10 and 10/10.
+- **Median session wall time:** raw 20.7 s, dreamed 18.6 s.
 - **Largest session and largest request:** the largest session cost $0.0081. The largest single
   request was about 31 K tokens of prompt, against a 100 K limit.
 - **Smoke** (order-ids, raw, not a result): passed under amendment 1's conditions. It cost

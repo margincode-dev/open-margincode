@@ -7,6 +7,22 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-19: a Workers Builds preview failed with "preview already exists"
+
+- **Where.** The Workers Builds check on #79 (branch `av/gate-per-task`), Cloudflare's preview
+  build for that branch.
+- **Seen.** The build failed at `npx wrangler preview` with an error that the preview already
+  exists. From the builds API, the Git integration had created that branch's preview 0.16 s after
+  the branch's preview trigger was made, before the build's own `wrangler preview` ran. A new build
+  started on the same commit through the trigger (`POST .../builds/triggers/{trigger}/builds`)
+  passed; the retry route for the failed build answered 404.
+- **Ruled out.** The change: #79 touched only a test, a README and this file, and the new build of
+  the same commit passed.
+- **Guess.** A race in Cloudflare's own setup between the integration's preview and the build
+  step's.
+- **Status.** Open, seen once. When it shows again, start a new build from the trigger rather than
+  merging on a red check.
+
 ## 2026-11-19: reclaim retried every tick on a workspace it could not delete
 
 - **Where.** The dogfood daemon (Docker image, user 1000, workspaces on a bind mount), in

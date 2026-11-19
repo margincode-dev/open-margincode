@@ -262,3 +262,29 @@ Free checks, all done before this commit (outputs in `checks-sonnet/`):
    harness, for the arm and for the smoke. Each prints its plan (30 sessions, or 1; `model:
    claude-sonnet-5-5`; agent isolation `benchagent`) and launches nothing. The cap and budget in
    these dry runs are placeholders.
+
+## The smoke's numbers (added after the smoke, before the first arm session)
+
+The amendment above was committed as `95b22e6` and pushed at 2026-11-19 19:02:47 UTC
+(`git ls-remote` showed `95b22e6`). The smoke ran after that push, from `m0schain.sh smoke A 0.50
+0.50` (19:03:10 to 19:03:47 UTC) and `m0schain.sh smoke B 0.50 0.50` (19:03:52 to 19:04:30 UTC).
+
+| session | status | harness | Claude Code | largest prompt | models | turns | edits |
+|---|---|---|---|---|---|---|---|
+| `smoke-s-a` (build A) | `ok` | $0.0704 | $0.0704 | 24,279 tokens | `claude-sonnet-5-5` | 10 | 1 |
+| `smoke-s-b` (build B) | `ok` | $0.0642 | $0.0642 | 24,454 tokens | `claude-sonnet-5-5` | 9 | 1 |
+
+**Both smokes pass.** Every row is `status=ok` and valid. The model answered and made an edit,
+and verify ran. `hook-count` shows session-start, pre-read, post-edit and stop. `meta.json` names
+`benchagent`, Claude Code 2.1.318 and `models: ["claude-sonnet-5-5"]`, and every assistant
+message in both event streams is from `claude-sonnet-5-5`. No session wrote a 1-hour cache entry.
+The harness's figure equals Claude Code's `total_cost_usd` in both sessions ($0.0704384 and
+$0.0642141).
+
+By the registered rule:
+
+- `m` = $0.0704. `C` = 3 × $0.0704384 = $0.2113, rounded up: **`--session-cap-usd 0.22`**.
+- `a` = $0.0673. `S` = $0.1347. `r` = 1 (the two figures agree).
+- `P` = $0.1347 + 60 × $0.0673 + $0.22 = **$4.39**, under $7.00: **the run goes on.**
+- The arms run as `m0schain.sh arms 0.22 7.00 1`. `av-before`'s budget will be $6.86, and
+  `av-phase0`'s will be what the ceiling leaves after `av-before`.

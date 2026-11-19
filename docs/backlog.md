@@ -189,6 +189,12 @@ the suspected cause, marked as a guess; the status.
   task unchanged, `token-skew` was already 0); at 300, `aging-due-today` gained its file and its
   signature (0 to 1). Why `cache-key-order`'s signature no longer fits at 600 is not looked at
   yet. A per-task line in the gate's report would answer the next such question at once.
+  The gate prints that line (each task's scores under each budget's means) since this change.
+  With it: at 600 on `main` the pack shows both of `cache-key-order`'s gold symbols, as signature
+  lines without `export` (`function cacheKey(...)`, 501 of 600 tokens used), and `score` does not
+  count them because it looks for the source line `export function ...`; so no section takes the
+  tokens. `token-skew` (an exported TypeScript function, 0 at every budget) may be the same miss
+  (guess, its pack not looked at).
 
 ## 2026-11-18: `av` on Windows does not read a Git Bash path
 

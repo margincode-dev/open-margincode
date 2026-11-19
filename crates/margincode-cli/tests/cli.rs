@@ -1537,24 +1537,51 @@ fn hook_post_edit_exits_zero_when_daemon_down() {
     assert!(err(&o).contains("checkpoint failed"), "{}", err(&o));
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+fn last_checkpoint_ms(ws: &Path) -> Option<u64> {
+    let tf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    tf["last_checkpoint_ms"].as_u64()
+}
+
+fn set_last_checkpoint_ms(ws: &Path, ms: u64) {
+    let mut tf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    tf["last_checkpoint_ms"] = ms.into();
+    std::fs::write(ws.join(".av-task"), tf.to_string()).unwrap();
+}
+
 #[test]
 fn hook_post_edit_debounces_within_two_seconds() {
     let (d, ws, _scratch) = started();
+    let before = now_ms();
     std::fs::write(ws.join("app/greeter.py"), "class Greeter:\n    pass\n").unwrap();
     ok(av(&d, &ws, &["hook", "post-edit"]));
     let status = ok(av(&d, &ws, &["status"]));
     assert!(status.contains("changed (1): app/greeter.py"), "{status}");
+    let stamp = last_checkpoint_ms(&ws);
+    assert!(stamp.is_some_and(|t| t >= before), "{stamp:?}");
+    // an hour ahead, so the hook is inside the window however late it runs
+    set_last_checkpoint_ms(&ws, now_ms() + 3_600_000);
     std::fs::write(ws.join("README.md"), "# changed\n").unwrap();
     ok(av(&d, &ws, &["hook", "post-edit"]));
     let status = ok(av(&d, &ws, &["status"]));
     assert!(
         status.contains("changed (1):"),
-        "second edit within 2 s is debounced: {status}"
+        "an edit inside the window is debounced: {status}"
     );
-    std::thread::sleep(std::time::Duration::from_millis(2100));
+    let old = now_ms() - 2_100;
+    set_last_checkpoint_ms(&ws, old);
     ok(av(&d, &ws, &["hook", "post-edit"]));
     let status = ok(av(&d, &ws, &["status"]));
     assert!(status.contains("changed (2):"), "{status}");
+    assert_ne!(last_checkpoint_ms(&ws), Some(old));
 }
 
 #[test]

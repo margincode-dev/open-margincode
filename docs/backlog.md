@@ -49,7 +49,9 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** The stamp lives in `.av-task` (`last_checkpoint_ms`). The test could write a fresh
   stamp into the task file before the second edit instead of relying on the first hook's, and an
   old one (more than 2 s back) instead of sleeping 2.1 s.
-- **Status.** Open.
+- **Status.** Fixed in this change: the test writes `last_checkpoint_ms` an hour ahead before the
+  in-window edit and 2.1 s back before the last one, so neither half depends on how long a call
+  takes, and the 2.1 s sleep is gone. It still checks that the first hook writes the stamp.
 
 ## 2026-11-18: a backup in backoff keeps its backoff across a daemon restart
 

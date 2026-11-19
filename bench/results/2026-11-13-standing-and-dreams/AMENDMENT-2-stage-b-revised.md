@@ -247,4 +247,23 @@ m2rcmd.sh run bench/tasks-m0 --arms av --jit-hooks --reps 30 --session-cap-usd 0
 
 **Results of the freeze and the free checks** (second commit, before the first session):
 
-- To be filled.
+- **The daemon** was started once, stopped before any command reached it (it had been started
+  with a umask of 077, which stage B's daemon did not have), and started again with the default
+  umask; that second start serves everything here. `GET /v1/version` answers
+  `"plain_records":true`; the database holds migrations to 0032.
+- **The freeze** (`m2rcmd.sh dream-freeze ...` as written above) exited 0. Each task's review run
+  was handed all 13 records of its store: the freeze is used. `dreamed.json` sha256
+  `fe405a5b1131f4ab295b63e02564cfc8473500c7cea127bf606241ae42dbec7b`. Cost: **$0.6079** over 6
+  agent calls (0.0764, 0.1393, 0.0856, 0.1188, 0.1096, 0.0783; none hit the $0.25 cap).
+- **The verdicts it ended with** (each verified, `effective`): each task's own wrong note
+  **disputed** in its own store (bus-resubscribe, quote-split, tax-with-rate). Wrong-note
+  verdicts `disputed`: 6, 7 and 6 of 8 (19 of 24); no wrong note `confirmed`. No true lesson got a
+  verdict (judged 0 of 5 in each store). Undecided: 7, 6 and 7 of 13 handed. No `duplicate` or
+  `outdated` verdict.
+- **Free checks: pass.** `first-packs-raw/` and `first-packs-dreamed/`: no pack line contains
+  `--supersedes` and none carries an origin label; each task's wrong note is in its hook pack (3
+  of 3). Raw and dreamed packs differ in each task, and only by `(disputed)` marks and the
+  re-ranking the ×0.3 brings; no record is hidden. Record and symbol ids differ because each run
+  seeds its own repository.
+- After the freeze and the free checks their dream, run and workspace directories and
+  `dreamed.json` were closed (700).

@@ -1,0 +1,40 @@
+## build A, the arm (dry run, cap and budget placeholders)
+plan: 3 tasks × 1 arms × 10 reps = 30 sessions (seed 1)
+model: claude-sonnet-5-5
+  av: 30 sessions
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $15.00 at the $0.50 per-session cap
+budget: $6.50; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+dry run: nothing launched (pass --confirm to run)
+exit=0
+## build A, the smoke (dry run)
+plan: 1 tasks × 1 arms × 1 reps = 1 sessions (seed 1)
+model: claude-sonnet-5-5
+  av: 1 sessions (below 30: no significance claim)
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $0.50 at the $0.50 per-session cap
+budget: $0.50; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+dry run: nothing launched (pass --confirm to run)
+exit=0
+## build B, the arm (dry run, cap and budget placeholders)
+plan: 3 tasks × 1 arms × 10 reps = 30 sessions (seed 1)
+model: claude-sonnet-5-5
+  av: 30 sessions
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $15.00 at the $0.50 per-session cap
+budget: $6.50; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+dry run: nothing launched (pass --confirm to run)
+exit=0
+## build B, the smoke (dry run)
+plan: 1 tasks × 1 arms × 1 reps = 1 sessions (seed 1)
+model: claude-sonnet-5-5
+  av: 1 sessions (below 30: no significance claim)
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $0.50 at the $0.50 per-session cap
+budget: $0.50; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+dry run: nothing launched (pass --confirm to run)
+exit=0
+first-packs-s-a
+first-packs-s-b
+fp55f5
+fp5722

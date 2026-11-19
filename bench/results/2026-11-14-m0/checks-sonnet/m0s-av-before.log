@@ -1,0 +1,37 @@
+scholion-bench: relay-bus-resubscribe · av · rep 1 (spent $-0.00 of $6.86)
+scholion-bench: relay-quote-split · av · rep 1 (spent $0.05 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 1 (spent $0.11 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 2 (spent $0.17 of $6.86)
+scholion-bench: relay-quote-split · av · rep 2 (spent $0.22 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 2 (spent $0.28 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 3 (spent $0.34 of $6.86)
+scholion-bench: relay-quote-split · av · rep 3 (spent $0.39 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 3 (spent $0.45 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 4 (spent $0.50 of $6.86)
+scholion-bench: relay-quote-split · av · rep 4 (spent $0.55 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 4 (spent $0.62 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 5 (spent $0.68 of $6.86)
+scholion-bench: relay-quote-split · av · rep 5 (spent $0.72 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 5 (spent $0.79 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 6 (spent $0.85 of $6.86)
+scholion-bench: relay-quote-split · av · rep 6 (spent $0.89 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 6 (spent $0.96 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 7 (spent $1.02 of $6.86)
+scholion-bench: relay-quote-split · av · rep 7 (spent $1.07 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 7 (spent $1.14 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 8 (spent $1.19 of $6.86)
+scholion-bench: relay-quote-split · av · rep 8 (spent $1.24 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 8 (spent $1.30 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 9 (spent $1.36 of $6.86)
+scholion-bench: relay-quote-split · av · rep 9 (spent $1.41 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 9 (spent $1.47 of $6.86)
+scholion-bench: relay-bus-resubscribe · av · rep 10 (spent $1.53 of $6.86)
+scholion-bench: relay-quote-split · av · rep 10 (spent $1.57 of $6.86)
+scholion-bench: relay-tax-with-rate · av · rep 10 (spent $1.64 of $6.86)
+plan: 3 tasks × 1 arms × 10 reps = 30 sessions (seed 1)
+model: claude-sonnet-5-5
+  av: 30 sessions
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $6.60 at the $0.22 per-session cap
+budget: $6.86; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+report: /m2b/m0s/results/m0s-av-before/report.md

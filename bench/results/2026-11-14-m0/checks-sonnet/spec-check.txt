@@ -1,0 +1,34 @@
+## build A: check bench/tasks-m0
+relay-bus-resubscribe: ok
+relay-quote-split: ok
+relay-tax-with-rate: ok
+exit=0
+## build A: check bench/tasks-relay
+relay-coupon-remove: ok
+relay-customer-region: ok
+relay-ledger-refund: ok
+relay-line-taxes: ok
+relay-money-plain: ok
+relay-order-ids: ok
+relay-product-slug: ok
+relay-quote-split: ok
+relay-refund-event: ok
+relay-store-count: ok
+exit=0
+## build B: check bench/tasks-m0
+relay-bus-resubscribe: ok
+relay-quote-split: ok
+relay-tax-with-rate: ok
+exit=0
+## build B: check bench/tasks-relay
+relay-coupon-remove: ok
+relay-customer-region: ok
+relay-ledger-refund: ok
+relay-line-taxes: ok
+relay-money-plain: ok
+relay-order-ids: ok
+relay-product-slug: ok
+relay-quote-split: ok
+relay-refund-event: ok
+relay-store-count: ok
+exit=0

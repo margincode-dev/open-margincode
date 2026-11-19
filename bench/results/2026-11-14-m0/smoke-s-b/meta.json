@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-19 19:03 UTC",
+  "claude_version": "2.1.318 (Claude Code)",
+  "av_rev": "unknown",
+  "models": [
+    "claude-sonnet-5-5"
+  ],
+  "seed": 1,
+  "av_mcp": false,
+  "agent_isolation": "benchagent"
+}

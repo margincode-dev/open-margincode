@@ -1,0 +1,13 @@
+build task pack: wrong note whole | its rec: handle on that line | the line | directly under 'Decisions & dead ends'
+A relay-quote-split hook: yes | yes | no | no
+A relay-quote-split start: yes | yes | no | no
+A relay-bus-resubscribe hook: yes | yes | no | no
+A relay-bus-resubscribe start: yes | yes | no | no
+A relay-tax-with-rate hook: yes | yes | no | no
+A relay-tax-with-rate start: no | no | no | no
+B relay-quote-split hook: yes | yes | yes | yes
+B relay-quote-split start: yes | yes | yes | yes
+B relay-bus-resubscribe hook: yes | yes | yes | yes
+B relay-bus-resubscribe start: yes | yes | yes | yes
+B relay-tax-with-rate hook: yes | yes | yes | yes
+B relay-tax-with-rate start: no | no | no | no

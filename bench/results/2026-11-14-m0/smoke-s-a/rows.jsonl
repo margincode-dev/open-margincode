@@ -1,0 +1,1 @@
+{"task":"relay-order-ids","arm":"av","rep":1,"status":"ok","success":true,"metrics":{"tokens_to_first_edit":9100,"tokens_total":13331,"cost_usd":0.0704384,"turns":10,"tool_calls":8,"repeated_dead_ends":0,"truncated":false,"input_tokens":224712},"wall_secs":25.225919973,"cost_usd":0.0704384,"memory_tokens":678}

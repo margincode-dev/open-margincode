@@ -1,0 +1,20 @@
+## command PATH of build A (build B bin closed)
+which -a av: /m2b/m0s/A/bin/av 
+av record --help names --supersedes: 0
+/m2b/m0s/B/bin/av refused
+tree-s closed
+bench-repos closed
+results closed
+sources closed
+venv pytest 9.2.0
+2.1.318 (Claude Code)
+## command PATH of build B (build A bin closed)
+which -a av: /m2b/m0s/B/bin/av 
+av record --help names --supersedes: 1
+/m2b/m0s/A/bin/av refused
+tree-s closed
+bench-repos closed
+results closed
+sources closed
+venv pytest 9.2.0
+2.1.318 (Claude Code)

@@ -1,0 +1,46 @@
+## reference/check.py
+ok  tax-with-rate: reference passes, dead end fails
+ok  tax-with-rate (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+all 13 pairs ok (3 of them silent)
+## tasks-relay-silent/check_set.py
+ok  order-merge: note of 195 characters; dead edit matches=True, good edit matches=False
+ok  tax-with-rate: note of 199 characters; dead edit matches=True, good edit matches=False
+silent set ok
+## tasks-m0/check_set.py
+BAD bus-resubscribe: the spec of ../tasks-relay-silent, byte for byte
+BAD tax-with-rate: the spec of ../tasks-relay-silent, byte for byte
+BAD quote-split: the spec of ../tasks-relay-wrong, relay_pool set to notes-silent.toml
+ok  bus-resubscribe: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  quote-split: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  tax-with-rate: its own note in notes-silent.toml is a wrong decision, no_commit, anchored
+ok  bus-resubscribe (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  quote-split (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  tax-with-rate (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+    bus-resubscribe.toml differs from ../tasks-relay-silent/bus-resubscribe.toml
+    tax-with-rate.toml differs from ../tasks-relay-silent/tax-with-rate.toml
+    quote-split: a field other than relay_pool differs from ../tasks-relay-wrong
+3 problem(s)
+exit=1
+## diffs behind the three BAD lines on tree-s
+9c9
+< model = "claude-sonnet-5-5"
+---
+> model = "deepseek-flash"
+9c9
+< model = "claude-sonnet-5-5"
+---
+> model = "deepseek-flash"
+9c9
+< model = "claude-sonnet-5-5"
+---
+> model = "deepseek-flash"
+11c11
+< relay_pool = "../tasks-relay/pool/notes-silent.toml"
+---
+> relay_pool = "../tasks-relay/pool/notes-wrong.toml"
+## tasks-m0/check_set.py on the unchanged run tree (7dd5208)
+ok  bus-resubscribe (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  quote-split (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  tax-with-rate (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+M0 set ok
+exit=0

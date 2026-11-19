@@ -59,7 +59,7 @@ Reruns differ by about ±0.02 between themselves (semantic search sometimes time
 
 ## CI regression gate
 
-`cargo test -p margincode-bench --test retrieval_gate` (part of `cargo test --workspace`, about 5 s)
+`cargo test -p margincode-bench --test it retrieval_gate::` (part of `cargo test --workspace`, about 5 s)
 runs the same pipeline on a fixture in `bench/retrieval/ci/`: a 12-file repo in Python, Rust and
 TypeScript (`repo/`), nine tasks (`tasks.jsonl`: a goal each) and one patch per task (`fixes/`) that
 is the fix. It starts a real daemon with no semantic layer, so it guards the lexical, structural
@@ -69,7 +69,7 @@ may not fall below `FLOORS` in `crates/margincode-bench/tests/retrieval_gate.rs`
 small because the fixture is: past about 1000 tokens everything fits and any ranking scores 1.0.
 
 To change a floor on purpose, run the test with `-- --nocapture`, which prints the measured mean for
-every metric and budget, set each floor to that value minus 0.03 (rounded down), record the
+every metric and budget and, under each budget, one line per task with its scores, set each floor to that value minus 0.03 (rounded down), record the
 measured values in the comment above `FLOORS`, and say in the commit message why retrieval
 dropped. The nightly workflow (`.github/workflows/nightly-scale.yml`, job `retrieval`) checks the
 same floors through the release binaries (`E1_FLOORS`); change them there too. It builds the

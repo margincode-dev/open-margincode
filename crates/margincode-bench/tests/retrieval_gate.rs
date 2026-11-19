@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::common::*;
-use margincode_bench::retrieval::{RetrievalArgs, RetrievalTask, Row, run};
+use margincode_bench::retrieval::{RetrievalArgs, RetrievalTask, Row, Scores, run};
 use margincode_bench::runner::Daemon;
 use tempfile::TempDir;
 
@@ -80,6 +80,42 @@ fn mean(rows: &[&Row], f: impl Fn(&Row) -> f64) -> f64 {
     rows.iter().map(|r| f(r)).sum::<f64>() / rows.len() as f64
 }
 
+/// The gate's printed report and the floors it fell below.
+fn gate_report(packs: &[&Row]) -> (String, Vec<String>) {
+    let mut report = String::new();
+    let mut failed = vec![];
+    for (budget, named, code, sig) in FLOORS {
+        let at: Vec<&Row> = packs
+            .iter()
+            .copied()
+            .filter(|r| r.budget == budget)
+            .collect();
+        for (metric, floor, got) in [
+            ("files_named", named, mean(&at, |r| r.scores.files_named)),
+            ("files_code", code, mean(&at, |r| r.scores.files_code)),
+            ("symbols_sig", sig, mean(&at, |r| r.scores.symbols_sig)),
+        ] {
+            report += &format!("pack {metric} at {budget}: {got:.3} (floor {floor:.2})\n");
+            if got < floor {
+                failed.push(format!("{metric} at {budget}: {got:.3} < {floor:.2}"));
+            }
+        }
+        let mut by_task = at;
+        by_task.sort_by(|a, b| a.task.cmp(&b.task));
+        for r in by_task {
+            report += &format!(
+                "  {budget} {}: files_named {:.3} files_code {:.3} symbols_sig {:.3} of {}\n",
+                r.task,
+                r.scores.files_named,
+                r.scores.files_code,
+                r.scores.symbols_sig,
+                r.gold_symbols
+            );
+        }
+    }
+    (report, failed)
+}
+
 #[test]
 fn the_pack_keeps_its_retrieval_scores_on_the_fixture_repo() {
     let repo = TempDir::new().unwrap();
@@ -106,35 +142,76 @@ fn the_pack_keeps_its_retrieval_scores_on_the_fixture_repo() {
         "every fixture task must be scored"
     );
 
-    let mut report = String::new();
-    let mut failed = vec![];
-    for (budget, named, code, sig) in FLOORS {
-        let at: Vec<&Row> = packs
-            .iter()
-            .copied()
-            .filter(|r| r.budget == budget)
-            .collect();
-        for (metric, floor, got) in [
-            ("files_named", named, mean(&at, |r| r.scores.files_named)),
-            ("files_code", code, mean(&at, |r| r.scores.files_code)),
-            ("symbols_sig", sig, mean(&at, |r| r.scores.symbols_sig)),
-        ] {
-            report += &format!("pack {metric} at {budget}: {got:.3} (floor {floor:.2})\n");
-            if got < floor {
-                failed.push(format!("{metric} at {budget}: {got:.3} < {floor:.2}"));
-            }
-        }
-    }
+    let (report, failed) = gate_report(&packs);
     eprintln!("{report}");
     assert!(
         failed.is_empty(),
         "the pack's retrieval fell below the E1 CI floors:\n  {}\n\n\
          If this change should lower retrieval on purpose, re-measure with\n  \
-         cargo test -p margincode-bench --test retrieval_gate -- --nocapture\n\
+         cargo test -p margincode-bench --test it retrieval_gate:: -- --nocapture\n\
          and set FLOORS in {} to each printed value minus {MARGIN}, rounded down, and say why in the\n\
-         commit message. Otherwise fix the regression. Per-task texts: run `margincode-bench retrieval`\n\
-         (bench/retrieval/README.md) on the fixture.\n",
+         commit message. Otherwise fix the regression. The indented lines of the report name each\n\
+         task's scores; per-task texts: run `margincode-bench retrieval` (bench/retrieval/README.md)\n\
+         on the fixture.\n",
         failed.join("\n  "),
         file!()
     );
+}
+
+fn row(task: &str, budget: u32, sig: f64) -> Row {
+    Row {
+        task: task.into(),
+        method: "pack".into(),
+        budget,
+        leak: false,
+        gold_files: 1,
+        gold_symbols: 2,
+        degraded: vec![],
+        scores: Scores {
+            files_named: 1.0,
+            files_code: sig,
+            symbols_sig: sig,
+            ..Scores::default()
+        },
+    }
+}
+
+#[test]
+fn the_gate_report_names_each_task_and_its_lines_add_up_to_the_means() {
+    let mut rows = vec![];
+    for b in BUDGETS {
+        for (task, sig) in [("c", 0.5), ("a", 1.0), ("b", 0.0)] {
+            rows.push(row(task, b, sig));
+        }
+    }
+    let packs: Vec<&Row> = rows.iter().collect();
+    let (report, _) = gate_report(&packs);
+    let value = |line: &str, metric: &str| -> f64 {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let at = words.iter().position(|w| *w == metric).unwrap();
+        words[at + 1].parse().unwrap()
+    };
+    for b in BUDGETS {
+        let prefix = format!("  {b} ");
+        let lines: Vec<&str> = report
+            .lines()
+            .filter_map(|l| l.strip_prefix(prefix.as_str()))
+            .collect();
+        let names: Vec<&str> = lines.iter().map(|l| l.split(':').next().unwrap()).collect();
+        assert_eq!(
+            names,
+            ["a", "b", "c"],
+            "one line per task at {b}, sorted:\n{report}"
+        );
+        for metric in ["files_named", "files_code", "symbols_sig"] {
+            let per_task = lines.iter().map(|l| value(l, metric)).sum::<f64>() / lines.len() as f64;
+            let head = format!("pack {metric} at {b}:");
+            let line = report.lines().find(|l| l.starts_with(&head)).unwrap();
+            let reported: f64 = line.split_whitespace().nth(4).unwrap().parse().unwrap();
+            assert!(
+                (per_task - reported).abs() < 0.001,
+                "{metric} at {b}: tasks average {per_task:.3}, the report says {reported:.3}\n{report}"
+            );
+        }
+    }
 }

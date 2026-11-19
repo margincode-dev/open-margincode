@@ -7,6 +7,26 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-19: reclaim retried every tick on a workspace it could not delete
+
+- **Where.** The dogfood daemon (Docker image, user 1000, workspaces on a bind mount), in
+  `disk.rs`'s reclaim tick.
+- **Seen.** `WARN reclaiming a workspace failed task=... error=vcs error: Permission denied (os
+  error 13)` for three ended tasks, once a minute each (`RECLAIM_TICK`), 2,316 lines in a day.
+  By the code a gc's answer lists such a task under `errors` (`av gc` was not run); the log was
+  the only place it was noticed. Each workspace held `bench/tasks-routing/repo` owned by root,
+  mode 755, with a `.git` inside. Removing that one directory from the host let the next tick
+  reclaim all three (15 MB).
+- **Ruled out.** The files the agent edited from the host: they also show as root-owned through
+  the bind mount, but with mode 777 inside directories the daemon owns, and they delete fine.
+- **Guess.** `margincode-bench`'s `tests/routing_tasks.rs` runs `make-repo.py`, which builds that
+  repository inside the source tree when it is missing. A `cargo test` run as root in a container
+  with the workspace mounted (how the bar ran before rule 12 moved it to a volume) left it
+  root-owned, and the daemon's user cannot delete inside it. Two things could change: the test
+  could build into a temporary directory instead of the checkout, and the tick could say once,
+  not every minute, that a workspace cannot be reclaimed and why.
+- **Status.** Open. The three workspaces are gone; nothing in the code changed.
+
 ## 2026-11-18: the post-edit debounce test needs three CLI calls inside 2 s
 
 - **Where.** `margincode-cli` `tests/cli.rs` `hook_post_edit_debounces_within_two_seconds`, found

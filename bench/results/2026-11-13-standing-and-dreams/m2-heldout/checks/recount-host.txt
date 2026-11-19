@@ -1,0 +1,10 @@
+m2-raw-ho rows=100 ok=100 accepted=91
+     11 "task":"relay-coupon-days-left"      20 "task":"relay-delete-order"      20 "task":"relay-ledger-revenue"      20 "task":"relay-order-can-cancel"      20 "task":"relay-order-comments" 
+m2-dreamed-ho rows=100 ok=100 accepted=100
+     20 "task":"relay-coupon-days-left"      20 "task":"relay-delete-order"      20 "task":"relay-ledger-revenue"      20 "task":"relay-order-can-cancel"      20 "task":"relay-order-comments" 
+m2-raw-m0c rows=30 ok=30 accepted=16
+      5 "task":"relay-bus-resubscribe"       1 "task":"relay-quote-split"      10 "task":"relay-tax-with-rate" 
+m2-dreamed-m0c rows=30 ok=30 accepted=30
+     10 "task":"relay-bus-resubscribe"      10 "task":"relay-quote-split"      10 "task":"relay-tax-with-rate" 
+m2-cold-ho rows=50 ok=50 accepted=50
+     10 "task":"relay-coupon-days-left"      10 "task":"relay-delete-order"      10 "task":"relay-ledger-revenue"      10 "task":"relay-order-can-cancel"      10 "task":"relay-order-comments" 

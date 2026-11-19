@@ -556,3 +556,153 @@ had been spent. Neither budget bound.
   bind.
 - **Run 1's daemon (a separate store and port) was also up during the run.** It was idle; no
   command of this run used it.
+
+## M2 stage B, amendment 3: raw against dreamed on five held-out tasks, results, 2026-11-19
+
+Run as `AMENDMENT-3-held-out.md` registers it, on the branch `heldout-amendment-3`. Its three
+commits before the run were pushed before the first paid command and the first session
+(GitHub's branch activity): the build and the checks at 13:01:51 UTC, before the freeze started at
+13:02:08; the frozen dream and free check 5 at 13:10:17, before the smoke started at 13:10:29.
+They were not merged first. Amendment 2's binaries (`main` at `21f30dc`), a run tree of
+`21ac445`, one new daemon with `AV_PLAIN_RECORDS=on`, one new freeze, the five tasks of
+`bench/tasks-heldout`, Claude Haiku 5.5, 100 sessions per arm. The smoke ran 13:10 to 13:11 UTC,
+raw 13:11 to 14:07, dreamed 14:07 to 15:06, the M0 row 15:06 to 15:39, cold 15:40 to 15:53
+(`m2-heldout/checks/chain.log`). Results are in `m2-heldout/`. The sessions do not pool with stage
+B's or amendment 2's.
+
+**Primary (pooled over the five held-out tasks, valid sessions; Wilson 95 % by
+`margincode_bench::stats::wilson_interval`, `m2-heldout/wilson.rs`):**
+
+| arm | valid | accepted | rate | 95 % Wilson | cost |
+|---|---|---|---|---|---|
+| raw | 100 | 91 | 0.910 | 0.838 to 0.952 | $0.6128 |
+| dreamed | 100 | 100 | 1.000 | 0.963 to 1.000 | $0.6180 |
+
+**Decision by the claim rule: dreaming helps.** The intervals are disjoint: dreamed's lower end,
+0.963, is above raw's upper end, 0.952. Both arms have 100 valid sessions, 20 per task, over the
+registered floor of 50 with 10 a task. The margin is thin: 99 of 100 would have given 0.946 to
+0.998, and the intervals would have overlapped.
+
+**Per task** (described, not claimed; 20 sessions a task a side, cold 10):
+
+| task | where the evidence is | raw | dreamed | cold (no notes) |
+|---|---|---|---|---|
+| order-can-cancel | another file | 20/20 | 20/20 | 10/10 |
+| delete-order | another file | 20/20 | 20/20 | 10/10 |
+| order-comments | another file | 20/20 | 20/20 | 10/10 |
+| ledger-revenue | the anchored file, two lines | 20/20 | 20/20 | 10/10 |
+| coupon-days-left | the anchored class, one line | 11/20 | 20/20 | 10/10 |
+
+**What this shows, and what it does not.**
+
+- **The whole difference is one task, coupon-days-left** (raw 11/20, Wilson 0.342 to 0.742;
+  dreamed 20/20, 0.839 to 1.000). The amendment named it as the task closest to the notes the text
+  was fitted on (a fact contradicted by one line of the anchored code, as coupon-remove and
+  money-plain) and kept it as the in-route contrast. Without it, raw and dreamed are 80 of 80 each
+  (Wilson 0.954 to 1.000 both): no difference. Without delete-order as well (the other task the
+  amendment called close to a fitted note, store-count), 60 of 60 each.
+- **On the other four tasks raw had no room.** Raw was 20 of 20 on each, so the sessions did not
+  test whether a dream helps against a wrong note whose evidence is in another file. The three
+  cross-file tasks, which were what this set added, are 20/20 in both arms. Every raw session's
+  transcript holds the start of its task's wrong note (20 of 20 on each task,
+  `m2-heldout/checks/delivery.txt`), so the note reached the agent (in the hook pack, at least as
+  its handle line, or in a pre-read answer) and Haiku did not follow it on those four.
+- **On coupon-days-left the note misled raw.** Cold, with no notes, was 10 of 10 on it. All 9
+  failed raw sessions ended with the note's formula, `(expires - today).days` floored at 0, in
+  their `days_left`; one of them (rep 18) first wrote the correct `+ 1` and then replaced it with
+  the note's version, and one (rep 16) also wrote `today >= self.expires` into `usable`.
+  In the dreamed arm the note carried its `(disputed: A coupon is still usable on its expires day
+  …)` mark in all 20 transcripts.
+- **What the freeze did is the only held-out evidence on the cross-file notes, and it is beside
+  the claim, not under it.** One freeze, ten Sonnet 5.5 calls: every wrong note `disputed` in every
+  store (25 of 25, so 15 of 15 on the three cross-file notes), each with a reason that names the
+  contradicting code in its own file; every true lesson `confirmed` (25 of 25, none `disputed` or
+  `outdated`); nothing left undecided. Where amendment 2's freeze judged no true lesson and left 6
+  or 7 of 13 records undecided per store, this one judged all ten. That is one draw of the text on
+  these notes.
+- **The designer confound bears on all of it, and most on the freeze counts.** The person who wrote
+  these five notes had read the revised `DREAM.md` and amendment 2's verdicts, and chose notes a
+  dream can dispute from the code. So a clean freeze shows the text handles notes written to be
+  disputable by someone who knew it, in a repository its author had seen. It does not show how it
+  handles notes written by someone who had not read it.
+- It covers one frozen dream, one session model (Haiku 5.5), one repository (`tallyho`) and five
+  tasks. A hundred sessions over five tasks are not a hundred tasks.
+
+**The M0 comparison row** (described beside, never pooled, no claim; `bench/tasks-m0`, 10 a task
+a side, amendment 2's frozen dream replayed, `meta.json` `dreamed sha256:fe405a5b…`):
+
+| task | raw | dreamed |
+|---|---|---|
+| bus-resubscribe | 5/10 | 10/10 |
+| quote-split | 1/10 | 10/10 |
+| tax-with-rate | 10/10 | 10/10 |
+| pooled | 16/30 (0.361 to 0.698) | 30/30 (0.886 to 1.000) |
+
+The in-sample gain is there on the same day, stack and build (amendment 2: raw 47/90, dreamed
+90/90). So the held-out arms' small gap is not a changed day: the held-out tasks left raw almost
+no room.
+
+**Beside the primary.**
+
+- **Dream cost:** $1.2517 for the two passes on the five stores (10 Sonnet 5.5 calls, Claude Code's
+  `total_cost_usd`; none hit the $0.25 cap).
+- **Verdicts each task's own wrong note ended with:** `disputed` (effective, verified) in its own
+  store, 5 of 5; split by where the evidence is, 3 of 3 in another file and 2 of 2 in the anchored
+  file. No wrong note ended `confirmed`.
+- **True lessons:** 25 of 25 judged, all `confirmed`; none `disputed` or `outdated`.
+- **Undecided:** 0 of 10 handed, in each store.
+- **A task where raw had no room:** order-can-cancel, delete-order, order-comments and
+  ledger-revenue (20 of 20 each). They stay in the primary, as registered.
+- **Repeated dead ends** (the harness's count): raw 6, dreamed 2, M0 row raw 14 and dreamed 0, cold
+  0. The coupon pattern matches only `max((self.expires - today).days, 0)`, so 3 of raw's 9
+  coupon failures (reps 4, 10 and 18, which ended with `max(0, …)`) are not in the 6. Dreamed's 2 are order-comments sessions (reps 7 and 13) whose code comments say they did not
+  use `"order-comments"`; both passed.
+- **Sessions that tried `--supersedes`:** 0 of 200 held-out sessions (0 of 260 with the M0 row; no
+  Bash command contained it). 39 raw and 38 dreamed sessions ran `av`.
+- **Median session wall time:** raw 21.7 s, dreamed 20.5 s, cold 15.4 s.
+- **Largest session and largest request:** the largest session cost $0.0098; the largest single
+  request was about 37 K tokens of prompt, against a 100 K limit.
+- **One raw and dreamed pair compared** (coupon-days-left, rep 2; the session's start pack holds no
+  records, so the pair is the pre-read answer on `tallyho/pricing/coupons.py`): both give the wrong
+  note in full with its anchor; the dreamed one adds `(disputed: A coupon is still usable on its
+  expires day: it is rejected only when today > expires., vd:…)`. Raw rep 2 failed with the note's
+  formula; dreamed rep 2 passed. In the first packs (`first-packs-ho-raw/`,
+  `first-packs-ho-dreamed/`) the dreamed hook packs differ from raw only by the `(disputed)` marks
+  and the re-ranking they bring.
+- **One dreamed session did not see its note:** dreamed order-comments rep 20's transcript holds
+  no part of the wrong note (19 of 20 on that task); it passed.
+- **Smoke** (order-ids, raw, not a result): passed under amendment 1's conditions. It cost $0.0063,
+  its largest request was 31 K tokens, `hook-count` was not empty, and verify ran.
+- **Recounted** a second time on the host from the committed `rows.jsonl` with `grep`
+  (`m2-heldout/checks/recount-host.txt`), apart from `analyze.py`: the same counts per arm and per
+  task. The copied files' sha256 match the container's.
+
+**Spend:** run 3 cost **$3.0215** in all, under the $5.00 ceiling (`m2-heldout/checks/spend-*.txt`):
+
+| step | cost |
+|---|---|
+| freeze | $1.2517 |
+| smoke | $0.0063 |
+| raw | $0.6128 |
+| dreamed | $0.6180 |
+| M0 row raw | $0.1575 |
+| M0 row dreamed | $0.1427 |
+| cold | $0.2325 |
+
+Every command ran with its written budget (smoke $0.10, each held-out arm $2.30, each M0-row arm
+$0.70, cold $0.40): $5.00 less the spend before each was larger every time. No budget bound.
+
+**Deviations** (dated 2026-11-19; none changes the question, the arms or the claim rule; the
+first two are also in the amendment's second and third commits):
+
+- **Free checks before the amendment's first commit.** The checks were first run on a preliminary
+  tree, before the amendment was written up, and again on the run tree; the preliminary
+  `first-packs` left repositories `bfp164-…` in the run's database. No model ran.
+- **Free check 5's first call was refused** for a relative path, after it had seeded one store
+  ($0, no verdict). It was repeated with the absolute path.
+- **The host's build lock was not checked before each command**, as amendment 2 did. The other
+  containers on the host (the `scholion-foundry-*` stack and `mc-dogfood`) were up throughout. The
+  gaps between the arms were 13 to 30 s; between the freeze and the smoke, 3 min (the third commit
+  and its push).
+- **The dead-end pattern undercounts coupon-days-left** (above). The harness's count is reported
+  as it came out; the primary does not use it.

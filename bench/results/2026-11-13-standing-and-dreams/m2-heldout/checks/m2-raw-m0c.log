@@ -1,0 +1,37 @@
+margincode-bench: relay-bus-resubscribe · av · rep 1 (spent $-0.00 of $0.70)
+margincode-bench: relay-quote-split · av · rep 1 (spent $0.00 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 1 (spent $0.01 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 2 (spent $0.02 of $0.70)
+margincode-bench: relay-quote-split · av · rep 2 (spent $0.02 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 2 (spent $0.03 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 3 (spent $0.03 of $0.70)
+margincode-bench: relay-quote-split · av · rep 3 (spent $0.03 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 3 (spent $0.04 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 4 (spent $0.05 of $0.70)
+margincode-bench: relay-quote-split · av · rep 4 (spent $0.05 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 4 (spent $0.06 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 5 (spent $0.06 of $0.70)
+margincode-bench: relay-quote-split · av · rep 5 (spent $0.07 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 5 (spent $0.08 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 6 (spent $0.08 of $0.70)
+margincode-bench: relay-quote-split · av · rep 6 (spent $0.09 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 6 (spent $0.09 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 7 (spent $0.10 of $0.70)
+margincode-bench: relay-quote-split · av · rep 7 (spent $0.10 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 7 (spent $0.11 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 8 (spent $0.11 of $0.70)
+margincode-bench: relay-quote-split · av · rep 8 (spent $0.12 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 8 (spent $0.12 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 9 (spent $0.13 of $0.70)
+margincode-bench: relay-quote-split · av · rep 9 (spent $0.13 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 9 (spent $0.14 of $0.70)
+margincode-bench: relay-bus-resubscribe · av · rep 10 (spent $0.14 of $0.70)
+margincode-bench: relay-quote-split · av · rep 10 (spent $0.15 of $0.70)
+margincode-bench: relay-tax-with-rate · av · rep 10 (spent $0.15 of $0.70)
+plan: 3 tasks × 1 arms × 10 reps = 30 sessions (seed 1)
+model: claude-haiku-5-5
+  av: 30 sessions
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $2.40 at the $0.08 per-session cap
+budget: $0.70; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+report: /m2b/r3/results/m2-raw-m0c/report.md

@@ -1,4 +1,4 @@
-# Handoff: 2026-11-18
+# Handoff: 2026-11-19
 
 Delete this once you've acted on the open items. It links; the detail lives in the files named.
 
@@ -35,6 +35,9 @@ Measured since (2026-11-14 to 2026-11-18; each directory's README has the number
 - **M2 stage B again, on the revised `DREAM.md`** (amendment 2, 2026-11-19, 90 sessions a side):
   dreamed 90 of 90 against raw 47 of 90, and the intervals are disjoint. In-sample: the text was
   revised on these same three tasks, so it shows the revision works where it was fitted.
+- **On five held-out tasks** (amendment 3, 2026-11-19, 100 sessions a side): dreamed 100 of 100
+  against raw 91 of 100, disjoint by a thin margin, and all of the gap on the one task closest to
+  the fitted notes; raw had no room on the other four.
 
 Built since and merged into `main` (#65; `CHANGELOG.md`, `Unreleased`): `av dream
 --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's agent too; the `promote`
@@ -46,10 +49,16 @@ supersede).
 
 Next:
 
-1. **Whether dreaming helps on tasks it was not fitted on.** With the revised `DREAM.md`, dreamed
-   memory was accepted 90 of 90 against raw 47 of 90, and the intervals are disjoint
-   (`bench/results/2026-11-13-standing-and-dreams/`, amendment 2). That holds on the three M0
-   tasks the text was revised on, with one frozen dream; other tasks are untested.
+1. **Whether dreaming helps against a wrong note whose evidence is in another file.** Amendment 3
+   (`bench/results/2026-11-13-standing-and-dreams/`, 2026-11-19) ran five held-out tasks: dreamed
+   100 of 100 against raw 91 of 100, Wilson 0.963 to 1.000 against 0.838 to 0.952, so by the claim
+   rule dreaming helps. But the whole gap is coupon-days-left (11/20 against 20/20), the task
+   closest to the fitted notes; on the other four, the three cross-file ones included, raw was
+   20 of 20, so the sessions did not test the cross-file case. The freeze disputed all 25 wrong
+   notes and confirmed all 25 true lessons, beside the claim and under a confound (the notes'
+   author had read `DREAM.md`). The M0 row the same day: raw 16/30, dreamed 30/30. Next: held-out
+   tasks where raw fails without a dream (a cold arm passing and raw failing on each task), notes
+   written by someone who has not read `DREAM.md`, ideally in another repository.
 2. **What a model does with the `--promote` and `--also-read` text.** Read once each on Sonnet
    5.5 (`bench/results/2026-11-19-dream-promote-also-read/`, an observation): the model used
    neither appended section. It proposed no convention and left every rule-stating record out,

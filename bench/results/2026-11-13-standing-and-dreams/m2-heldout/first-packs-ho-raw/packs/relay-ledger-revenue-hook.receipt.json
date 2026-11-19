@@ -1,0 +1,197 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T12:57:51.809971+00:00",
+  "head_change": "422faf969ce1a02db1de51ff032d7e35d46eb982",
+  "id": "rcp:753673b5",
+  "items": [
+    {
+      "id": "task:relay-ledger-revenue",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 83
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:76513590",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 68
+    },
+    {
+      "id": "rec:6bc9c2d2",
+      "reason": "goal-lead",
+      "score": 2.0317540168762207,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:f01f7484",
+      "reason": "semantic",
+      "score": 0.5712810754776001,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:dc5cd73e",
+      "reason": "semantic",
+      "score": 0.5700778365135193,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:cee271d4",
+      "reason": "semantic",
+      "score": 0.5487873554229736,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:1181",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:1183",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:1205",
+      "reason": "lexical",
+      "score": 0.7633117437362671,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1184",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/ledger.py",
+        46,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1216",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1182",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1207",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/money.py",
+        45,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1213",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/money.py",
+        74,
+        75
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:1180",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/ledger.py",
+        15,
+        20
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:1185",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/ledger.py",
+        52,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:4ff5628f decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:86223954 decision: CSV is written by hand, not with the csv module, so the bytes stay the…",
+    "- rec:15d149ad decision: RecordStore.delete raises NotFound for an id that is not there, as get…",
+    "- rec:2cd270ce decision: Collections that hang off an order are named \"order-<what>\": comments…",
+    "- rec:30288325 decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:2e2b34ea intent: Earlier work on this code",
+    "- sym:1195 Order.currency (tallyho/models.py:73-74)"
+  ],
+  "packer_version": 11,
+  "session": "0e164a56-d9c2-4fa6-9a61-8c5af8f42408",
+  "task_id": "10e7d6ee-462d-4907-8880-bdb692a11814",
+  "tokens": 701
+}

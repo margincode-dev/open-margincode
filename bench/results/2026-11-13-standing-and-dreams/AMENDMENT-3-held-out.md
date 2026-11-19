@@ -634,3 +634,46 @@ m2hchain.sh cold-ho 0.40      # bench/tasks-heldout --arms cold --reps 10
 - Whether Haiku sessions follow these notes at all, which decides whether raw has room. Only a
   paid session shows it.
 - What the freeze does with the five wrong notes and the five true lessons.
+
+## Results of the free checks on the run tree (second commit, before the freeze)
+
+Run on 2026-11-19 between 12:50 and 13:00 UTC, before any paid command. Outputs are in
+`m2-heldout/checks/` and `m2-heldout/first-packs-*` as written.
+
+- **Run tree.** The build commit is `21ac445` (tree `fc1827ecb1067c6322d4c2a76d5c19279efab634`);
+  its `git archive` in `/m2b/r3/tree` hashes to that tree id. `haiku-tree.sh` made `/m2b/r3/tree-h`
+  and changed exactly the 13 `model` lines (`checks/haiku-tree.log`); its `bench/tasks-m0` and
+  `bench/tasks-relay` are byte for byte amendment 2's `/m2b/main-21f30dc/tree-h`. `git diff 21f30dc
+  21ac445 -- crates integrations Cargo.toml Cargo.lock rust-toolchain.toml` and `git diff 21f30dc
+  21ac445 -- bench/tallyho bench/tasks-m0 bench/tasks-relay` are both empty, so amendment 2's
+  binaries are used (sha256 checked in the container: as listed). `integrations/dream/DREAM.md`
+  sha256 `f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa`; amendment 2's freeze
+  recorded that same value as `instructions_sha` for all six of its runs (`dreams` table of `m2r`),
+  so the freeze condition checks the same thing here (`checks/build.txt`).
+- **The daemon** was started once (umask 022, `GET /v1/version`: `"plain_records":true`,
+  `checks/version.json`; migrations to 0032) and serves everything below. Before this commit it
+  also served the preliminary raw `first-packs` named under "What had been seen" (repositories
+  `bfp164-…` in `m2h`); no model ran.
+- **Free check 1** (`check_set.py`): `held-out set ok` (`checks/check1-check_set.log`).
+- **Free check 2** (`reference/check.py`, real pytest): all 5 pairs ok, 5 of them silent
+  (`checks/check2-reference.log`).
+- **Free check 3** (`margincode-bench check`): 5 of 5 `ok`; `bench/tasks-m0` 3 of 3 `ok`
+  (`checks/check3-*.log`).
+- **Free check 4** (`first-packs-ho-raw/`, `checks/fp-ho-raw.log`, `checks/check4-fp-ho-raw.txt`
+  by `m2-heldout/fpcheck.py`): each task's wrong note is in its hook pack (5 of 5, all at the
+  summary tier), no pack line contains `--supersedes`, no record line carries an origin label. No
+  wrong note is in the pack at task start (0 of 5), and the pre-read answer on the task's file
+  showed none of them.
+- **Anchors** (`checks/anchors.txt`): the nine anchors of the pool, `Ledger.balances` included, are
+  symbols stored under those exact qualified names.
+- **The M0 row's replay on this database** (`first-packs-m0c-raw/`, `first-packs-m0c-dreamed/`,
+  `checks/check-m0c-replay.txt`): `dreamed-a2.json` hashes to `fe405a5b…` (`checks/dreamed-a2.sha256`),
+  `first-packs --dreamed` replayed it on all three M0 tasks (exit 0; a replay that ends a verdict in
+  another state than frozen is refused), and each task's own wrong note is marked `(disputed)` in
+  its dreamed hook pack.
+- **The cold arm's flags** (`checks/cold-plan.log`): `run bench/tasks-heldout --arms cold --reps 10
+  ...` without `--confirm` prints its plan (50 sessions, agent user `benchagent`) and launches
+  nothing.
+- **Output names** (`checks/repo-names.txt`): none of this run's session prefixes begins a
+  repository of any earlier bench database.
+- The first-packs run and workspace directories were closed (700) after the checks.

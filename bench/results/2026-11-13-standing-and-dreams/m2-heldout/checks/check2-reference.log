@@ -1,0 +1,11 @@
+ok  order-can-cancel: reference passes, dead end fails
+ok  order-can-cancel (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  delete-order: reference passes, dead end fails
+ok  delete-order (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  order-comments: reference passes, dead end fails
+ok  order-comments (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  ledger-revenue: reference passes, dead end fails
+ok  ledger-revenue (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+ok  coupon-days-left: reference passes, dead end fails
+ok  coupon-days-left (silent): base: own tests pass, hidden test fails; reference: own tests pass, hidden test passes; dead end: own tests pass, hidden test fails
+all 5 pairs ok (5 of them silent)

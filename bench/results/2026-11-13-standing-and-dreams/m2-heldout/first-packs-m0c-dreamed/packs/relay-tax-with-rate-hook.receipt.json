@@ -1,0 +1,176 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T12:59:27.132554+00:00",
+  "head_change": "693052876dce124b58e2935570db4f5b789b17f6",
+  "id": "rcp:ec73da94",
+  "items": [
+    {
+      "id": "task:relay-tax-with-rate",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 103
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:008afbc6",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:ff00cae0",
+      "reason": "goal-lead",
+      "score": 0.6096006035804749,
+      "source": null,
+      "tier": "handle",
+      "tokens": 31
+    },
+    {
+      "id": "rec:0be1490a",
+      "reason": "semantic",
+      "score": 0.5953208208084106,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:d3dd1299",
+      "reason": "semantic",
+      "score": 0.5872641801834106,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "sym:2564",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        12,
+        26
+      ],
+      "tier": "full",
+      "tokens": 26
+    },
+    {
+      "id": "sym:2565",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        19,
+        23
+      ],
+      "tier": "summary",
+      "tokens": 34
+    },
+    {
+      "id": "sym:2566",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/pricing/tax.py",
+        25,
+        26
+      ],
+      "tier": "summary",
+      "tokens": 38
+    },
+    {
+      "id": "sym:2567",
+      "reason": "lexical",
+      "score": 0.7631069421768188,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "full",
+      "tokens": 32
+    },
+    {
+      "id": "sym:2496",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "summary",
+      "tokens": 31
+    },
+    {
+      "id": "sym:2555",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        27,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2563",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:2495",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:2556",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        30,
+        32
+      ],
+      "tier": "handle",
+      "tokens": 25
+    }
+  ],
+  "omitted": [
+    "- rec:a85bccaa decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:2e2c75ae decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:115ee350 decision: Merge orders with self.lines.extend(other.lines) after the draft check…",
+    "- rec:3289b6d4 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:725d9bc8 decision: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:f05f6cda intent: Earlier work on this code"
+  ],
+  "packer_version": 11,
+  "session": "a9b53054-c63d-43e3-b875-3631bccb65ea",
+  "task_id": "c108b25c-7efa-48d9-997d-b2e9c64573f0",
+  "tokens": 695
+}

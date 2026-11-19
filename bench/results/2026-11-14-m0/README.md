@@ -189,8 +189,11 @@ Per task, accepted of 10:
     accepted a correction of the task's wrong note. All 30 were accepted, both the 28 that
     corrected the note and the 2 that did not.
   - `av-before`: the store holds 0, as expected, since build A's CLI has no `--supersedes`. Two
-    transcripts count as "tried": each passed `av record --json` a batch whose text names a
-    supersede, and both calls were refused for a summary over 200 characters.
+    `relay-tax-with-rate` transcripts (r3 and r10) count as "tried". In each, the agent piped a
+    one-decision batch to `av record --json -`, and the record's summary text said "supersedes
+    rec:…" or "This supersedes the earlier note". The batch had no `supersedes` field. Both calls
+    were refused for a summary over 200 characters. Each retry recorded a plain decision with a
+    shorter summary and no `supersedes` field.
 - **Records that restate the wrong edit** (secondary 5). Of `av-phase0`'s records whose text
   matches the wrong edit, those in 21 sessions supersede the wrong note: corrections that name the
   wrong call. In 12 sessions such a record does not supersede it. `av-before` has 0 of the first
@@ -241,6 +244,12 @@ times as much as Haiku ($0.056 to $0.070 median, against $0.006).
 - **A leak-scan load test** ran once before the first paid session, on zero sessions (no Sonnet
   run directory existed yet). It read no row, and its empty `exposed.json` was deleted. The
   committed scan ran after both arms had ended.
+- **Delivery was checked after the fact.** `PREREG.md` asks for delivery to be checked on each
+  note arm's first session before the rest is read as valid. Here it was computed for all 60
+  sessions in the same analysis pass that read the accepted counts. It came out 30 of 30 in both
+  arms, so no session is affected.
+- The paid-session times above are the commands' bounds from `chain.log`, not per-session
+  timestamps.
 - Nothing else differs from the amendment: no session was rerun, skipped or edited, and no arm or
   repetition was added.
 

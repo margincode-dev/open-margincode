@@ -115,7 +115,7 @@ services:
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
       AV_TOKEN: ${AV_TOKEN:-}
       # Git backup of main after every merge: whitespace-separated repo=url pairs. SSH remotes need
-      # a key: mount it read-only (see the volume below) and set GIT_SSH_COMMAND to use it.
+      # a key: mount it read-only (see the volume below) and set AV_BACKUP_SSH_COMMAND to use it.
       AV_BACKUP_REMOTES: ${AV_BACKUP_REMOTES:-}
       GIT_SSH_COMMAND: ${AV_BACKUP_SSH_COMMAND:-ssh}
       # The host UID has no home in the image (the entrypoint gives it a passwd entry for ssh);

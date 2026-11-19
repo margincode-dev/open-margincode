@@ -385,8 +385,8 @@ Several agents work against one daemon at once:
 - Backup remote down or rejecting the push: the merge still succeeds. The push runs in the
   background (60 s timeout, no credential prompts, never forced); a failure is stored and retried
   after 1 s, 2 s, 4 s … up to 5 min, and `margincode status` / `margincode repo backup` show it. Credentials are the
-  daemon's own: the host's in lite mode; the Docker image has no SSH client, so there it backs up to a
-  path on a mount (see [Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted)).
+  daemon's own: the host's in lite mode; in the Docker stack, a key you mount for it (SSH) or a path
+  on a mount (see [Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted)).
   By default main is pushed to a branch of the same name; `margincode repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.
@@ -501,6 +501,7 @@ Defaults (override with environment variables before `up`):
 | `AV_LISTEN` | `127.0.0.1:7420` | the daemon's address. A non-loopback host needs `AV_TOKEN` or `AV_LISTEN_OPEN=1`, else the daemon refuses to start. |
 | `AV_LISTEN_OPEN` | off | `1`: allow a non-loopback `AV_LISTEN` without a token, when something else (a port published on `127.0.0.1`) limits who reaches it. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`margincode repo backup` sets one at runtime). |
+| `AV_BACKUP_SSH_COMMAND` | `ssh` | becomes the daemon's `GIT_SSH_COMMAND`, for SSH backup remotes, e.g. `ssh -i /keys/id_ed25519 -o StrictHostKeyChecking=accept-new` with the key mounted at `/keys` (see [Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted)). A host `GIT_SSH_COMMAND` is not passed. |
 | `AV_WS_RETAIN_SECS` | `3600` | how long a merged or abandoned task keeps its workspace; `0` removes it at once, `never` keeps it. |
 | `AV_DISK_MIN_FREE_GB` | `20` | free-space floor, in GiB, on the disk under `AV_WS_ROOT`: below it the daemon reclaims finished tasks' workspaces and the build caches itself and starts no new task (HTTP 507) until there is room; `0` turns it off. |
 | `AV_BUILD_CACHE_MAX_GB` | `40` (the daemon's own default is `0`) | build budget, in GiB, for each repo: the most its build output (every task workspace's `target/` plus `<repo>/.cache/`) may take; over it the daemon removes finished tasks' `target/`, then idle ones (tasks in review first), then the deps cache; `0` turns it off. |
@@ -544,9 +545,9 @@ $env:AV_IMPORT_MOUNT = 'D:/avsrc'      # /import, read-only
 $env:AV_EXEC_BIT = 'ignore'           # files Windows creates read as executable in /ws
 ```
 
-The bundled compose file has no `/export` mount and does not pass `AV_BACKUP_REMOTES`, and a value set
-on the host does nothing. In an override file, add `D:/avexport:/export` to the daemon service's volumes
-and `AV_BACKUP_REMOTES=NAME=/export/NAME.git` to its environment. Then start the stack as in Full stack (Docker).
+The bundled compose file has no `/export` mount. In an override file, add `D:/avexport:/export` to the
+daemon service's volumes. Set `$env:AV_BACKUP_REMOTES = 'NAME=/export/NAME.git'` on the host: the
+compose file passes it to the daemon. Then start the stack as in Full stack (Docker).
 
 In Git Bash, set `MSYS_NO_PATHCONV=1` for each `av` command, or write `//import/NAME`: Git Bash
 rewrites `/import/...` to a path under its own install directory before `av` sees it. When the
@@ -651,18 +652,26 @@ pushes is never GitHub's `main`.
 - Lite mode (`av up`, the daemon on the host): the daemon's git uses the host's SSH setup, so it
   can push to GitHub itself with a key it can use without a prompt:
   `av repo backup NAME --remote git@github.com:OWNER/REPO.git --branch av-main --advance`.
-- The Docker stack, on any platform: the image has no SSH client, and the daemon runs as your
-  host UID, which has no passwd entry in the container, so it cannot push over SSH. Back up to a
-  bare repository on a mount and push on from the host with your own credentials. Create it
+- The Docker stack, on any platform: the daemon can push over SSH with a key of its own (for
+  GitHub, a deploy key with write access). Mount the directory that holds it read-only at `/keys`
+  (the compose file has the line, commented out; on Docker Desktop, a Windows-drive path, like the
+  other bind mounts), set `AV_BACKUP_SSH_COMMAND` before `up`, for example
+  `ssh -i /keys/id_ed25519 -o StrictHostKeyChecking=accept-new` (a host `GIT_SSH_COMMAND` is not
+  passed), then `av repo backup NAME --remote git@github.com:OWNER/REPO.git --branch av-main`.
+  The daemon runs as your host UID: on a Linux host, the key file must belong to that UID with
+  mode 0600, since ssh refuses a key of its own that others can read.
+- The Docker stack, pushing with the host's own credentials instead: back up to a
+  bare repository on a mount and push on from the host. Create it
   (`git init --bare HOST_DIR/NAME.git`), add `HOST_DIR:/export` to the daemon service's volumes
   in an override file (on Windows, as in [Native av.exe on Windows](#native-avexe-on-windows)),
-  then `av repo backup NAME --remote /export/NAME.git --branch av-main`. If you also set
-  `AV_BACKUP_REMOTES` for the repo, give it the same URL: at start-up a different one replaces
-  the stored remote and drops `--branch` and `--advance`.
+  then `av repo backup NAME --remote /export/NAME.git --branch av-main`. In both Docker setups, if
+  you also set `AV_BACKUP_REMOTES` for the repo, give it the same URL: at start-up a different one
+  replaces the stored remote and drops `--branch` and `--advance`.
 
 Below, `EXPORT` is where the host sees the backup: the bare repository (`HOST_DIR/NAME.git`), or,
-in lite mode, a clone of GitHub where you run `git fetch origin av-main:av-main` after each
-merge, once the daemon's push has landed (`margincode repo backup NAME` shows it).
+when the daemon pushes to GitHub itself, a clone of GitHub where you run
+`git fetch origin av-main:av-main` after each merge, once the daemon's push has landed
+(`margincode repo backup NAME` shows it).
 
 **2. One pull request per task, or one rolling pull request.**
 
@@ -677,8 +686,8 @@ merge, once the daemon's push has landed (`margincode repo backup NAME` shows it
   Each branch holds every task merged before it, so merge the pull requests in the order the
   tasks merged; a pull request opened before the previous one lands shows both diffs until it
   does.
-- Rolling: GitHub gets `av-main` itself (lite mode pushes it; from a bare repository,
-  `git -C EXPORT push git@github.com:OWNER/REPO.git av-main`). Copy
+- Rolling: GitHub gets `av-main` itself (the daemon pushes it when its remote is GitHub; from a
+  bare repository, `git -C EXPORT push git@github.com:OWNER/REPO.git av-main`). Copy
   [`integrations/github/av-main-pr.yml`](../integrations/github/av-main-pr.yml) to
   `.github/workflows/`: on each push to `av-main` it opens one pull request "Margincode: av-main"
   when none is open, and never merges. It needs "Allow GitHub Actions to create and approve pull
@@ -698,7 +707,7 @@ rebase merge gives `main` commits Margincode's main does not have, and `av repo 
 **4. Take the merge back** right after the pull request merges, before the next `av merge`:
 
 ```bash
-git -C HOST_DIR/NAME.git fetch git@github.com:OWNER/REPO.git main:main   # Docker stack only
+git -C HOST_DIR/NAME.git fetch git@github.com:OWNER/REPO.git main:main   # bare repository only
 av repo advance NAME
 ```
 

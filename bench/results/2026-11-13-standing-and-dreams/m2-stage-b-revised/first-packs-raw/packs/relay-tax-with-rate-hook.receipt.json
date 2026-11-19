@@ -1,0 +1,196 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T05:29:47.201706+00:00",
+  "head_change": "2dd5557e2580ea9a836d48c67964f4c8b7daaa27",
+  "id": "rcp:702bab03",
+  "items": [
+    {
+      "id": "task:relay-tax-with-rate",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 105
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:ce509042",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:814584f9",
+      "reason": "goal-lead",
+      "score": 2.0320019721984863,
+      "source": null,
+      "tier": "summary",
+      "tokens": 60
+    },
+    {
+      "id": "rec:01f0bd34",
+      "reason": "semantic",
+      "score": 0.5953208804130554,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:9c336368",
+      "reason": "semantic",
+      "score": 0.5872642397880554,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:666f158e",
+      "reason": "semantic",
+      "score": 0.2201620787382126,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "sym:904",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        12,
+        26
+      ],
+      "tier": "summary",
+      "tokens": 25
+    },
+    {
+      "id": "sym:905",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/pricing/tax.py",
+        19,
+        23
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:906",
+      "reason": "lexical",
+      "score": 0.7732142806053162,
+      "source": [
+        "tallyho/pricing/tax.py",
+        25,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:907",
+      "reason": "lexical",
+      "score": 0.7631069421768188,
+      "source": [
+        "tallyho/pricing/tax.py",
+        29,
+        39
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:836",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:895",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        27,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:903",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:835",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/config.py",
+        15,
+        20
+      ],
+      "tier": "summary",
+      "tokens": 20
+    },
+    {
+      "id": "sym:896",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        30,
+        32
+      ],
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:871",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 17
+    }
+  ],
+  "omitted": [
+    "- rec:9b29de9c decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:466f5d52 decision: Every currency tallyho supports has two decimals. Plain amounts are mi…",
+    "- rec:f82a135f decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:f03c50ed decision: CouponBook keys _by_code by the code exactly as it is passed in. Looku…",
+    "- rec:53f661cf decision: Merge orders with self.lines.extend(other.lines) after the draft check…",
+    "- rec:32a40c74 decision: EventBus.subscribe dedupes by name: skip a handler when one with the s…"
+  ],
+  "packer_version": 11,
+  "session": "70c0c8cf-8c68-43ae-93b3-2ac2e8878b96",
+  "task_id": "7075ce29-a310-452d-872b-f3749d4795cb",
+  "tokens": 700
+}

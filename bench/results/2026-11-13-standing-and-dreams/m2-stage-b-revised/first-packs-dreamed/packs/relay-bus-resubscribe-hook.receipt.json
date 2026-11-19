@@ -1,0 +1,203 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T05:29:57.620197+00:00",
+  "head_change": "05812caa518d814e65958e2c90f9498b39427c47",
+  "id": "rcp:7df2939d",
+  "items": [
+    {
+      "id": "task:relay-bus-resubscribe",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 98
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:2349c872",
+      "reason": "goal-lead",
+      "score": 2.0317540168762207,
+      "source": null,
+      "tier": "summary",
+      "tokens": 57
+    },
+    {
+      "id": "rec:49870e54",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:f903b9dc",
+      "reason": "semantic",
+      "score": 0.5691113471984863,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "rec:b1490e0e",
+      "reason": "semantic",
+      "score": 0.5561005473136902,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:46c6731c",
+      "reason": "semantic",
+      "score": 0.214998796582222,
+      "source": null,
+      "tier": "handle",
+      "tokens": 15
+    },
+    {
+      "id": "sym:1012",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/events.py",
+        16,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1010",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/events.py",
+        11,
+        22
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1011",
+      "reason": "lexical",
+      "score": 0.7698103189468384,
+      "source": [
+        "tallyho/events.py",
+        12,
+        14
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:1013",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/events.py",
+        19,
+        22
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1133",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1132",
+      "reason": "lexical",
+      "score": 0.7503052949905396,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:1138",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1134",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:997",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/cli.py",
+        15,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:1003",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "handle",
+      "tokens": 19
+    }
+  ],
+  "omitted": [
+    "- rec:b4942553 decision: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:9210c605 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:37c5fb54 decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…",
+    "- rec:592c4721 decision: Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000…",
+    "- rec:112a46d8 decision: CouponBook keys _by_code by the code exactly as it is passed in. Looku… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "602ea971-fcb4-4e10-bf66-06c967a8429a",
+  "task_id": "287a5079-4976-4ae8-b40a-bee8d205c1dd",
+  "tokens": 690
+}

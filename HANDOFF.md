@@ -32,22 +32,29 @@ Measured since (2026-11-14 to 2026-11-18; each directory's README has the number
   at this size. Standing: 30 of 30 with it and without. Dreamed memory against raw: 21 of 30
   against 14 of 30, and the intervals overlap.
 - A real model has dreamed (M2 stages A and B), and `DREAM.md` was revised from what it did (#63).
+- **M2 stage B again, on the revised `DREAM.md`** (amendment 2, 2026-11-19, 90 sessions a side):
+  dreamed 90 of 90 against raw 47 of 90, and the intervals are disjoint. In-sample: the text was
+  revised on these same three tasks, so it shows the revision works where it was fitted.
 
-Built since, on branch `claude/fable-handoff-solutions-6ccbpz` (not merged; `CHANGELOG.md`,
-`Unreleased`): `av dream --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's
-agent too; the `promote` verdict (with `av dream --promote` a dream proposes a decision as a
-convention, and only `av verdict accept` under a name the daemon does not know as an agent
-gives it effect; migration 0032); the E4-at-scale cost number in the README and on the site. Earlier: the guard for memory writes (`Guarded::MemoryWrite` in
-`ext.rs`, asked before a verdict's review and before a supersede).
+Built since and merged into `main` (#65; `CHANGELOG.md`, `Unreleased`): `av dream
+--budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's agent too; the `promote`
+verdict (with `av dream --promote` a dream proposes a decision as a convention, and only `av
+verdict accept` under a name the daemon does not know as an agent gives it effect; migration
+0032); the E4-at-scale cost number in the README and on the site. Earlier: the guard for memory
+writes (`Guarded::MemoryWrite` in `ext.rs`, asked before a verdict's review and before a
+supersede).
 
 Next:
 
-1. **Whether dreaming helps at a larger size.** Stage B leans that way and does not show it.
-   `DREAM.md` was revised from those two stages (#63), and no result under `bench/results/`
-   uses the revised text yet.
-2. **Read what a model does with the new text.** The sections a run with `--promote` or
-   `--also-read` gets appended were tested with agent scripts that run no model. A run with
-   neither flag is handed `DREAM.md` unchanged.
+1. **Whether dreaming helps on tasks it was not fitted on.** With the revised `DREAM.md`, dreamed
+   memory was accepted 90 of 90 against raw 47 of 90, and the intervals are disjoint
+   (`bench/results/2026-11-13-standing-and-dreams/`, amendment 2). That holds on the three M0
+   tasks the text was revised on, with one frozen dream; other tasks are untested.
+2. **What a model does with the `--promote` and `--also-read` text.** Read once each on Sonnet
+   5.5 (`bench/results/2026-11-19-dream-promote-also-read/`, an observation): the model used
+   neither appended section. It proposed no convention and left every rule-stating record out,
+   and it printed `also-read.txt` but never opened the directory. Untested: real transcripts,
+   other models, a text that asks for these more plainly.
 3. **M0 on a second model.** One model has shown it.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
 5. `av watch` leaves its command running when `av` alone gets SIGINT or SIGTERM (a terminal's

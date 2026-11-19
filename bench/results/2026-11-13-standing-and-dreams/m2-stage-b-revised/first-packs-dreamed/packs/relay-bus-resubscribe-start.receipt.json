@@ -1,0 +1,189 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T05:29:49.496086+00:00",
+  "head_change": "05812caa518d814e65958e2c90f9498b39427c47",
+  "id": "rcp:e78a94e1",
+  "items": [
+    {
+      "id": "task:relay-bus-resubscribe",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 98
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "full",
+      "tokens": 64
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:49870e54",
+      "reason": "anchored",
+      "score": 0.498000055551529,
+      "source": null,
+      "tier": "full",
+      "tokens": 120
+    },
+    {
+      "id": "sym:1012",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/events.py",
+        16,
+        17
+      ],
+      "tier": "full",
+      "tokens": 34
+    },
+    {
+      "id": "sym:1010",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/events.py",
+        11,
+        22
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1011",
+      "reason": "lexical",
+      "score": 0.7698103189468384,
+      "source": [
+        "tallyho/events.py",
+        12,
+        14
+      ],
+      "tier": "full",
+      "tokens": 30
+    },
+    {
+      "id": "sym:1013",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/events.py",
+        19,
+        22
+      ],
+      "tier": "full",
+      "tokens": 34
+    },
+    {
+      "id": "sym:1020",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "full",
+      "tokens": 26
+    },
+    {
+      "id": "sym:1133",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "summary",
+      "tokens": 52
+    },
+    {
+      "id": "sym:1027",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/models.py",
+        59,
+        60
+      ],
+      "tier": "summary",
+      "tokens": 28
+    },
+    {
+      "id": "sym:1132",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:997",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/cli.py",
+        15,
+        17
+      ],
+      "tier": "summary",
+      "tokens": 33
+    },
+    {
+      "id": "sym:1028",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1003",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1025",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/models.py",
+        51,
+        60
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [],
+  "packer_version": 11,
+  "session": "bench-start-3148be73-1c59-48c2-ba15-eae87255ae59",
+  "task_id": "287a5079-4976-4ae8-b40a-bee8d205c1dd",
+  "tokens": 682
+}

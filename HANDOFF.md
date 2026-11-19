@@ -32,6 +32,9 @@ Measured since (2026-11-14 to 2026-11-18; each directory's README has the number
   at this size. Standing: 30 of 30 with it and without. Dreamed memory against raw: 21 of 30
   against 14 of 30, and the intervals overlap.
 - A real model has dreamed (M2 stages A and B), and `DREAM.md` was revised from what it did (#63).
+- **M2 stage B again, on the revised `DREAM.md`** (amendment 2, 2026-11-19, 90 sessions a side):
+  dreamed 90 of 90 against raw 47 of 90, and the intervals are disjoint. In-sample: the text was
+  revised on these same three tasks, so it shows the revision works where it was fitted.
 
 Built since and merged into `main` (#65; `CHANGELOG.md`, `Unreleased`): `av dream
 --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's agent too; the `promote`

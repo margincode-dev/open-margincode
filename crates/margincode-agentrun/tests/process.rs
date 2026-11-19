@@ -36,11 +36,21 @@ fn a_log_that_cannot_be_created_names_the_path() {
 fn a_child_past_its_deadline_is_killed_with_everything_it_started() {
     let dir = tempfile::tempdir().unwrap();
     let pidfile = dir.path().join("grandchild.pid");
-    let script = format!("sleep 60 & echo $! > {}; wait", pidfile.display());
-    let cmd = shell(&script, dir.path(), &dir.path().join("log")).unwrap();
-    let w = run_with_timeout(cmd, Duration::from_millis(500)).unwrap();
-    assert_eq!((w.exit, w.killed), (None, true));
-    let pid = std::fs::read_to_string(&pidfile).unwrap().trim().to_owned();
+    let script = format!(
+        "sleep {} & echo $! > {}; wait",
+        HANG.as_secs(),
+        pidfile.display()
+    );
+    // a kill between the redirect and the echo leaves the file empty, and `kill -0 ''` fails
+    let pid = crate::deadlines()
+        .find_map(|deadline| {
+            let cmd = shell(&script, dir.path(), &dir.path().join("log")).unwrap();
+            let w = run_with_timeout(cmd, deadline).unwrap();
+            assert_eq!((w.exit, w.killed), (None, true), "after {deadline:?}");
+            let pid = std::fs::read_to_string(&pidfile).unwrap_or_default();
+            pid.ends_with('\n').then(|| pid.trim().to_owned())
+        })
+        .expect("hung: the script never wrote its grandchild's pid before a deadline");
     // the grandchild sleeps in the same process group, so it goes too
     let t = std::time::Instant::now();
     while std::process::Command::new("kill")

@@ -136,16 +136,17 @@ fn path_prepend_puts_the_directories_first() {
 #[test]
 fn a_session_past_its_deadline_is_killed_and_reads_as_truncated() {
     let dir = tempfile::tempdir().unwrap();
-    let r = sh(
-        r#"echo '{"type":"system","subtype":"init","cwd":"/w"}'
-echo '{"type":"assistant","message":{"id":"a","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":1,"cache_read_input_tokens":100,"output_tokens":5}}}'
-sleep 60"#,
-        dir.path(),
-    )
-    .timeout(Duration::from_millis(400))
-    .run()
-    .unwrap();
-    assert_eq!((r.exit, r.killed), (None, true));
+    let lines = r#"echo '{"type":"system","subtype":"init","cwd":"/w"}'
+echo '{"type":"assistant","message":{"id":"a","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":1,"cache_read_input_tokens":100,"output_tokens":5}}}'"#;
+    // the sleep outlives every deadline: only the kill ends the script
+    let script = format!("{lines}\nsleep {}", crate::HANG.as_secs());
+    let r = crate::deadlines()
+        .find_map(|deadline| {
+            let r = sh(&script, dir.path()).timeout(deadline).run().unwrap();
+            assert_eq!((r.exit, r.killed), (None, true), "after {deadline:?}");
+            (events(dir.path()).matches('\n').count() == 2).then_some(r)
+        })
+        .expect("hung: the script never printed its two lines before a deadline");
     assert!(r.session.truncated());
     assert_eq!(
         r.usage.counted(),

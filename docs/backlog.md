@@ -48,6 +48,33 @@ the suspected cause, marked as a guess; the status.
   nothing into the checkout. `margincode-bench check` still builds `bench/tasks-routing/repo`
   when it is missing, because the task files point there.
 
+## 2026-11-18: the deadline-kill test needs the shell to print inside 400 ms
+
+- **Where.** `margincode-agentrun` `tests/command.rs`
+  `a_session_past_its_deadline_is_killed_and_reads_as_truncated`, in a full workspace test run
+  under load (first written down in the Commercial edition's backlog).
+- **Seen.** Failed once: `assertion left == right failed: no result event: the message sum is
+  kept`. Passed when run alone. The same run's output had `kill: failed to parse argument: ''`.
+  Not reproduced in 30 runs (each test) with every core busy. Reproduced with `sh` on `PATH`
+  replaced by a shim that waits a random 0 to 600 ms before starting the shell: in 30 runs the
+  test failed 15 times with that message (`left: 0`), and its sibling below 7 times (no pid
+  file). The empty-pid-file case behind the `kill` line was not reproduced: its window is the
+  time between the redirect and the `echo`.
+- **Ruled out.** The production kill: `run_until` kills `-<child pid>`, never an empty argument,
+  and `av down` (`local.rs`) passes an empty pid only to `alive`, whose stderr is discarded. The
+  shell's builtin `kill` says `Illegal number` instead; the `failed to parse argument` wording is
+  the `kill` binary, started from Rust with an empty argument.
+- **Guess.** The script echoes two lines and sleeps, with a 400 ms deadline; on a loaded host the
+  shell had not printed both when the deadline killed it. The `kill` line is its sibling
+  `tests/process.rs` `a_child_past_its_deadline_is_killed_with_everything_it_started` (500 ms
+  deadline): a kill between `> grandchild.pid` and the `echo` leaves the file empty, so
+  `kill -0 ''` fails at once and the test passes without checking the grandchild; a kill before
+  the redirect leaves no file and fails the test. Both upper bounds on time break
+  `CONTRIBUTING.md` ("Timing").
+- **Status.** Fixed in this change: both tests run their script with a deadline from 400 ms,
+  doubling, until the script has printed what the test needs (bounded within `HANG`), and assert
+  killed on every try. With the same shim, both passed 30 of 30.
+
 ## 2026-11-18: the post-edit debounce test needs three CLI calls inside 2 s
 
 - **Where.** `margincode-cli` `tests/cli.rs` `hook_post_edit_debounces_within_two_seconds`, found

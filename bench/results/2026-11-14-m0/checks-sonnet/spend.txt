@@ -1,0 +1,67 @@
+  smoke-s-a relay-order-ids av r1 ok: harness $0.0704, claude $0.0704, largest prompt 24279 tokens, models ['claude-sonnet-5-5'], end success
+smoke-s-a: 1 rows, harness $0.0704, claude $0.0704, counted $0.0704
+  smoke-s-b relay-order-ids av r1 ok: harness $0.0642, claude $0.0642, largest prompt 24454 tokens, models ['claude-sonnet-5-5'], end success
+smoke-s-b: 1 rows, harness $0.0642, claude $0.0642, counted $0.0642
+  m0s-av-before relay-bus-resubscribe av r1 ok: harness $0.0478, claude $0.0478, largest prompt 21550 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r1 ok: harness $0.0662, claude $0.0662, largest prompt 25238 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r1 ok: harness $0.0549, claude $0.0549, largest prompt 22289 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r2 ok: harness $0.0498, claude $0.0498, largest prompt 21741 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r2 ok: harness $0.0615, claude $0.0615, largest prompt 24830 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r2 ok: harness $0.0580, claude $0.0580, largest prompt 22464 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r3 ok: harness $0.0477, claude $0.0477, largest prompt 21550 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r3 ok: harness $0.0596, claude $0.0596, largest prompt 24666 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r3 ok: harness $0.0576, claude $0.0576, largest prompt 22557 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r4 ok: harness $0.0509, claude $0.0509, largest prompt 21874 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r4 ok: harness $0.0676, claude $0.0676, largest prompt 25130 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r4 ok: harness $0.0557, claude $0.0557, largest prompt 22522 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r5 ok: harness $0.0466, claude $0.0466, largest prompt 21482 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r5 ok: harness $0.0669, claude $0.0669, largest prompt 25093 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r5 ok: harness $0.0556, claude $0.0556, largest prompt 22501 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r6 ok: harness $0.0480, claude $0.0480, largest prompt 21602 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r6 ok: harness $0.0669, claude $0.0669, largest prompt 25147 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r6 ok: harness $0.0603, claude $0.0603, largest prompt 22807 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r7 ok: harness $0.0481, claude $0.0481, largest prompt 21618 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r7 ok: harness $0.0660, claude $0.0660, largest prompt 25052 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r7 ok: harness $0.0570, claude $0.0570, largest prompt 22411 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r8 ok: harness $0.0491, claude $0.0491, largest prompt 21680 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r8 ok: harness $0.0612, claude $0.0612, largest prompt 24806 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r8 ok: harness $0.0551, claude $0.0551, largest prompt 22430 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r9 ok: harness $0.0475, claude $0.0475, largest prompt 21551 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r9 ok: harness $0.0663, claude $0.0663, largest prompt 25091 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r9 ok: harness $0.0550, claude $0.0550, largest prompt 22486 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-bus-resubscribe av r10 ok: harness $0.0457, claude $0.0457, largest prompt 21441 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-quote-split av r10 ok: harness $0.0714, claude $0.0714, largest prompt 25342 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-av-before relay-tax-with-rate av r10 ok: harness $0.0623, claude $0.0623, largest prompt 22899 tokens, models ['claude-sonnet-5-5'], end success
+m0s-av-before: 30 rows, harness $1.7065, claude $1.7065, counted $1.7065
+  m0s-phase0 relay-bus-resubscribe av r1 ok: harness $0.0604, claude $0.0604, largest prompt 22644 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r1 ok: harness $0.0797, claude $0.0797, largest prompt 26453 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r1 ok: harness $0.0681, claude $0.0681, largest prompt 23596 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r2 ok: harness $0.0588, claude $0.0588, largest prompt 22676 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r2 ok: harness $0.0819, claude $0.0819, largest prompt 26651 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r2 ok: harness $0.0726, claude $0.0726, largest prompt 23914 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r3 ok: harness $0.0551, claude $0.0551, largest prompt 22359 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r3 ok: harness $0.0658, claude $0.0658, largest prompt 25132 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r3 ok: harness $0.0680, claude $0.0680, largest prompt 23537 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r4 ok: harness $0.0548, claude $0.0548, largest prompt 22095 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r4 ok: harness $0.0794, claude $0.0794, largest prompt 26285 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r4 ok: harness $0.0557, claude $0.0557, largest prompt 22334 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r5 ok: harness $0.0599, claude $0.0599, largest prompt 22782 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r5 ok: harness $0.0905, claude $0.0905, largest prompt 27124 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r5 ok: harness $0.0747, claude $0.0747, largest prompt 23767 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r6 ok: harness $0.0631, claude $0.0631, largest prompt 22863 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r6 ok: harness $0.0778, claude $0.0778, largest prompt 25784 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r6 ok: harness $0.0715, claude $0.0715, largest prompt 23904 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r7 ok: harness $0.0541, claude $0.0541, largest prompt 22001 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r7 ok: harness $0.0739, claude $0.0739, largest prompt 26073 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r7 ok: harness $0.0717, claude $0.0717, largest prompt 23828 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r8 ok: harness $0.0684, claude $0.0684, largest prompt 23476 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r8 ok: harness $0.0826, claude $0.0826, largest prompt 26594 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r8 ok: harness $0.0746, claude $0.0746, largest prompt 23992 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r9 ok: harness $0.0586, claude $0.0586, largest prompt 22621 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r9 ok: harness $0.0882, claude $0.0882, largest prompt 26695 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r9 ok: harness $0.0813, claude $0.0813, largest prompt 24130 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-bus-resubscribe av r10 ok: harness $0.0493, claude $0.0493, largest prompt 21773 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-quote-split av r10 ok: harness $0.0789, claude $0.0789, largest prompt 26137 tokens, models ['claude-sonnet-5-5'], end success
+  m0s-phase0 relay-tax-with-rate av r10 ok: harness $0.0668, claude $0.0668, largest prompt 23580 tokens, models ['claude-sonnet-5-5'], end success
+m0s-phase0: 30 rows, harness $2.0862, claude $2.0862, counted $2.0862
+total counted: $3.9273; left under the $7.00 ceiling: $3.0727

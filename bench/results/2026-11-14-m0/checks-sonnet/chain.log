@@ -1,0 +1,10 @@
+2026-11-19T19:03:10Z start smoke-s-a build=A budget=0.50
+2026-11-19T19:03:47Z end smoke-s-a exit=0
+2026-11-19T19:03:52Z start smoke-s-b build=B budget=0.50
+2026-11-19T19:04:30Z end smoke-s-b exit=0
+total counted: $0.1347; left under the $7.00 ceiling: $6.8653
+2026-11-19T19:05:48Z start m0s-av-before build=A budget=6.86
+2026-11-19T19:21:57Z end m0s-av-before exit=0
+total counted: $1.8411; left under the $7.00 ceiling: $5.1589
+2026-11-19T19:21:57Z start m0s-phase0 build=B budget=5.15
+2026-11-19T19:39:23Z end m0s-phase0 exit=0

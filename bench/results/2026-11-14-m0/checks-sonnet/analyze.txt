@@ -1,0 +1,157 @@
+## M0 on Claude Sonnet 5.5: the primary pair
+
+### Pooled over the three tasks
+
+| arm | sessions | valid | accepted | rate | 95 % Wilson | cost | cost per accepted | median session cost |
+|---|---|---|---|---|---|---|---|---|
+| av-before | 30 | 30 | 10 | 0.333 | 0.192 to 0.512 | $1.7065 | $0.1706 | $0.0564 |
+| av-phase0 | 30 | 30 | 30 | 1.000 | 0.886 to 1.000 | $2.0862 | $0.0695 | $0.0699 |
+
+Sessions skipped for budget: 0.
+
+### Decision by the pre-registered rule (primary: av-phase0 against av-before)
+
+- **Phase 0 helps**: av-phase0 30/30 (lower end 0.886) is above av-before 10/30 (upper end 0.512).
+
+### Without exposed sessions (0 left out)
+
+| arm | sessions | valid | accepted | rate | 95 % Wilson | cost | cost per accepted | median session cost |
+|---|---|---|---|---|---|---|---|---|
+| av-before | 30 | 30 | 10 | 0.333 | 0.192 to 0.512 | $1.7065 | $0.1706 | $0.0564 |
+| av-phase0 | 30 | 30 | 30 | 1.000 | 0.886 to 1.000 | $2.0862 | $0.0695 | $0.0699 |
+
+Sessions skipped for budget: 0.
+
+### Secondary 2: per task
+
+#### `relay-quote-split`
+
+| arm | sessions | valid | accepted | rate | 95 % Wilson | cost | cost per accepted | median session cost |
+|---|---|---|---|---|---|---|---|---|
+| av-before | 10 | 10 | 0 | 0.000 | 0.000 to 0.278 | $0.6536 | n/a | $0.0662 |
+| av-phase0 | 10 | 10 | 10 | 1.000 | 0.722 to 1.000 | $0.7987 | $0.0799 | $0.0796 |
+
+Sessions skipped for budget: 0.
+
+#### `relay-bus-resubscribe`
+
+| arm | sessions | valid | accepted | rate | 95 % Wilson | cost | cost per accepted | median session cost |
+|---|---|---|---|---|---|---|---|---|
+| av-before | 10 | 10 | 0 | 0.000 | 0.000 to 0.278 | $0.4813 | n/a | $0.0479 |
+| av-phase0 | 10 | 10 | 10 | 1.000 | 0.722 to 1.000 | $0.5825 | $0.0582 | $0.0587 |
+
+Sessions skipped for budget: 0.
+
+#### `relay-tax-with-rate`
+
+| arm | sessions | valid | accepted | rate | 95 % Wilson | cost | cost per accepted | median session cost |
+|---|---|---|---|---|---|---|---|---|
+| av-before | 10 | 10 | 10 | 1.000 | 0.722 to 1.000 | $0.5715 | $0.0572 | $0.0564 |
+| av-phase0 | 10 | 10 | 10 | 1.000 | 0.722 to 1.000 | $0.7050 | $0.0705 | $0.0716 |
+
+Sessions skipped for budget: 0.
+
+### Secondary 3: superseded records, read from the store
+
+| arm | valid | superseded its task's wrong note | another task's wrong note | a true note | transcript: tried `--supersedes` | transcript: superseded the wrong note (stage 2's count) |
+|---|---|---|---|---|---|---|
+| av-before | 30 | 0 | 0 | 0 | 2 | 0 |
+| av-phase0 | 30 | 28 | 2 | 1 | 29 | 28 |
+
+| av-phase0 | accepted | not accepted |
+|---|---|---|
+| superseded the task's wrong note | 28 | 0 |
+| did not | 2 | 0 |
+
+### Secondary 4: the wrong edit (`repeated_dead_ends` >= 1)
+
+| arm | task | valid | wrote it | wrote it, accepted | wrote it, not accepted |
+|---|---|---|---|---|---|
+| av-before | relay-quote-split | 10 | 10 | 0 | 10 |
+| av-before | relay-bus-resubscribe | 10 | 10 | 0 | 10 |
+| av-before | relay-tax-with-rate | 10 | 0 | 0 | 0 |
+| av-phase0 | relay-quote-split | 10 | 0 | 0 | 0 |
+| av-phase0 | relay-bus-resubscribe | 10 | 0 | 0 | 0 |
+| av-phase0 | relay-tax-with-rate | 10 | 0 | 0 | 0 |
+
+### Secondary 5: records that restate the wrong edit
+
+| arm | valid | a record matching the pattern that supersedes the wrong note | one that does not (restatement, upper bound) |
+|---|---|---|---|
+| av-before | 30 | 0 | 25 |
+| av-phase0 | 30 | 21 | 12 |
+
+### Secondary 6: delivery of the task's wrong note
+
+| arm | valid | delivered | session-start hook | read NOTES.md | line in the pack |
+|---|---|---|---|---|---|
+| av-before | 30 | 30 | 30 | 0 | 0 |
+| av-phase0 | 30 | 30 | 30 | 0 | 30 |
+
+`delivered`: `notes`, the whole summary in a tool result; the `av` arms, in the session-start hook's output or a pre-read answer; `cold`, anywhere (expected 0).
+
+### Per session
+
+| run | task | arm | rep | status | accepted | wrote wrong edit | delivered | turns | cost |
+|---|---|---|---|---|---|---|---|---|---|
+| m0s-av-before | relay-bus-resubscribe | av-before | 1 | ok | no | yes | yes | 6 | $0.0478 |
+| m0s-av-before | relay-quote-split | av-before | 1 | ok | no | yes | yes | 10 | $0.0662 |
+| m0s-av-before | relay-tax-with-rate | av-before | 1 | ok | yes | no | yes | 8 | $0.0549 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 2 | ok | no | yes | yes | 7 | $0.0498 |
+| m0s-av-before | relay-quote-split | av-before | 2 | ok | no | yes | yes | 9 | $0.0615 |
+| m0s-av-before | relay-tax-with-rate | av-before | 2 | ok | yes | no | yes | 8 | $0.0580 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 3 | ok | no | yes | yes | 6 | $0.0477 |
+| m0s-av-before | relay-quote-split | av-before | 3 | ok | no | yes | yes | 9 | $0.0596 |
+| m0s-av-before | relay-tax-with-rate | av-before | 3 | ok | yes | no | yes | 9 | $0.0576 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 4 | ok | no | yes | yes | 7 | $0.0509 |
+| m0s-av-before | relay-quote-split | av-before | 4 | ok | no | yes | yes | 10 | $0.0676 |
+| m0s-av-before | relay-tax-with-rate | av-before | 4 | ok | yes | no | yes | 8 | $0.0557 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 5 | ok | no | yes | yes | 6 | $0.0466 |
+| m0s-av-before | relay-quote-split | av-before | 5 | ok | no | yes | yes | 10 | $0.0669 |
+| m0s-av-before | relay-tax-with-rate | av-before | 5 | ok | yes | no | yes | 8 | $0.0556 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 6 | ok | no | yes | yes | 6 | $0.0480 |
+| m0s-av-before | relay-quote-split | av-before | 6 | ok | no | yes | yes | 10 | $0.0669 |
+| m0s-av-before | relay-tax-with-rate | av-before | 6 | ok | yes | no | yes | 9 | $0.0603 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 7 | ok | no | yes | yes | 6 | $0.0481 |
+| m0s-av-before | relay-quote-split | av-before | 7 | ok | no | yes | yes | 10 | $0.0660 |
+| m0s-av-before | relay-tax-with-rate | av-before | 7 | ok | yes | no | yes | 8 | $0.0570 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 8 | ok | no | yes | yes | 6 | $0.0491 |
+| m0s-av-before | relay-quote-split | av-before | 8 | ok | no | yes | yes | 9 | $0.0612 |
+| m0s-av-before | relay-tax-with-rate | av-before | 8 | ok | yes | no | yes | 8 | $0.0551 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 9 | ok | no | yes | yes | 6 | $0.0475 |
+| m0s-av-before | relay-quote-split | av-before | 9 | ok | no | yes | yes | 10 | $0.0663 |
+| m0s-av-before | relay-tax-with-rate | av-before | 9 | ok | yes | no | yes | 8 | $0.0550 |
+| m0s-av-before | relay-bus-resubscribe | av-before | 10 | ok | no | yes | yes | 6 | $0.0457 |
+| m0s-av-before | relay-quote-split | av-before | 10 | ok | no | yes | yes | 11 | $0.0714 |
+| m0s-av-before | relay-tax-with-rate | av-before | 10 | ok | yes | no | yes | 9 | $0.0623 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 1 | ok | yes | no | yes | 9 | $0.0604 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 1 | ok | yes | no | yes | 12 | $0.0797 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 1 | ok | yes | no | yes | 10 | $0.0681 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 2 | ok | yes | no | yes | 8 | $0.0588 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 2 | ok | yes | no | yes | 12 | $0.0819 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 2 | ok | yes | no | yes | 11 | $0.0726 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 3 | ok | yes | no | yes | 8 | $0.0551 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 3 | ok | yes | no | yes | 9 | $0.0658 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 3 | ok | yes | no | yes | 10 | $0.0680 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 4 | ok | yes | no | yes | 8 | $0.0548 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 4 | ok | yes | no | yes | 11 | $0.0794 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 4 | ok | yes | no | yes | 8 | $0.0557 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 5 | ok | yes | no | yes | 9 | $0.0599 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 5 | ok | yes | no | yes | 13 | $0.0905 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 5 | ok | yes | no | yes | 11 | $0.0747 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 6 | ok | yes | no | yes | 8 | $0.0631 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 6 | ok | yes | no | yes | 11 | $0.0778 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 6 | ok | yes | no | yes | 10 | $0.0715 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 7 | ok | yes | no | yes | 8 | $0.0541 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 7 | ok | yes | no | yes | 11 | $0.0739 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 7 | ok | yes | no | yes | 11 | $0.0717 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 8 | ok | yes | no | yes | 10 | $0.0684 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 8 | ok | yes | no | yes | 13 | $0.0826 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 8 | ok | yes | no | yes | 11 | $0.0746 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 9 | ok | yes | no | yes | 8 | $0.0586 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 9 | ok | yes | no | yes | 12 | $0.0882 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 9 | ok | yes | no | yes | 12 | $0.0813 |
+| m0s-phase0 | relay-bus-resubscribe | av-phase0 | 10 | ok | yes | no | yes | 7 | $0.0493 |
+| m0s-phase0 | relay-quote-split | av-phase0 | 10 | ok | yes | no | yes | 11 | $0.0789 |
+| m0s-phase0 | relay-tax-with-rate | av-phase0 | 10 | ok | yes | no | yes | 10 | $0.0668 |
+

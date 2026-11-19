@@ -64,7 +64,9 @@ Next:
    neither appended section. It proposed no convention and left every rule-stating record out,
    and it printed `also-read.txt` but never opened the directory. Untested: real transcripts,
    other models, a text that asks for these more plainly.
-3. **M0 on a second model.** One model has shown it.
+3. **M0 on a second model.** Done on Claude Sonnet 5.5 (amendment 2, 2026-11-19, primary pair
+   only): `av-phase0` 30 of 30 against `av-before` 10 of 30, disjoint (0.886 to 1.000 against
+   0.192 to 0.512), so Phase 0 helps on both models; no `cold`, `notes` or guard ran on Sonnet.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
 
 Left open on purpose:

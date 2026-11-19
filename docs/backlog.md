@@ -7,6 +7,22 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: a backup in backoff keeps its backoff across a daemon restart
+
+- **Where.** `mark_backups_due` (`crates/margincode-store/src/backup.rs`), called by
+  `start_backups` (`crates/margincode-daemon/src/backup.rs`) at start-up; seen checking SSH
+  backups on the compose stack from `main` (105f99f).
+- **Seen.** About 13 s after a daemon restart, the backup status still showed the failure from
+  before the restart, with the next retry about 100 s away. Both doc comments say start-up makes
+  every configured backup due, but the update is `SET next_retry = now() WHERE remote IS NOT NULL
+  AND next_retry IS NULL`: a repo at rest (`next_retry` NULL after a success) is made due, and a
+  repo in backoff (`next_retry` set) keeps its wait.
+- **Ruled out.** A lost retry: the row stays due later, and backoff is capped at 300 s
+  (`MAX_BACKOFF`), so the push comes at most 5 min late. It looks harmless.
+- **Guess.** Not known which is meant: the comments, or the code (keep a backoff across
+  restarts). Either the comments or the `WHERE` should change.
+- **Status.** Open.
+
 ## 2026-11-18: two result files were stored with CRLF line endings
 
 - **Where.** `bench/results/2026-11-17-f4-storage/baseline.jsonl` and `volume-checkout.jsonl`
@@ -61,8 +77,10 @@ the suspected cause, marked as a guess; the status.
   without a passwd entry one through nss_wrapper before it starts the daemon. Checked on the
   image's runtime layer (same base and packages, a stand-in daemon): as UID 4242, `ssh` without
   the entrypoint exits "No user exists for uid 4242"; with it, a `git push` over SSH to an sshd
-  container succeeded. Not checked: the full compose stack (`scripts/smoke.sh`), whose images
-  Docker Hub rate-limited in the session.
+  container succeeded. Checked 2026-11-18 on the real image from `main` (105f99f) and the compose
+  stack as UID 4242: the smoke steps pass, the daemon pushes main to an sshd container over SSH
+  after a merge, and without the entrypoint the push fails with "No user exists for uid 4242".
+  Not checked: `scripts/smoke.sh` run as is on a Linux host.
 
 ## 2026-11-18: M2 stage B, three stops before the first session
 

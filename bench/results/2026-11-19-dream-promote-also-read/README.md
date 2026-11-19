@@ -7,11 +7,12 @@ scripts that run no model. Here a model read it once each, and this file writes 
 
 ## What ran
 
-- **Build**: `main` at `21f30dc` (tree `b2b72bf4…`), `av`, `margincode-daemon` and
+- **Build**: `main` at `21f30dc` (tree `b2b72bf4130fbcfdfaa5aede78026661df9212ce`), `av`, `margincode-daemon` and
   `margincode-bench` built from a `git archive` in the stage B container `m2b-harness`
-  (`rust:1.97.1`), `cargo build --release --locked`. sha256: `av` `ff488981…dc27b9`, daemon
-  `a5702a78…2b1c`, harness `a1f7f1e2…c160` (the same binaries as
-  `../2026-11-13-standing-and-dreams/AMENDMENT-2-stage-b-revised.md`, "Build").
+  (`rust:1.97.1`), `cargo build --release --locked` from an empty target directory. sha256:
+  - `av` `ff48898161a2d38b88f52535170e545e796b53784ec4254ff56e72e89adc27b9`
+  - `margincode-daemon` `a5702a789ea90ae797cd76963d5d031ae9eb931f012a60b1a4dbe711f2302b1c`
+  - `margincode-bench` `a1f7f1e207ef04036e1d45dbab157f5c74c9d5136e46e420357a1376614ec160`
 - **Daemon**: a new one, `127.0.0.1:7491`, a new database on stage B's Postgres (`lp-pg`,
   migrations to 0032), new store and workspace root, `AV_PLAIN_RECORDS=on` (stage B's setting),
   stage B's Qdrant and TEI. `scripts/daemon.sh` starts it (`daemon.sh 7491 <db> /m2b/r1`).
@@ -43,9 +44,11 @@ scripts that run no model. Here a model read it once each, and this file writes 
 ## What the model was handed
 
 - `promote/DREAM.md` and `also-read/DREAM.md` are the files the model read, as `av dream` wrote
-  them. Each is `integrations/dream/DREAM.md` at `21f30dc` (sha256 `f66dc2ec…73aa`) followed by
+  them. Each is `integrations/dream/DREAM.md` at `21f30dc` (sha256
+  `f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa`) followed by
   one appended section: "`promote`: a decision as a convention" or "More to read". Their sha256
-  (`18f3b6ca…3583` and `cf24eedd…5ca7`) equal the `instructions_sha` the daemon stored on each run
+  (`18f3b6ca8259cb4433760132a00ef3d0da0726f4d3fb03c55a1e4b013b0e3583` and
+  `cf24eedd4ecff2ba0cb8d0e23ad4d80388df865c78609c066c10852e27e25ca7`) equal the `instructions_sha` the daemon stored on each run
   (`dream.json`).
 - `bundle.json`: the 13 records each run was handed (all decisions), with their anchored code.
 - `also-read/also-read.txt`: one line, `/m2b/r1/also-read`. That directory is `also-read-notes/`

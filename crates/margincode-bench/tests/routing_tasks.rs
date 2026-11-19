@@ -10,28 +10,28 @@ fn routing_dir() -> PathBuf {
 #[test]
 fn pilot_specs_pass_check() {
     let dir = routing_dir().canonicalize().expect("bench/tasks-routing");
-    let repo = dir.join("repo");
-    if !repo.join(".git").exists() {
-        let py = ["python3", "python"]
-            .into_iter()
-            .find(|bin| {
-                Command::new(bin)
-                    .arg("--version")
-                    .status()
-                    .is_ok_and(|s| s.success())
-            })
-            .expect("python to build bench/tasks-routing/repo");
-        let out = Command::new(py)
-            .arg(dir.join("make-repo.py"))
-            .arg(&repo)
-            .output()
-            .expect("make-repo.py");
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    let in_tree = dir.join("repo").exists();
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let py = ["python3", "python"]
+        .into_iter()
+        .find(|bin| {
+            Command::new(bin)
+                .arg("--version")
+                .status()
+                .is_ok_and(|s| s.success())
+        })
+        .expect("python to build the pilot repo");
+    let out = Command::new(py)
+        .arg(dir.join("make-repo.py"))
+        .arg(&repo)
+        .output()
+        .expect("make-repo.py");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let files = spec_files(&dir).unwrap();
     assert_eq!(files.len(), 6, "{files:?}");
     let mut names = vec![];
@@ -63,5 +63,10 @@ fn pilot_specs_pass_check() {
             "slug-collapse",
             "version-tests",
         ]
+    );
+    assert_eq!(
+        dir.join("repo").exists(),
+        in_tree,
+        "the test wrote bench/tasks-routing/repo into the source tree"
     );
 }

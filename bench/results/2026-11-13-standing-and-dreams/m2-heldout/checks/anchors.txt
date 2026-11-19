@@ -1,0 +1,11 @@
+# Every anchor of pool/notes-heldout.toml, looked up in amendment 2's indexed tallyho (db m2r, a repository of its freeze, scope main): path | qname | kind
+tallyho/config.py|load_config|function
+tallyho/errors.py|ValidationError|type
+tallyho/ledger.py|Ledger.balances|method
+tallyho/models.py|Order|type
+tallyho/pricing/coupons.py|Coupon|type
+tallyho/pricing/discounts.py|apply_discounts|function
+tallyho/report/csv_export.py|rows_to_csv|function
+tallyho/repository.py|Repository|type
+tallyho/text.py|pad|function
+# 9 distinct anchors (Repository holds two notes): 9 found

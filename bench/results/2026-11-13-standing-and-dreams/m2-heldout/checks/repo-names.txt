@@ -1,0 +1,14 @@
+# Repository name prefixes (up to the first '-') in each bench database on lp-pg, before this run
+bench: bfp17bd2,bfp2405,bfp28ad,bfp2dbc,bfp341e,bfp34bd,bfp3549,bfp35e4,bfp703c,bfp74a3,bfp7924,bfp92cd,bfp956f,bfp971f,bfp99c5,bfp9ba0,bfp9e4e,bfpa01f,bfpa2d6,bfpa4a0,bfpa75c,bfpa928,bfpabe7,bfpadaa,bfpd022,bfpd48a,bfpd6e,bfpd911,bsmoke,bwrong,rf36b17,rf48fdc,rf4907b
+bench2: bfp120f4,bfp12175,bqswrong,bsmoke3
+bench3: bfpd278,bs2wrong,bsmoke
+m0a: bfp2d30,bm0avbefore,bsmokea
+m0b: bfp2e64,bsmokeb
+m0ha: bm0avbefore,bsmokea
+m0hb: bm0guard,bm0wrong,bsmokeb
+m1p0: bfp11e66,bm1p0,bsmokep0
+m1p1: bfp11f90,bm1p1,bsmokep1
+m2b: bfp2e5,bfp3fe,bm2dreamed,bm2raw,bsmoke,ddf2cd6,ddf3c,ddf40a3,ddf40f4,ddf4d59,ddf4da2,ddf5a07,ddf5a50
+m2p: ddf2de3,ddf2e40
+m2r: bfp3be6,bfp3d41,bm2dreamedr2,bm2rawr2,bsmoker2,ddf3738
+# this run's session prefixes: bsmoker3 bm2rawho bm2dreamedho bm2rawm0c bm2dreamedm0c (cold: no repository)

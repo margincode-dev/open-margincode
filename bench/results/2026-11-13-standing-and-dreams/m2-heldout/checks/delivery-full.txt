@@ -1,0 +1,10 @@
+m2rawho relay-coupon-days-left: the note's last 60 characters in the transcript 19/20
+m2rawho relay-delete-order: the note's last 60 characters in the transcript 20/20
+m2rawho relay-ledger-revenue: the note's last 60 characters in the transcript 20/20
+m2rawho relay-order-can-cancel: the note's last 60 characters in the transcript 20/20
+m2rawho relay-order-comments: the note's last 60 characters in the transcript 20/20
+m2dreamedho relay-coupon-days-left: the note's last 60 characters in the transcript 17/20
+m2dreamedho relay-delete-order: the note's last 60 characters in the transcript 0/20
+m2dreamedho relay-ledger-revenue: the note's last 60 characters in the transcript 0/20
+m2dreamedho relay-order-can-cancel: the note's last 60 characters in the transcript 0/20
+m2dreamedho relay-order-comments: the note's last 60 characters in the transcript 0/20

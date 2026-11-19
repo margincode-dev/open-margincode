@@ -1,0 +1,208 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:08:07.938869+00:00",
+  "head_change": "eeee33e18a4f9d2f354bcf9a2e98c5bf346eb72c",
+  "id": "rcp:2ed2b3d6",
+  "items": [
+    {
+      "id": "task:relay-delete-order",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 79
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:142091bb",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:9a9059b4",
+      "reason": "goal-lead",
+      "score": 0.6096774339675903,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:f381ba1e",
+      "reason": "semantic",
+      "score": 0.5549802780151367,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:a8ca45e8",
+      "reason": "semantic",
+      "score": 0.5545376539230347,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:693f4ee4",
+      "reason": "semantic",
+      "score": 0.21677914261817932,
+      "source": null,
+      "tier": "handle",
+      "tokens": 15
+    },
+    {
+      "id": "sym:3913",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/repository.py",
+        57,
+        59
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:3912",
+      "reason": "lexical",
+      "score": 0.7733241319656372,
+      "source": [
+        "tallyho/repository.py",
+        54,
+        55
+      ],
+      "tier": "summary",
+      "tokens": 32
+    },
+    {
+      "id": "sym:3905",
+      "reason": "lexical",
+      "score": 0.770024836063385,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3915",
+      "reason": "lexical",
+      "score": 0.7665109634399414,
+      "source": [
+        "tallyho/repository.py",
+        72,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:3914",
+      "reason": "lexical",
+      "score": 0.7472928166389465,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3920",
+      "reason": "lexical",
+      "score": 0.7472927570343018,
+      "source": [
+        "tallyho/store/base.py",
+        32,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:3917",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/store/base.py",
+        17,
+        41
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:3853",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        86,
+        89
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:3937",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/memory.py",
+        34,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:3850",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:3856",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        98,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 19
+    }
+  ],
+  "omitted": [
+    "- rec:8452422a decision: apply_discounts adds the percentages up and takes them off the subtota…",
+    "- rec:91ae05e3 decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:4f15ecc0 decision: CSV is written by hand, not with the csv module, so the bytes stay the…",
+    "- rec:c762d9fc decision: Collections that hang off an order are named \"order-<what>\": comments… (disputed)",
+    "- rec:04355b6e decision: Coupon.expires is the first day a coupon no longer works: one that exp… (disputed)",
+    "- rec:68e7e347 decision: Ledger.balances() gives each account as the shop reports it: cash, rev… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "9cedf45b-87b0-495b-ba23-5000a7ffed07",
+  "task_id": "4f3dbce1-abf0-40d0-8b66-d6a2e488a3e5",
+  "tokens": 709
+}

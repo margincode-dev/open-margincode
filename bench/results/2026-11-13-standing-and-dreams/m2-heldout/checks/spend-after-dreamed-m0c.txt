@@ -1,0 +1,7 @@
+freeze: $1.2517 over 10 calls (0.1418, 0.1033, 0.1313, 0.1124, 0.1401, 0.1212, 0.1005, 0.1449, 0.1357, 0.1204)
+smoke-r3: $0.0063 over 1 rows
+m2-raw-ho: $0.6128 over 100 rows
+m2-dreamed-ho: $0.6180 over 100 rows
+m2-raw-m0c: $0.1575 over 30 rows
+m2-dreamed-m0c: $0.1427 over 30 rows
+total: $2.7890; left under the $5.00 ceiling: $2.2110

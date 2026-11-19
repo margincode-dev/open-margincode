@@ -1,0 +1,7 @@
+plan: 5 tasks × 1 arms × 10 reps = 50 sessions (seed 1)
+model: claude-haiku-5-5
+  cold: 50 sessions
+estimated cost: unknown (run a pilot or pass --est-session-usd); worst case $4.00 at the $0.08 per-session cap
+budget: $0.40; sessions stop launching once spent + one session's cap would exceed it
+agent isolation: the agent runs as user benchagent (uid 1000); what that user can read is checked before the first session
+dry run: nothing launched (pass --confirm to run)

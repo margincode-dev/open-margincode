@@ -1,0 +1,92 @@
+# The held-out pool (AMENDMENT-3): ten notes, none of them in any pool the revised
+# DREAM.md was fitted on (`../../tasks-relay/pool/notes-silent.toml`). Five are wrong, one per
+# task of this directory: each is a decision kept out of the commit log (`no_commit`), anchored to
+# a symbol in the file its task changes, and recommends the edit `reference/edits.py` calls `dead`.
+# Five are true lessons that no task here selects; they become commits and records as the true
+# lessons of the M0 pool do, and say nothing about any of the five tasks.
+# Summaries are at most 200 characters (the record limit). `check_set.py` pins all of this.
+
+[[note]]
+pair = "order-can-cancel"
+kind = "decision"
+path = "tallyho/models.py"
+symbol = "Order"
+summary = "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+body = "So the order page can ask the order itself, without a Workflow."
+no_commit = true
+
+[[note]]
+pair = "pad-width"
+kind = "decision"
+path = "tallyho/text.py"
+symbol = "pad"
+summary = "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+body = "render_table pads every cell with it."
+
+[[note]]
+pair = "delete-order"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository"
+summary = "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+body = "A get() before the delete reads the collection file a second time on JsonFileStore."
+no_commit = true
+
+[[note]]
+pair = "csv-by-hand"
+kind = "decision"
+path = "tallyho/report/csv_export.py"
+symbol = "rows_to_csv"
+summary = "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+body = "The module's docstring says why; keep new columns on the same path."
+
+[[note]]
+pair = "order-comments"
+kind = "decision"
+path = "tallyho/repository.py"
+symbol = "Repository"
+summary = "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+body = "Keeps them apart from \"orders\" when the store is listed or opened on disk."
+no_commit = true
+
+[[note]]
+pair = "config-upper"
+kind = "decision"
+path = "tallyho/config.py"
+symbol = "load_config"
+summary = "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+body = "TaxTable looks a region up exactly as given, so a lower-case key would never match."
+
+[[note]]
+pair = "ledger-revenue"
+kind = "decision"
+path = "tallyho/ledger.py"
+symbol = "Ledger.balances"
+summary = "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+body = "The trial balance check sums the same balances, so revenue() reads the number it checks."
+no_commit = true
+
+[[note]]
+pair = "error-field"
+kind = "decision"
+path = "tallyho/errors.py"
+symbol = "ValidationError"
+summary = "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+body = "Callers can then report the field without parsing the message."
+
+[[note]]
+pair = "coupon-days-left"
+kind = "decision"
+path = "tallyho/pricing/coupons.py"
+symbol = "Coupon"
+summary = "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+body = "Customers read it off the coupon page, so make it a method of Coupon."
+no_commit = true
+
+[[note]]
+pair = "discount-order"
+kind = "decision"
+path = "tallyho/pricing/discounts.py"
+symbol = "apply_discounts"
+summary = "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+body = "So two 10 % coupons take 20 % off, not 19 %."

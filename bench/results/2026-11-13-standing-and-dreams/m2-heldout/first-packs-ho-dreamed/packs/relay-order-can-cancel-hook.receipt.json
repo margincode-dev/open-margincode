@@ -1,0 +1,195 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:08:32.244755+00:00",
+  "head_change": "12b55794913b1a6874296339d489042c06b0509c",
+  "id": "rcp:9708d29b",
+  "items": [
+    {
+      "id": "task:relay-order-can-cancel",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 89
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:bb10ccab",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:e00aa72b",
+      "reason": "goal-lead",
+      "score": 0.6096006035804749,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:76353acd",
+      "reason": "semantic",
+      "score": 0.5747913122177124,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:3a07f951",
+      "reason": "semantic",
+      "score": 0.5518603920936584,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:8c159795",
+      "reason": "semantic",
+      "score": 0.2127319574356079,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "sym:4292",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/workflow.py",
+        49,
+        50
+      ],
+      "tier": "full",
+      "tokens": 31
+    },
+    {
+      "id": "sym:4285",
+      "reason": "lexical",
+      "score": 0.7633117437362671,
+      "source": [
+        "tallyho/workflow.py",
+        14,
+        20
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:4288",
+      "reason": "lexical",
+      "score": 0.7598077058792114,
+      "source": [
+        "tallyho/workflow.py",
+        29,
+        33
+      ],
+      "tier": "summary",
+      "tokens": 38
+    },
+    {
+      "id": "sym:4286",
+      "reason": "lexical",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4185",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/models.py",
+        86,
+        89
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:4174",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:4156",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:4182",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:4253",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/base.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4246",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    }
+  ],
+  "omitted": [
+    "- rec:11d5c7a9 decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:71c2a7e1 decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:163b9d6b decision: CSV is written by hand, not with the csv module, so the bytes stay the…",
+    "- rec:4ed8be67 decision: RecordStore.delete raises NotFound for an id that is not there, as get… (disputed)",
+    "- rec:fbb86079 decision: Coupon.expires is the first day a coupon no longer works: one that exp… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "0b1e1fea-3bd2-4686-ab98-18c86b301236",
+  "task_id": "740c02c7-7360-4acf-bbe6-8d7aa64d1a3f",
+  "tokens": 685
+}

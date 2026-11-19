@@ -1,0 +1,11 @@
+| arm | out | sessions | valid | accepted | rate | 95 % Wilson | cost | repeated dead ends | median wall s |
+|---|---|---|---|---|---|---|---|---|---|
+| smoke | smoke-r3 | 1 | 1 | 1 | 1.000 | 0.207 to 1.000 | $0.0063 | 0 | 21.5 |
+
+| task | smoke |
+|---|---|
+| relay-order-ids | 1/1 |
+
+| arm | tried --supersedes | ran av | largest request (prompt tokens) | largest session cost |
+|---|---|---|---|---|
+| smoke | 0 | 1 | 30595 | $0.0063 |

@@ -1,0 +1,7 @@
+ok  relay-bus-resubscribe: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 2; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-quote-split: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 2; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-tax-with-rate: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 2; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+all ok

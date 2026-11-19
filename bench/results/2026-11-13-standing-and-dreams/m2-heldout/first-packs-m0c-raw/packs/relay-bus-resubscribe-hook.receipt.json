@@ -1,0 +1,204 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T12:58:26.902119+00:00",
+  "head_change": "74433237bce99fa413faca21d393619fab366d66",
+  "id": "rcp:5b316836",
+  "items": [
+    {
+      "id": "task:relay-bus-resubscribe",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 97
+    },
+    {
+      "id": "file:tallyho/events.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:356b2749",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 60
+    },
+    {
+      "id": "rec:2b363341",
+      "reason": "goal-lead",
+      "score": 2.0317540168762207,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:f9e31a85",
+      "reason": "semantic",
+      "score": 0.5691112875938416,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:0cd4d256",
+      "reason": "semantic",
+      "score": 0.5654380917549133,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:dab90967",
+      "reason": "semantic",
+      "score": 0.2149987667798996,
+      "source": null,
+      "tier": "handle",
+      "tokens": 13
+    },
+    {
+      "id": "sym:1676",
+      "reason": "seed",
+      "score": 1.0463709831237793,
+      "source": [
+        "tallyho/events.py",
+        16,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1674",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/events.py",
+        11,
+        22
+      ],
+      "tier": "full",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1675",
+      "reason": "lexical",
+      "score": 0.7698103189468384,
+      "source": [
+        "tallyho/events.py",
+        12,
+        14
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:1677",
+      "reason": "lexical",
+      "score": 0.7698102593421936,
+      "source": [
+        "tallyho/events.py",
+        19,
+        22
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1797",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/workflow.py",
+        24,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1796",
+      "reason": "lexical",
+      "score": 0.7503052949905396,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:1802",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/workflow.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:1798",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:1661",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/cli.py",
+        15,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1667",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "handle",
+      "tokens": 19
+    }
+  ],
+  "omitted": [
+    "- rec:7ce8980b decision: Copy a TaxTable with dataclasses.replace(self), then set the rate on t…",
+    "- rec:330009c8 decision: Count through the base class: len(self.list_page(collection, None, 10*…",
+    "- rec:97a851dd decision: Errors about customer data must not echo the rejected value: they are…",
+    "- rec:42d92f22 decision: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:a79a77a2 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:cd90e6c9 decision: Split a Money amount with total.times(Decimal(1) / n) for each of the…"
+  ],
+  "packer_version": 11,
+  "session": "28ed736b-922c-496a-8fba-f9073df67a21",
+  "task_id": "7a6b54c0-599d-4e75-84c2-dca2e9179c51",
+  "tokens": 707
+}

@@ -1,0 +1,120 @@
+--- m2rawho relay-coupon-days-left-av-r10:
+def days_left(self, today: date) -> int | None:
+        """Days, counting from ``today``, the coupon can still be used.
+
+        ``expires`` is the first day the coupon no longer works, so it does not
+        count. Returns 0 once the coupon can no longer be used, and None for a
+        coupon that never expires.
+        """
+        if self.expires is None:
+            return None
+        return max(0, (self.expires - today).days)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r16:
+def days_left(self, today: date) -> int | None:
+        """Days from ``today`` on which the coupon can still be used; 0 once it cannot be,
+        None if it never expires. ``expires`` is the first day it no longer works, so the
+        expiry day itself does not count."""
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+        if self.expires is not None and today >= self.expires:
+            return False
+--- m2rawho relay-coupon-days-left-av-r18:
+def days_left(self, today: date) -> int | None:
+        """Days, counting ``today``, on which the coupon can still be used.
+
+        0 once it can no longer be used; None if the coupon never expires.
+        """
+        if self.expires is None:
+            return None
+        if today > self.expires:
+            return 0
+        return (self.expires - today).days + 1
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r2:
+def days_left(self, today: date) -> int | None:
+        """Days, counting from ``today``, on which the coupon can still be used.
+
+        ``expires`` is the first day the coupon no longer works, so a coupon
+        expiring on 10 March is good to 9 March. Returns 0 once it cannot be
+        used any more, and None for a coupon that never expires.
+        """
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r20:
+def days_left(self, today: date) -> int | None:
+        """Days, counting from ``today``, the coupon can still be used.
+
+        ``expires`` is the first day the coupon no longer works, so the expiry
+        day itself does not count. Returns 0 once it cannot be used any more,
+        and None for a coupon that never expires.
+        """
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r3:
+def days_left(self, today: date) -> int | None:
+        """Days, counting from ``today``, the coupon can still be used.
+
+        ``expires`` is the first day the coupon no longer works, so the
+        expiry day itself does not count. Returns 0 once the coupon can no
+        longer be used, and None for a coupon that never expires.
+        """
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r4:
+def days_left(self, today: date) -> int | None:
+        """Days from ``today`` on which the coupon can still be used; None if it never expires.
+
+        ``expires`` is the first day the coupon no longer works, so the expiry day itself does not count.
+        """
+        if self.expires is None:
+            return None
+        return max(0, (self.expires - today).days)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r5:
+def days_left(self, today: date) -> int | None:
+        """Days, counting from ``today``, on which the coupon can still be used.
+
+        ``expires`` is the first day the coupon no longer works, so it does not
+        count. Returns 0 once the coupon is spent, and None if it never expires.
+        """
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+--- m2rawho relay-coupon-days-left-av-r8:
+def days_left(self, today: date) -> int | None:
+        """Days from ``today`` on which the coupon can still be used; 0 once it cannot be,
+        None if it never expires. ``expires`` is the first day the coupon no longer works,
+        so that day does not count."""
+        if self.expires is None:
+            return None
+        return max((self.expires - today).days, 0)
+
+    def usable(self, subtotal: Money, tier: str, today: date) -> bool:
+m2rawho relay-coupon-days-left: wrong note in the transcript 20/20, with its disputed mark 0/20
+m2rawho relay-delete-order: wrong note in the transcript 20/20, with its disputed mark 0/20
+m2rawho relay-ledger-revenue: wrong note in the transcript 20/20, with its disputed mark 0/20
+m2rawho relay-order-can-cancel: wrong note in the transcript 20/20, with its disputed mark 0/20
+m2rawho relay-order-comments: wrong note in the transcript 20/20, with its disputed mark 0/20
+m2dreamedho relay-coupon-days-left: wrong note in the transcript 20/20, with its disputed mark 20/20
+m2dreamedho relay-delete-order: wrong note in the transcript 20/20, with its disputed mark 20/20
+m2dreamedho relay-ledger-revenue: wrong note in the transcript 20/20, with its disputed mark 20/20
+m2dreamedho relay-order-can-cancel: wrong note in the transcript 20/20, with its disputed mark 20/20
+m2dreamedho relay-order-comments: wrong note in the transcript 19/20, with its disputed mark 19/20

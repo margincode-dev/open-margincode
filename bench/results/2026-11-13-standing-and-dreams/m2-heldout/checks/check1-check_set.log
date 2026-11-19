@@ -1,0 +1,7 @@
+ok  pool: 5 wrong, 5 true, none fitted
+ok  coupon-days-left: note of 188 characters; dead edit matches=True, good edit matches=False
+ok  delete-order: note of 186 characters; dead edit matches=True, good edit matches=False
+ok  ledger-revenue: note of 194 characters; dead edit matches=True, good edit matches=False
+ok  order-can-cancel: note of 162 characters; dead edit matches=True, good edit matches=False
+ok  order-comments: note of 184 characters; dead edit matches=True, good edit matches=False
+held-out set ok

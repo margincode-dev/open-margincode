@@ -1,0 +1,221 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:08:09.835611+00:00",
+  "head_change": "7c3e1acfafef843595be1cb185101b692fbb1b63",
+  "id": "rcp:dd26763c",
+  "items": [
+    {
+      "id": "task:relay-ledger-revenue",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 83
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "full",
+      "tokens": 113
+    },
+    {
+      "id": "sym:4003",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4005",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "full",
+      "tokens": 42
+    },
+    {
+      "id": "sym:4006",
+      "reason": "lexical",
+      "score": 0.753791332244873,
+      "source": [
+        "tallyho/ledger.py",
+        46,
+        50
+      ],
+      "tier": "full",
+      "tokens": 32
+    },
+    {
+      "id": "sym:4002",
+      "reason": "lexical",
+      "score": 0.7503052949905396,
+      "source": [
+        "tallyho/ledger.py",
+        15,
+        20
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4004",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "full",
+      "tokens": 45
+    },
+    {
+      "id": "sym:4027",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "full",
+      "tokens": 34
+    },
+    {
+      "id": "sym:4035",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/money.py",
+        74,
+        75
+      ],
+      "tier": "full",
+      "tokens": 29
+    },
+    {
+      "id": "sym:4007",
+      "reason": "semantic",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/ledger.py",
+        52,
+        53
+      ],
+      "tier": "summary",
+      "tokens": 32
+    },
+    {
+      "id": "sym:4038",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "summary",
+      "tokens": 34
+    },
+    {
+      "id": "sym:4015",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        59,
+        60
+      ],
+      "tier": "summary",
+      "tokens": 28
+    },
+    {
+      "id": "sym:4016",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4017",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/models.py",
+        73,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:4025",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "summary",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4055",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "summary",
+      "tokens": 24
+    },
+    {
+      "id": "sym:4060",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/pricing/tax.py",
+        25,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4139",
+      "reason": "lexical",
+      "score": 0.3272727429866791,
+      "source": [
+        "tests/test_pricing.py",
+        15,
+        17
+      ],
+      "tier": "summary",
+      "tokens": 31
+    }
+  ],
+  "omitted": [],
+  "packer_version": 11,
+  "session": "bench-start-7a7b9399-2650-4cb3-bdc7-06dc9be12c91",
+  "task_id": "35552f88-9cd4-4c37-b578-ce9f8bff7e4a",
+  "tokens": 681
+}

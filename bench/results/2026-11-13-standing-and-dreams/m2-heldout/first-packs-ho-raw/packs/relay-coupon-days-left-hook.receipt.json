@@ -1,0 +1,184 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T12:57:27.918084+00:00",
+  "head_change": "812df7e8ed9761bf01fa3fa42c5cbd8119677d7b",
+  "id": "rcp:bc72d981",
+  "items": [
+    {
+      "id": "task:relay-coupon-days-left",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 108
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:63bc5172",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 71
+    },
+    {
+      "id": "rec:5ee6ecf9",
+      "reason": "goal-lead",
+      "score": 2.0322580337524414,
+      "source": null,
+      "tier": "handle",
+      "tokens": 26
+    },
+    {
+      "id": "rec:99647504",
+      "reason": "semantic",
+      "score": 0.5785354971885681,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:de165c0f",
+      "reason": "semantic",
+      "score": 0.578040599822998,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "rec:426405a6",
+      "reason": "semantic",
+      "score": 0.21802131831645968,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "sym:887",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:885",
+      "reason": "lexical",
+      "score": 0.7802419662475586,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 24
+    },
+    {
+      "id": "sym:888",
+      "reason": "lexical",
+      "score": 0.7631070017814636,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:892",
+      "reason": "lexical",
+      "score": 0.753791332244873,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:886",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:903",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:890",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:966",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:891",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:ea4a9b41 decision: Ledger.balances() gives each account as the shop reports it: cash, rev…",
+    "- rec:7579bd9f decision: Collections that hang off an order are named \"order-<what>\": comments…",
+    "- rec:8ce77453 decision: CSV is written by hand, not with the csv module, so the bytes stay the…",
+    "- rec:d4520671 decision: Raise ValidationError with field= naming the input that is wrong: str(…",
+    "- rec:b9ad1f80 decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:0a538ee5 decision: text.pad returns exactly width characters: it pads short text and cuts…"
+  ],
+  "packer_version": 11,
+  "session": "0a91e22c-95dc-44e7-be01-5e03fa3ae136",
+  "task_id": "fb1ced3d-0748-4bc6-94ac-dd250c1da699",
+  "tokens": 703
+}

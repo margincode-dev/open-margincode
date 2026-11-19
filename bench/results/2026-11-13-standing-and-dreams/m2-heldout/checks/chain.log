@@ -1,0 +1,14 @@
+13:02:08Z start freeze
+13:07:10Z end freeze exit=0
+13:10:29Z start smoke budget=0.10
+13:11:02Z end smoke exit=0
+13:11:23Z start raw-ho budget=2.30
+14:07:26Z end raw-ho exit=0
+14:07:56Z start dreamed-ho budget=2.30
+15:06:34Z end dreamed-ho exit=0
+15:06:47Z start raw-m0c budget=0.70
+15:24:29Z end raw-m0c exit=0
+15:24:47Z start dreamed-m0c budget=0.70
+15:39:45Z end dreamed-m0c exit=0
+15:40:01Z start cold-ho budget=0.40
+15:53:22Z end cold-ho exit=0

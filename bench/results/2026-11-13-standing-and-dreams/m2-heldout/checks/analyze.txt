@@ -1,0 +1,29 @@
+| arm | out | sessions | valid | accepted | rate | 95 % Wilson | cost | repeated dead ends | median wall s |
+|---|---|---|---|---|---|---|---|---|---|
+| raw | m2-raw-ho | 100 | 100 | 91 | 0.910 | 0.838 to 0.952 | $0.6128 | 6 | 21.7 |
+| dreamed | m2-dreamed-ho | 100 | 100 | 100 | 1.000 | 0.963 to 1.000 | $0.6180 | 2 | 20.5 |
+| raw M0 row | m2-raw-m0c | 30 | 30 | 16 | 0.533 | 0.361 to 0.698 | $0.1575 | 14 | 20.4 |
+| dreamed M0 row | m2-dreamed-m0c | 30 | 30 | 30 | 1.000 | 0.886 to 1.000 | $0.1427 | 0 | 17.9 |
+| cold | m2-cold-ho | 50 | 50 | 50 | 1.000 | 0.929 to 1.000 | $0.2325 | 0 | 15.4 |
+| smoke | smoke-r3 | 1 | 1 | 1 | 1.000 | 0.207 to 1.000 | $0.0063 | 0 | 21.5 |
+
+| task | raw | dreamed | raw M0 row | dreamed M0 row | cold | smoke |
+|---|---|---|---|---|---|---|
+| relay-bus-resubscribe | - | - | 5/10 | 10/10 | - | - |
+| relay-coupon-days-left | 11/20 | 20/20 | - | - | 10/10 | - |
+| relay-delete-order | 20/20 | 20/20 | - | - | 10/10 | - |
+| relay-ledger-revenue | 20/20 | 20/20 | - | - | 10/10 | - |
+| relay-order-can-cancel | 20/20 | 20/20 | - | - | 10/10 | - |
+| relay-order-comments | 20/20 | 20/20 | - | - | 10/10 | - |
+| relay-order-ids | - | - | - | - | - | 1/1 |
+| relay-quote-split | - | - | 1/10 | 10/10 | - | - |
+| relay-tax-with-rate | - | - | 10/10 | 10/10 | - | - |
+
+| arm | tried --supersedes | ran av | largest request (prompt tokens) | largest session cost |
+|---|---|---|---|---|
+| raw | 0 | 39 | 36185 | $0.0098 |
+| dreamed | 0 | 38 | 37352 | $0.0098 |
+| raw M0 row | 0 | 8 | 30240 | $0.0066 |
+| dreamed M0 row | 0 | 3 | 29007 | $0.0062 |
+| cold | 0 | 0 | 32792 | $0.0069 |
+| smoke | 0 | 1 | 30595 | $0.0063 |

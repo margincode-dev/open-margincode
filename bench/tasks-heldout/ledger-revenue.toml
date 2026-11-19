@@ -1,0 +1,21 @@
+name = "relay-ledger-revenue"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Add `Ledger.revenue()`: the revenue the ledger has booked so far, as Money (zero when nothing has been sold)."""
+relevant_files = ["tallyho/ledger.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
+max_turns = 30
+model = "claude-haiku-5-5"
+session_timeout_secs = 900
+relay_pool = "pool/notes-heldout.toml"
+relay_pair = "ledger-revenue"
+
+[[local_tests]]
+path = "tests/test_relay_ledger_revenue.py"
+source = "files/test_relay_ledger_revenue.py"
+
+[[dead_end]]
+description = "the approach this task's wrong note recommends"
+file_glob = "tallyho/ledger.py"
+pattern = '''return\s+self\.balances\(\)'''

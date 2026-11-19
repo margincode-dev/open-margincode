@@ -1,0 +1,208 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T12:58:03.785472+00:00",
+  "head_change": "0dfa945a989ec783cbecd93282be637ffe315de4",
+  "id": "rcp:f8a3ae51",
+  "items": [
+    {
+      "id": "task:relay-order-can-cancel",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 89
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:2050b25b",
+      "reason": "goal-lead",
+      "score": 2.0327868461608887,
+      "source": null,
+      "tier": "summary",
+      "tokens": 52
+    },
+    {
+      "id": "rec:6ff77b5b",
+      "reason": "goal-lead",
+      "score": 2.0320019721984863,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:4c3f02b3",
+      "reason": "semantic",
+      "score": 0.6004165410995483,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:e51fa102",
+      "reason": "semantic",
+      "score": 0.5747913122177124,
+      "source": null,
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "rec:e0ee399f",
+      "reason": "semantic",
+      "score": 0.2127319574356079,
+      "source": null,
+      "tier": "handle",
+      "tokens": 14
+    },
+    {
+      "id": "sym:1470",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/workflow.py",
+        49,
+        50
+      ],
+      "tier": "summary",
+      "tokens": 31
+    },
+    {
+      "id": "sym:1463",
+      "reason": "lexical",
+      "score": 0.7633117437362671,
+      "source": [
+        "tallyho/workflow.py",
+        14,
+        20
+      ],
+      "tier": "summary",
+      "tokens": 26
+    },
+    {
+      "id": "sym:1466",
+      "reason": "lexical",
+      "score": 0.7598077058792114,
+      "source": [
+        "tallyho/workflow.py",
+        29,
+        33
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:1464",
+      "reason": "lexical",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1363",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/models.py",
+        86,
+        89
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1352",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/models.py",
+        14,
+        19
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1334",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/config.py",
+        23,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:1360",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:1431",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/store/base.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1424",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:1336",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/errors.py",
+        8,
+        17
+      ],
+      "tier": "handle",
+      "tokens": 17
+    }
+  ],
+  "omitted": [
+    "- rec:955ec91a decision: Coupon.expires is the first day a coupon no longer works: one that exp…",
+    "- rec:5268918e decision: Raise ValidationError with field= naming the input that is wrong: str(…",
+    "- rec:eea03e28 decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:ef20c89c decision: Ledger.balances() gives each account as the shop reports it: cash, rev…",
+    "- rec:692bd4da decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:d6edfc1a decision: CSV is written by hand, not with the csv module, so the bytes stay the…"
+  ],
+  "packer_version": 11,
+  "session": "e05b1a75-3849-4e80-9d5b-698faa0869c4",
+  "task_id": "044e39a0-b1c4-49f6-8de5-d27563ca2dfb",
+  "tokens": 698
+}

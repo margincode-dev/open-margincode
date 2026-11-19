@@ -1,0 +1,21 @@
+name = "relay-order-comments"
+repo_path = "~/bench-repos/tallyho"
+base_rev = "main"
+goal = """Staff want to keep short comments on an order. Add `Repository.add_order_comment(oid, text)` and `Repository.order_comments(oid)`, which returns that order's comments as a list of strings, oldest first, and an empty list for an order without any. Keep them in the shop's store, so they survive a restart."""
+relevant_files = ["tallyho/repository.py"]
+verify_cmd = "~/bench-work/venv/bin/python -m pytest -q -p no:cacheprovider tests"
+path_prepend = ["~/bench-work/venv/bin"]
+max_turns = 30
+model = "claude-haiku-5-5"
+session_timeout_secs = 900
+relay_pool = "pool/notes-heldout.toml"
+relay_pair = "order-comments"
+
+[[local_tests]]
+path = "tests/test_relay_order_comments.py"
+source = "files/test_relay_order_comments.py"
+
+[[dead_end]]
+description = "the approach this task's wrong note recommends"
+file_glob = "tallyho/repository.py"
+pattern = '''["']order-comments["']'''

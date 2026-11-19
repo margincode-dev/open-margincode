@@ -1,0 +1,21 @@
+$ git diff --stat 21f30dc 21ac445 -- crates integrations Cargo.toml Cargo.lock rust-toolchain.toml
+(empty)
+$ git diff --stat 21f30dc 21ac445 -- bench/tallyho bench/tasks-m0 bench/tasks-relay
+(empty)
+$ sha256sum integrations/dream/DREAM.md (at 21ac445)
+f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa *-
+$ sha256sum of the binaries in m2b-harness
+ff48898161a2d38b88f52535170e545e796b53784ec4254ff56e72e89adc27b9  /m2b/main-21f30dc/bin/av
+c24399064efa56c1974204a7646fb626fca3af8736cb62597d6238368c44ba9a  /m2b/main-21f30dc/bin/margincode
+a5702a789ea90ae797cd76963d5d031ae9eb931f012a60b1a4dbe711f2302b1c  /m2b/main-21f30dc/bin/margincode-daemon
+a1f7f1e207ef04036e1d45dbab157f5c74c9d5136e46e420357a1376614ec160  /m2b/main-21f30dc/H/bin/margincode-bench
+e2452e7f04cce6ce1e548caf388fec010961b9a4d11d3d6f6497daca6539eea9  /m2b/dreamer.sh
+e2452e7f04cce6ce1e548caf388fec010961b9a4d11d3d6f6497daca6539eea9  /m2b/verifier.sh
+95110647de65da9bb34934572de8c39c65b7b5c2dc439552b83ecab86882a5da  /m2b/main-21f30dc/daemon.sh
+$ instructions_sha of amendment 2's freeze runs (db m2r)
+ddf3738-relay-bus-resubscribe|review|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa
+ddf3738-relay-bus-resubscribe|verify|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa
+ddf3738-relay-quote-split|review|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa
+ddf3738-relay-quote-split|verify|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa
+ddf3738-relay-tax-with-rate|review|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa
+ddf3738-relay-tax-with-rate|verify|f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa

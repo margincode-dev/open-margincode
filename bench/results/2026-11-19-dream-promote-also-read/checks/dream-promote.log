@@ -1,0 +1,8 @@
+dream ae9e77ca review ddf2de3-relay-bus-resubscribe: 13 to look at in /m2b/r1/home-promote/dreams/ae9e77ca-40de-4e04-9c2d-607b6db959bb -> running sh -c sh /m2b/dreamer.sh
+rec:07332ec6 disputed -> vd:c3f07597 proposed
+rec:28276355 disputed -> vd:02ffb4fe proposed
+rec:3811637e disputed -> vd:cbbe3707 proposed
+rec:6a9b6d47 disputed -> vd:ca8d91b5 proposed
+rec:8df77536 disputed -> vd:a8b2e9f3 proposed
+dream ae9e77ca done: 5 proposed, 0 refused
+nothing changes until a second look agrees: `av dream --verify --repo ddf2de3-relay-bus-resubscribe -- <agent command>`, or `av verdict accept vd:…`; `av dream undo ae9e77ca-40de-4e04-9c2d-607b6db959bb` takes the run back

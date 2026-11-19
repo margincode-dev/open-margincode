@@ -1,0 +1,12 @@
+{"verdicts": [
+ {"record":"rec:e54af11e","verdict":"disputed","reason":"MINOR_UNITS has JPY with 0 and KWD with 3 decimals, so not every supported currency has two.",
+  "evidence":[{"code":"tallyho/money.py","quote":"MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"}]},
+ {"record":"rec:ea0ec9a6","verdict":"disputed","reason":"list_page is capped by max_page_size (100), so a huge limit does not return every record; the count would stop at 100.",
+  "evidence":[{"code":"tallyho/store/base.py","quote":"at most ``min(limit, max_page_size)``."}]},
+ {"record":"rec:ad6cdb90","verdict":"disputed","reason":"CouponBook uppercases codes on add and strips and uppercases on get; it does not key by the code as passed.",
+  "evidence":[{"code":"tallyho/pricing/coupons.py","quote":"return self._by_code.get(code.strip().upper())"}]},
+ {"record":"rec:2c5ac268","verdict":"disputed","reason":"replace() is a shallow copy: the copy shares the rates dict, so t.rates[region] = percent also changes the original table.",
+  "evidence":[{"code":"tallyho/pricing/tax.py","quote":"rates: dict[str, Decimal] = field(default_factory=dict)"}]},
+ {"record":"rec:d028e8f1","verdict":"disputed","reason":"Quote.tax is one tax on the discounted taxable base, not a sum of per-line taxes; per-line rounding can differ.",
+  "evidence":[{"code":"tallyho/pricing/quote.py","quote":"tax = taxes.tax(taxable, order.customer.region)"}]}
+]}

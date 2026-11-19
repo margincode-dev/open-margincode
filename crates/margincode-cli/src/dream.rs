@@ -282,10 +282,11 @@ struct Refused {
     why: String,
 }
 
-/// SIGINT and SIGTERM while an agent runs: the agent runs in a process group of its own, so a
-/// Ctrl-C reaches only `av`, and `av` must end that group before it goes.
+/// SIGINT and SIGTERM while an agent runs (a dream's, or `av watch`'s command): the agent runs in
+/// a process group of its own, so a Ctrl-C reaches only `av`, and `av` must end that group before
+/// it goes.
 #[cfg(unix)]
-mod interrupt {
+pub(crate) mod interrupt {
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     pub static STOP: AtomicBool = AtomicBool::new(false);

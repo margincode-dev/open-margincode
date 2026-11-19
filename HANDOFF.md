@@ -57,8 +57,6 @@ Next:
    other models, a text that asks for these more plainly.
 3. **M0 on a second model.** One model has shown it.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
-5. `av watch` leaves its command running when `av` alone gets SIGINT or SIGTERM (a terminal's
-   Ctrl-C reaches both). `av dream` is fixed; `av watch` has no stop flag to share yet.
 
 Left open on purpose:
 

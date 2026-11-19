@@ -94,7 +94,7 @@ async fn accept(e: &Env, result: &Value) -> Value {
     let (status, body) = post_json(
         e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": true}),
+        json!({"reviewer": "owner", "agree": true}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -362,7 +362,7 @@ async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": false}),
+        json!({"reviewer": "owner", "agree": false}),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
@@ -370,7 +370,7 @@ async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_
     let (status, undone) = post_json(
         &e,
         &format!("/v1/dreams/{}/undo", dream_id(&d)),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{undone}");
@@ -417,7 +417,7 @@ async fn a_verdict_a_person_rejects_has_no_effect() {
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": false}),
+        json!({"reviewer": "owner", "agree": false}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -430,7 +430,7 @@ async fn a_verdict_a_person_rejects_has_no_effect() {
     assert_eq!(one["repo"], "demo", "{one}");
     let reviews = one["reviews"].as_array().expect("reviews");
     assert_eq!(reviews.len(), 1, "{one}");
-    assert_eq!(reviews[0]["reviewer"], "vinh", "{one}");
+    assert_eq!(reviews[0]["reviewer"], "owner", "{one}");
     assert_eq!(reviews[0]["agree"], false, "{one}");
     assert!(reviews[0]["dream"].is_null(), "{one}");
     assert_eq!(reviews[0]["evidence"], json!([]), "{one}");
@@ -583,7 +583,7 @@ async fn an_outdated_record_leaves_packs_and_a_retraction_brings_it_back() {
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/retract"),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -592,7 +592,7 @@ async fn an_outdated_record_leaves_packs_and_a_retraction_brings_it_back() {
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/retract"),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
@@ -842,7 +842,7 @@ async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own(
     );
 }
 
-/// A guard with a policy for shared memory: only `vinh` reviews verdicts, `grok` supersedes nothing.
+/// A guard with a policy for shared memory: only `owner` reviews verdicts, `grok` supersedes nothing.
 #[derive(Default)]
 struct MemoryPolicy(std::sync::Mutex<Vec<String>>);
 
@@ -870,7 +870,7 @@ impl margincode_daemon::MergeGuard for MemoryPolicy {
                 ..
             } => (
                 format!("review {kind} of {:?} agree={agree}", record.summary),
-                by != "vinh",
+                by != "owner",
             ),
         };
         let from = if dream.is_some() { " from a run" } else { "" };
@@ -939,7 +939,7 @@ async fn a_guard_can_refuse_a_memory_write_and_nothing_is_written() {
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": true}),
+        json!({"reviewer": "owner", "agree": true}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -948,7 +948,7 @@ async fn a_guard_can_refuse_a_memory_write_and_nothing_is_written() {
     let (status, _) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": false}),
+        json!({"reviewer": "owner", "agree": false}),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -989,7 +989,7 @@ async fn a_guard_can_refuse_a_memory_write_and_nothing_is_written() {
         *guard.0.lock().unwrap(),
         [
             "demo: review outdated of \"hello never shouts\" agree=true by checker from a run",
-            "demo: review outdated of \"hello never shouts\" agree=true by vinh",
+            "demo: review outdated of \"hello never shouts\" agree=true by owner",
             "demo: supersede \"the greeter is sync\" by grok",
             "demo: supersede \"the greeter is sync\" by claude",
         ]
@@ -1184,7 +1184,7 @@ async fn person_review(e: &Env, vd: &str, agree: bool) -> (StatusCode, Value) {
     post_json(
         e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "vinh", "agree": agree}),
+        json!({"reviewer": "owner", "agree": agree}),
     )
     .await
 }
@@ -1385,7 +1385,7 @@ async fn retract_and_undo_take_a_promoted_convention_out_and_leave_a_hand_writte
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/retract"),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1411,7 +1411,7 @@ async fn retract_and_undo_take_a_promoted_convention_out_and_leave_a_hand_writte
     let (status, body) = post_json(
         &e,
         &format!("/v1/dreams/{}/undo", dream_id(&d)),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1458,7 +1458,7 @@ async fn a_promotes_acceptance_is_the_guards_memory_write_question() {
         *guard.0.lock().unwrap(),
         [
             "demo: review promote of \"hello never shouts\" agree=true by someone",
-            "demo: review promote of \"hello never shouts\" agree=true by vinh",
+            "demo: review promote of \"hello never shouts\" agree=true by owner",
         ]
     );
 }
@@ -1659,7 +1659,7 @@ async fn a_decision_has_one_promote_at_a_time_and_a_superseded_one_is_not_accept
     post_json(
         &e,
         &format!("/v1/verdicts/{vd}/retract"),
-        json!({"by": "vinh"}),
+        json!({"by": "owner"}),
     )
     .await;
     let d3 = start_dream(&e, "review", "").await;

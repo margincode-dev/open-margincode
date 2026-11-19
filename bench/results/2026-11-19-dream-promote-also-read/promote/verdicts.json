@@ -1,0 +1,13 @@
+{"verdicts": [
+ {"record":"rec:07332ec6","verdict":"disputed","reason":"CouponBook uppercases codes on add and get (and strips on get); keys are normalized inside the book.",
+  "evidence":[{"code":"tallyho/pricing/coupons.py","quote":"return self._by_code.get(code.strip().upper())"}]},
+ {"record":"rec:28276355","verdict":"disputed","reason":"list_page is capped at max_page_size (100), so a huge limit does not return every record; the count would stop at 100.",
+  "evidence":[{"code":"tallyho/store/base.py","quote":"Records in id order, starting after ``cursor``, at most ``min(limit, max_page_size)``."}]},
+ {"record":"rec:3811637e","verdict":"disputed","reason":"JPY has 0 decimals and KWD has 3; format() uses _exponent(currency) for the digits, not a fixed :.2f.",
+  "evidence":[{"code":"tallyho/money.py","quote":"MINOR_UNITS = {\"USD\": 2, \"EUR\": 2, \"GBP\": 2, \"JPY\": 0, \"KWD\": 3}"},
+              {"code":"tallyho/money.py","quote":"return f\"{self.amount:.{exp}f} {self.currency}\""}]},
+ {"record":"rec:6a9b6d47","verdict":"disputed","reason":"replace() is a shallow copy: the copy shares the same rates dict, so t.rates[region]=percent also changes the original.",
+  "evidence":[{"code":"tallyho/pricing/tax.py","quote":"rates: dict[str, Decimal] = field(default_factory=dict)"}]},
+ {"record":"rec:8df77536","verdict":"disputed","reason":"Quote.tax is one rounded tax on the discounted taxable total, so per-line rounded taxes need not add up to it.",
+  "evidence":[{"code":"tallyho/pricing/quote.py","quote":"tax = taxes.tax(taxable, order.customer.region)"}]}
+]}

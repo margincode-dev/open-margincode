@@ -1,0 +1,744 @@
+{
+  "commit": "e53350ef45f916e2a9eb68ec3b9a20a3907c1e76",
+  "dream": {
+    "agent": "dreamer",
+    "area": "",
+    "counts": {},
+    "finished_at": null,
+    "id": "ae9e77ca-40de-4e04-9c2d-607b6db959bb",
+    "instructions_sha": "18f3b6ca8259cb4433760132a00ef3d0da0726f4d3fb03c55a1e4b013b0e3583",
+    "lease_expires": "2026-11-19T06:11:29.583250Z",
+    "mode": "review",
+    "repo": "ddf2de3-relay-bus-resubscribe",
+    "started_at": "2026-11-19T05:11:29.583250Z",
+    "status": "running",
+    "worklist": {
+      "commit": "e53350ef45f916e2a9eb68ec3b9a20a3907c1e76",
+      "records": [
+        "07332ec6-a658-4976-9c6a-0eda1c2cdefe",
+        "28276355-2d6a-4e95-8ef8-4e73700d1367",
+        "3811637e-10a7-49f9-ab1d-2e58c11388b9",
+        "396fbd00-232c-4655-be6f-97d3fcb0b2eb",
+        "6a9b6d47-9d67-4ca2-91c5-93bffb5ba2c6",
+        "7b87e59b-8774-490d-8b24-a569565da232",
+        "8df77536-e307-47e1-b7b8-67114883b8ca",
+        "91703658-8097-4bd8-9f2d-ea34f904f505",
+        "adb16324-77f9-4584-b18d-c1062d995c91",
+        "b964b8f1-9283-4f97-8f19-0439265c6f6f",
+        "c1fc90af-d54b-4f20-8ba4-3aca1bbce5c1",
+        "d581f309-b9ff-42b9-af79-18ad01fa36af",
+        "fb1e7ed9-ef5f-4297-a097-a42197bebd8d"
+      ],
+      "scores": {
+        "07332ec6-a658-4976-9c6a-0eda1c2cdefe": 1.0,
+        "28276355-2d6a-4e95-8ef8-4e73700d1367": 1.0,
+        "3811637e-10a7-49f9-ab1d-2e58c11388b9": 1.0,
+        "396fbd00-232c-4655-be6f-97d3fcb0b2eb": 1.0,
+        "6a9b6d47-9d67-4ca2-91c5-93bffb5ba2c6": 1.0,
+        "7b87e59b-8774-490d-8b24-a569565da232": 1.0,
+        "8df77536-e307-47e1-b7b8-67114883b8ca": 1.0,
+        "91703658-8097-4bd8-9f2d-ea34f904f505": 1.0,
+        "adb16324-77f9-4584-b18d-c1062d995c91": 1.0,
+        "b964b8f1-9283-4f97-8f19-0439265c6f6f": 1.0,
+        "c1fc90af-d54b-4f20-8ba4-3aca1bbce5c1": 1.0,
+        "d581f309-b9ff-42b9-af79-18ad01fa36af": 1.0,
+        "fb1e7ed9-ef5f-4297-a097-a42197bebd8d": 1.0
+      }
+    }
+  },
+  "items": [
+    {
+      "code": [
+        {
+          "path": "tallyho/pricing/coupons.py",
+          "symbol": "CouponBook",
+          "text": "class CouponBook:\n    \"\"\"The coupons a shop accepts, by code (case-insensitive).\"\"\"\n\n    def __init__(self, coupons: list[Coupon] | None = None) -> None:\n        self._by_code = {c.code.upper(): c for c in coupons or []}\n\n    def add(self, coupon: Coupon) -> None:\n        self._by_code[coupon.code.upper()] = coupon\n\n    def get(self, code: str) -> Coupon | None:\n        return self._by_code.get(code.strip().upper())\n\n    def discounts_for(self, codes: list[str], subtotal: Money, tier: str, today: date) -> list[Discount]:\n        \"\"\"Discounts of the usable coupons among ``codes``; unknown or unusable codes are skipped.\"\"\"\n        out: list[Discount] = []\n        seen: set[str] = set()\n        for code in codes:\n            c = self.get(code)\n            if c is None or c.code.upper() in seen:\n                continue\n            seen.add(c.code.upper())\n            if c.usable(subtotal, tier, today):\n                out.append(c.discount(subtotal.currency))\n        return out"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/pricing/coupons.py",
+            "symbol": "CouponBook"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Normalizing again inside the book is redundant. Use _by_code.pop(code, None) for removals.",
+        "created_at": "2026-11-19T05:11:11.470892Z",
+        "id": "rec:07332ec6",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "CouponBook keys _by_code by the code exactly as it is passed in. Lookups and removals index _by_code with the code as typed; callers have normalized it already."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/store/base.py",
+          "symbol": "RecordStore.list_page",
+          "text": "    def list_page(self, collection: str, cursor: str | None = None, limit: int = 50) -> Page:\n        \"\"\"Records in id order, starting after ``cursor``, at most ``min(limit, max_page_size)``.\"\"\""
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/store/base.py",
+            "symbol": "RecordStore.list_page"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Checked on a 250-order export. Backends should not grow a count() of their own; keep it in base.py.",
+        "created_at": "2026-11-19T05:11:11.444358Z",
+        "id": "rec:28276355",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Count through the base class: len(self.list_page(collection, None, 10**9).records). list_page returns every record when the limit is large, so one count() in RecordStore serves all backends."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/money.py",
+          "symbol": "Money.format",
+          "text": "    def format(self) -> str:\n        \"\"\"``\"12.34 USD\"``.\"\"\"\n        exp = _exponent(self.currency)\n        return f\"{self.amount:.{exp}f} {self.currency}\""
+        }
+      ],
+      "others": [
+        {
+          "anchors": [
+            {
+              "path": "tallyho/money.py",
+              "symbol": "Money.allocate"
+            }
+          ],
+          "author": "agent-a",
+          "body": "Used for gift-card splits: every payer sees the same figure. Raise ValidationError yourself for parts < 1.",
+          "id": "rec:7b87e59b",
+          "kind": "decision",
+          "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+        }
+      ],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/money.py",
+            "symbol": "Money.format"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Keeps plain formatting free of the currency table.",
+        "created_at": "2026-11-19T05:11:11.480732Z",
+        "id": "rec:3811637e",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/events.py",
+          "symbol": "EventBus.subscribe",
+          "text": "    def subscribe(self, event: str, handler: Handler) -> None:\n        self._handlers[event].append(handler)"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/events.py",
+            "symbol": "EventBus.subscribe"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Seen with the mailer plugin: the worker imports it twice, so its handler was a second object and ran twice per order. Keep the first one subscribed.",
+        "created_at": "2026-11-19T05:11:11.550776Z",
+        "id": "rec:396fbd00",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "EventBus.subscribe dedupes by name: skip a handler when one with the same __qualname__ is already on that event. Comparing the function objects misses re-imports, which create new objects."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/pricing/tax.py",
+          "symbol": "TaxTable",
+          "text": "class TaxTable:\n    \"\"\"Tax rates in percent by region code (``\"US-CA\"``). ``default`` covers the rest.\"\"\"\n\n    rates: dict[str, Decimal] = field(default_factory=dict)\n    default: Decimal = Decimal(0)\n    exempt_categories: frozenset[str] = frozenset({\"food\", \"books\"})\n\n    def rate(self, region: str) -> Decimal:\n        if region in self.rates:\n            return self.rates[region]\n        country = region.split(\"-\", 1)[0]\n        return self.rates.get(country, self.default)\n\n    def tax(self, amount: Money, region: str) -> Money:\n        return amount.times(self.rate(region) / 100)"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/pricing/tax.py",
+            "symbol": "TaxTable"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Rebuilding with TaxTable(...) dropped exempt_categories once, when that field was added later. replace() carries every field over.",
+        "created_at": "2026-11-19T05:11:11.560051Z",
+        "id": "rec:6a9b6d47",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Copy a TaxTable with dataclasses.replace(self), then set the rate on the copy: t.rates[region] = percent. replace() builds a new table, so the original keeps its rates. Do not rebuild field by field."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/money.py",
+          "symbol": "Money.allocate",
+          "text": "    def allocate(self, parts: int) -> list[Money]:\n        \"\"\"Split into ``parts`` amounts that sum exactly to this one.\"\"\"\n        if parts <= 0:\n            raise ValidationError(\"parts must be positive\", field=\"parts\")\n        base, rest = divmod(self.minor, parts)\n        return [Money(base + (1 if i < rest else 0), self.currency) for i in range(parts)]"
+        }
+      ],
+      "others": [
+        {
+          "anchors": [
+            {
+              "path": "tallyho/money.py",
+              "symbol": "Money.format"
+            }
+          ],
+          "author": "agent-a",
+          "body": "Keeps plain formatting free of the currency table.",
+          "id": "rec:3811637e",
+          "kind": "decision",
+          "summary": "Every currency tallyho supports has two decimals. Plain amounts are minor / 100 formatted with :.2f; _exponent(currency) only matters for the symbol layout in format()."
+        }
+      ],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/money.py",
+            "symbol": "Money.allocate"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Used for gift-card splits: every payer sees the same figure. Raise ValidationError yourself for parts < 1.",
+        "created_at": "2026-11-19T05:11:11.424155Z",
+        "id": "rec:7b87e59b",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Split a Money amount with total.times(Decimal(1) / n) for each of the n parts. Money.allocate(n) hands out uneven parts, so payers would be charged different amounts; do not use it for splits."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/pricing/quote.py",
+          "symbol": "quote_order",
+          "text": "def quote_order(\n    order: Order,\n    coupons: CouponBook | None = None,\n    taxes: TaxTable | None = None,\n    today: date | None = None,\n) -> Quote:\n    \"\"\"Price ``order``: coupons first, then tax on the taxable share of what remains.\"\"\"\n    taxes = taxes or default_tax_table()\n    today = today or date.today()\n    subtotal = order.subtotal\n    discounts = (coupons or CouponBook()).discounts_for(\n        order.coupon_codes, subtotal, order.customer.tier, today\n    )\n    discounted, applied = apply_discounts(subtotal, discounts)\n    taxable = total(\n        (l.subtotal for l in order.lines\n         if l.product.taxable and l.product.category not in taxes.exempt_categories),\n        order.currency,\n    )\n    # Discounts reduce the taxable base proportionally.\n    if subtotal.minor:\n        taxable = Money(taxable.minor * discounted.minor // subtotal.minor, order.currency)\n    tax = taxes.tax(taxable, order.customer.region)\n    return Quote(subtotal, applied, discounted, tax, discounted + tax)"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/pricing/quote.py",
+            "symbol": "quote_order"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Checked with three 0.10 pens in US-CA: the line taxes matched the order's tax.",
+        "created_at": "2026-11-19T05:11:11.459139Z",
+        "id": "rec:8df77536",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Tax each line on its own: taxes.tax(line.subtotal, region) per taxable line. The per-line amounts add up to Quote.tax, so no splitting or remainder handling is needed."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/ledger.py",
+          "symbol": "Ledger.record_sale",
+          "text": "    def record_sale(self, on: date, order_id: str, quote: Quote) -> None:\n        z = Money.zero(self.currency)\n        self.post(\n            on, f\"order {order_id}\",\n            (\"cash\", quote.total, z),\n            (\"revenue\", z, quote.discounted),\n            (\"tax_payable\", z, quote.tax),\n        )"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/ledger.py",
+            "symbol": "Ledger.record_sale"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Not \"refund of order ...\" or \"order ... refund\": the report matches the memo prefix exactly.",
+        "created_at": "2026-11-19T05:11:11.524289Z",
+        "id": "rec:91703658",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "A refund is booked as the exact reverse of the sale: the same three accounts with debit and credit swapped, memo \"refund <order_id>\", so reports pair a sale and its refund by id."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/repository.py",
+          "symbol": "Repository",
+          "text": "class Repository:\n    \"\"\"Typed access to the shop's records.\"\"\"\n\n    def __init__(self, store: RecordStore) -> None:\n        self.store = store\n\n    def save_product(self, p: Product) -> None:\n        self.store.put(PRODUCTS, product_to_record(p))\n\n    def product(self, sku: str) -> Product:\n        return product_from_record(self.store.get(PRODUCTS, sku))\n\n    def products(self, category: str | None = None) -> list[Product]:\n        where = (lambda r: r.get(\"category\") == category) if category else None\n        return [product_from_record(r) for r in iter_records(self.store, PRODUCTS, where)]\n\n    def save_customer(self, c: Customer) -> None:\n        self.store.put(CUSTOMERS, customer_to_record(c))\n\n    def customer(self, cid: str) -> Customer:\n        return customer_from_record(self.store.get(CUSTOMERS, cid))\n\n    def save_order(self, o: Order) -> None:\n        self.store.put(ORDERS, o.to_dict())\n\n    def order(self, oid: str) -> Order:\n        r = self.store.get(ORDERS, oid)\n        return self._order_from_record(r)\n\n    def _order_from_record(self, r: dict) -> Order:\n        lines = []\n        for l in r[\"lines\"]:\n            p = self.product(l[\"sku\"])\n            lines.append(OrderLine(p, l[\"quantity\"]))\n        return Order(\n            r[\"id\"], self.customer(r[\"customer\"]), lines, OrderStatus(r[\"status\"]),\n            date.fromisoformat(r[\"placed_on\"]) if r.get(\"placed_on\") else None,\n            list(r.get(\"coupons\", [])),\n        )\n\n    def orders(self, status: OrderStatus | None = None) -> list[Order]:\n        where = (lambda r: r[\"status\"] == status.value) if status else None\n        return [self._order_from_record(r) for r in iter_records(self.store, ORDERS, where)]"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/repository.py",
+            "symbol": "Repository"
+          }
+        ],
+        "author": "agent-a",
+        "body": "The sequence is the number of orders stored so far plus one.",
+        "created_at": "2026-11-19T05:11:11.533408Z",
+        "id": "rec:adb16324",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Order ids are \"o\" plus a six-digit zero-padded sequence (o000001, o000002, ...): the store lists records in id order, so padded sequence ids keep listings chronological. No UUIDs."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/validate.py",
+          "symbol": "check_region",
+          "text": "def check_region(region: str) -> None:\n    if not _REGION.match(region):\n        raise ValidationError(f\"invalid region {region!r}\", field=\"region\")"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/validate.py",
+            "symbol": "check_region"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Applies to region, email and anything else from a customer. Older messages that include the value are being cleaned up as they are touched.",
+        "created_at": "2026-11-19T05:11:11.491396Z",
+        "id": "rec:b964b8f1",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Errors about customer data must not echo the rejected value: they are logged and sent to support. Say what is wrong (\"invalid region\"), set field=, never include the value."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/workflow.py",
+          "symbol": "Workflow",
+          "text": "class Workflow:\n    def __init__(self, ledger: Ledger, bus: EventBus | None = None, coupons: CouponBook | None = None) -> None:\n        self.ledger = ledger\n        self.bus = bus or EventBus()\n        self.coupons = coupons or CouponBook()\n\n    def _move(self, order: Order, to: OrderStatus) -> None:\n        if to not in _ALLOWED[order.status]:\n            raise ValidationError(f\"cannot go from {order.status.value} to {to.value}\", field=\"status\")\n        order.status = to\n        self.bus.publish(f\"order.{to.value}\", {\"id\": order.id})\n\n    def place(self, order: Order, on: date) -> None:\n        if not order.lines:\n            raise ValidationError(\"an order needs at least one line\", field=\"lines\")\n        order.placed_on = on\n        self._move(order, OrderStatus.PLACED)\n\n    def pay(self, order: Order, on: date) -> None:\n        q = quote_order(order, self.coupons, today=on)\n        self._move(order, OrderStatus.PAID)\n        self.ledger.record_sale(on, order.id, q)\n\n    def ship(self, order: Order) -> None:\n        self._move(order, OrderStatus.SHIPPED)\n\n    def cancel(self, order: Order) -> None:\n        self._move(order, OrderStatus.CANCELLED)"
+        }
+      ],
+      "others": [],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/workflow.py",
+            "symbol": "Workflow"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Agreed with the accounting service team. Keep the order id under \"id\" as the existing events do.",
+        "created_at": "2026-11-19T05:11:11.501276Z",
+        "id": "rec:c1fc90af",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Event payloads carry money as integer minor units plus the currency code: {\"id\": ..., \"amount_minor\": 4681, \"currency\": \"USD\"}. Never decimals or strings; consumers are in other languages."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/models.py",
+          "symbol": "Order",
+          "text": "class Order:\n    id: str\n    customer: Customer\n    lines: list[OrderLine] = field(default_factory=list)\n    status: OrderStatus = OrderStatus.DRAFT\n    placed_on: date | None = None\n    coupon_codes: list[str] = field(default_factory=list)\n\n    @property\n    def currency(self) -> str:\n        return self.lines[0].product.price.currency if self.lines else \"USD\"\n\n    def add(self, product: Product, quantity: int = 1) -> None:\n        \"\"\"Add ``quantity`` of ``product``, merging with an existing line for the same SKU.\"\"\"\n        if self.status is not OrderStatus.DRAFT:\n            raise ValidationError(\"only draft orders can change\", field=\"status\")\n        for i, line in enumerate(self.lines):\n            if line.product.sku == product.sku:\n                self.lines[i] = OrderLine(product, line.quantity + quantity)\n                return\n        self.lines.append(OrderLine(product, quantity))\n\n    def remove(self, sku: str) -> None:\n        if self.status is not OrderStatus.DRAFT:\n            raise ValidationError(\"only draft orders can change\", field=\"status\")\n        self.lines = [line for line in self.lines if line.product.sku != sku]\n\n    @property\n    def subtotal(self) -> Money:\n        return total((line.subtotal for line in self.lines), self.currency)\n\n    def item_count(self) -> int:\n        return sum(line.quantity for line in self.lines)\n\n    def to_dict(self) -> dict:\n        return {\n            \"id\": self.id,\n            \"customer\": self.customer.id,\n            \"status\": self.status.value,\n            \"placed_on\": self.placed_on.isoformat() if self.placed_on else None,\n            \"coupons\": list(self.coupon_codes),\n            \"lines\": [\n                {\"sku\": l.product.sku, \"quantity\": l.quantity, \"price\": l.product.price.minor}\n                for l in self.lines\n            ],\n        }"
+        }
+      ],
+      "others": [
+        {
+          "anchors": [
+            {
+              "path": "tallyho/models.py",
+              "symbol": "Product"
+            }
+          ],
+          "author": "agent-a",
+          "body": "Use text.slugify on f\"{sku} {name}\" so the rules for spaces and punctuation stay in one place.",
+          "id": "rec:fb1e7ed9",
+          "kind": "decision",
+          "summary": "Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads."
+        }
+      ],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/models.py",
+            "symbol": "Order"
+          }
+        ],
+        "author": "agent-a",
+        "body": "OrderLine is frozen, so two orders can share line objects safely. Timed on a 400-line wholesale order: extend is instant, the add loop is quadratic.",
+        "created_at": "2026-11-19T05:11:11.541958Z",
+        "id": "rec:d581f309",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    },
+    {
+      "code": [
+        {
+          "path": "tallyho/models.py",
+          "symbol": "Product",
+          "text": "class Product:\n    sku: str\n    name: str\n    price: Money\n    category: str = \"general\"\n    taxable: bool = True\n\n    def __post_init__(self) -> None:\n        check_sku(self.sku)\n        if not self.name.strip():\n            raise ValidationError(\"name must not be empty\", field=\"name\")\n        if self.price.minor < 0:\n            raise ValidationError(\"price must not be negative\", field=\"price\")"
+        }
+      ],
+      "others": [
+        {
+          "anchors": [
+            {
+              "path": "tallyho/models.py",
+              "symbol": "Order"
+            }
+          ],
+          "author": "agent-a",
+          "body": "OrderLine is frozen, so two orders can share line objects safely. Timed on a 400-line wholesale order: extend is instant, the add loop is quadratic.",
+          "id": "rec:d581f309",
+          "kind": "decision",
+          "summary": "Merge orders with self.lines.extend(other.lines) after the draft check. Do not loop over Order.add: it rescans every line for each product and replaces line objects that other code already holds."
+        }
+      ],
+      "record": {
+        "anchors": [
+          {
+            "path": "tallyho/models.py",
+            "symbol": "Product"
+          }
+        ],
+        "author": "agent-a",
+        "body": "Use text.slugify on f\"{sku} {name}\" so the rules for spaces and punctuation stay in one place.",
+        "created_at": "2026-11-19T05:11:11.513790Z",
+        "id": "rec:fb1e7ed9",
+        "kind": "decision",
+        "standing": {
+          "factor": 1.0,
+          "origin": "open"
+        },
+        "summary": "Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug\" -> \"mug-1-blue-mug\". Names alone collide (two SKUs called \"Blue mug\"), so the SKU always leads."
+      },
+      "score": 1.0,
+      "task": {
+        "events": [
+          {
+            "at": "2026-11-19T05:11:10.880167Z",
+            "id": 1,
+            "kind": "started"
+          },
+          {
+            "at": "2026-11-19T05:11:10.996902Z",
+            "id": 2,
+            "kind": "workspace:ready"
+          }
+        ],
+        "goal": "Earlier work on this code",
+        "id": "2447fed3-d2d8-4ad5-9edb-007cbe01b88c",
+        "slug": "earlier-work",
+        "status": "open",
+        "title": "earlier work"
+      },
+      "verdicts": []
+    }
+  ]
+}

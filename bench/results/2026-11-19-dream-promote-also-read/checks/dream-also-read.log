@@ -1,0 +1,8 @@
+dream 5ded723e review ddf2e40-relay-bus-resubscribe: 13 to look at in /m2b/r1/home-also-read/dreams/5ded723e-46fa-40e5-9da2-fd4e69f31c98 -> running sh -c sh /m2b/dreamer.sh
+rec:e54af11e disputed -> vd:b63cb56b proposed
+rec:ea0ec9a6 disputed -> vd:642256cf proposed
+rec:ad6cdb90 disputed -> vd:84a0642c proposed
+rec:2c5ac268 disputed -> vd:c44d0506 proposed
+rec:d028e8f1 disputed -> vd:be898db5 proposed
+dream 5ded723e done: 5 proposed, 0 refused
+nothing changes until a second look agrees: `av dream --verify --repo ddf2e40-relay-bus-resubscribe -- <agent command>`, or `av verdict accept vd:…`; `av dream undo 5ded723e-46fa-40e5-9da2-fd4e69f31c98` takes the run back

@@ -1,0 +1,4 @@
+margincode-bench: av dream on ddf2e40-relay-bus-resubscribe as dreamer did not finish: dream 197db7b4 review ddf2e40-relay-bus-resubscribe: 13 to look at in /m2b/r1/bench-work/df2e40/relay-bus-resubscribe/dreams/197db7b4-d653-4177-9776-e011590f5f66 -> running sh -c exit 1
+dream 197db7b4: failed; nothing of this round was posted
+dream: sh -c exit 1 failed (exit Some(1))
+av: the dream's agent command failed

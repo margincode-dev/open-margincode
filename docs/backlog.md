@@ -168,7 +168,12 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** Not the change's content, as far as can be told without the log: #49 touched only
   Markdown, and the same tree built on `main`.
 - **Guess.** Something in the preview environment, not the repository. The build log was not read.
-- **Status.** Open. Read the build's log before the next preview fails the same way.
+- **Status.** Answered (2026-11-19, the builds API): the build was cancelled, not failed. Each
+  branch gets its own preview trigger; the merge deleted the branch, and Cloudflare stopped the
+  build while `npx wrangler preview` was still installing wrangler, then deleted the trigger
+  (about 35 s after it was made). #75's red check is the same. A red preview on a merged PR whose
+  build reads "cancelled" says nothing about the change; wait for the preview before a merge to
+  have it say something.
 
 ## 2026-11-18: which retrieval task lost a signature at 600 tokens
 

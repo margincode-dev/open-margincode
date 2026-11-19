@@ -5,7 +5,7 @@ pub use std::path::{Path, PathBuf};
 use std::process::Command;
 pub use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub use axum::Router;
 use axum::body::Body;
@@ -301,12 +301,14 @@ pub fn edit_greeter(e: &Env, t: &Value) {
 
 /// Passes every `Vcs` call to `inner`, the defaulted methods too (so no default body bypasses
 /// it), and counts them: `read_files` (the indexing path), `calls` (all of them) and `seen` (the
-/// methods, in call order).
+/// methods, in call order). While `fail_remove` is set, `remove_workspace` fails without calling
+/// `inner`: a workspace the daemon cannot delete, which mode bits cannot make for a root test.
 pub struct CountingVcs {
     pub inner: Arc<dyn margincode_core::Vcs>,
     pub read_files: Arc<AtomicUsize>,
     pub calls: Arc<AtomicUsize>,
     pub seen: Arc<Mutex<Vec<&'static str>>>,
+    pub fail_remove: Arc<AtomicBool>,
 }
 
 impl CountingVcs {
@@ -316,6 +318,7 @@ impl CountingVcs {
             read_files: Arc::default(),
             calls: Arc::default(),
             seen: Arc::default(),
+            fail_remove: Arc::default(),
         }
     }
 
@@ -446,6 +449,11 @@ impl margincode_core::Vcs for CountingVcs {
     }
     async fn remove_workspace(&self, repo: &str, slug: &str) -> VcsResult<bool> {
         self.note("remove_workspace");
+        if self.fail_remove.load(Ordering::SeqCst) {
+            return Err(margincode_core::AvError::Vcs(
+                "Permission denied (os error 13)".into(),
+            ));
+        }
         self.inner.remove_workspace(repo, slug).await
     }
     async fn restore_workspace(

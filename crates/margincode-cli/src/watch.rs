@@ -11,6 +11,11 @@
 //! `--max-agents N` caps the agents running at once on this host, across every watch that shares
 //! `$AV_HOME`: an agent runs only while its watch holds one of N slots
 //! (`margincode_agentrun::slots`, shared with anything else that starts agents on the host).
+//!
+//! On Unix the command runs in a process group of its own, as `av dream`'s agent does: a signal
+//! to `av` while it runs kills that group and ends the watch (`dream::interrupt`). Outside the
+//! terminal's foreground group, a command that reads the terminal is stopped, so the command is
+//! expected to be headless.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -43,6 +48,51 @@ fn peek(client: &Client, w: &Watch) -> Result<Option<Value>> {
         &json!({"agent": w.agent, "session": "av-watch", "repo": w.repo, "dry_run": true}),
     )?;
     Ok(Some(r["would"].clone()).filter(|v| !v.is_null()))
+}
+
+/// Runs the command and waits for it. `Ok(false)`: it failed. `Err` when a signal came while it
+/// ran; its process group is ended by then.
+#[cfg(unix)]
+fn run_command(command: Command, shown: &str) -> Result<bool> {
+    use crate::dream::{interrupt, interrupted};
+    let caught = interrupt::catch();
+    let waited = margincode_agentrun::process::run_until(command, Duration::MAX, &interrupt::STOP);
+    drop(caught);
+    match waited {
+        Ok(w) if w.stopped => Err(CliError::Local(format!(
+            "interrupted; {shown} and its processes were ended"
+        ))),
+        _ if interrupted() => Err(CliError::Local(
+            "interrupted; no further run was started".into(),
+        )),
+        Ok(w) if w.exit == Some(0) => Ok(true),
+        Ok(w) => {
+            match w.exit {
+                Some(code) => eprintln!("watch: {shown} failed (exit {code})"),
+                None => eprintln!("watch: {shown} failed (ended by a signal)"),
+            }
+            Ok(false)
+        }
+        Err(e) => {
+            eprintln!("watch: {shown} failed to start ({e})");
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn run_command(mut command: Command, shown: &str) -> Result<bool> {
+    match command.status() {
+        Ok(s) if s.success() => Ok(true),
+        Ok(s) => {
+            eprintln!("watch: {shown} failed ({s})");
+            Ok(false)
+        }
+        Err(e) => {
+            eprintln!("watch: {shown} failed to start ({e})");
+            Ok(false)
+        }
+    }
 }
 
 pub fn run(client: &Client, w: &Watch) -> Result<()> {
@@ -117,20 +167,9 @@ pub fn run(client: &Client, w: &Watch) -> Result<()> {
         if std::env::var_os(HOOK_WAIT).is_none() {
             command.env(HOOK_WAIT, "0");
         }
-        let status = command.status();
+        let ok = run_command(command, &shown)?;
         drop(slot); // the agent is done: another watch may start one
         runs += 1;
-        let ok = match &status {
-            Ok(s) if s.success() => true,
-            Ok(s) => {
-                eprintln!("watch: {shown} failed ({s})");
-                false
-            }
-            Err(e) => {
-                eprintln!("watch: {shown} failed to start ({e})");
-                false
-            }
-        };
         if w.once || w.max_runs.is_some_and(|m| runs >= m) {
             return Ok(());
         }

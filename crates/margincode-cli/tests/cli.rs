@@ -4738,6 +4738,80 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
 }
 
 #[test]
+fn an_interrupted_watch_ends_its_command_too() {
+    use std::io::BufRead;
+    use std::os::unix::process::ExitStatusExt;
+    let (d, _scratch) = image_item_queued();
+    let cases = [
+        (true, "INT"),
+        (true, "TERM"),
+        (false, "INT"),
+        (false, "TERM"),
+        (false, "HUP"),
+        (false, "QUIT"),
+    ];
+    for (once, signal) in cases {
+        let dir = TempDir::new().unwrap();
+        let home = TempDir::new().unwrap();
+        // the command and a child of its own, both waiting on a pipe nothing writes to
+        let script = "mkfifo hold; cat hold & echo \"agent-started $$ $!\"; wait";
+        let mut args = vec![];
+        if once {
+            args.push("--once");
+        }
+        args.extend(["--", "sh", "-c", script]);
+        let mut child = watch_in(&d, dir.path(), home.path(), &args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = std::io::BufReader::new(child.stdout.take().unwrap()).lines();
+        let pids: Vec<String> = loop {
+            let line = lines
+                .next()
+                .expect("av ended before its command started")
+                .unwrap();
+            if let Some(rest) = line.strip_prefix("agent-started ") {
+                break rest.split_whitespace().map(str::to_owned).collect();
+            }
+        };
+        assert_eq!(pids.len(), 2, "{pids:?}");
+        let sent = Command::new("kill")
+            .args([&format!("-{signal}"), &child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let status = child.wait().unwrap();
+        let deadline = std::time::Instant::now() + HANG;
+        let left = loop {
+            let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
+            if left.is_empty() || std::time::Instant::now() > deadline {
+                break left;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        for p in &left {
+            let _ = Command::new("kill").args(["-KILL", p]).status();
+        }
+        assert!(
+            left.is_empty(),
+            "once={once} {signal}: the command outlived av: {left:?}"
+        );
+        let number = match signal {
+            "HUP" => 1,
+            "INT" => 2,
+            "QUIT" => 3,
+            _ => 15,
+        };
+        assert_eq!(
+            status.signal(),
+            Some(number),
+            "once={once} {signal}: {status}"
+        );
+    }
+}
+
+#[test]
 fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
     let (d, _scratch) = image_item_queued();
     let dir = TempDir::new().unwrap();

@@ -3010,20 +3010,24 @@ fn run(cli: Cli) -> Result<()> {
             once,
             max_agents,
             cmd,
-        } => watch::run(
-            &client,
-            &watch::Watch {
-                agent: &cli.agent,
-                url: &cli.url,
-                repo: repo.as_deref(),
-                every: std::time::Duration::from_secs((*every).max(1)),
-                max_runs: *max_runs,
-                once: *once,
-                max_agents: *max_agents,
-                slots_dir: Kind::Agents.host_dir(),
-                cmd,
-            },
-        )?,
+        } => {
+            let outcome = watch::run(
+                &client,
+                &watch::Watch {
+                    agent: &cli.agent,
+                    url: &cli.url,
+                    repo: repo.as_deref(),
+                    every: std::time::Duration::from_secs((*every).max(1)),
+                    max_runs: *max_runs,
+                    once: *once,
+                    max_agents: *max_agents,
+                    slots_dir: Kind::Agents.host_dir(),
+                    cmd,
+                },
+            );
+            dream::die_of_caught_signal(&outcome);
+            outcome?;
+        }
         Cmd::Dream {
             sub: Some(DreamCmd::Undo { id }),
             ..

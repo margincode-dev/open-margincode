@@ -1065,7 +1065,12 @@ starts that CLI only when something fits it and sets `AV_AGENT` for the command.
 is what waits for the next piece of work, so the Stop hook of the agent it started does not also
 wait (up to 600 s, holding the watch's slot) and carry that session into another task. Set it
 for `av watch` (`AV_HOOK_WAIT_SECS=600 av watch …`) to have one headless session work through
-several tasks.
+several tasks. On Unix the command runs in a process group of its own, as `av dream`'s agent
+does: SIGINT (Ctrl-C), SIGTERM, SIGHUP or SIGQUIT to `av watch` while it runs kills that whole
+group and ends the watch, and `av` then dies of the signal. A signal that lands as the command
+ends cleanly starts no further run, and one `av watch` was started ignoring stays ignored. The
+command is not in the terminal's foreground group, so one that reads the terminal is stopped:
+`av watch` is for headless agents.
 `av watch --max-agents N` (or `AV_MAX_AGENTS`) caps the agents running at once on the host,
 across every watch that shares `$AV_HOME`: a watch runs its command only while it holds one of
 N lock files in `$AV_HOME/agents`, and the OS releases a dead watch's lock. With no free slot

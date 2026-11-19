@@ -1,0 +1,176 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:07:55.559137+00:00",
+  "head_change": "1df7858b2e047fdcddf9b4c48b914294ab33f8eb",
+  "id": "rcp:0dc8d7c7",
+  "items": [
+    {
+      "id": "task:relay-coupon-days-left",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 108
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:e258b635",
+      "reason": "goal-lead",
+      "score": 2.0322580337524414,
+      "source": null,
+      "tier": "summary",
+      "tokens": 59
+    },
+    {
+      "id": "rec:fbe5c682",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:72e63d77",
+      "reason": "semantic",
+      "score": 0.5572922229766846,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:4f8e3a53",
+      "reason": "semantic",
+      "score": 0.5539173483848572,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "sym:3709",
+      "reason": "lexical",
+      "score": 0.7875000238418579,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        30,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:3707",
+      "reason": "lexical",
+      "score": 0.7802419662475586,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        15,
+        37
+      ],
+      "tier": "full",
+      "tokens": 25
+    },
+    {
+      "id": "sym:3710",
+      "reason": "lexical",
+      "score": 0.7631070017814636,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        40,
+        63
+      ],
+      "tier": "summary",
+      "tokens": 27
+    },
+    {
+      "id": "sym:3714",
+      "reason": "lexical",
+      "score": 0.753791332244873,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        52,
+        63
+      ],
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:3708",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        23,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:3725",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/pricing/quote.py",
+        30,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:3712",
+      "reason": "semantic",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        46,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 23
+    },
+    {
+      "id": "sym:3788",
+      "reason": "lexical",
+      "score": 0.5454545617103577,
+      "source": [
+        "tallyho/workflow.py",
+        23,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:3713",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/pricing/coupons.py",
+        49,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 23
+    }
+  ],
+  "omitted": [
+    "- rec:86309c7d decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:92f29a1e decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:a2f20b8b intent: Earlier work on this code",
+    "- rec:3f29d947 decision: RecordStore.delete raises NotFound for an id that is not there, as get… (disputed)",
+    "- rec:54302093 decision: Workflow.cancel takes only draft orders, the same rule Order.add and O… (disputed)",
+    "- rec:3aca7b2b decision: Ledger.balances() gives each account as the shop reports it: cash, rev… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "56be2343-df01-4f1d-a816-711fa47f1acc",
+  "task_id": "d134e3f5-e795-4144-8983-1fb52d7872f1",
+  "tokens": 701
+}

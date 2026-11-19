@@ -1,0 +1,11 @@
+ok  relay-coupon-days-left: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 4; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-delete-order: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 5; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-ledger-revenue: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 5; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-order-can-cancel: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 4; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+ok  relay-order-comments: wrong note in hook pack True; --supersedes line False; origin label False
+    dreamed: hook pack differs from raw True; (disputed) marks 4; own wrong note marked disputed in the hook pack True; --supersedes False; origin label False
+all ok

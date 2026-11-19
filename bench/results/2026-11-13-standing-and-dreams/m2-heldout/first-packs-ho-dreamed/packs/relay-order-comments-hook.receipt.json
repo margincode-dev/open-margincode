@@ -1,0 +1,188 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:08:44.497387+00:00",
+  "head_change": "7c4c37e99e287ab46e17b894f297554a219920c0",
+  "id": "rcp:286768df",
+  "items": [
+    {
+      "id": "task:relay-order-comments",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 117
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:c64b50be",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 30
+    },
+    {
+      "id": "rec:dbca71e6",
+      "reason": "goal-lead",
+      "score": 0.6095262169837952,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:bc93a0f3",
+      "reason": "semantic",
+      "score": 0.5668401718139648,
+      "source": null,
+      "tier": "handle",
+      "tokens": 29
+    },
+    {
+      "id": "rec:2a4c02ea",
+      "reason": "semantic",
+      "score": 0.5603464841842651,
+      "source": null,
+      "tier": "handle",
+      "tokens": 25
+    },
+    {
+      "id": "sym:4411",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/repository.py",
+        57,
+        59
+      ],
+      "tier": "summary",
+      "tokens": 30
+    },
+    {
+      "id": "sym:4403",
+      "reason": "lexical",
+      "score": 0.7769531011581421,
+      "source": [
+        "tallyho/repository.py",
+        32,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4413",
+      "reason": "lexical",
+      "score": 0.7598077058792114,
+      "source": [
+        "tallyho/repository.py",
+        72,
+        74
+      ],
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "sym:4412",
+      "reason": "lexical",
+      "score": 0.7503052949905396,
+      "source": [
+        "tallyho/repository.py",
+        61,
+        70
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4410",
+      "reason": "semantic",
+      "score": 0.5588709712028503,
+      "source": [
+        "tallyho/repository.py",
+        54,
+        55
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:4441",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/text.py",
+        33,
+        56
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:4348",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/models.py",
+        64,
+        109
+      ],
+      "tier": "summary",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4386",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        46,
+        67
+      ],
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4433",
+      "reason": "semantic",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/store/memory.py",
+        18,
+        26
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:4319",
+      "reason": "hit-neighbor",
+      "score": 0.36666667461395264,
+      "source": [
+        "tallyho/cli.py",
+        26,
+        28
+      ],
+      "tier": "handle",
+      "tokens": 18
+    }
+  ],
+  "omitted": [
+    "- rec:b84609f3 decision: apply_discounts adds the percentages up and takes them off the subtota…",
+    "- rec:fdc9d0fe decision: Raise ValidationError with field= naming the input that is wrong: str(…",
+    "- rec:c958092b decision: Tax regions read from [tax] are upper-cased: configparser lower-cases…",
+    "- rec:bbb6eba3 intent: Earlier work on this code",
+    "- rec:f81b0351 decision: RecordStore.delete raises NotFound for an id that is not there, as get… (disputed)",
+    "- rec:212d6b08 decision: Coupon.expires is the first day a coupon no longer works: one that exp… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "38475f4e-e6a9-4a1d-bfd7-5c80ae7b8562",
+  "task_id": "a8d21322-bbce-43f0-ab28-5877ce04c80f",
+  "tokens": 687
+}

@@ -1,0 +1,55 @@
+relay-coupon-days-left {'handed': 10, 'handed_wrong': 5, 'handed_true': 5, 'wrong_notes': 5, 'true_notes': 5, 'wrong_disputed': 5, 'true_hit': 0, 'judged_wrong': 5, 'judged_true': 5, 'undecided': 0} runs 1 1
+    delete-order WRONG disputed effective review agree | RecordStore.delete ignores missing records and does not raise NotFound; the try/except would never return False.
+    order-comments WRONG disputed effective review agree | JsonFileStore rejects names that are not identifiers, so "order-comments" raises ValidationError; not every backend takes any string.
+    order-can-cancel WRONG disputed effective review agree | Workflow.cancel also allows PLACED orders, not only drafts; can_cancel as status is DRAFT would be wrong.
+    error-field true  confirmed effective review agree | 
+    csv-by-hand true  confirmed effective review agree | 
+    discount-order true  confirmed effective review agree | 
+    pad-width true  confirmed effective review agree | 
+    coupon-days-left WRONG disputed effective review agree | A coupon is still usable on its expires day: it is rejected only when today > expires.
+    config-upper true  confirmed effective review agree | 
+    ledger-revenue WRONG disputed effective review agree | balances() is debit minus credit, so revenue and tax_payable (credits) come out negative, not positive.
+relay-delete-order {'handed': 10, 'handed_wrong': 5, 'handed_true': 5, 'wrong_notes': 5, 'true_notes': 5, 'wrong_disputed': 5, 'true_hit': 0, 'judged_wrong': 5, 'judged_true': 5, 'undecided': 0} runs 1 1
+    order-comments WRONG disputed effective review agree | JsonFileStore rejects collection names that are not identifiers, so "order-comments" raises ValidationError; not every name works.
+    delete-order WRONG disputed effective review agree | RecordStore.delete ignores missing records and never raises NotFound, so the try/except would always return True.
+    csv-by-hand true  confirmed effective review agree | 
+    pad-width true  confirmed effective review agree | 
+    config-upper true  confirmed effective review agree | 
+    order-can-cancel WRONG disputed effective review agree | Workflow.cancel also takes PLACED orders, so it is not draft-only; can_cancel as status is DRAFT would be wrong.
+    ledger-revenue WRONG disputed effective review agree | balances() is debit minus credit, so revenue (credited) comes out negative; revenue() would need a sign change.
+    error-field true  confirmed effective review agree | 
+    discount-order true  confirmed effective review agree | 
+    coupon-days-left WRONG disputed effective review agree | A coupon is still usable on its expires day: usable() only rejects when today is after expires.
+relay-ledger-revenue {'handed': 10, 'handed_wrong': 5, 'handed_true': 5, 'wrong_notes': 5, 'true_notes': 5, 'wrong_disputed': 5, 'true_hit': 0, 'judged_wrong': 5, 'judged_true': 5, 'undecided': 0} runs 1 1
+    delete-order WRONG disputed effective review agree | RecordStore.delete ignores missing records and does not raise NotFound, so the try/except would never return False.
+    order-comments WRONG disputed effective review agree | JsonFileStore rejects collection names that are not identifiers, so "order-comments" raises ValidationError; not every backend takes any string.
+    ledger-revenue WRONG disputed effective review agree | balances() is debit minus credit, so revenue and tax_payable (credit-only) come out negative; revenue() would need a sign change.
+    order-can-cancel WRONG disputed effective review agree | Workflow.cancel also allows PLACED orders, not only drafts.
+    coupon-days-left WRONG disputed effective review agree | A coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one.
+    csv-by-hand true  confirmed effective review agree | 
+    error-field true  confirmed effective review agree | 
+    discount-order true  confirmed effective review agree | 
+    pad-width true  confirmed effective review agree | 
+    config-upper true  confirmed effective review agree | 
+relay-order-can-cancel {'handed': 10, 'handed_wrong': 5, 'handed_true': 5, 'wrong_notes': 5, 'true_notes': 5, 'wrong_disputed': 5, 'true_hit': 0, 'judged_wrong': 5, 'judged_true': 5, 'undecided': 0} runs 1 1
+    order-comments WRONG disputed effective review agree | JsonFileStore rejects collection names that are not identifiers, so "order-comments" raises ValidationError on that backend
+    delete-order WRONG disputed effective review agree | RecordStore.delete ignores missing records and never raises NotFound, so the try/except would always return True
+    csv-by-hand true  confirmed effective review agree | 
+    ledger-revenue WRONG disputed effective review agree | balances() is debit minus credit, so revenue (a credit account) comes out negative; revenue() needs a sign change
+    coupon-days-left WRONG disputed effective review agree | a coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one
+    pad-width true  confirmed effective review agree | 
+    config-upper true  confirmed effective review agree | 
+    discount-order true  confirmed effective review agree | 
+    error-field true  confirmed effective review agree | 
+    order-can-cancel WRONG disputed effective review agree | Workflow.cancel also takes placed orders (PLACED -> CANCELLED is allowed), so can_cancel as DRAFT-only would be wrong
+relay-order-comments {'handed': 10, 'handed_wrong': 5, 'handed_true': 5, 'wrong_notes': 5, 'true_notes': 5, 'wrong_disputed': 5, 'true_hit': 0, 'judged_wrong': 5, 'judged_true': 5, 'undecided': 0} runs 1 1
+    order-comments WRONG disputed effective review agree | JsonFileStore rejects names that are not Python identifiers, so "order-comments" raises ValidationError; collection names are not opaque there.
+    delete-order WRONG disputed effective review agree | RecordStore.delete ignores missing records and does not raise NotFound, so the try/except form would always return True.
+    discount-order true  confirmed effective review agree | 
+    csv-by-hand true  confirmed effective review agree | 
+    order-can-cancel WRONG disputed effective review agree | Workflow.cancel also allows PLACED orders, not only drafts; can_cancel as status is DRAFT would be wrong.
+    coupon-days-left WRONG disputed effective review agree | A coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one.
+    error-field true  confirmed effective review agree | 
+    config-upper true  confirmed effective review agree | 
+    pad-width true  confirmed effective review agree | 
+    ledger-revenue WRONG disputed effective review agree | balances() is debit minus credit, so credit-side revenue and tax_payable come out negative, not positive; revenue() with no sign change would be negat

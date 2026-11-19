@@ -1,0 +1,196 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T13:08:19.956178+00:00",
+  "head_change": "7c3e1acfafef843595be1cb185101b692fbb1b63",
+  "id": "rcp:39bc084d",
+  "items": [
+    {
+      "id": "task:relay-ledger-revenue",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 83
+    },
+    {
+      "id": "map:tree",
+      "reason": "map",
+      "score": 0.30000001192092896,
+      "source": null,
+      "tier": "summary",
+      "tokens": 37
+    },
+    {
+      "id": "rec:3c841020",
+      "reason": "goal-lead",
+      "score": 2.0317540168762207,
+      "source": null,
+      "tier": "summary",
+      "tokens": 60
+    },
+    {
+      "id": "rec:2e81499b",
+      "reason": "goal-lead",
+      "score": 0.6098361015319824,
+      "source": null,
+      "tier": "handle",
+      "tokens": 32
+    },
+    {
+      "id": "rec:badae6e6",
+      "reason": "semantic",
+      "score": 0.5679851174354553,
+      "source": null,
+      "tier": "handle",
+      "tokens": 27
+    },
+    {
+      "id": "rec:0f534a10",
+      "reason": "semantic",
+      "score": 0.5544846653938293,
+      "source": null,
+      "tier": "handle",
+      "tokens": 28
+    },
+    {
+      "id": "rec:fdc3bcbf",
+      "reason": "semantic",
+      "score": 0.2238730490207672,
+      "source": null,
+      "tier": "handle",
+      "tokens": 15
+    },
+    {
+      "id": "sym:4003",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4005",
+      "reason": "lexical",
+      "score": 0.7838709950447083,
+      "source": [
+        "tallyho/ledger.py",
+        37,
+        44
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:4027",
+      "reason": "lexical",
+      "score": 0.7633117437362671,
+      "source": [
+        "tallyho/money.py",
+        36,
+        37
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:4006",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/ledger.py",
+        46,
+        50
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4038",
+      "reason": "lexical",
+      "score": 0.7504920959472656,
+      "source": [
+        "tallyho/money.py",
+        86,
+        91
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:4004",
+      "reason": "semantic",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:4029",
+      "reason": "semantic",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/money.py",
+        45,
+        47
+      ],
+      "tier": "handle",
+      "tokens": 21
+    },
+    {
+      "id": "sym:4035",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/money.py",
+        74,
+        75
+      ],
+      "tier": "summary",
+      "tokens": 29
+    },
+    {
+      "id": "sym:4002",
+      "reason": "lexical",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/ledger.py",
+        15,
+        20
+      ],
+      "tier": "full",
+      "tokens": 22
+    },
+    {
+      "id": "sym:4007",
+      "reason": "semantic",
+      "score": 0.5423507690429688,
+      "source": [
+        "tallyho/ledger.py",
+        52,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 22
+    }
+  ],
+  "omitted": [
+    "- rec:c3c75329 decision: Raise ValidationError with field= naming the input that is wrong: str(…",
+    "- rec:88e77d22 decision: text.pad returns exactly width characters: it pads short text and cuts…",
+    "- rec:cf5bcc96 decision: Coupon.expires is the first day a coupon no longer works: one that exp… (disputed)",
+    "- rec:1902dc4a decision: Workflow.cancel takes only draft orders, the same rule Order.add and O… (disputed)",
+    "- rec:2cb32a91 decision: RecordStore.delete raises NotFound for an id that is not there, as get… (disputed)",
+    "- rec:dca3bac4 decision: Collections that hang off an order are named \"order-<what>\": comments… (disputed)"
+  ],
+  "packer_version": 11,
+  "session": "f4880c28-6bfe-4cb9-8e20-10b14970f333",
+  "task_id": "35552f88-9cd4-4c37-b578-ce9f8bff7e4a",
+  "tokens": 709
+}

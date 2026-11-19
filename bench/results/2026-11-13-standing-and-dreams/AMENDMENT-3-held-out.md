@@ -677,3 +677,39 @@ Run on 2026-11-19 between 12:50 and 13:00 UTC, before any paid command. Outputs 
 - **Output names** (`checks/repo-names.txt`): none of this run's session prefixes begins a
   repository of any earlier bench database.
 - The first-packs run and workspace directories were closed (700) after the checks.
+
+## Results of the freeze and free check 5 (third commit, before the smoke)
+
+- **The freeze** (`m2hcmd.sh dream-freeze ...` as written above) ran 13:02 to 13:07 UTC and exited
+  0 (`checks/freeze.log`). Each task's review run was handed all 10 records of its pool (5 wrong,
+  5 true; `handed` 10, `handed_wrong` 5, `handed_true` 5 in each store), one review run and one
+  verify run per task, and all ten runs have `instructions_sha`
+  `f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa`
+  (`checks/freeze-instructions-sha.txt`; the six rows without a sha in that table are the M0
+  replay check's API-made runs, not model runs). **The freeze is used.** `dreamed-ho.json` sha256
+  **`ad8d047cf78c4781cf464aa230c9111188193fde92ab554cde0dea3a85f4ddab`**. Cost: **$1.2517** over
+  10 Sonnet 5.5 calls (0.1418, 0.1033, 0.1313, 0.1124, 0.1401, 0.1212, 0.1005, 0.1449, 0.1357,
+  0.1204; none hit the $0.25 cap; `checks/spend-after-freeze.txt`).
+- **The verdicts it ended with** (all 50 verified, `effective`; `checks/freeze-verdicts.txt`):
+  in each of the five stores all five wrong notes ended **`disputed`** (25 of 25, so each task's
+  own wrong note in its own store: 5 of 5), and all five true lessons ended **`confirmed`** (25 of
+  25 judged; none `disputed` or `outdated`). Nothing was left undecided (0 of 10 handed, in each
+  store). No `duplicate` or `outdated` verdict. Each dispute's reason names the contradicting code,
+  in another file where the evidence is in another file (for example `RecordStore.delete ignores
+  missing records and never raises NotFound`, `JsonFileStore rejects collection names that are not
+  identifiers`, `Workflow.cancel also takes PLACED orders`).
+- **Free check 5: pass** (`first-packs-ho-dreamed/`, `checks/check5-fp-ho-dreamed.txt`). Against
+  `first-packs-ho-raw/`, each task's dreamed hook pack differs, and only by `(disputed)` marks (4
+  or 5 a pack, the task's own wrong note marked in each) and the re-ranking the ×0.3 brings; no
+  record is hidden, a confirmed record carries no mark, no line contains `--supersedes` and none
+  carries an origin label. Record and symbol ids differ because each run seeds its own
+  repository. The M0 row's replay was checked before the freeze (above).
+- **A refused first attempt at check 5.** The first `first-packs --dreamed` call named the file by
+  a relative path, which `m2hcmd.sh` (it changes to the run tree) could not find: it seeded one
+  store (`bfpe2b-relay-coupon-days-left-av-1`), then stopped with "No such file or directory"
+  before any replay ($0, no verdict; `checks/fp-ho-dreamed.relative-path-refused.log`). The call
+  was repeated with the absolute path, and that run is the check above.
+- **Spend so far: $1.2517** of the $5.00 ceiling ($3.7483 left). Each later command's budget is
+  worked out from the spend logged after the command before it.
+- After the freeze and check 5, its dream directories, the first-packs run and workspace
+  directories and `dreamed-ho.json` were closed (700 and 600).

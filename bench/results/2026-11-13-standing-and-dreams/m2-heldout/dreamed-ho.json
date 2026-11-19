@@ -1,0 +1,1908 @@
+{
+  "version": 1,
+  "tasks": {
+    "relay-coupon-days-left": {
+      "pool": [
+        "order-can-cancel: Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them.",
+        "pad-width: text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column.",
+        "delete-order: RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first.",
+        "csv-by-hand: CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma.",
+        "order-comments: Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works.",
+        "config-upper: Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes.",
+        "ledger-revenue: Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change.",
+        "error-field: Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this.",
+        "coupon-days-left: Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count.",
+        "discount-order: apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+          },
+          "note": 2,
+          "pair": "delete-order",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "RecordStore.delete ignores missing records and does not raise NotFound; the try/except would never return False.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "if data.pop(record_id, None) is not None:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+          },
+          "note": 4,
+          "pair": "order-comments",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "JsonFileStore rejects names that are not identifiers, so \"order-comments\" raises ValidationError; not every backend takes any string.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/jsonfile.py",
+              "quote": "if not collection.isidentifier():"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "raise ValidationError(f\"bad collection name {collection!r}\", field=\"collection\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+          },
+          "note": 0,
+          "pair": "order-can-cancel",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Workflow.cancel also allows PLACED orders, not only drafts; can_cancel as status is DRAFT would be wrong.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/workflow.py",
+              "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+              },
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "self._move(order, OrderStatus.CANCELLED)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 7,
+            "nth": 0,
+            "summary": "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+          },
+          "note": 7,
+          "pair": "error-field",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/errors.py",
+              "quote": "return f\"{self.field}: {base}\" if self.field else base"
+            },
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid SKU {sku!r}\", field=\"sku\")"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/validate.py",
+                "quote": "raise ValidationError(f\"invalid email {email!r}\", field=\"email\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+          },
+          "note": 3,
+          "pair": "csv-by-hand",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "\"\"\"CSV export without the csv module, so the output is byte-stable across Python versions.\"\"\""
+            },
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "if \",\" in text:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/csv_export.py",
+                "quote": "return \"\\n\".join(out) + \"\\n\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 9,
+            "nth": 0,
+            "summary": "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+          },
+          "note": 9,
+          "pair": "discount-order",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/discounts.py",
+              "quote": "remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/discounts.py",
+                "quote": "percent_total += Decimal(d.percent)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+          },
+          "note": 1,
+          "pair": "pad-width",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/text.py",
+              "quote": "return text[: max(width - 1, 0)] + \"…\" if width else \"\""
+            },
+            {
+              "code": "tallyho/report/table.py",
+              "quote": "lines.append(\"  \".join(pad(c, widths[i], align[i]) for i, c in enumerate(row)))"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/text.py",
+                "quote": "\"\"\"Pad or cut ``text`` to exactly ``width`` characters.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 8,
+            "nth": 0,
+            "summary": "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+          },
+          "note": 8,
+          "pair": "coupon-days-left",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "A coupon is still usable on its expires day: it is rejected only when today > expires.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "if self.expires is not None and today > self.expires:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "if self.expires is not None and today > self.expires:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+          },
+          "note": 5,
+          "pair": "config-upper",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/config.py",
+              "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+            },
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "if region in self.rates:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/tax.py",
+                "quote": "return self.rates.get(country, self.default)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 6,
+            "nth": 0,
+            "summary": "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+          },
+          "note": 6,
+          "pair": "ledger-revenue",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "balances() is debit minus credit, so revenue and tax_payable (credits) come out negative, not positive.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "out[e.account] += e.debit.minor - e.credit.minor"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/ledger.py",
+                "quote": "(\"revenue\", z, quote.discounted),"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 10,
+        "effective": 10,
+        "wrong_notes": 5,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 5,
+        "handed": 10,
+        "undecided": 0,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    },
+    "relay-delete-order": {
+      "pool": [
+        "order-can-cancel: Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them.",
+        "pad-width: text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column.",
+        "delete-order: RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first.",
+        "csv-by-hand: CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma.",
+        "order-comments: Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works.",
+        "config-upper: Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes.",
+        "ledger-revenue: Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change.",
+        "error-field: Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this.",
+        "coupon-days-left: Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count.",
+        "discount-order: apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+          },
+          "note": 4,
+          "pair": "order-comments",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "JsonFileStore rejects collection names that are not identifiers, so \"order-comments\" raises ValidationError; not every name works.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/jsonfile.py",
+              "quote": "if not collection.isidentifier():"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "raise ValidationError(f\"bad collection name {collection!r}\", field=\"collection\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+          },
+          "note": 2,
+          "pair": "delete-order",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "RecordStore.delete ignores missing records and never raises NotFound, so the try/except would always return True.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "if data.pop(record_id, None) is not None:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+          },
+          "note": 3,
+          "pair": "csv-by-hand",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "    if \",\" in text:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/csv_export.py",
+                "quote": "\"\"\"CSV export without the csv module, so the output is byte-stable across Python versions.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+          },
+          "note": 1,
+          "pair": "pad-width",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/text.py",
+              "quote": "return text[: max(width - 1, 0)] + \"…\" if width else \"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/table.py",
+                "quote": "lines.append(\"  \".join(pad(c, widths[i], align[i]) for i, c in enumerate(row)))"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+          },
+          "note": 5,
+          "pair": "config-upper",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/config.py",
+              "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+            },
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "if region in self.rates:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/config.py",
+                "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+          },
+          "note": 0,
+          "pair": "order-can-cancel",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Workflow.cancel also takes PLACED orders, so it is not draft-only; can_cancel as status is DRAFT would be wrong.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/workflow.py",
+              "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 6,
+            "nth": 0,
+            "summary": "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+          },
+          "note": 6,
+          "pair": "ledger-revenue",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "balances() is debit minus credit, so revenue (credited) comes out negative; revenue() would need a sign change.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "out[e.account] += e.debit.minor - e.credit.minor"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/ledger.py",
+                "quote": "(\"revenue\", z, quote.discounted),"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 7,
+            "nth": 0,
+            "summary": "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+          },
+          "note": 7,
+          "pair": "error-field",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/errors.py",
+              "quote": "return f\"{self.field}: {base}\" if self.field else base"
+            },
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid SKU {sku!r}\", field=\"sku\")"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/validate.py",
+                "quote": "raise ValidationError(f\"invalid region {region!r}\", field=\"region\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 9,
+            "nth": 0,
+            "summary": "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+          },
+          "note": 9,
+          "pair": "discount-order",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/discounts.py",
+              "quote": "remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/discounts.py",
+                "quote": "Percentages are added up and taken off the subtotal together;"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 8,
+            "nth": 0,
+            "summary": "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+          },
+          "note": 8,
+          "pair": "coupon-days-left",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "A coupon is still usable on its expires day: usable() only rejects when today is after expires.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "if self.expires is not None and today > self.expires:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "if self.expires is not None and today > self.expires:"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 10,
+        "effective": 10,
+        "wrong_notes": 5,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 5,
+        "handed": 10,
+        "undecided": 0,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    },
+    "relay-ledger-revenue": {
+      "pool": [
+        "order-can-cancel: Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them.",
+        "pad-width: text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column.",
+        "delete-order: RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first.",
+        "csv-by-hand: CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma.",
+        "order-comments: Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works.",
+        "config-upper: Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes.",
+        "ledger-revenue: Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change.",
+        "error-field: Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this.",
+        "coupon-days-left: Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count.",
+        "discount-order: apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+          },
+          "note": 2,
+          "pair": "delete-order",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "RecordStore.delete ignores missing records and does not raise NotFound, so the try/except would never return False.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "if data.pop(record_id, None) is not None:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+          },
+          "note": 4,
+          "pair": "order-comments",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "JsonFileStore rejects collection names that are not identifiers, so \"order-comments\" raises ValidationError; not every backend takes any string.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/jsonfile.py",
+              "quote": "if not collection.isidentifier():"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "raise ValidationError(f\"bad collection name {collection!r}\", field=\"collection\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 6,
+            "nth": 0,
+            "summary": "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+          },
+          "note": 6,
+          "pair": "ledger-revenue",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "balances() is debit minus credit, so revenue and tax_payable (credit-only) come out negative; revenue() would need a sign change.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "out[e.account] += e.debit.minor - e.credit.minor"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/ledger.py",
+                "quote": "(\"revenue\", z, quote.discounted),"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+          },
+          "note": 0,
+          "pair": "order-can-cancel",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Workflow.cancel also allows PLACED orders, not only drafts.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/workflow.py",
+              "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "def cancel(self, order: Order) -> None:"
+              },
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 8,
+            "nth": 0,
+            "summary": "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+          },
+          "note": 8,
+          "pair": "coupon-days-left",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "A coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "if self.expires is not None and today > self.expires:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "if self.expires is not None and today > self.expires:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+          },
+          "note": 3,
+          "pair": "csv-by-hand",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "\"\"\"CSV export without the csv module, so the output is byte-stable across Python versions.\"\"\""
+            },
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "if \",\" in text:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/csv_export.py",
+                "quote": "return \"\\n\".join(out) + \"\\n\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 7,
+            "nth": 0,
+            "summary": "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+          },
+          "note": 7,
+          "pair": "error-field",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid SKU {sku!r}\", field=\"sku\")"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/validate.py",
+                "quote": "raise ValidationError(f\"invalid region {region!r}\", field=\"region\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 9,
+            "nth": 0,
+            "summary": "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+          },
+          "note": 9,
+          "pair": "discount-order",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/discounts.py",
+              "quote": "remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/discounts.py",
+                "quote": "percent_total += Decimal(d.percent)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+          },
+          "note": 1,
+          "pair": "pad-width",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/text.py",
+              "quote": "return text[: max(width - 1, 0)] + \"…\" if width else \"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/text.py",
+                "quote": "\"\"\"Pad or cut ``text`` to exactly ``width`` characters.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+          },
+          "note": 5,
+          "pair": "config-upper",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/config.py",
+              "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/tax.py",
+                "quote": "if region in self.rates:"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 10,
+        "effective": 10,
+        "wrong_notes": 5,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 5,
+        "handed": 10,
+        "undecided": 0,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    },
+    "relay-order-can-cancel": {
+      "pool": [
+        "order-can-cancel: Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them.",
+        "pad-width: text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column.",
+        "delete-order: RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first.",
+        "csv-by-hand: CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma.",
+        "order-comments: Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works.",
+        "config-upper: Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes.",
+        "ledger-revenue: Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change.",
+        "error-field: Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this.",
+        "coupon-days-left: Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count.",
+        "discount-order: apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+          },
+          "note": 4,
+          "pair": "order-comments",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "JsonFileStore rejects collection names that are not identifiers, so \"order-comments\" raises ValidationError on that backend",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/jsonfile.py",
+              "quote": "if not collection.isidentifier():"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "raise ValidationError(f\"bad collection name {collection!r}\", field=\"collection\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+          },
+          "note": 2,
+          "pair": "delete-order",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "RecordStore.delete ignores missing records and never raises NotFound, so the try/except would always return True",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/base.py",
+                "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+          },
+          "note": 3,
+          "pair": "csv-by-hand",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "\"\"\"CSV export without the csv module, so the output is byte-stable across Python versions.\"\"\""
+            },
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "return \"\\n\".join(out) + \"\\n\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/csv_export.py",
+                "quote": "if \",\" in text:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 6,
+            "nth": 0,
+            "summary": "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+          },
+          "note": 6,
+          "pair": "ledger-revenue",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "balances() is debit minus credit, so revenue (a credit account) comes out negative; revenue() needs a sign change",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "out[e.account] += e.debit.minor - e.credit.minor"
+            },
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "(\"revenue\", z, quote.discounted),"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/ledger.py",
+                "quote": "(\"revenue\", z, quote.discounted),"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 8,
+            "nth": 0,
+            "summary": "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+          },
+          "note": 8,
+          "pair": "coupon-days-left",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "a coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "if self.expires is not None and today > self.expires:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "if self.expires is not None and today > self.expires:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+          },
+          "note": 1,
+          "pair": "pad-width",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/text.py",
+              "quote": "return text[: max(width - 1, 0)] + \"…\" if width else \"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/text.py",
+                "quote": "\"\"\"Pad or cut ``text`` to exactly ``width`` characters.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+          },
+          "note": 5,
+          "pair": "config-upper",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/config.py",
+              "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+            },
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "if region in self.rates:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/config.py",
+                "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 9,
+            "nth": 0,
+            "summary": "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+          },
+          "note": 9,
+          "pair": "discount-order",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/discounts.py",
+              "quote": "remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/discounts.py",
+                "quote": "percent_total += Decimal(d.percent)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 7,
+            "nth": 0,
+            "summary": "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+          },
+          "note": 7,
+          "pair": "error-field",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid SKU {sku!r}\", field=\"sku\")"
+            },
+            {
+              "code": "tallyho/errors.py",
+              "quote": "return f\"{self.field}: {base}\" if self.field else base"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/errors.py",
+                "quote": "return f\"{self.field}: {base}\" if self.field else base"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+          },
+          "note": 0,
+          "pair": "order-can-cancel",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Workflow.cancel also takes placed orders (PLACED -> CANCELLED is allowed), so can_cancel as DRAFT-only would be wrong",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/workflow.py",
+              "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 10,
+        "effective": 10,
+        "wrong_notes": 5,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 5,
+        "handed": 10,
+        "undecided": 0,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    },
+    "relay-order-comments": {
+      "pool": [
+        "order-can-cancel: Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them.",
+        "pad-width: text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column.",
+        "delete-order: RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first.",
+        "csv-by-hand: CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma.",
+        "order-comments: Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works.",
+        "config-upper: Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes.",
+        "ledger-revenue: Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change.",
+        "error-field: Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this.",
+        "coupon-days-left: Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count.",
+        "discount-order: apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+      ],
+      "wrong_reverted": false,
+      "dreamer": "dreamer",
+      "verifier": "verifier",
+      "rounds": 1,
+      "until_empty": false,
+      "review_runs": 1,
+      "verify_runs": 1,
+      "verdicts": [
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 4,
+            "nth": 0,
+            "summary": "Collections that hang off an order are named \"order-<what>\": comments go in \"order-comments\". Every RecordStore backend takes the collection name as an opaque key, so any string works."
+          },
+          "note": 4,
+          "pair": "order-comments",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "JsonFileStore rejects names that are not Python identifiers, so \"order-comments\" raises ValidationError; collection names are not opaque there.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/jsonfile.py",
+              "quote": "if not collection.isidentifier():"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "raise ValidationError(f\"bad collection name {collection!r}\", field=\"collection\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 2,
+            "nth": 0,
+            "summary": "RecordStore.delete raises NotFound for an id that is not there, as get does. Write delete_order as try: store.delete(...) except NotFound: return False, then return True; no get() first."
+          },
+          "note": 2,
+          "pair": "delete-order",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "RecordStore.delete ignores missing records and does not raise NotFound, so the try/except form would always return True.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/store/base.py",
+              "quote": "\"\"\"Remove the record; missing records are ignored.\"\"\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/store/jsonfile.py",
+                "quote": "if data.pop(record_id, None) is not None:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 9,
+            "nth": 0,
+            "summary": "apply_discounts adds the percentages up and takes them off the subtotal together, at most 100 %, then takes fixed discounts off what is left. The result never goes below zero."
+          },
+          "note": 9,
+          "pair": "discount-order",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/discounts.py",
+              "quote": "remaining = subtotal - subtotal.times(min(percent_total, Decimal(100)) / 100)"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/discounts.py",
+                "quote": "percent_total += Decimal(d.percent)"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 3,
+            "nth": 0,
+            "summary": "CSV is written by hand, not with the csv module, so the bytes stay the same across Python versions. Every line ends in a bare newline, and a cell is quoted only when it holds a comma."
+          },
+          "note": 3,
+          "pair": "csv-by-hand",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "if \",\" in text:"
+            },
+            {
+              "code": "tallyho/report/csv_export.py",
+              "quote": "return \"\\n\".join(out) + \"\\n\""
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/report/csv_export.py",
+                "quote": "\"\"\"CSV export without the csv module, so the output is byte-stable across Python versions.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 0,
+            "nth": 0,
+            "summary": "Workflow.cancel takes only draft orders, the same rule Order.add and Order.remove follow. Write Order.can_cancel as self.status is OrderStatus.DRAFT, beside them."
+          },
+          "note": 0,
+          "pair": "order-can-cancel",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "Workflow.cancel also allows PLACED orders, not only drafts; can_cancel as status is DRAFT would be wrong.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/workflow.py",
+              "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/workflow.py",
+                "quote": "OrderStatus.PLACED: {OrderStatus.PAID, OrderStatus.CANCELLED},"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 8,
+            "nth": 0,
+            "summary": "Coupon.expires is the first day a coupon no longer works: one that expires on 10 March is good to 9 March. Days left = (expires - today).days, floored at 0; the expires day does not count."
+          },
+          "note": 8,
+          "pair": "coupon-days-left",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "A coupon is still usable on its expires day (only today > expires fails), so expires is the last good day, not the first bad one.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/pricing/coupons.py",
+              "quote": "if self.expires is not None and today > self.expires:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/coupons.py",
+                "quote": "if self.expires is not None and today > self.expires:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 7,
+            "nth": 0,
+            "summary": "Raise ValidationError with field= naming the input that is wrong: str() then reads \"field: message\" (\"sku: invalid SKU 'x'\"). Every check in validate.py does this."
+          },
+          "note": 7,
+          "pair": "error-field",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/errors.py",
+              "quote": "return f\"{self.field}: {base}\" if self.field else base"
+            },
+            {
+              "code": "tallyho/validate.py",
+              "quote": "raise ValidationError(f\"invalid SKU {sku!r}\", field=\"sku\")"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/validate.py",
+                "quote": "raise ValidationError(f\"invalid email {email!r}\", field=\"email\")"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 5,
+            "nth": 0,
+            "summary": "Tax regions read from [tax] are upper-cased: configparser lower-cases option names, so \"US-CA = 8\" arrives as us-ca. Keep the .upper() when load_config changes."
+          },
+          "note": 5,
+          "pair": "config-upper",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/config.py",
+              "quote": "cfg.taxes.rates[region.upper()] = Decimal(rate)"
+            },
+            {
+              "code": "tallyho/pricing/tax.py",
+              "quote": "if region in self.rates:"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/pricing/tax.py",
+                "quote": "if region in self.rates:"
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 1,
+            "nth": 0,
+            "summary": "text.pad returns exactly width characters: it pads short text and cuts longer text to width - 1 characters plus one \"…\". Use it for any fixed-width column."
+          },
+          "note": 1,
+          "pair": "pad-width",
+          "wrong": false,
+          "noise": false,
+          "verdict": "confirmed",
+          "reason": "",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/text.py",
+              "quote": "return text[: max(width - 1, 0)] + \"…\" if width else \"\""
+            },
+            {
+              "code": "tallyho/report/table.py",
+              "quote": "lines.append(\"  \".join(pad(c, widths[i], align[i]) for i, c in enumerate(row)))"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/text.py",
+                "quote": "\"\"\"Pad or cut ``text`` to exactly ``width`` characters.\"\"\""
+              }
+            ]
+          }
+        },
+        {
+          "record": {
+            "task": "open",
+            "kind": "decision",
+            "note": 6,
+            "nth": 0,
+            "summary": "Ledger.balances() gives each account as the shop reports it: cash, revenue and tax_payable all come out as positive amounts. Write Ledger.revenue() as self.balances()[\"revenue\"], no sign change."
+          },
+          "note": 6,
+          "pair": "ledger-revenue",
+          "wrong": true,
+          "noise": false,
+          "verdict": "disputed",
+          "reason": "balances() is debit minus credit, so credit-side revenue and tax_payable come out negative, not positive; revenue() with no sign change would be negative.",
+          "canonical": null,
+          "evidence": [
+            {
+              "code": "tallyho/ledger.py",
+              "quote": "out[e.account] += e.debit.minor - e.credit.minor"
+            }
+          ],
+          "state": "effective",
+          "review": {
+            "reviewer": "verifier",
+            "agree": true,
+            "evidence": [
+              {
+                "code": "tallyho/ledger.py",
+                "quote": "(\"revenue\", z, quote.discounted),"
+              }
+            ]
+          }
+        }
+      ],
+      "tally": {
+        "verdicts": 10,
+        "effective": 10,
+        "wrong_notes": 5,
+        "wrong_disputed": 5,
+        "true_notes": 5,
+        "true_hit": 0,
+        "judged_wrong": 5,
+        "judged_true": 5,
+        "handed": 10,
+        "undecided": 0,
+        "handed_wrong": 5,
+        "handed_true": 5
+      }
+    }
+  }
+}

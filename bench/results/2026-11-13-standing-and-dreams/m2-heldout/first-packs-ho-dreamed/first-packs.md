@@ -1,0 +1,15 @@
+# First packs: is the task's own lesson in them?
+
+Noise notes: 0. Tasks: 5. No agent ran.
+
+| task | records seeded | pack at task start | hook pack | records in hook pack | omitted | relevant files named | pre-read (file: lesson, records) |
+|---|---|---|---|---|---|---|---|
+| relay-coupon-days-left | 10 | absent | handle | 4 | 14 | 1/1 | tallyho/pricing/coupons.py: yes, 1 |
+| relay-delete-order | 10 | absent | handle | 5 | 9 | 1/1 | tallyho/repository.py: yes, 2 |
+| relay-ledger-revenue | 10 | absent | handle | 5 | 11 | 1/1 | tallyho/ledger.py: yes, 1 |
+| relay-order-can-cancel | 10 | absent | handle | 5 | 13 | 1/1 | tallyho/models.py: yes, 1 |
+| relay-order-comments | 10 | absent | handle | 4 | 13 | 1/1 | tallyho/repository.py: yes, 2 |
+
+Lesson shown in the pack at task start: 0 of 5. In the hook pack: 5 of 5. In the hook pack or a pre-read answer: 5 of 5.
+
+Lesson shown in full (the hook pack at the summary or full tier, or a pre-read answer): 5 of 5. Relevant files named in the hook pack: 5 of 5. Packs marked degraded: 0.

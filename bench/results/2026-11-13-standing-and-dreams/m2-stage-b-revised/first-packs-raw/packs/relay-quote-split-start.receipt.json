@@ -1,0 +1,274 @@
+{
+  "budget": 800,
+  "created_at": "2026-11-19T05:29:26.87208+00:00",
+  "head_change": "91b635035a4ef87e69f99f7c3e23ec7036223e7f",
+  "id": "rcp:4efd8d24",
+  "items": [
+    {
+      "id": "task:relay-quote-split",
+      "reason": "task",
+      "score": 1.0,
+      "source": null,
+      "tier": "full",
+      "tokens": 96
+    },
+    {
+      "id": "file:tallyho/errors.py",
+      "reason": "map",
+      "score": 0.6000000238418579,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/ledger.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "file:tallyho/money.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/pricing/coupons.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 9
+    },
+    {
+      "id": "file:tallyho/pricing/discounts.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 8
+    },
+    {
+      "id": "file:tallyho/store/jsonfile.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 7
+    },
+    {
+      "id": "file:tallyho/store/memory.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/validate.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tallyho/workflow.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 6
+    },
+    {
+      "id": "file:tests/test_models.py",
+      "reason": "map",
+      "score": 0.42499998211860657,
+      "source": null,
+      "tier": "handle",
+      "tokens": 5
+    },
+    {
+      "id": "rec:1c3c35fe",
+      "reason": "goal-lead",
+      "score": 2.0163934230804443,
+      "source": null,
+      "tier": "summary",
+      "tokens": 69
+    },
+    {
+      "id": "rec:52abc9d1",
+      "reason": "goal-lead",
+      "score": 2.0161290168762207,
+      "source": null,
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "rec:d17421fb",
+      "reason": "anchored",
+      "score": 0.4266666769981384,
+      "source": null,
+      "tier": "handle",
+      "tokens": 22
+    },
+    {
+      "id": "sym:713",
+      "reason": "hop1",
+      "score": 0.6499999761581421,
+      "source": [
+        "tallyho/money.py",
+        63,
+        68
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:730",
+      "reason": "hop1",
+      "score": 0.6298507452011108,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        30,
+        32
+      ],
+      "tier": "handle",
+      "tokens": 24
+    },
+    {
+      "id": "sym:672",
+      "reason": "seed",
+      "score": 0.6000000238418579,
+      "source": [
+        "tallyho/errors.py",
+        8,
+        17
+      ],
+      "tier": "summary",
+      "tokens": 23
+    },
+    {
+      "id": "sym:705",
+      "reason": "hop2",
+      "score": 0.5880376696586609,
+      "source": [
+        "tallyho/money.py",
+        22,
+        83
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:683",
+      "reason": "lexical",
+      "score": 0.5553571581840515,
+      "source": [
+        "tallyho/ledger.py",
+        24,
+        53
+      ],
+      "tier": "handle",
+      "tokens": 17
+    },
+    {
+      "id": "sym:729",
+      "reason": "lexical",
+      "score": 0.551953136920929,
+      "source": [
+        "tallyho/pricing/discounts.py",
+        27,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:735",
+      "reason": "lexical",
+      "score": 0.5486538410186768,
+      "source": [
+        "tallyho/pricing/quote.py",
+        16,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 19
+    },
+    {
+      "id": "sym:736",
+      "reason": "lexical",
+      "score": 0.539338231086731,
+      "source": [
+        "tallyho/pricing/quote.py",
+        23,
+        27
+      ],
+      "tier": "handle",
+      "tokens": 20
+    },
+    {
+      "id": "sym:671",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/errors.py",
+        4,
+        5
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:684",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/ledger.py",
+        28,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 18
+    },
+    {
+      "id": "sym:690",
+      "reason": "hop1",
+      "score": 0.42499998211860657,
+      "source": [
+        "tallyho/models.py",
+        30,
+        35
+      ],
+      "tier": "handle",
+      "tokens": 20
+    }
+  ],
+  "omitted": [
+    "- tallyho/events.py",
+    "- repo map: .gitignore README.md pyproject.toml tallyho/ tests/ (35 files)",
+    "- rec:6247f846 decision: A refund is booked as the exact reverse of the sale: the same three ac…",
+    "- rec:05fbdbc6 decision: Product slugs are the slugified SKU and name together: MUG-1 \"Blue mug…",
+    "- rec:437aa39e decision: Every currency tallyho supports has two decimals. Plain amounts are mi…",
+    "- sym:698 Order.add (tallyho/models.py:76-84)",
+    "- sym:699 Order.remove (tallyho/models.py:86-89)",
+    "- sym:704 _exponent (tallyho/money.py:14-18)"
+  ],
+  "packer_version": 11,
+  "session": "bench-start-b6dcbf83-60fb-4c61-be18-22a0cbad40ed",
+  "task_id": "c9b23b8e-dc58-48a3-87bb-f7b78f7c1a58",
+  "tokens": 711
+}

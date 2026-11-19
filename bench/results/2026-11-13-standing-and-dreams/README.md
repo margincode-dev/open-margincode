@@ -471,3 +471,83 @@ the $5 ceiling. The largest session cost $0.0078.
   by `first-packs` and the freeze, and the agent user's home). Fixed by closing them;
   `m2bchain.sh` was changed after the amendment's commit to also close the kept workspaces
   between the arms, so the dreamed arm's preflight would not refuse. `docs/backlog.md` has it.
+
+## M2 stage B, amendment 2: raw against dreamed on the revised `DREAM.md`, results, 2026-11-19
+
+Run as `AMENDMENT-2-stage-b-revised.md` registers it. Both of its commits were pushed on the
+branch `m2-stage-b-revised` before the first session; they were not merged first, as stage B's
+amendment was. One build of `main` at `21f30dc` (the revised `DREAM.md`), one daemon with
+`AV_PLAIN_RECORDS=on` (both arms' `meta.json`: `plain_records: true`), one new freeze, the M0
+tasks, Claude Haiku 5.5, 90 sessions per arm. The smoke ran 05:31 to 05:32 UTC, raw 05:32 to 06:20,
+dreamed 06:21 to 07:05. The build lock was free before each; the gap between the arms was 40 s.
+Results are in `m2-stage-b-revised/` (`m2-raw-r2/`, `m2-dreamed-r2/`, `smoke-r2/`, `dreamed.json`,
+`first-packs-*`, `checks/`). The sessions do not pool with stage B's 30 a side.
+
+**Primary (pooled, valid sessions; Wilson 95 %, as `margincode_bench::stats` computes it):**
+
+| arm | valid | accepted | rate | 95 % Wilson | cost |
+|---|---|---|---|---|---|
+| raw | 90 | 47 | 0.522 | 0.420 to 0.622 | $0.4846 |
+| dreamed | 90 | 90 | 1.000 | 0.959 to 1.000 | $0.4481 |
+
+**Decision by the claim rule: dreaming helps.** The intervals are disjoint: dreamed's lower end,
+0.959, is above raw's upper end, 0.622. Both arms have 90 valid sessions, 30 per task.
+
+**What the claim covers, and what it does not.** It covers this one frozen dream, on these three
+tasks, on Haiku 5.5. The dreamer's text (`DREAM.md`, #63) was revised after stage B's results
+and fitted through three in-sample pilots on these same three stores. So this shows that a dream
+from text tuned on these tasks helps on these tasks. It does not show that the revised text
+helps on other tasks. Ninety sessions over three tasks are not ninety tasks (M0's
+pre-registration). The freeze was made once and used as it came out.
+
+**Per task** (described; 30 sessions a task):
+
+| task | raw | dreamed |
+|---|---|---|
+| quote-split | 7/30 | 30/30 |
+| bus-resubscribe | 10/30 | 30/30 |
+| tax-with-rate | 30/30 | 30/30 |
+
+tax-with-rate was 30 of 30 in both arms, as it was 10 of 10 in both in stage B. The difference is
+on the two tasks where raw had room to move. Each of those tasks' own wrong notes was `disputed`
+in the frozen dream, where stage B's freeze had confirmed quote-split's note.
+
+**Beside the primary.**
+
+- **Dream cost:** $0.6079 for both passes on the three tasks (6 Sonnet 5.5 calls, Claude Code's
+  `total_cost_usd`; none hit the $0.25 cap).
+- **Verdicts the freeze ended with** (all verified, `effective`): each task's own wrong note
+  ended `disputed` in its own store. Over all three stores 19 of the 24 wrong notes were
+  `disputed` (6, 7 and 6 of 8), none `confirmed`. No verdict was `outdated` or `duplicate`.
+- **True lessons:** none got a verdict (judged 0 of 5 in each store). So "no true lesson
+  `disputed` or `outdated`" holds only because none was judged, as in pilot 3.
+- **Undecided:** 7, 6 and 7 of 13 handed.
+- **Sessions that tried `--supersedes` on another task's record:** 0 of 180.
+- **Repeated dead ends** (the harness's count): raw 42, dreamed 0.
+- **Largest session and largest request:** the largest session cost $0.0081. The largest single
+  request was about 31 K tokens of prompt, against a 100 K limit.
+- **Smoke** (order-ids, raw, not a result): passed under amendment 1's conditions. It cost
+  $0.0076, its largest request was 32 K tokens, `hook-count` was not empty, and verify ran.
+
+**Spend:** run 2 cost **$1.548** in all, under the $3.00 ceiling:
+
+| step | cost |
+|---|---|
+| freeze | $0.608 |
+| smoke | $0.008 |
+| raw | $0.485 |
+| dreamed | $0.448 |
+
+Raw ran with `--budget-usd 2.10`. Dreamed ran with $1.89, the smaller of $2.10 and $3.00 less what
+had been spent. Neither budget bound.
+
+**Deviations** (none changes the question, the arms or the claim rule):
+
+- **The daemon was started twice before any command.** The first start had a umask of 077, which
+  stage B's daemon did not have, so it was stopped before any request reached it and started
+  again with the default umask. The second start served everything above. The amendment's second
+  commit records this.
+- **The dreamed arm's budget was $1.89, not $2.10,** by the amendment's money rule. It did not
+  bind.
+- **Run 1's daemon (a separate store and port) was also up during the run.** It was idle; no
+  command of this run used it.

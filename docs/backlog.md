@@ -25,10 +25,12 @@ the suspected cause, marked as a guess; the status.
   root-owned, and the daemon's user cannot delete inside it. Two things could change: the test
   could build into a temporary directory instead of the checkout, and the tick could say once,
   not every minute, that a workspace cannot be reclaimed and why.
-- **Status.** The tick's half is fixed in this change: a workspace the tick failed to remove is
-  left for an hour (`RECLAIM_RETRY`) before it is tried again, so it warns once an hour, and
-  `av gc` still tries it at once and lists the error. The other half is open: `routing_tasks.rs`
-  still builds `bench/tasks-routing/repo` inside the checkout.
+- **Status.** The tick's half is fixed in #74: a workspace the tick failed to remove is left for
+  an hour (`RECLAIM_RETRY`) before it is tried again, so it warns once an hour, and `av gc` still
+  tries it at once and lists the error. The test's half is fixed in this change:
+  `routing_tasks.rs` builds the pilot repository in a temporary directory, so `cargo test` writes
+  nothing into the checkout. `margincode-bench check` still builds `bench/tasks-routing/repo`
+  when it is missing, because the task files point there.
 
 ## 2026-11-18: the post-edit debounce test needs three CLI calls inside 2 s
 

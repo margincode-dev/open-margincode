@@ -24,6 +24,21 @@ use tower::ServiceExt;
 
 pub const HOST_WS: &str = "/host/ws";
 
+/// The one bound on any wait in a test: past it, the test hung.
+pub const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Polls `check` every 50 ms until it holds; panics after `HANG`.
+pub async fn eventually(what: &str, mut check: impl AsyncFnMut() -> bool) {
+    let deadline = std::time::Instant::now() + HANG;
+    while !check().await {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "hung waiting for {what}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 pub fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .current_dir(dir)
@@ -253,6 +268,18 @@ pub fn task_file(e: &Env, task: &Value) -> Value {
 
 pub fn id(task: &Value) -> String {
     task["task"]["id"].as_str().unwrap().to_owned()
+}
+
+/// Writes `task`'s lease as lapsed: the daemon then meets the comparison it meets in production.
+pub async fn expire_lease(e: &Env, task: &Value) {
+    let done = sqlx::query(
+        "UPDATE tasks SET lease_expires = now() - interval '1 second' WHERE id = $1::uuid",
+    )
+    .bind(id(task))
+    .execute(e.store.pool())
+    .await
+    .unwrap();
+    assert_eq!(done.rows_affected(), 1, "no task {}", id(task));
 }
 pub async fn submit(e: &Env, t: &Value) -> (StatusCode, Value) {
     call(

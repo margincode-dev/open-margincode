@@ -939,13 +939,10 @@ async fn slow_semantic_degrades_quickly() {
         calls: AtomicUsize::new(0),
     });
     let packer = packer_with(&fx, sem);
-    let pack = tokio::time::timeout(
-        Duration::from_secs(30),
-        packer.build(req(&fx.task, 3000, "slow")),
-    )
-    .await
-    .expect("the build waited for the semantic layer")
-    .unwrap();
+    let pack = tokio::time::timeout(HANG, packer.build(req(&fx.task, 3000, "slow")))
+        .await
+        .expect("hung: the build waited for the semantic layer")
+        .unwrap();
     assert!(
         pack.degraded.iter().any(|d| d == "semantic"),
         "{:?}",
@@ -1800,18 +1797,14 @@ async fn records_at_does_not_wait_for_a_slow_semantic_layer() {
     let sem = Arc::new(FakeSemantic {
         hits: vec![record_hit(&lesson, 0.8)],
         fail: false,
-        delay: Duration::from_secs(5),
+        delay: Duration::from_secs(3600),
         calls: AtomicUsize::new(0),
     });
-    let started = std::time::Instant::now();
-    let at = packer_with(&fx, sem)
-        .records_at(fx.task.id, "app/greeter.py", None)
+    let packer = packer_with(&fx, sem);
+    let at = tokio::time::timeout(HANG, packer.records_at(fx.task.id, "app/greeter.py", None))
         .await
+        .expect("hung: records_at waited for the semantic layer")
         .unwrap();
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "it answered late"
-    );
     assert!(!at.records.is_empty(), "and still answers: {}", at.markdown);
 }
 

@@ -10,7 +10,7 @@ fn sh(script: &str, dir: &std::path::Path) -> AgentCommand {
     AgentCommand::new("sh")
         .args(["-c", script, "agent"])
         .cwd(dir)
-        .timeout(Duration::from_secs(20))
+        .timeout(crate::HANG)
         .events_path(dir.join("events.jsonl"))
 }
 
@@ -229,7 +229,7 @@ sleep 60"#,
     .unwrap();
     over.store(true, Ordering::SeqCst);
     watchdog.join().unwrap();
-    // the 20 s deadline would have ended it as killed
+    // without the stop the script would have run its 60 s and exited 0
     assert_eq!((r.exit, r.killed, r.stopped), (None, false, true));
     assert_eq!(
         r.usage.counted(),

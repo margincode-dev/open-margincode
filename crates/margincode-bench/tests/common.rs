@@ -13,6 +13,9 @@ use margincode_vcs::JjVcs;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
+/// The one bound on any wait in a test: past it, the test hung.
+pub const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
 pub fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .current_dir(dir)

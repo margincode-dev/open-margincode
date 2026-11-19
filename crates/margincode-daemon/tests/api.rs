@@ -1697,16 +1697,14 @@ fn bare_repo(path: &Path) {
 }
 
 /// The background push after `set_remote` or a merge, done: waits until no attempt is pending.
-/// The push usually lands in about a second; 30 s leaves room for a loaded test machine.
 async fn settled(e: &Env) -> Value {
-    for _ in 0..600 {
-        let b = backup(e).await;
-        if b["failures"].as_u64().unwrap() > 0 || b["last_pushed"].is_string() {
-            return b;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    panic!("backup never ran: {}", backup(e).await);
+    let mut b = Value::Null;
+    eventually("the backup to run", async || {
+        b = backup(e).await;
+        b["failures"].as_u64().unwrap() > 0 || b["last_pushed"].is_string()
+    })
+    .await;
+    b
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1720,15 +1718,12 @@ async fn merge_succeeds_when_remote_unreachable_and_records_failure() {
     let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "merged");
-    let mut state = backup(&e).await;
-    for _ in 0..600 {
-        if state["failures"].as_u64().unwrap() >= 2 {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let mut state = Value::Null;
+    eventually("a second backup failure", async || {
         state = backup(&e).await;
-    }
-    assert!(state["failures"].as_u64().unwrap() >= 2, "{state}");
+        state["failures"].as_u64().unwrap() >= 2
+    })
+    .await;
     assert!(
         state["last_error"].as_str().unwrap().contains("git"),
         "{state}"
@@ -2530,7 +2525,6 @@ async fn events_long_poll_returns_as_soon_as_an_event_lands() {
     );
 
     let app = e.app.clone();
-    let started = std::time::Instant::now();
     let waiter = tokio::spawn(async move {
         call(
             &app,
@@ -2546,7 +2540,6 @@ async fn events_long_poll_returns_as_soon_as_an_event_lands() {
     let (status, body) = waiter.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(kinds(&body), ["submit"], "{body}");
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2588,9 +2581,9 @@ async fn a_checkpoint_that_moves_the_head_is_an_event_and_one_that_does_not_is_n
     // the in-process feed carries it too: the start, its workspace, then the checkpoint
     let mut seen = Vec::new();
     while seen.len() < 3 {
-        let ev = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        let ev = tokio::time::timeout(HANG, rx.recv())
             .await
-            .expect("an event within 10 s")
+            .expect("hung waiting for an event")
             .unwrap();
         seen.push(ev.kind);
     }
@@ -4767,9 +4760,9 @@ async fn a_review_is_asked_before_the_approval_question() {
 /// next `next` took the task it had just sent back. A change request gives the owner a full lease.
 #[tokio::test(flavor = "multi_thread")]
 async fn request_changes_renews_the_owners_lease() {
-    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let e = env().await;
     let t = ready_for_review(&e).await;
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    expire_lease(&e, &t).await;
     let (status, body) = review(&e, &t, "reviewer", "request_changes").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "open", "{body}");
@@ -4779,8 +4772,8 @@ async fn request_changes_renews_the_owners_lease() {
         .unwrap_or_else(|| panic!("no lease: {task}"));
     let lease = chrono::DateTime::parse_from_rfc3339(lease).unwrap();
     assert!(
-        lease > chrono::Utc::now(),
-        "lease {lease} has run out: {task}"
+        lease > chrono::Utc::now() + chrono::Duration::seconds(1000),
+        "lease {lease} is not a full one: {task}"
     );
     assert_eq!(task["task"]["owner_agent"], "claude", "{task}");
 }
@@ -5081,9 +5074,9 @@ async fn subscribers_receive_lifecycle_events_in_process() {
     let mut rx2 = st.subscribe_events().await.unwrap();
     let t = start_task(&e, "Upper names").await;
     for rx in [&mut rx, &mut rx2] {
-        let ev = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        let ev = tokio::time::timeout(HANG, rx.recv())
             .await
-            .expect("an event within 10 s")
+            .expect("hung waiting for an event")
             .unwrap();
         assert_eq!(ev.kind, "started");
         assert_eq!(ev.task_id.unwrap().0.to_string(), id(&t));
@@ -5091,16 +5084,15 @@ async fn subscribers_receive_lifecycle_events_in_process() {
 }
 
 async fn import_state(e: &Env, name: &str) -> Value {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-    loop {
-        let (status, body) = call(&e.app, "GET", &format!("/v1/repos/{name}/import"), None).await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-        if body["state"] != "running" {
-            return body;
-        }
-        assert!(std::time::Instant::now() < deadline, "import still running");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    let mut body = Value::Null;
+    eventually("the import to finish", async || {
+        let (status, b) = call(&e.app, "GET", &format!("/v1/repos/{name}/import"), None).await;
+        assert_eq!(status, StatusCode::OK, "{b}");
+        body = b;
+        body["state"] != "running"
+    })
+    .await;
+    body
 }
 
 #[tokio::test(flavor = "multi_thread")]

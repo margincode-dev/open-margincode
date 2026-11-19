@@ -11,6 +11,9 @@ use margincode_vcs::JjVcs;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
+/// The one bound on any wait in a test: past it, the test hung.
+const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .current_dir(dir)
@@ -3115,14 +3118,14 @@ fn hook_stop_with_the_daemon_down_allows_the_stop_at_once() {
     let o = av_stdin_env(
         "http://127.0.0.1:1",
         &ws,
-        &[("AV_HOOK_WAIT_SECS", "30")],
+        &[("AV_HOOK_WAIT_SECS", "3600")],
         &["hook", "stop"],
         &stop_input(&ws, "cc-1", false),
     );
     assert!(o.status.success(), "{}", err(&o));
     assert_eq!(out(&o), "");
     assert!(
-        t.elapsed() < std::time::Duration::from_secs(10),
+        t.elapsed() < HANG,
         "waited {:?} for a daemon that is down",
         t.elapsed()
     );
@@ -4678,10 +4681,7 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
     .unwrap();
     let t = std::time::Instant::now();
     while !dir.path().join("first").exists() {
-        assert!(
-            t.elapsed() < std::time::Duration::from_secs(20),
-            "first never ran"
-        );
+        assert!(t.elapsed() < HANG, "hung: first never ran");
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let o = watch_in(
@@ -4760,10 +4760,7 @@ fn a_waiting_watch_starts_its_agent_when_a_slot_frees() {
     .unwrap();
     let t = std::time::Instant::now();
     while !dir.path().join("first").exists() {
-        assert!(
-            t.elapsed() < std::time::Duration::from_secs(20),
-            "first never ran"
-        );
+        assert!(t.elapsed() < HANG, "hung: first never ran");
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let o = watch_in(
@@ -6537,8 +6534,8 @@ fn an_interrupted_dream_ends_its_agent_too() {
             .unwrap();
         assert!(sent.success());
         let status = child.wait().unwrap();
-        // a SIGKILL takes effect a moment after it is sent: wait for it, up to a deadline
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        // a SIGKILL takes effect a moment after it is sent: wait for it, up to `HANG`
+        let deadline = std::time::Instant::now() + HANG;
         let left = loop {
             let left: Vec<&String> = pids.iter().filter(|p| alive(p)).collect();
             if left.is_empty() || std::time::Instant::now() > deadline {

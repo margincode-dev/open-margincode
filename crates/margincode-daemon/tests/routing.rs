@@ -509,19 +509,23 @@ async fn a_resubmitted_task_is_offered_for_review_again_not_as_approved() {
     assert_eq!(body["approved"], false);
 }
 
-/// claude starts a task directly (no backlog item, so no tags) under a 1 s lease, then goes
-/// quiet past it.
-async fn abandoned(e: &Env) -> Value {
+/// claude starts a task directly (no backlog item, so no tags) and grok can do it.
+async fn started_by_claude(e: &Env) -> Value {
     put_agent(e, "claude", &["code"], &[], 4).await;
     put_agent(e, "grok", &["image"], &["code"], 2).await;
-    let t = start_task(e, "Make hello louder").await;
-    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    start_task(e, "Make hello louder").await
+}
+
+/// `started_by_claude`, then claude goes quiet past its lease.
+async fn abandoned(e: &Env) -> Value {
+    let t = started_by_claude(e).await;
+    expire_lease(e, &t).await;
     t
 }
 
 #[tokio::test]
 async fn an_abandoned_task_is_offered_after_its_lease() {
-    let e = env_with(|s| s.with_lease_secs(1)).await;
+    let e = env().await;
     let t = abandoned(&e).await;
     let (status, body) = next(&e, "grok").await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -533,15 +537,16 @@ async fn an_abandoned_task_is_offered_after_its_lease() {
 
 #[tokio::test]
 async fn a_task_inside_its_lease_is_not_offered() {
-    let e = env_with(|s| s.with_lease_secs(3600)).await;
-    abandoned(&e).await;
+    let e = env().await;
+    started_by_claude(&e).await;
+    assert_eq!(peek(&e, "grok").await["would"], Value::Null);
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["task"], Value::Null, "{body}");
 }
 
 #[tokio::test]
 async fn an_abandoned_task_goes_back_to_its_restarted_owner() {
-    let e = env_with(|s| s.with_lease_secs(1)).await;
+    let e = env().await;
     let t = abandoned(&e).await;
     let (_, body) = next(&e, "claude").await;
     assert_eq!(body["from"], "abandoned", "{body}");
@@ -551,7 +556,7 @@ async fn an_abandoned_task_goes_back_to_its_restarted_owner() {
 
 #[tokio::test]
 async fn a_rescued_task_refuses_the_old_owners_writes() {
-    let e = env_with(|s| s.with_lease_secs(1)).await;
+    let e = env().await;
     let t = abandoned(&e).await;
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["from"], "abandoned", "{body}");
@@ -570,10 +575,10 @@ async fn a_rescued_task_refuses_the_old_owners_writes() {
 /// task back still may not rescue it, while another agent may.
 #[tokio::test]
 async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
-    let e = env_with(|s| s.with_lease_secs(5)).await;
+    let e = env().await;
     three_agents(&e).await;
     let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
-    tokio::time::sleep(std::time::Duration::from_millis(5500)).await;
+    expire_lease(&e, &t).await;
     let (status, b) = task_op(
         &e,
         &id(&t),
@@ -590,7 +595,7 @@ async fn the_reviewer_who_requested_changes_does_not_rescue_the_task() {
         assert_eq!(body["task"], Value::Null, "{agent}: {body}");
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(5500)).await;
+    expire_lease(&e, &t).await;
     assert_eq!(peek(&e, "grok").await["would"], Value::Null);
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["task"], Value::Null, "{body}");
@@ -727,7 +732,7 @@ async fn a_caller_that_skips_returned_tasks_gets_its_other_work() {
 /// one, so a `skip_returned` owner is not handed it as `abandoned` either.
 #[tokio::test]
 async fn a_caller_that_skips_returned_tasks_does_not_get_them_back_after_the_lease() {
-    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let e = env().await;
     three_agents(&e).await;
     let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
     let (status, b) = task_op(
@@ -739,7 +744,7 @@ async fn a_caller_that_skips_returned_tasks_does_not_get_them_back_after_the_lea
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{b}");
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    expire_lease(&e, &t).await;
 
     let skip = json!({"take": ["work"], "skip_returned": true});
     let mut peek_skip = skip.clone();
@@ -852,27 +857,33 @@ async fn next_waiting(app: &Router, agent: &str, wait: u64) -> (StatusCode, Valu
     .await
 }
 
-/// A waiting `next` whose timer never fires within the test: only a wake can answer it in time.
+/// How long a waiting `next` asks to wait, and its tick and clamp in `env_no_tick`: an hour, far
+/// past `HANG`, so a call that answers at all was woken.
+const NO_TICK: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// A waiting `next` whose timer never fires within the test: only a wake can answer it.
 async fn env_no_tick() -> Env {
-    env_with(|s| s.with_wait_tick(std::time::Duration::from_secs(60))).await
+    env_with(|s| s.with_wait_tick(NO_TICK).with_max_wait(NO_TICK)).await
 }
 
 /// Waits until the item titled `title` is taken. A waiting `next` takes it before it makes the
-/// task's workspace and first pack, so this times the wake, not the start. Unwoken, a call from
-/// `env_no_tick` looks again only at its 30 s deadline: 15 s tells the two apart on any machine.
+/// task's workspace and first pack, so this waits for the wake, not the start.
 async fn taken_on_wake(e: &Env, title: &str) {
-    let since = std::time::Instant::now();
-    while !backlog(e, "?state=taken")
+    eventually(&format!("{title:?} to be taken on a wake"), async || {
+        backlog(e, "?state=taken")
+            .await
+            .iter()
+            .any(|i| i["title"] == title)
+    })
+    .await;
+}
+
+/// A spawned waiting `next`'s answer, or a panic once it has waited `HANG`.
+async fn answer(waiting: tokio::task::JoinHandle<(StatusCode, Value)>) -> (StatusCode, Value) {
+    tokio::time::timeout(HANG, waiting)
         .await
-        .iter()
-        .any(|i| i["title"] == title)
-    {
-        assert!(
-            since.elapsed() < std::time::Duration::from_secs(15),
-            "{title:?} not taken: the waiting call was not woken"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+        .expect("hung: the waiting call was not woken")
+        .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -880,11 +891,11 @@ async fn next_waits_for_work_that_arrives() {
     let e = env_no_tick().await;
     put_agent(&e, "grok", &["image"], &[], 2).await;
     let app = e.app.clone();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", NO_TICK.as_secs()).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     post_item(&e, "demo", "draw it", &["image"], 0).await;
     taken_on_wake(&e, "draw it").await;
-    let (status, body) = waiting.await.unwrap();
+    let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["from"], "backlog", "{body}");
     assert_eq!(body["task"]["title"], "draw it");
@@ -900,20 +911,14 @@ async fn a_submit_wakes_an_agent_waiting_for_a_review() {
     edit_greeter(&e, &t);
     record_decision(&e, &t).await;
     let app = e.app.clone();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", NO_TICK.as_secs()).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let submitted = std::time::Instant::now();
     let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{b}");
-    let (status, body) = waiting.await.unwrap();
+    let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["from"], "review", "{body}");
     assert_eq!(body["task"]["id"], t["task"]["id"]);
-    assert!(
-        submitted.elapsed() < std::time::Duration::from_secs(5),
-        "{:?}",
-        submitted.elapsed()
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -922,49 +927,54 @@ async fn a_profile_change_wakes_an_agent_that_now_fits() {
     put_agent(&e, "grok", &["image"], &[], 2).await;
     post_item(&e, "demo", "louder hello", &["code"], 0).await;
     let app = e.app.clone();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", NO_TICK.as_secs()).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     put_agent(&e, "grok", &["image"], &["code"], 2).await;
     taken_on_wake(&e, "louder hello").await;
-    let (status, body) = waiting.await.unwrap();
+    let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "louder hello", "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn wait_is_clamped_and_zero_returns_at_once() {
+async fn a_zero_wait_returns_at_once() {
+    let e = env_no_tick().await;
+    let (_, body) = tokio::time::timeout(HANG, next_waiting(&e.app, "grok", 0))
+        .await
+        .expect("hung: a zero wait waited");
+    assert_eq!(body, json!({"task": null, "queued": 0}));
+}
+
+/// Unclamped, the call would wait 27 hours; `HANG` catches that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_is_clamped_to_max_wait() {
     let e = env_with(|s| s.with_max_wait(std::time::Duration::from_secs(1))).await;
     let t = std::time::Instant::now();
-    let (_, body) = next_waiting(&e.app, "grok", 0).await;
+    let (_, body) = tokio::time::timeout(HANG, next_waiting(&e.app, "grok", 100_000))
+        .await
+        .expect("hung: the wait was not clamped");
     assert_eq!(body, json!({"task": null, "queued": 0}));
     assert!(
-        t.elapsed() < std::time::Duration::from_millis(500),
+        t.elapsed() >= std::time::Duration::from_millis(900),
         "{:?}",
         t.elapsed()
-    );
-    let t = std::time::Instant::now();
-    let (_, body) = next_waiting(&e.app, "grok", 100_000).await;
-    assert_eq!(body, json!({"task": null, "queued": 0}));
-    let took = t.elapsed();
-    assert!(
-        took >= std::time::Duration::from_millis(900) && took < std::time::Duration::from_secs(4),
-        "{took:?}"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peek_never_waits() {
-    let e = env().await;
-    let t = std::time::Instant::now();
-    let (_, body) = call(
+    let e = env_no_tick().await;
+    let peek = call(
         &e.app,
         "POST",
         "/v1/backlog/next",
-        Some(json!({"agent": "grok", "session": "s", "dry_run": true, "wait_secs": 30})),
-    )
-    .await;
+        Some(json!({"agent": "grok", "session": "s", "dry_run": true,
+                    "wait_secs": NO_TICK.as_secs()})),
+    );
+    let (_, body) = tokio::time::timeout(HANG, peek)
+        .await
+        .expect("hung: a peek waited");
     assert_eq!(body, json!({"would": null, "queued": 0}));
-    assert!(t.elapsed() < std::time::Duration::from_millis(500));
 }
 
 async fn put_limited(e: &Env, name: &str, best: &[&str], cost: i32, max_open: i32) {
@@ -1025,10 +1035,10 @@ async fn a_team_at_its_limit_gets_reviews_but_no_new_work() {
 /// Its own abandoned task is work it already holds: resuming it adds nothing.
 #[tokio::test]
 async fn a_team_at_its_limit_still_resumes_its_own_abandoned_task() {
-    let e = env_with(|s| s.with_lease_secs(1)).await;
+    let e = env().await;
     put_limited(&e, "claude", &["code"], 4, 1).await;
     let t = start_task(&e, "Make hello louder").await;
-    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    expire_lease(&e, &t).await;
     post_item(&e, "demo", "other", &["code"], 600).await;
     let (_, body) = next(&e, "claude").await;
     assert_eq!(body["from"], "abandoned", "{body}");
@@ -1198,7 +1208,7 @@ async fn conflicted_task(e: &Env) -> Value {
 
 #[tokio::test]
 async fn a_conflicted_task_is_offered_to_its_owner_with_the_sync_action() {
-    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let e = env().await;
     let t = conflicted_task(&e).await;
 
     let p = peek(&e, "claude").await;
@@ -1218,7 +1228,7 @@ async fn a_conflicted_task_is_offered_to_its_owner_with_the_sync_action() {
 
 #[tokio::test]
 async fn another_agent_gets_a_conflicted_task_only_after_the_owners_lease() {
-    let e = env_with(|s| s.with_lease_secs(2)).await;
+    let e = env().await;
     let t = conflicted_task(&e).await;
 
     // the owner takes it back, which renews its lease: nobody else is offered it now
@@ -1230,7 +1240,7 @@ async fn another_agent_gets_a_conflicted_task_only_after_the_owners_lease() {
         assert_eq!(body["task"], Value::Null, "{other}: {body}");
     }
 
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    expire_lease(&e, &t).await;
     let (_, body) = next(&e, "grok").await;
     assert_eq!(body["from"], "conflicted", "{body}");
     assert_eq!(body["task"]["id"], t["task"]["id"]);
@@ -1861,12 +1871,12 @@ async fn an_accept_wakes_an_agent_waiting_for_work() {
     )
     .await;
     let app = e.app.clone();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", 30).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "grok", NO_TICK.as_secs()).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let (status, body) = accept(&e, p["id"].as_str().unwrap(), "vinh").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     taken_on_wake(&e, "draw it").await;
-    let (status, body) = waiting.await.unwrap();
+    let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "draw it", "{body}");
 }
@@ -2352,12 +2362,12 @@ async fn a_requeue_wakes_an_agent_waiting_for_work() {
     let e = env_no_tick().await;
     let (item, _) = take_and_abandon(&e, "draw it").await;
     let app = e.app.clone();
-    let waiting = tokio::spawn(async move { next_waiting(&app, "muse", 30).await });
+    let waiting = tokio::spawn(async move { next_waiting(&app, "muse", NO_TICK.as_secs()).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let (status, body) = requeue(&e, &item).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     taken_on_wake(&e, "draw it").await;
-    let (status, body) = waiting.await.unwrap();
+    let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "draw it", "{body}");
 }

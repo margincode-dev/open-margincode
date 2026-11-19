@@ -1596,8 +1596,7 @@ async fn a_start_whose_socket_closed_before_any_retry_is_handed_to_the_retry() {
 /// How long the tests below give a start that still waits to take an item posted meanwhile.
 const TAKE_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// The control for the tests below: a start that waits has taken an item posted meanwhile
-/// within `TAKE_WINDOW`, by the same check they make.
+/// The control for the tests below: a start that waits takes an item posted meanwhile.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_waiting_start_takes_an_item_posted_while_it_waits() {
     let (e, _) = paused_env().await;
@@ -1605,12 +1604,10 @@ async fn a_waiting_start_takes_an_item_posted_while_it_waits() {
     let first = call_with_id(&e, &s, 97, "start_task", json!({"wait": 30}));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     post_backlog(&e, "louder hello", &["code"], 0).await;
-    tokio::time::sleep(TAKE_WINDOW).await;
-    assert_eq!(
-        open_tasks(&e).await.len(),
-        1,
-        "not taken within TAKE_WINDOW"
-    );
+    eventually("the waiting start to take the item", async || {
+        open_tasks(&e).await.len() == 1
+    })
+    .await;
     let got = first.await.unwrap();
     assert!(text(&got).contains("workspace:"), "{got}");
 }

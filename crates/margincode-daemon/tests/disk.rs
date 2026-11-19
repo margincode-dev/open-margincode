@@ -762,12 +762,10 @@ async fn the_sweep_removes_a_merged_workspace_without_a_gc_call() {
         },
     );
     let client = async move {
-        for _ in 0..200 {
-            if tokio::net::TcpStream::connect(addr).await.is_ok() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+        eventually("the daemon to listen", async || {
+            tokio::net::TcpStream::connect(addr).await.is_ok()
+        })
+        .await;
         ok(
             addr,
             "/v1/repos",
@@ -816,22 +814,15 @@ async fn the_sweep_removes_a_merged_workspace_without_a_gc_call() {
         .await;
         assert_eq!(merge["workspace"], "kept", "{merge}");
         assert!(wdir.exists());
-        let mut gone = false;
-        for _ in 0..40 {
-            if !wdir.exists() {
-                gone = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        eventually(&format!("the sweep to remove {wdir:?}"), async || {
+            !wdir.exists()
+        })
+        .await;
         stop.send(()).unwrap();
-        assert!(gone, "the sweep removed {wdir:?} within 4 s");
     };
-    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
-        tokio::join!(server, client)
-    })
-    .await
-    .expect("daemon stops on the shutdown future");
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
     served.unwrap();
 }
 
@@ -1150,11 +1141,9 @@ async fn the_reclaim_tick_reclaims_below_the_floor_even_with_retention_never() {
             "a reclaim pass that began below the floor removed {wdir:?}"
         );
     };
-    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
-        tokio::join!(server, client)
-    })
-    .await
-    .expect("daemon stops on the shutdown future");
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
     served.unwrap();
 }
 
@@ -1306,11 +1295,11 @@ fn own_entries() -> Vec<String> {
     ]
 }
 
-/// The first `kind` event of repo `demo`, waiting up to 20 s for it: moving build output out and
-/// seeding it in run in the background (on a slow mount they take a minute), after the answer.
+/// The first `kind` event of repo `demo`, waiting for it: moving build output out and seeding it
+/// in run in the background (on a slow mount they take a minute), after the answer.
 async fn feed_event(e: &Env, kind: &str) -> Value {
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    loop {
+    let mut found = None;
+    eventually(&format!("a {kind} event"), async || {
         let (_, events) = call(
             &e.app,
             "GET",
@@ -1318,21 +1307,16 @@ async fn feed_event(e: &Env, kind: &str) -> Value {
             None,
         )
         .await;
-        let found = events["events"]
+        found = events["events"]
             .as_array()
             .unwrap()
             .iter()
             .find(|ev| ev["kind"] == kind)
             .cloned();
-        if let Some(ev) = found {
-            return ev;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no {kind} in {events}"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+        found.is_some()
+    })
+    .await;
+    found.unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1562,10 +1546,10 @@ fn removals(gc: &Value) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// Waits up to 20 s for `n` `build:reclaimed` events of repo `demo` (the harvest runs in the background).
+/// Waits for `n` `build:reclaimed` events of repo `demo` (the harvest runs in the background).
 async fn reclaimed_events(e: &Env, n: usize) -> Vec<Value> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    loop {
+    let mut found = Vec::new();
+    eventually(&format!("{n} build:reclaimed events"), async || {
         let (_, events) = call(
             &e.app,
             "GET",
@@ -1573,23 +1557,17 @@ async fn reclaimed_events(e: &Env, n: usize) -> Vec<Value> {
             None,
         )
         .await;
-        let found: Vec<Value> = events["events"]
+        found = events["events"]
             .as_array()
             .unwrap()
             .iter()
             .filter(|ev| ev["kind"] == "build:reclaimed")
             .cloned()
             .collect();
-        if found.len() >= n {
-            return found;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "{} of {n} build:reclaimed in {events}",
-            found.len()
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+        found.len() >= n
+    })
+    .await;
+    found
 }
 
 fn demo_repo(disk: &Value) -> &Value {
@@ -1810,12 +1788,10 @@ async fn the_reclaim_tick_enforces_the_build_budget() {
         },
     );
     let client = async move {
-        for _ in 0..200 {
-            if tokio::net::TcpStream::connect(addr).await.is_ok() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
+        eventually("the daemon to listen", async || {
+            tokio::net::TcpStream::connect(addr).await.is_ok()
+        })
+        .await;
         ok(
             addr,
             "/v1/repos",
@@ -1831,25 +1807,16 @@ async fn the_reclaim_tick_enforces_the_build_budget() {
         .await;
         let wdir = ws.join("demo").join(t["task"]["slug"].as_str().unwrap());
         let target = plant_target(&wdir, 16 * KIB, hours(1));
-        let mut gone = false;
-        for _ in 0..40 {
-            if !target.exists() {
-                gone = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        eventually(
+            &format!("the tick to remove the idle {target:?} over the budget"),
+            async || !target.exists(),
+        )
+        .await;
         stop.send(()).unwrap();
-        assert!(
-            gone,
-            "the tick removed the idle {target:?} over the budget within 4 s"
-        );
         assert!(wdir.join("app/greeter.py").exists(), "the workspace stays");
     };
-    let (served, ()) = tokio::time::timeout(Duration::from_secs(60), async {
-        tokio::join!(server, client)
-    })
-    .await
-    .expect("daemon stops on the shutdown future");
+    let (served, ()) = tokio::time::timeout(HANG, async { tokio::join!(server, client) })
+        .await
+        .expect("daemon stops on the shutdown future");
     served.unwrap();
 }

@@ -1073,12 +1073,11 @@ async fn hold_verdict(e: &Env, verdict: uuid::Uuid) -> sqlx::Transaction<'static
     tx
 }
 
-/// Waits (with a deadline) until `n` statements wait for a lock.
+/// Waits until `n` statements wait for a lock.
 /// Only statements of this test's database whose text names `table` count: on a server shared
 /// by many tests (`AV_TEST_DATABASE_URL`) other tests' lock waits are not this one's.
 async fn lock_waiters(e: &Env, table: &str, n: i64) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
+    eventually(&format!("{n} requests to wait for the lock"), async || {
         let waiting: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pg_stat_activity
               WHERE datname = current_database() AND wait_event_type = 'Lock'
@@ -1088,15 +1087,9 @@ async fn lock_waiters(e: &Env, table: &str, n: i64) {
         .fetch_one(e.store.pool())
         .await
         .unwrap();
-        if waiting >= n {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "{waiting} of {n} requests wait for the lock"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+        waiting >= n
+    })
+    .await;
 }
 
 fn spawn_post(e: &Env, uri: String, body: Value) -> tokio::task::JoinHandle<(StatusCode, Value)> {

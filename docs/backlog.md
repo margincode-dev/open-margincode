@@ -7,6 +7,25 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-18: the post-edit debounce test needs three CLI calls inside 2 s
+
+- **Where.** `margincode-cli` `tests/cli.rs` `hook_post_edit_debounces_within_two_seconds`, found
+  reading every timing bound in `crates/*/tests` for the timing-flake change.
+- **Seen.** Not a failure yet. The check "second edit within 2 s is debounced" holds only if the
+  first `av hook post-edit`, an `av status` and the second `av hook post-edit` (three
+  subprocesses, each talking to the daemon) finish inside `DEBOUNCE_MS` (2,000 ms). On a loaded
+  machine the second hook can run after the window and checkpoint, and the test then sees
+  `changed (2)` where it expects `changed (1)`. It is an upper bound on time, which the rule in
+  `CONTRIBUTING.md` ("Timing") forbids; the 2.1 s sleep after it is a sleep past the window and
+  is fine.
+- **Ruled out.** The other sleeps in that file: the 1.5 s one in
+  `validate_waits_for_a_free_build_slot_on_the_host` checks that nothing ran, which a slow
+  machine can only make pass.
+- **Guess.** The stamp lives in `.av-task` (`last_checkpoint_ms`). The test could write a fresh
+  stamp into the task file before the second edit instead of relying on the first hook's, and an
+  old one (more than 2 s back) instead of sleeping 2.1 s.
+- **Status.** Open.
+
 ## 2026-11-18: a backup in backoff keeps its backoff across a daemon restart
 
 - **Where.** `mark_backups_due` (`crates/margincode-store/src/backup.rs`), called by
@@ -109,7 +128,10 @@ the suspected cause, marked as a guess; the status.
   renewal to the two `next` calls passed 2 s. A longer lease with the sleeps scaled to it would
   hold.
 - **Status.** Fixed on `claude/cloud-capabilities-offline-22d48v`: the test's lease is 5 s and
-  its sleeps 5.5 s, so a loaded run has 5 s from the renewal to the two `next` calls.
+  its sleeps 5.5 s, so a loaded run has 5 s from the renewal to the two `next` calls. Then fixed
+  for the whole family by the pull request "Tests set state instead of waiting": the test runs on
+  the default lease and `expire_lease` writes the lease lapsed where it slept, so no lease can run
+  out by itself inside a test (the rule is in `CONTRIBUTING.md`, "Timing").
 
 ## 2026-11-18: the Workers Builds preview of #49 failed
 

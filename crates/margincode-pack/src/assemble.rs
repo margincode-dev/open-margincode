@@ -1860,6 +1860,41 @@ mod tests {
     }
 
     #[test]
+    fn a_disputed_records_handle_says_disputed_and_its_longer_tiers_say_why() {
+        let verdict = standing::EffectiveVerdict {
+            id: uuid::Uuid::from_u128(0xabcdef12 << 96),
+            kind: standing::VerdictKind::Disputed,
+            reason: "JPY has no decimals".into(),
+            anchor_hashes: vec![],
+        };
+        let disputed = Record {
+            kind: RecordKind::Decision,
+            summary: "Every currency has two decimals, so plain amounts are minor / 100 with :.2f"
+                .into(),
+            ..rec("claude")
+        };
+        let whence = super::Whence {
+            origin: None,
+            disputed: Some(&verdict),
+        };
+        let (_, [handle, summary, full]) = super::record_texts(&disputed, false, false, whence);
+        assert_eq!(
+            handle,
+            "- rec:00000000 decision: Every currency has two decimals, so plain amounts are minor / \
+             100 with… (disputed)"
+        );
+        for text in [&summary, &full] {
+            assert!(
+                text.starts_with(
+                    "- rec:00000000 decision: Every currency has two decimals, so plain amounts \
+                     are minor / 100 with :.2f (disputed: JPY has no decimals, vd:abcdef12)"
+                ),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
     fn insertions_replacements_and_deletions_map_to_head_lines() {
         assert_eq!(line_ranges("a\nb\nc\n", "a\nb\nc\n"), vec![]);
         assert_eq!(

@@ -1421,6 +1421,49 @@ async fn a_cold_start_without_seeds_pulls_in_what_the_best_hits_reference() {
     );
 }
 
+/// A function named in plain words is found by full-text search, but only a seed (a changed
+/// symbol, or one the goal names in a code-only shape) brings in the records anchored to it.
+#[tokio::test]
+async fn a_function_the_goal_names_only_as_a_plain_word_brings_in_none_of_its_records() {
+    let fx = fixture().await;
+    let earlier = fx
+        .store
+        .create_task(new_task("Earlier work"))
+        .await
+        .unwrap();
+    fx.store
+        .add_record(record(
+            earlier.id,
+            RecordKind::Decision,
+            "hello keeps accented names as they are",
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap();
+    let plain = cold_task(&fx, "Plain", "Fix hello for accented names").await;
+    let md = fx
+        .packer
+        .build(req(&plain, 2000, "plain"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(md.contains("Greeter.hello"), "the text hit:\n{md}");
+    assert!(!md.contains("## Decisions & dead ends"), "{md}");
+
+    let quoted = cold_task(&fx, "Quoted", "Fix `hello` for accented names").await;
+    let md = fx
+        .packer
+        .build(req(&quoted, 2000, "quoted"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        md.contains("hello keeps accented names as they are"),
+        "a named seed brings in its records:\n{md}"
+    );
+}
+
 #[tokio::test]
 async fn a_signatures_pack_locates_code_without_its_bodies() {
     let fx = fixture().await;

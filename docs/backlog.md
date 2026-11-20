@@ -7,6 +7,46 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-20: a session-start pack showed a disputed record without its reason, and another not at all
+
+- **Where.** A live run of `av dream` with real models on a small Python repository (`tallyho`,
+  one commit), av 0.0.3, no semantic layer, first packs at the default 800-token budget. Probe tasks were started
+  after records were seeded and after verdicts on them took effect.
+- **Seen.**
+  - Goal "Fix Money.format in tallyho/money.py for JPY": `tokens: 710/800`, 20 items omitted.
+    The disputed decision was printed as
+    `- rec:… decision, abandoned: Every currency tallyho supports has two decimals. Plain amounts are mi… (disputed)`,
+    without the reason or the `vd:` id. The pre-read answer for the same file (`records_at`)
+    printed `(disputed: …, vd:…)`.
+  - Goal "Fix slugify in tallyho/text.py for accented product names": `tokens: 488/800`, a Code
+    section led by `slugify`, and no "Decisions & dead ends" section. It was the same before any
+    verdict existed and after a disputed verdict on the decision anchored to `slugify` took effect.
+    The pre-read answer for `text.py` listed that decision.
+- **Ruled out.** Both are the packer working as written, not a rendering gap, and neither comes
+  from dreaming.
+  - The handle tier of every record line is its summary clipped to 70 characters plus a short
+    flag. A disputed record's flag is `(disputed)`, and its summary and full tiers add the reason
+    and the verdict (`record_texts`). A disputed record also ranks ×0.3 (`standing`). With 20
+    items left out, it got the handle tier.
+  - `av expand rec:…` prints the full tier: the reason and the `vd:` id. The pack's footer says to
+    expand an id whenever it leaves items out.
+  - `slugify` in plain words is not a named identifier (`lexical::named_identifiers`: backticks,
+    `name(`, snake_case, camelCase or a dotted path), and a file name is left to full-text search.
+    So the goal seeded nothing. Without seeds, `records_anchored_to` gets no paths or names, and
+    the best text hits stand in for seeds only to bring in their neighbours (`expand_best_hits`),
+    not their records. Without a semantic layer no record arrives as a hit either.
+    `Money.format` is a dotted name, so that goal seeded it and got its records.
+- **Pinned.** The pack test
+  `a_function_the_goal_names_only_as_a_plain_word_brings_in_none_of_its_records` (and the same
+  goal in backticks brings them in). The unit test
+  `a_disputed_records_handle_says_disputed_and_its_longer_tiers_say_why`. The daemon test
+  `expanding_a_disputed_record_gives_the_reason_and_the_verdict`.
+- **Guess.** An open question, not a defect: whether the records anchored on the best text hits
+  of a cold start should join as the hits' neighbours do. That would change first packs for
+  existing inputs, and the measured results on how a dreamed pack reads rest on them, so it
+  needs its own measurement first.
+- **Status.** Works as designed; pinned by the tests named above.
+
 ## 2026-11-19: Antigravity's hooks need their own output
 
 - **Where.** `av init --for antigravity` (`integrations/antigravity/README.md`, "Hooks"), against

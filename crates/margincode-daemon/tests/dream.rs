@@ -393,6 +393,48 @@ async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_
     assert_eq!(listed["verdicts"].as_array().unwrap().len(), 1, "{listed}");
 }
 
+/// A pack short of room shows a disputed record as its handle, `(disputed)` alone; expanding the
+/// record says why and names the verdict.
+#[tokio::test(flavor = "multi_thread")]
+async fn expanding_a_disputed_record_gives_the_reason_and_the_verdict() {
+    let e = env().await;
+    let (earlier, reader) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let proposed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&rec), "verdict": "disputed",
+               "reason": "the greeter adds no mark at all", "evidence": [code_quote()]}),
+    )
+    .await;
+    let vd = accept(&e, &proposed).await["verdict"]["handle"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (status, body) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/items/{}", id(&reader), handle(&rec)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body["full"].as_str().unwrap().contains(&format!(
+            "(disputed: the greeter adds no mark at all, {vd})"
+        )),
+        "{body}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_verdict_a_person_rejects_has_no_effect() {
     let e = env().await;

@@ -780,6 +780,76 @@ async fn a_declined_record_leads_again_once_it_scores_higher_than_when_it_was_de
     assert_eq!(handed[2], d["id"], "{handed:?}; b = {}", b["id"]);
 }
 
+/// The record a review run of limit 1 is handed after a person's review of `verdict` on an
+/// abandoned task's decision, with a never-judged note written after that run.
+async fn handed_after_a_review_of(verdict: Value, agree: bool) -> (Value, Value, Value) {
+    let e = env().await;
+    let earlier = start_task(&e, "Earlier work").await;
+    let decision = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/abandon", id(&earlier)),
+        json!({"agent": "claude"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let d = start_dream(&e, "review", "").await;
+    let mut verdict = verdict;
+    verdict["record"] = json!(handle(&decision));
+    let proposed = propose(&e, &d, verdict).await;
+    let vd = proposed["verdict"]["handle"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{proposed}"));
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "owner", "agree": agree}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/dreams/{}/finish", dream_id(&d)),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let later = start_task(&e, "Later work").await;
+    let note = record_on(&e, &later, "note", "names keep their case", "app/util.py").await;
+    let (_, handed) = declined_run(&e, 1).await;
+    (decision, note, handed[0].clone())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_judged_record_no_longer_leads_the_worklist_for_its_abandoned_task() {
+    for verdict in [
+        json!({"verdict": "disputed", "reason": "the greeter adds no mark at all",
+               "evidence": [code_quote()]}),
+        json!({"verdict": "confirmed", "evidence": [code_quote()]}),
+    ] {
+        let (_, note, handed) = handed_after_a_review_of(verdict.clone(), true).await;
+        assert_eq!(handed, note["id"], "after an agreed {verdict}");
+    }
+    let (decision, _, handed) = handed_after_a_review_of(
+        json!({"verdict": "disputed", "reason": "the greeter adds no mark at all",
+               "evidence": [code_quote()]}),
+        false,
+    )
+    .await;
+    assert_eq!(
+        handed, decision["id"],
+        "a rejected verdict has not judged the record"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_verify_run_reviews_what_another_run_proposed_with_a_quote_of_its_own() {
     let e = env().await;

@@ -923,7 +923,8 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
   With nothing to look at no run is made (`dream: null`).
 - A `review` run's list is ranked over the newest 400 live decisions, attempts and notes that
   agents wrote: 3 for a record whose task's merge was reverted (or a decision of abandoned
-  work), 2 when its anchored code on `main` differs from what it was recorded against (or last
+  work) while no review has agreed on a `confirmed` or `disputed` verdict for it (a rejected or
+  retracted verdict does not count), 2 when its anchored code on `main` differs from what it was recorded against (or last
   confirmed against), 2 when another live record of its kind shares an anchor, up to 2 for the
   packs of the last 30 days that showed it, 1 when it never had a verdict, ties by id. A review
   run that finished (`done`) and was handed a record without writing a verdict on it has

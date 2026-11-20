@@ -1,4 +1,4 @@
-# Handoff: 2026-11-18
+# Handoff: 2026-11-20
 
 Delete this once you've acted on the open items. It links; the detail lives in the files named.
 
@@ -47,6 +47,15 @@ verdict accept` under a name the daemon does not know as an agent gives it effec
 writes (`Guarded::MemoryWrite` in `ext.rs`, asked before a verdict's review and before a
 supersede).
 
+Since 2026-11-19: the M3 gate's first step was counted (#86,
+`bench/results/2026-11-20-m3-gate-step1/`). On the foundry 3 areas have 8 or more live
+agent-written records, fewer than five, so pages (Plan 16 Phase 4) wait. Counting depth-one
+directories as areas too gives exactly five; which reading counts is the owner's decision. Plan 16
+Phase 3 ran once with real models on a throwaway stack in the Commercial repository
+(margincode-cloud #38). Two changes here came from it: #87 (what a first pack shows of a disputed
+record, pinned as designed) and #88 (a judged record loses the failed-origin term on the dream
+worklist).
+
 Next:
 
 1. **Whether dreaming helps against a wrong note whose evidence is in another file.** Amendment 3
@@ -78,6 +87,13 @@ Next:
    need their own output"); naming it by a query parameter on `/mcp`, which the
    daemon does not read today; a first real run to read its client name and check the file is
    read; the Commercial edition's runner adapter (margincode-cloud).
+6. **Plan 16 (hivemind).** Phases 0 to 2 are on `main`. Phase 4 (pages) waits on its gate, as
+   above. Phase 5 (transcripts) is a position, not a build. The plan and its status live in
+   margincode-cloud (`docs/superpowers/plans/2026-11-12-agentvcs-plan-16-hivemind-memory.md`).
+   Open here, both in `docs/backlog.md`:
+   - whether a cold start's best text hits should bring in the records anchored on them, as they
+     bring in their neighbours (the entry for #87);
+   - the dreamed-arm bench test passes in 0 s without `av` built or `jq`.
 
 Left open on purpose:
 

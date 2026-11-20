@@ -7,6 +7,22 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-20: the dreamed-arm bench test passes in 0 s without `av` or `jq`
+
+- **Where.** `margincode-bench` `tests/runner.rs`,
+  `runner::a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm`, run 40 times in a loop
+  to check #88 (the loop #13 used to show its fix), in a `rust:1.97.1` container.
+- **Seen.** The first loop of 40 passed 40 of 40, each run in 0.00 s. The test prints
+  `skip: no av binary beside the test binary (cargo build -p margincode-cli)` or `skip: jq not
+  installed` and returns, so cargo reports it as passed. Neither line shows without
+  `--nocapture`, and the container had neither. With `cargo build -p margincode-cli` first and
+  jq 1.7 on `PATH`, each run took about 19 s and 40 of 40 passed.
+- **Ruled out.** Not a slow or flaky test: it never ran.
+- **Guess.** None needed. A loop that means to exercise it needs both, and nothing in the bar's
+  output says it skipped. Marking it `#[ignore]` with its needs in the reason, or failing when an
+  environment variable asks for it, would make a skip visible.
+- **Status.** Open.
+
 ## 2026-11-20: a session-start pack showed a disputed record without its reason, and another not at all
 
 - **Where.** A live run of `av dream` with real models on a small Python repository (`tallyho`,

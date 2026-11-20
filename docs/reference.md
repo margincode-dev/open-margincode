@@ -1083,10 +1083,8 @@ the others wait (it says so once on stderr), so a burst of checks after a merge 
 builds at a time. Only `av validate` takes a build slot; an agent running `cargo test` itself
 does not.
 
-The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`),
-except Antigravity's, whose config has no headers: the daemon names it by its client name, so
-give its profile that name as an `--alias` (`integrations/antigravity/README.md`).
-`--for mcp-json` writes the `--agent` name into that header, so a client without its own
+The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`,
+`antigravity`). `--for mcp-json` writes the `--agent` name into that header, so a client without its own
 writer still routes as itself. Set a profile under that same name.
 
 The reserve window, review order and `--max-open` are in the next section.
@@ -1781,10 +1779,12 @@ opens with a warning naming the culprit merge.
   `integrations/<agent>/README.md`. All of them
   share one memory, so a dead end Claude recorded is in the pack Codex gets.
 - **Antigravity** (`agy`): `av init --for antigravity` merges `mcpServers.av` with the `/mcp` `url`
-  alone into `~/.gemini/config/mcp_config.json` (shipped as an empty file), keeping the rest and the
-  previous file as `*.bak`. Its docs give an HTTP server no headers, so there is no `X-Av-Agent`
-  (the daemon names the session by the client name Antigravity sends) and no token: with `AV_TOKEN`
-  set the daemon refuses it, and `av init` says so. No hooks: what each of its hook events reads
+  and `headers` (`X-Av-Agent: antigravity`) into `~/.gemini/config/mcp_config.json` (shipped as an
+  empty file), keeping the rest and the previous file as `*.bak`. Antigravity's docs give no
+  environment-variable expansion in that file, so with `AV_TOKEN` set the `Authorization` header holds the
+  token itself, as Claude Code's `claude mcp add --header` does; on Unix the file and its `*.bak`
+  are then made owner-only, and `av init` says to run it again when the token changes. From
+  `agy mcp add --help` and the docs shipped with the CLI, not yet run against a real `agy`. No hooks: what each of its hook events reads
   on stdout differs from what `av hook …` prints (`integrations/antigravity/README.md`).
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).

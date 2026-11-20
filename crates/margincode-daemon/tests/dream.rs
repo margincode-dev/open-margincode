@@ -1345,7 +1345,7 @@ async fn a_promote_is_refused_off_a_decision_without_text_or_with_a_bad_glob() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_promote_takes_effect_only_when_a_person_accepts_it() {
+async fn a_promote_takes_effect_only_when_a_review_without_a_run_accepts_it() {
     let e = env().await;
     let (earlier, reader) = two_tasks(&e).await;
     let rec = record_on(
@@ -1406,7 +1406,7 @@ async fn a_promote_takes_effect_only_when_a_person_accepts_it() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(
-        body["error"].as_str().unwrap().contains("a person"),
+        body["error"].as_str().unwrap().contains("without `dream`"),
         "{body}"
     );
     let (_, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
@@ -1576,7 +1576,7 @@ async fn a_promotes_acceptance_is_the_guards_memory_write_question() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_promote_is_not_accepted_under_a_name_the_daemon_knows_as_an_agent() {
+async fn a_promote_is_accepted_under_a_registered_agents_name() {
     let e = env().await;
     let (earlier, _) = two_tasks(&e).await;
     let rec = record_on(
@@ -1595,59 +1595,66 @@ async fn a_promote_is_not_accepted_under_a_name_the_daemon_knows_as_an_agent() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let other = record_on(
+    let d = start_dream(&e, "review", "").await;
+    let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    let vd = promoted["verdict"]["handle"].as_str().unwrap();
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "GROK-cli", "agree": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "effective", "{body}");
+    assert_eq!(conventions(&e).await.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_that_proposed_a_promote_never_reviews_it() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
         &e,
         &earlier,
-        "note",
-        "names are title case",
+        "decision",
+        "hello never shouts",
         "app/greeter.py",
     )
     .await;
     let d = start_dream(&e, "review", "").await;
     let promoted = propose(&e, &d, promote_of(&rec, RULE, "app/**")).await;
+    assert_eq!(promoted["verdict"]["author_agent"], "dreamer", "{promoted}");
     let vd = promoted["verdict"]["handle"].as_str().unwrap();
-    let disputed = propose(
-        &e,
-        &d,
-        json!({"record": handle(&other), "verdict": "disputed",
-               "reason": "names are kept as given", "evidence": [code_quote()]}),
-    )
-    .await;
-    assert_eq!(disputed["accepted"], true, "{disputed}");
-    // a verify run's agent is a name the daemon has seen run a dream
-    let (status, body) = post_json(
-        &e,
-        "/v1/repos/demo/dreams",
-        json!({"agent": "checker", "mode": "verify"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(body["dream"].is_object(), "{body}");
-    // the proposing run's agent and registered profiles, in any case; a name that only ran a
-    // verify run is a person's as far as the daemon can tell
-    for agent in ["dreamer", "Dreamer", "grok", "GROK-cli"] {
-        let (status, body) = post_json(
-            &e,
-            &format!("/v1/verdicts/{vd}/review"),
-            json!({"reviewer": agent, "agree": true}),
-        )
-        .await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{agent}: {body}");
-        let why = body["error"].as_str().unwrap();
-        assert!(
-            why.contains("agent") && why.contains("--agent") && why.contains("AV_AGENT"),
-            "{agent}: {body}"
-        );
+    // the verdict's author, which is also the proposing run's agent, in any case
+    for agent in ["dreamer", "Dreamer", "DREAMER"] {
+        for agree in [true, false] {
+            let (status, body) = post_json(
+                &e,
+                &format!("/v1/verdicts/{vd}/review"),
+                json!({"reviewer": agent, "agree": agree}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{agent}: {body}");
+            let why = body["error"].as_str().unwrap();
+            assert!(
+                why.contains("proposed it") && why.contains("--agent") && why.contains("AV_AGENT"),
+                "{agent}: {body}"
+            );
+        }
     }
+    let (_, one) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(one["verdict"]["state"], "proposed", "{one}");
+    assert_eq!(one["reviews"], json!([]), "{one}");
     assert!(conventions(&e).await.is_empty());
     let (status, body) = post_json(
         &e,
         &format!("/v1/verdicts/{vd}/review"),
-        json!({"reviewer": "checker", "agree": true}),
+        json!({"reviewer": "checker", "agree": false}),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(conventions(&e).await.len(), 1);
+    assert_eq!(body["verdict"]["state"], "rejected", "{body}");
+    assert!(conventions(&e).await.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

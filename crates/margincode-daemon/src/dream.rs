@@ -290,7 +290,7 @@ async fn start(
             )
         }
         "verify" => {
-            // a promote is a person's to accept: no run is handed it
+            // a promote is reviewed by name, never by a run: no run is handed it
             let mut waiting = st.pg.proposed_for_verify(&repo, 1000).await?;
             waiting.reverse(); // oldest first
             let mut items = vec![];
@@ -712,7 +712,7 @@ async fn propose(
 struct ReviewBody {
     reviewer: String,
     agree: bool,
-    /// The verify run that makes this review; without it the reviewer is a person.
+    /// The verify run that makes this review; without it, a review by name (a person or an agent).
     dream: Option<Uuid>,
     #[serde(default)]
     evidence: Vec<Value>,
@@ -720,7 +720,8 @@ struct ReviewBody {
 
 /// Agrees or disagrees with a proposed verdict. From a verify run: the verdict is on that
 /// run's list, and the review carries at least one quote of its own, checked like a verdict's.
-/// Without `dream`, a person's decision. A verdict takes effect when its newest review agrees.
+/// Without `dream`, a decision under the reviewer's name. A verdict takes effect when its newest
+/// review agrees.
 async fn review(
     State(st): State<AppState>,
     Path(id): Path<String>,
@@ -734,8 +735,8 @@ async fn review(
     }
     if v.verdict == "promote" && b.dream.is_some() {
         return Err(AvError::IllegalState(format!(
-            "{} proposes a convention, which only a person accepts or rejects (no `dream`): \
-             conventions are never dropped from packs, so an agent's agreement is not enough",
+            "{} proposes a convention, which no verify run reviews: accept or reject it by \
+             name, without `dream` (`av verdict accept` or `av verdict reject`)",
             vd_handle(v.id)
         ))
         .into());
@@ -812,12 +813,11 @@ async fn review(
     Ok(Json(json!({"verdict": verdict_json(&v)})))
 }
 
-/// The daemon's rules for a person's review of a `promote`. Community has one shared token and
-/// no identities, so these hold the names it is given, not who sent them: the reviewer is not,
-/// in any case, the verdict's author, the agent of the run that proposed it, or a registered
-/// agent profile's name or alias; and an acceptance needs the decision still live (not
-/// superseded). A deployment that must know who decided enforces it in its `MergeGuard`, which
-/// is asked next, as for any review.
+/// The daemon's rules for a review of a `promote`, by another agent or a person. Community has
+/// one shared token and no identities, so these hold the names it is given, not who sent them:
+/// the reviewer is not, in any case, the verdict's author or the agent of the run that proposed
+/// it; and an acceptance needs the decision still live (not superseded). A deployment that must
+/// know who decided enforces it in its `MergeGuard`, which is asked next, as for any review.
 async fn promote_review(
     st: &AppState,
     v: &VerdictRow,
@@ -830,18 +830,11 @@ async fn promote_review(
         Some(run) => Some(st.pg.get_dream(run).await?.agent),
         None => None,
     };
-    let why = if same(&v.author_agent) || run_agent.as_deref().is_some_and(same) {
-        Some("the agent that proposed it")
-    } else if st.pg.agent_profile_named(reviewer).await? {
-        Some("a registered agent's (its profile's name or an alias)")
-    } else {
-        None
-    };
-    if let Some(why) = why {
+    if same(&v.author_agent) || run_agent.as_deref().is_some_and(same) {
         return Err(AvError::IllegalState(format!(
-            "{reviewer:?} is the name of {why}; a promote is reviewed by a person: review it \
-             under your own name, with `av --agent NAME verdict accept` or AV_AGENT=NAME (with \
-             neither, `av verdict accept` reviews as `user`)"
+            "{reviewer:?} is the name of the agent that proposed it; another agent or a person \
+             reviews a promote: review it under another name, with `av --agent NAME verdict \
+             accept` or AV_AGENT=NAME (with neither, `av verdict accept` reviews as `user`)"
         )));
     }
     if agree && rec.superseded_by.is_some() {

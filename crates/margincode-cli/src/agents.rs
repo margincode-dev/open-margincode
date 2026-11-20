@@ -3,8 +3,8 @@
 //! same SessionStart and Stop hooks in `~/.grok/hooks/av.json` unless that settings file already
 //! loads them (Grok runs both). Codex, Gemini CLI and Cursor Agent get the MCP server only, and
 //! their agent calls `start_task` and `context` itself (or runs under
-//! `integrations/generic/av-wrap.sh`). Antigravity gets the MCP server without headers (its config
-//! has none). `mcp-json` merges the same server into any JSON file that
+//! `integrations/generic/av-wrap.sh`); so does Antigravity, whose file holds the token itself
+//! when there is one. `mcp-json` merges the same server into any JSON file that
 //! has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file, keeps
 //! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
 
@@ -29,7 +29,7 @@ pub enum Agent {
     Gemini,
     /// Cursor Agent CLI (`cursor-agent`): MCP in ~/.cursor/mcp.json, shared with the Cursor editor.
     Cursor,
-    /// Google Antigravity CLI (`agy`): MCP in ~/.gemini/config/mcp_config.json, no headers.
+    /// Google Antigravity CLI (`agy`): MCP in ~/.gemini/config/mcp_config.json.
     Antigravity,
     /// Any client that reads `mcpServers` JSON. The file is `--path`, not a home path.
     McpJson,
@@ -125,11 +125,28 @@ pub fn install_cursor(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     put_mcp_server(path, server)
 }
 
-/// Antigravity: `mcpServers.av.url` (streamable HTTP). Its `mcp_servers.md` gives an HTTP server
-/// `url` and nothing else, so the file can neither name it (the daemon takes `clientInfo.name`)
-/// nor carry `AV_TOKEN`.
-pub fn install_antigravity(path: &Path, mcp_url: &str) -> Result<()> {
-    put_mcp_server(path, json!({ "url": mcp_url }))
+/// Antigravity: `mcpServers.av.url` (streamable HTTP) with `headers` (`agy mcp add --header`, its
+/// `migrate-agent-settings` skill). Its docs give no environment-variable expansion there, so the
+/// token is the literal, as `claude mcp add --header` writes it, and the file is then owner-only.
+pub fn install_antigravity(path: &Path, mcp_url: &str, token: Option<&str>) -> Result<()> {
+    let mut server = json!({ "url": mcp_url, "headers": { "X-Av-Agent": "antigravity" } });
+    if let Some(t) = token {
+        server["headers"]["Authorization"] = json!(format!("Bearer {t}"));
+    }
+    put_mcp_server(path, server)?;
+    #[cfg(unix)]
+    if token.is_some() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut bak = path.as_os_str().to_owned();
+        bak.push(".bak");
+        for p in [path.to_path_buf(), PathBuf::from(bak)] {
+            if p.exists() {
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600))
+                    .map_err(|e| local(format!("cannot restrict {}: {e}", p.display())))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Any `mcpServers` JSON file: `mcpServers.av` is `{type: http, url, headers: {X-Av-Agent}}`.
@@ -392,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn antigravity_gets_the_url_alone_and_keeps_the_rest() {
+    fn antigravity_names_itself_in_a_header_and_keeps_the_rest() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mcp_config.json");
         std::fs::write(
@@ -400,11 +417,46 @@ mod tests {
             r#"{"mcpServers":{"other":{"command":"x"},"av":{"serverUrl":"http://old/mcp"}}}"#,
         )
         .unwrap();
-        install_antigravity(&path, URL).unwrap();
+        install_antigravity(&path, URL, None).unwrap();
         let v: Value = serde_json::from_str(&read(&path)).unwrap();
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
-        assert_eq!(v["mcpServers"]["av"], json!({ "url": URL }));
+        assert_eq!(
+            v["mcpServers"]["av"],
+            json!({ "url": URL, "headers": { "X-Av-Agent": "antigravity" } })
+        );
         assert!(dir.path().join("mcp_config.json.bak").exists());
+    }
+
+    /// Antigravity's docs give no environment-variable expansion for this file, so the token is
+    /// the literal, as `claude mcp add --header` writes it for Claude Code.
+    #[test]
+    fn antigravity_writes_the_token_itself_only_when_there_is_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp_config.json");
+        install_antigravity(&path, URL, Some("t0k3n")).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(
+            v["mcpServers"]["av"]["headers"],
+            json!({ "X-Av-Agent": "antigravity", "Authorization": "Bearer t0k3n" })
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // as if something else had rewritten it: the `.bak` copies this mode
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            install_antigravity(&path, URL, Some("t0k3n")).unwrap();
+            for p in [path.clone(), dir.path().join("mcp_config.json.bak")] {
+                let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o600, "{}", p.display());
+            }
+        }
+        install_antigravity(&path, URL, None).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert!(
+            v["mcpServers"]["av"]["headers"]
+                .get("Authorization")
+                .is_none()
+        );
     }
 
     #[test]
@@ -479,7 +531,7 @@ mod tests {
         std::fs::write(&json, "{ nope").unwrap();
         assert!(install_gemini(&json, URL, false).is_err());
         assert!(install_cursor(&json, URL, false).is_err());
-        assert!(install_antigravity(&json, URL).is_err());
+        assert!(install_antigravity(&json, URL, None).is_err());
         assert!(install_mcp_json(&json, URL, "muse", false).is_err());
         assert_eq!(read(&json), "{ nope");
     }

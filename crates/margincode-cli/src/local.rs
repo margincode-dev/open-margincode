@@ -363,7 +363,7 @@ pub fn init(
             }
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
-            Agent::Antigravity => agents::install_antigravity(&path, &mcp_url)?,
+            Agent::Antigravity => agents::install_antigravity(&path, &mcp_url, token)?,
             Agent::McpJson => {
                 agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
             }
@@ -372,8 +372,7 @@ pub fn init(
             let note = match (agent, token.is_some()) {
                 (_, false) => "",
                 (Agent::Antigravity, true) => {
-                    " (warning: its config has no headers, so it cannot send AV_TOKEN and the \
-                     daemon will refuse it)"
+                    " (the token is written into the file: run `av init` again when it changes)"
                 }
                 (_, true) => " (reads the token from AV_TOKEN when it starts)",
             };

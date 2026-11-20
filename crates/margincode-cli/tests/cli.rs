@@ -3944,11 +3944,11 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
             }
             (url, headers)
         }
-        "gemini" | "cursor" => {
-            let file = if agent == "gemini" {
-                ".gemini/settings.json"
-            } else {
-                ".cursor/mcp.json"
+        "gemini" | "cursor" | "antigravity" => {
+            let file = match agent {
+                "gemini" => ".gemini/settings.json",
+                "cursor" => ".cursor/mcp.json",
+                _ => ".gemini/config/mcp_config.json",
             };
             let v: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(home.join(file)).unwrap()).unwrap();
@@ -3957,7 +3957,16 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
                 .as_object()
                 .map(|h| {
                     h.iter()
-                        .map(|(k, v)| (k.clone(), expand(v.as_str().unwrap())))
+                        .map(|(k, v)| {
+                            let v = v.as_str().unwrap();
+                            // Antigravity's docs give no expansion in this file
+                            let v = if agent == "antigravity" {
+                                v.to_owned()
+                            } else {
+                                expand(v)
+                            };
+                            (k.clone(), v)
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -4019,16 +4028,28 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         ("CODEX_HOME", ""),
         ("AV_TOKEN", "sekrit"),
     ];
-    ok(av_env(
+    let out = ok(av_env(
         &d.url,
         &d.src,
         &env,
         &[
-            "init", "--name", "demo", "--for", "codex", "--for", "grok", "--for", "gemini",
-            "--for", "cursor",
+            "init",
+            "--name",
+            "demo",
+            "--for",
+            "codex",
+            "--for",
+            "grok",
+            "--for",
+            "gemini",
+            "--for",
+            "cursor",
+            "--for",
+            "antigravity",
         ],
     ));
-    for agent in ["codex", "grok", "gemini", "cursor"] {
+    assert!(!out.contains("sekrit"), "{out}");
+    for agent in ["codex", "grok", "gemini", "cursor", "antigravity"] {
         let (url, headers) = mcp_endpoint(agent, home.path(), "sekrit");
         assert_eq!(url, format!("{}/mcp", d.url), "{agent}");
         // without the header the daemon refuses: the config, not luck, carries the token
@@ -4046,7 +4067,7 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         };
         // the name each CLI gives itself, which is not the agent's name: the config's
         // `X-Av-Agent` header must win (Codex's checked against Codex CLI 0.166.0 on 2026-11-04,
-        // Grok's against Grok Build 1.0.70; Gemini's and Cursor's are stand-ins)
+        // Grok's against Grok Build 1.0.70; Gemini's, Cursor's and Antigravity's are stand-ins)
         let client = match agent {
             "codex" => "codex-mcp-client",
             "grok" => "grok-shell-av",
@@ -4092,10 +4113,10 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
     }
 }
 
-/// Antigravity ships its MCP config as a 0-byte file and reads no headers from it, so the daemon
-/// names it by its `clientInfo.name` (a stand-in here: Antigravity's own was not seen).
+/// Antigravity ships its MCP config as a 0-byte file; the `X-Av-Agent` header in it names the
+/// session over its `clientInfo.name` (a stand-in here: Antigravity's own was not seen).
 #[test]
-fn antigravity_is_wired_into_its_empty_config_and_named_by_its_client() {
+fn antigravity_is_wired_into_its_empty_config_and_named_by_its_header() {
     let d = start_daemon();
     let home = TempDir::new().unwrap();
     let config = home.path().join(".gemini/config/mcp_config.json");
@@ -4109,13 +4130,15 @@ fn antigravity_is_wired_into_its_empty_config_and_named_by_its_client() {
         &["init", "--name", "demo", "--for", "antigravity"],
     ));
     assert!(out.contains("Antigravity MCP server `av`"), "{out}");
-    let v: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
-    let url = format!("{}/mcp", d.url);
-    assert_eq!(v["mcpServers"]["av"], serde_json::json!({ "url": url }));
+    let (url, headers) = mcp_endpoint("antigravity", home.path(), "");
+    assert_eq!(url, format!("{}/mcp", d.url));
+    assert_eq!(
+        headers,
+        vec![("X-Av-Agent".to_owned(), "antigravity".to_owned())]
+    );
     let mut c = McpClient {
         url,
-        headers: vec![],
+        headers,
         session: None,
     };
     c.send(
@@ -4130,7 +4153,7 @@ fn antigravity_is_wired_into_its_empty_config_and_named_by_its_client() {
     );
     let status = c.tool("status", serde_json::json!({}));
     assert!(
-        status.contains("\"owner_agent\": \"some-mcp-client\""),
+        status.contains("\"owner_agent\": \"antigravity\""),
         "{status}"
     );
 
@@ -4145,12 +4168,10 @@ fn antigravity_is_wired_into_its_empty_config_and_named_by_its_client() {
         &["init", "--name", "demo", "--for", "antigravity"],
     ));
     assert!(
-        out.contains(
-            "(warning: its config has no headers, so it cannot send AV_TOKEN and the daemon \
-             will refuse it)"
-        ),
+        out.contains("(the token is written into the file: run `av init` again when it changes)"),
         "{out}"
     );
+    assert!(!out.contains("sekrit"), "{out}");
 }
 
 fn daemon_with_repo() -> (Daemon, TempDir) {

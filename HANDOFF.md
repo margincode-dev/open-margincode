@@ -78,15 +78,14 @@ Next:
    0.192 to 0.512), so Phase 0 helps on both models; no `cold`, `notes` or guard ran on Sonnet.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
 5. **Antigravity (`agy`) as one more agent** (the owner, 2026-11-19). Landed: `av init --for
-   antigravity` writes `mcpServers.av` (`url` only) into `~/.gemini/config/mcp_config.json`, an
-   empty or blank JSON config is read as `{}` for every agent, and
-   `integrations/antigravity/README.md`, all from the docs shipped with the CLI, `agy` never run.
-   Its docs give an HTTP server no headers, so the daemon names it by `clientInfo.name` (not seen
-   yet; route it with `av agent set … --alias`) and it cannot send `AV_TOKEN`. Left: its hooks,
-   which need an Antigravity output form in `av hook` (`docs/backlog.md`, "Antigravity's hooks
-   need their own output"); naming it by a query parameter on `/mcp`, which the
-   daemon does not read today; a first real run to read its client name and check the file is
-   read; the Commercial edition's runner adapter (margincode-cloud).
+   antigravity` writes `mcpServers.av` (`url`, and `headers` with `X-Av-Agent: antigravity` and,
+   with `AV_TOKEN`, the literal bearer token; 2026-11-20, after `agy mcp add --help` showed
+   `--header`) into `~/.gemini/config/mcp_config.json`, an empty or blank JSON config is read as
+   `{}` for every agent, and `integrations/antigravity/README.md`, all from agy's help and the docs
+   shipped with the CLI, `agy` never run on a task. Left: its hooks, which need an Antigravity
+   output form in `av hook` (`docs/backlog.md`, "Antigravity's hooks need their own output"); a
+   first real run to check the file and its headers are read; the Commercial edition's runner
+   adapter (margincode-cloud).
 6. **Plan 16 (hivemind).** Phases 0 to 2 are on `main`. Phase 4 (pages) waits on its gate, as
    above. Phase 5 (transcripts) is a position, not a build. The plan and its status live in
    margincode-cloud (`docs/superpowers/plans/2026-11-12-agentvcs-plan-16-hivemind-memory.md`).

@@ -8,7 +8,10 @@ and the previous version as `*.bak`:
 {
   "mcpServers": {
     "av": {
-      "url": "http://127.0.0.1:7420/mcp"
+      "url": "http://127.0.0.1:7420/mcp",
+      "headers": {
+        "X-Av-Agent": "antigravity"
+      }
     }
   }
 }
@@ -17,20 +20,24 @@ and the previous version as `*.bak`:
 MCP over streamable HTTP (`url`). Antigravity ships that file empty (0 bytes); `av init` reads an
 empty or blank file as `{}`, as it does for every agent's config.
 
-**No headers.** Antigravity's docs (`mcp_servers.md`) give an HTTP server `url` (or the legacy
-`serverUrl`) and nothing else: no `headers` and no `${VAR}` expansion. So the file cannot do two
-things the other agents' files do:
+**Headers.** `X-Av-Agent: antigravity` names the MCP session, so work routes to the agent profile
+`antigravity` whatever `clientInfo.name` Antigravity sends. With `AV_TOKEN` set, `av init` also
+writes `"Authorization": "Bearer <the token>"`: the token itself, not `${AV_TOKEN}`, because
+Antigravity's docs give no environment-variable expansion for this file (for a plugin's MCP
+config they say a `${X}` is substituted only when the plugin declares `X` in `variables`, and is
+otherwise sent as it stands). That is what
+Claude Code gets too (`claude mcp add --header`, written into `~/.claude.json`). On Linux and
+macOS `av init` then makes the file and its `*.bak` readable by you alone. When the token changes,
+run `av init --for antigravity` again.
 
-- **Name it.** Without an `X-Av-Agent` header the daemon names the MCP session by the
-  `clientInfo.name` Antigravity sends in `initialize`, which has not been seen here. To route work
-  to it, read that name once from its first task (its owner on the dashboard, or `owner_agent` in
-  the answer of the `status` tool), then give it a profile under the name you want:
-  `av agent set antigravity --best … --can … --cost N --alias <that name>`.
-- **Carry the token.** With `AV_TOKEN` set, the daemon refuses every request without
-  `Authorization: Bearer …`, and Antigravity cannot send one; `av init` says so. Use it with a
-  daemon without a token (the default, listening on `127.0.0.1`).
-
-The daemon reads no query parameter on `/mcp` either, so `url` cannot name it today.
+Where this comes from: `agy mcp add --help` (1.5.13) offers `--header "Key: Value"` (repeatable),
+with the example `--header "Authorization: Bearer TOKEN"`, and the `migrate-agent-settings` skill
+shipped with the CLI lists `headers` (a name-to-value map) among an MCP server's keys, together
+with the rule on `${X}` above. The `mcp_servers.md` shipped with it shows only `url` (or the
+legacy `serverUrl`). Not yet seen with a real `agy`: that it sends these headers from
+`~/.gemini/config/mcp_config.json` (the skill describes a plugin's `mcp_config.json`), whether it
+expands `${X}` there, whether `agy mcp add` writes that same file (and with what mode), and the
+`clientInfo.name` it sends.
 
 Put the instructions from [`../agents-instructions.md`](../agents-instructions.md) into the
 repository's `AGENTS.md` (or `GEMINI.md`). Antigravity loads those files from the working
@@ -71,13 +78,15 @@ get the start pack as a file before the agent starts and a checkpoint after it e
 
 ## Verified
 
-Not run: `agy` was never started here (it spends the owner's Google quota). Everything above is
-from the docs shipped with the Antigravity CLI (`builtin/skills/agy-customizations/docs/`:
-`mcp_servers.md`, `hooks.md`, `rules.md`, `json_configs.md`) in the install of 2026-11-19, whose
-language server logged version 1.5.13; the 0-byte `mcp_config.json` is that install's.
+Not run: `agy` was never started on a task here (it spends the owner's Google quota); only
+`agy --version`, `agy mcp --help` and `agy mcp add --help` were. Everything above is from that
+help and the docs shipped with the Antigravity CLI (`builtin/skills/agy-customizations/docs/`:
+`mcp_servers.md`, `hooks.md`, `rules.md`, `json_configs.md`; `builtin/skills/migrate-agent-settings/SKILL.md`)
+in the install of 2026-11-19, version 1.5.13; the 0-byte `mcp_config.json` is that install's.
 
 The writer and its tests are in `crates/margincode-cli/src/agents.rs`. The CLI test
-`antigravity_is_wired_into_its_empty_config_and_named_by_its_client`
+`antigravity_is_wired_into_its_empty_config_and_named_by_its_header`
 (`crates/margincode-cli/tests/cli.rs`) runs `av init --for antigravity` on an empty file, reads
-the URL from it as Antigravity does, and starts a task over MCP under a stand-in client name,
-which becomes the task's owner.
+the URL and headers from it, and starts a task over MCP under a stand-in client name; the task's
+owner is `antigravity`, from the header. `agents_wired_by_init_can_start_record_checkpoint_and_submit`
+does the same against a daemon with a token.

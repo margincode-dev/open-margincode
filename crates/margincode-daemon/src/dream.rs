@@ -153,8 +153,11 @@ async fn worklist(
         let rec = &c.record;
         let facts = origins.get(&rec.id);
         let origin = facts.map(|f| standing(f, rec.kind, rec.created_at).origin);
-        let failed = origin == Some(Origin::Reverted)
-            || (origin == Some(Origin::Abandoned) && rec.kind == RecordKind::Decision);
+        // an agreed verdict has judged the failure of the record's origin
+        let judged = facts.is_some_and(|f| f.verdict.is_some());
+        let failed = !judged
+            && (origin == Some(Origin::Reverted)
+                || (origin == Some(Origin::Abandoned) && rec.kind == RecordKind::Decision));
         let now = st
             .packer
             .anchor_hashes_on_main(repo, trunk, &rec.anchors)

@@ -212,8 +212,9 @@ of them no run gave a verdict (`handed`, `undecided`: the agent left them out be
 not tell; read from the runs' `bundle.json`; the plan's undecided share is their ratio).
 `--rounds N` makes the review run and then the verify run
 N times (default 1, stage B's one verified pass). Rounds do not promise every record a look: a
-judged record stays on the worklist (it loses only the point for never having had a verdict), so
-wrong notes from reverted work, at +3, take a place in every round. Stage A's pass is therefore
+judged record stays on the worklist, losing the point for never having had a verdict and, once a
+verdict on it is effective, the 3 for reverted work, so wrong notes from reverted work whose
+verdict was rejected, at +3, still take a place in every round. Stage A's pass is therefore
 `--until-empty`: review runs back to back, with no verify run between them, so that each is
 handed records no run has judged yet (a record with a proposed verdict is on no review run's
 list), until one finds the worklist empty or is handed nothing an earlier run was not (only

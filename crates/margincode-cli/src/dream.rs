@@ -54,8 +54,9 @@ It goes in `verdicts.json` with the others:
  "evidence": [{"record": "rec:1a2b3c4d", "quote": "we never log request bodies"}]}
 ```
 
-A convention is shown to every agent working on those paths and is never dropped, so a person
-decides whether it becomes one; promote only a decision you checked holds.
+A convention is shown to every agent working on those paths and is never dropped, so another
+agent or a person decides whether it becomes one, never this run; promote only a decision you
+checked holds.
 "#;
 
 /// What the agent reads as `DREAM.md`: `INSTRUCTIONS` as it is, unless the run asked for more.
@@ -626,8 +627,8 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
         );
         if done["dream"]["counts"]["promote"].as_u64().unwrap_or(0) > 0 {
             println!(
-                "a promote becomes a convention only when a person accepts it: \
-                 `av verdict accept vd:…`"
+                "a promote becomes a convention only when another agent or a person accepts \
+                 it: `av verdict accept vd:…`"
             );
         }
         if proposed > 0 {
@@ -658,9 +659,9 @@ pub fn verdict_line(v: &Value) -> String {
     if let Some(c) = v["convention"].as_object() {
         let field = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default();
         let decided = match s("state") {
-            "proposed" => "waits for a person",
-            "effective" => "a person accepted it",
-            "rejected" => "a person rejected it",
+            "proposed" => "waits for a review",
+            "effective" => "accepted",
+            "rejected" => "rejected",
             _ => "taken back",
         };
         line.push_str(&format!(

@@ -6503,7 +6503,7 @@ fn dream_every_goes_on_after_a_failed_run() {
 }
 
 #[test]
-fn a_promoted_decision_is_listed_as_waiting_for_a_person_and_becomes_a_convention() {
+fn a_promoted_decision_is_listed_as_waiting_for_a_review_and_becomes_a_convention() {
     let (d, home) = decision_recorded();
     let home = home.path();
     let promoter = r#"
@@ -6569,7 +6569,7 @@ printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings 
         .unwrap_or_else(|| panic!("{listed}"));
     assert!(
         line.contains("convention for app/**: greetings never shout")
-            && line.contains("waits for a person"),
+            && line.contains("(waits for a review)"),
         "{line}"
     );
     let (id, _) = run_dir(home, |_| true);
@@ -6578,7 +6578,7 @@ printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings 
         shown.contains("convention for app/**: greetings never shout"),
         "{shown}"
     );
-    // a verify run is handed nothing: a promote is a person's
+    // a verify run is handed nothing: a promote is reviewed by name
     let got = ok(av_home(
         &d,
         home,
@@ -6589,8 +6589,7 @@ printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings 
 
     let line = ok(av_home(&d, home, "vinh", &["verdict", "accept", &vd]));
     assert!(
-        line.contains(&format!("{vd}  effective  promote"))
-            && line.contains("a person accepted it"),
+        line.contains(&format!("{vd}  effective  promote")) && line.contains("(accepted)"),
         "{line}"
     );
     let conv = ok(av_home(
@@ -6653,7 +6652,7 @@ printf '{"verdicts": [{"record": "%s", "verdict": "promote", "text": "greetings 
     ));
     let vd = word_after(&got, "vd:").to_owned();
     let line = ok(av_unnamed(&d, home, &["verdict", "accept", &vd]));
-    assert!(line.contains("a person accepted it"), "{line}");
+    assert!(line.contains("(accepted)"), "{line}");
 }
 
 /// Whether `pid` is a live process (a zombie, killed and waiting for its parent, is not).

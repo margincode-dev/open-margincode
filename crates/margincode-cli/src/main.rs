@@ -517,8 +517,8 @@ enum Cmd {
     },
     /// A second look at records: start an agent that checks the records the daemon chose
     /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated, or
-    /// promote: a decision as a convention, which only a person accepts), each with quotes the
-    /// daemon checks word for word. Nothing changes in packs until a second
+    /// promote: a decision as a convention, which another agent or a person accepts), each with
+    /// quotes the daemon checks word for word. Nothing changes in packs until a second
     /// look agrees: `av dream --verify -- <agent command>`, or `av verdict accept`. E.g.
     /// `av dream --repo demo -- claude -p "Read DREAM.md and do what it says"`.
     #[command(args_conflicts_with_subcommands = true)]
@@ -548,7 +548,8 @@ enum Cmd {
         #[arg(long, env = "AV_MAX_AGENTS", value_parser = clap::value_parser!(u32).range(1..))]
         max_agents: Option<u32>,
         /// Tell the agent it may also propose `promote` verdicts: a decision as a repository
-        /// convention, which only a person accepts (`av verdict accept`). Review runs only.
+        /// convention, which another agent or a person accepts (`av verdict accept`), never the
+        /// run that proposed it. Review runs only.
         #[arg(long, conflicts_with = "verify")]
         promote: bool,
         /// Appends `--max-budget-usd X` to the agent command, for a CLI that takes that flag
@@ -568,7 +569,7 @@ enum Cmd {
         #[arg(last = true)]
         cmd: Vec<String>,
     },
-    /// Verdicts on records: what dreams proposed, and a person's second look.
+    /// Verdicts on records: what dreams proposed, and the second look by name.
     Verdict {
         #[command(subcommand)]
         cmd: VerdictCmd,

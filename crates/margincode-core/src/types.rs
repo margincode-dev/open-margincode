@@ -282,8 +282,8 @@ pub struct Convention {
     /// `av validate` runs it; approval needs it to pass at the head.
     #[serde(default)]
     pub check_command: Option<String>,
-    /// Where it came from: empty when a person wrote it, `vd:<verdict id>` for a decision a
-    /// person promoted (a `promote` verdict, whose retraction removes it).
+    /// Where it came from: empty when written by hand, `vd:<verdict id>` for a decision an
+    /// accepted `promote` verdict promoted (its retraction removes it).
     #[serde(default)]
     pub source: String,
 }

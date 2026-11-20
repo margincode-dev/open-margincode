@@ -863,8 +863,8 @@ under the run's lease) or writes no file ends the run as failed: nothing of that
 posted, `av dream` exits non-zero, and the area is free for the next run. `--area P` and
 `--limit N` are the route's; `--max-agents N` (or `AV_MAX_AGENTS`) waits for one of the host's
 agent slots, the ones `av watch` uses, so a dream never runs beside more agents than the host
-has room for. `av verdict accept|reject` is a person's second look; the reviewer is `--agent`
-when one is named, else `user`.
+has room for. `av verdict accept|reject` is a second look by name, a person's or an agent's; the
+reviewer is `--agent` when one is named, else `user`.
 
 - `--budget-usd X` appends `--max-budget-usd X` (two decimals) to the agent command, after
   everything you gave, in every round. It is for a CLI that takes that flag (Claude Code
@@ -949,7 +949,7 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
 | `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
 | `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
 | `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
-| `promote` | a live `decision` with no other promote waiting or accepted, the convention's `text` (not empty, at most 400 characters) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only an acceptance under a name no agent uses gives it effect (see below): a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
+| `promote` | a live `decision` with no other promote waiting or accepted, the convention's `text` (not empty, at most 400 characters) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only an acceptance by another name than its proposer's gives it effect (see below): a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
 
 A `promote` proposes a repository convention from a decision that states a rule for a set of
 paths. The agent is told about it only when the run asks: `av dream --promote` (review runs
@@ -957,17 +957,18 @@ only; refused with `--verify`) appends a section on `promote` to that run's `DRE
 run's `instructions_sha` is the hash of that copy. Without `--promote` (and `--also-read`) a run
 gets `DREAM.md` byte for byte as before. The daemon takes a `promote` from any review run.
 
-Conventions are the one layer of a pack that is never dropped, so an agent's agreement is not
-enough. A verify run is never handed a `promote`, and a review of one that names a `dream` is
-refused (`422`), with nothing written. A review without `dream` is refused too when its
-`reviewer` is, in any letter case, the verdict's author, the agent of the run that proposed it,
-or a registered agent profile's name or alias; the refusal says to review under your own name
-(`av --agent NAME verdict accept`, or `AV_AGENT`; with neither, `av verdict accept` reviews as
-`user`, while `av dream` runs as `agent`, so the defaults never collide). An acceptance is
-refused once the decision is superseded. Community has one shared token and no identities, so these are
+Conventions are the one layer of a pack that is never dropped, so a promote is reviewed by
+name, by another agent or a person, never by the run that proposed it. A verify run is never
+handed a `promote`, and a review of one that names a `dream` is refused (`422`), with nothing
+written. A review without `dream` is refused too when its `reviewer` is, in any letter case,
+the verdict's author or the agent of the run that proposed it; the refusal says to review under
+another name (`av --agent NAME verdict accept`, or `AV_AGENT`; with neither, `av verdict accept`
+reviews as `user`, while `av dream` runs as `agent`, so the defaults never collide). Any other
+name may accept or reject it, a registered agent profile's included. An acceptance is refused
+once the decision is superseded. Community has one shared token and no identities, so these are
 rules about the names a request carries, not authentication: whoever holds the token can send
-any name. A deployment that must know a person decided enforces it in its `MergeGuard`, which
-is asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is written; the
+any name. A deployment that must know who decided enforces it in its `MergeGuard`, which is
+asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is written; the
 Commercial edition's guard is that place. `av verdict accept vd:…` writes the convention;
 `av verdict reject` writes none. Two reviews at once leave one: the second answers `409`.
 
@@ -981,8 +982,8 @@ the decision may be promoted again. A decision superseded after its promote was 
 its convention: the convention is the person's choice, not the record's, so it stays live until
 someone takes it out, with `av verdict retract vd:…` (which also marks the verdict) or
 `av convention rm conv:…`. `av verdict
-list`, `show` and `av dream show` print a promote's glob and text and whether a person has
-accepted it; `av convention list` ends a promoted one with `(from vd:…)`.
+list`, `show` and `av dream show` print a promote's glob and text and whether it was
+accepted; `av convention list` ends a promoted one with `(from vd:…)`.
 
 - **The second look.** `POST /v1/verdicts/{id}/review` `{reviewer, agree, dream?, evidence?}`
   (`id`: the full id or `vd:…`). From a `verify` run (`dream`), the verdict must be on that run's

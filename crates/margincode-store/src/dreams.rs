@@ -80,7 +80,7 @@ pub struct VerdictRow {
     pub convention: Option<Promoted>,
 }
 
-/// The convention a `promote` verdict proposes; a person's acceptance writes it.
+/// The convention a `promote` verdict proposes; an accepting review writes it.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Promoted {
     pub text: String,
@@ -292,7 +292,7 @@ impl PgStore {
     }
 
     /// Writes a verdict. A `retracted` row also removes the convention the verdict it names
-    /// wrote (a `promote` a person accepted), in the same transaction; no other convention.
+    /// wrote (an accepted `promote`), in the same transaction; no other convention.
     ///
     /// A run's proposal (`dream` set, not a retraction) first locks its record's row, then
     /// holds to two rules read after the lock, so a second proposal at once waits and sees the
@@ -473,7 +473,7 @@ impl PgStore {
     }
 
     /// The proposed verdicts of `repo` a verify run may be handed, newest first, at most
-    /// `limit`: every kind but `promote`, which only a person reviews.
+    /// `limit`: every kind but `promote`, which is reviewed by name, never by a run.
     pub async fn proposed_for_verify(&self, repo: &str, limit: i64) -> Result<Vec<VerdictRow>> {
         let rows = sqlx::query(&format!(
             "SELECT * FROM (
@@ -490,19 +490,6 @@ impl PgStore {
         .await
         .map_err(serr)?;
         rows.iter().map(verdict_from).collect()
-    }
-
-    /// Whether `name`, in any case, is a registered agent profile's name or alias.
-    pub async fn agent_profile_named(&self, name: &str) -> Result<bool> {
-        sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM agent_profiles
-                             WHERE lower(name) = lower($1)
-                                OR lower($1) IN (SELECT lower(a) FROM unnest(aliases) a))",
-        )
-        .bind(name)
-        .fetch_one(self.pool())
-        .await
-        .map_err(serr)
     }
 
     /// A verdict's reviews, oldest first (the newest decides its state).
@@ -533,7 +520,8 @@ impl PgStore {
     /// READ COMMITTED sees what a review or retraction that held the lock committed; so two
     /// reviews at once leave one, and a review after a retraction is refused.
     /// An agreeing review of a `promote` also writes its convention (`source` names the
-    /// verdict) in the same transaction; the daemon allows that review only from a person.
+    /// verdict) in the same transaction; the daemon allows that review only without a run and
+    /// never from the agent that proposed it.
     pub async fn add_verdict_review(
         &self,
         verdict: Uuid,

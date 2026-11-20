@@ -44,8 +44,12 @@ the suspected cause, marked as a guess; the status.
   the same commit passed.
 - **Guess.** A race in Cloudflare's own setup between the integration's preview and the build
   step's.
-- **Status.** Open, seen once. When it shows again, start a new build from the trigger rather than
-  merging on a red check.
+- **Seen again.** #84 (branch `av/antigravity-init`), 2026-11-20: the same error, code 100338,
+  ("A preview with name 'av/antigravity-init' already exists"), 40 s after the build started; a
+  new build of the same commit from the branch's trigger passed and the PR was merged after it.
+  The previews of #78 and #80 to #83 passed on their first build.
+- **Status.** Open, seen twice. When it shows, start a new build from the trigger
+  rather than merging on a red check.
 
 ## 2026-11-19: reclaim retried every tick on a workspace it could not delete
 

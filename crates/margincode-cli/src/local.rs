@@ -363,21 +363,25 @@ pub fn init(
             }
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
+            Agent::Antigravity => agents::install_antigravity(&path, &mcp_url)?,
             Agent::McpJson => {
                 agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
             }
         }
         if agent != Agent::Claude {
+            let note = match (agent, token.is_some()) {
+                (_, false) => "",
+                (Agent::Antigravity, true) => {
+                    " (warning: its config has no headers, so it cannot send AV_TOKEN and the \
+                     daemon will refuse it)"
+                }
+                (_, true) => " (reads the token from AV_TOKEN when it starts)",
+            };
             println!(
-                "{} MCP server `{}`: {}{}",
+                "{} MCP server `{}`: {}{note}",
                 agent.name(),
                 agents::SERVER,
                 path.display(),
-                if token.is_some() {
-                    " (reads the token from AV_TOKEN when it starts)"
-                } else {
-                    ""
-                }
             );
         }
     }
@@ -387,7 +391,7 @@ pub fn init(
          \n\
          Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
          av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \
-         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent)\n\
+         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent, agy)\n\
          Dashboard: {}/ui",
         url.trim_end_matches('/')
     );
@@ -433,21 +437,7 @@ fn stop_hook() -> Value {
 
 /// Replaces earlier Margincode hooks; the previous file is kept as `settings.json.bak`.
 pub fn install_claude_hooks(path: &Path) -> Result<()> {
-    let mut settings: Value = match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
-            local(format!(
-                "{} is not valid JSON ({e}); nothing changed",
-                path.display()
-            ))
-        })?,
-        Err(_) => json!({}),
-    };
-    if !settings.is_object() {
-        return Err(local(format!(
-            "{} is not a JSON object; nothing changed",
-            path.display()
-        )));
-    }
+    let mut settings = agents::read_json_object(path)?;
     let add = [
         ("SessionStart", json!({ "hooks": [hook("session-start")] })),
         (
@@ -546,21 +536,7 @@ pub fn install_grok_hooks(home_dir: &Path, claude_in_this_run: bool) -> Result<b
 }
 
 fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
-    let mut settings: Value = match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
-            local(format!(
-                "{} is not valid JSON ({e}); nothing changed",
-                path.display()
-            ))
-        })?,
-        Err(_) => json!({}),
-    };
-    if !settings.is_object() {
-        return Err(local(format!(
-            "{} is not a JSON object; nothing changed",
-            path.display()
-        )));
-    }
+    let mut settings = agents::read_json_object(path)?;
     let hooks = settings
         .as_object_mut()
         .expect("checked above")
@@ -786,6 +762,24 @@ mod tests {
         std::fs::write(&path, "{ not json").unwrap();
         assert!(install_claude_hooks(&path).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    #[test]
+    fn empty_hook_files_are_read_as_empty_objects() {
+        let claude = tempfile::tempdir().unwrap();
+        let settings = claude.path().join(".claude/settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, "").unwrap();
+        install_claude_hooks(&settings).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+        assert!(v["hooks"]["SessionStart"].is_array(), "{v}");
+
+        let grok = tempfile::tempdir().unwrap();
+        let hooks = grok.path().join(".grok/hooks/av.json");
+        std::fs::create_dir_all(hooks.parent().unwrap()).unwrap();
+        std::fs::write(&hooks, " \n").unwrap();
+        assert!(install_grok_hooks(grok.path(), false).unwrap());
+        assert!(grok_hooks(grok.path())["hooks"]["Stop"].is_array());
     }
 
     fn grok_hooks(home: &Path) -> Value {

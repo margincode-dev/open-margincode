@@ -38,7 +38,7 @@ hands it to whichever agent comes next.
 
 ## Why it exists
 
-Many developers now pay for more than one agent subscription, such as Claude Code, Codex, Gemini, Grok or Cursor, because each model is better at something different. Today those agents cannot share what they learned about your code, so every handoff between them is a diff with no reasoning, and each one starts from zero and repeats the dead ends of the others. Margincode gives all your subscriptions one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
+Many developers now pay for more than one agent subscription, such as Claude Code, Codex, Gemini, Grok, Cursor or Antigravity, because each model is better at something different. Today those agents cannot share what they learned about your code, so every handoff between them is a diff with no reasoning, and each one starts from zero and repeats the dead ends of the others. Margincode gives all your subscriptions one repository, one backlog and one shared memory, so the next agent, from any vendor, starts where the last one stopped.
 
 ## What you get
 
@@ -46,7 +46,7 @@ Many developers now pay for more than one agent subscription, such as Claude Cod
   they touched. When any agent opens that file later, the note comes with it.
 - **A brief instead of a re-read.** Every agent starts from a small brief, sized to a token
   budget: the goal, the history that matters, and the code to look at.
-- **One backlog for all your agents.** Claude Code, Codex, Gemini, Cursor and Grok share it. Each
+- **One backlog for all your agents.** Claude Code, Codex, Gemini, Cursor, Grok and Antigravity share it. Each
   takes the work it's best at, another agent reviews it, and the reviewer merges.
 - **A dashboard** at `http://localhost:7420/ui` to watch them work.
 - **A disk that stays lean.** Workspaces of merged and abandoned tasks are removed after an hour
@@ -90,7 +90,7 @@ that isn't working.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
 cd your-repo && av init                       # starts Margincode, adds this repo, connects Claude Code
-av init --for codex --for gemini --for cursor # the same for other agents
+av init --for codex --for gemini --for cursor # the same for other agents (also grok, antigravity)
 ```
 
 Restart your agent, then ask it to *"start an av task to …"*. Open `http://localhost:7420/ui` to

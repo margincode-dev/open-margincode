@@ -4092,6 +4092,67 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
     }
 }
 
+/// Antigravity ships its MCP config as a 0-byte file and reads no headers from it, so the daemon
+/// names it by its `clientInfo.name` (a stand-in here: Antigravity's own was not seen).
+#[test]
+fn antigravity_is_wired_into_its_empty_config_and_named_by_its_client() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let config = home.path().join(".gemini/config/mcp_config.json");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, "").unwrap();
+    let env = [("HOME", home.path().to_str().unwrap())];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "antigravity"],
+    ));
+    assert!(out.contains("Antigravity MCP server `av`"), "{out}");
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    let url = format!("{}/mcp", d.url);
+    assert_eq!(v["mcpServers"]["av"], serde_json::json!({ "url": url }));
+    let mut c = McpClient {
+        url,
+        headers: vec![],
+        session: None,
+    };
+    c.send(
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "some-mcp-client", "version": "1"}}}),
+    );
+    c.send(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    c.tool(
+        "start_task",
+        serde_json::json!({"repo": "demo", "title": "agy task", "goal": "Make hello louder"}),
+    );
+    let status = c.tool("status", serde_json::json!({}));
+    assert!(
+        status.contains("\"owner_agent\": \"some-mcp-client\""),
+        "{status}"
+    );
+
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("AV_TOKEN", "sekrit"),
+    ];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "antigravity"],
+    ));
+    assert!(
+        out.contains(
+            "(warning: its config has no headers, so it cannot send AV_TOKEN and the daemon \
+             will refuse it)"
+        ),
+        "{out}"
+    );
+}
+
 fn daemon_with_repo() -> (Daemon, TempDir) {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();

@@ -68,16 +68,16 @@ Next:
    only): `av-phase0` 30 of 30 against `av-before` 10 of 30, disjoint (0.886 to 1.000 against
    0.192 to 0.512), so Phase 0 helps on both models; no `cold`, `notes` or guard ran on Sonnet.
 4. **The first release here** (`release/0.0.4`): see "Release tags" below.
-5. **Antigravity (`agy`) as one more agent** (the owner, 2026-11-19; after the current batch).
-   Its CLI reads MCP servers from `~/.gemini/config/mcp_config.json` (`mcpServers`, streamable HTTP
-   under `url`; its docs show no `headers` field, so the daemon would name it by `clientInfo.name`,
-   not `X-Av-Agent`) and has hooks in `.agents/hooks.json` (`SessionStart`, `PreToolUse`,
-   `PostToolUse`, `Stop`, close to Claude Code's) and a non-interactive `-p` mode. Today
-   `av --agent agy init --for mcp-json --path ~/.gemini/config/mcp_config.json` writes a matching
-   entry, but it fails on that file as Antigravity ships it, 0 bytes (not JSON). To do: `av init
-   --for antigravity` (that file, an empty file read as `{}`), its hooks mapped to av's,
-   `integrations/antigravity/README.md`, and a check whether a header or a query parameter can name
-   it. The Commercial edition's runner would need its own adapter (margincode-cloud).
+5. **Antigravity (`agy`) as one more agent** (the owner, 2026-11-19). Landed: `av init --for
+   antigravity` writes `mcpServers.av` (`url` only) into `~/.gemini/config/mcp_config.json`, an
+   empty or blank JSON config is read as `{}` for every agent, and
+   `integrations/antigravity/README.md`, all from the docs shipped with the CLI, `agy` never run.
+   Its docs give an HTTP server no headers, so the daemon names it by `clientInfo.name` (not seen
+   yet; route it with `av agent set … --alias`) and it cannot send `AV_TOKEN`. Left: its hooks,
+   which need an Antigravity output form in `av hook` (`docs/backlog.md`, "Antigravity's hooks
+   need their own output"); naming it by a query parameter on `/mcp`, which the
+   daemon does not read today; a first real run to read its client name and check the file is
+   read; the Commercial edition's runner adapter (margincode-cloud).
 
 Left open on purpose:
 

@@ -3,7 +3,8 @@
 //! same SessionStart and Stop hooks in `~/.grok/hooks/av.json` unless that settings file already
 //! loads them (Grok runs both). Codex, Gemini CLI and Cursor Agent get the MCP server only, and
 //! their agent calls `start_task` and `context` itself (or runs under
-//! `integrations/generic/av-wrap.sh`). `mcp-json` merges the same server into any JSON file that
+//! `integrations/generic/av-wrap.sh`). Antigravity gets the MCP server without headers (its config
+//! has none). `mcp-json` merges the same server into any JSON file that
 //! has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file, keeps
 //! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
 
@@ -28,6 +29,8 @@ pub enum Agent {
     Gemini,
     /// Cursor Agent CLI (`cursor-agent`): MCP in ~/.cursor/mcp.json, shared with the Cursor editor.
     Cursor,
+    /// Google Antigravity CLI (`agy`): MCP in ~/.gemini/config/mcp_config.json, no headers.
+    Antigravity,
     /// Any client that reads `mcpServers` JSON. The file is `--path`, not a home path.
     McpJson,
 }
@@ -40,6 +43,7 @@ impl Agent {
             Agent::Grok => "Grok Build",
             Agent::Gemini => "Gemini CLI",
             Agent::Cursor => "Cursor Agent",
+            Agent::Antigravity => "Antigravity",
             Agent::McpJson => "mcp-json",
         }
     }
@@ -55,6 +59,7 @@ impl Agent {
             Agent::Grok => home.join(".grok/config.toml"),
             Agent::Gemini => home.join(".gemini/settings.json"),
             Agent::Cursor => home.join(".cursor/mcp.json"),
+            Agent::Antigravity => home.join(".gemini/config/mcp_config.json"),
             Agent::McpJson => return None,
         };
         Some(path)
@@ -120,6 +125,13 @@ pub fn install_cursor(path: &Path, mcp_url: &str, token: bool) -> Result<()> {
     put_mcp_server(path, server)
 }
 
+/// Antigravity: `mcpServers.av.url` (streamable HTTP). Its `mcp_servers.md` gives an HTTP server
+/// `url` and nothing else, so the file can neither name it (the daemon takes `clientInfo.name`)
+/// nor carry `AV_TOKEN`.
+pub fn install_antigravity(path: &Path, mcp_url: &str) -> Result<()> {
+    put_mcp_server(path, json!({ "url": mcp_url }))
+}
+
 /// Any `mcpServers` JSON file: `mcpServers.av` is `{type: http, url, headers: {X-Av-Agent}}`.
 /// `agent` is the caller's `--agent` name. With a token, the client is expected to expand
 /// `${AV_TOKEN}` in the `Authorization` header.
@@ -177,23 +189,30 @@ fn edit_toml(
     write_with_backup(path, &doc.to_string())
 }
 
-/// Reads `path` as a JSON object (an absent file is `{}`), changes it, writes it back.
-pub fn edit_json(path: &Path, change: impl FnOnce(&mut Value) -> Result<()>) -> Result<()> {
-    let mut v: Value = match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
-            local(format!(
-                "{} is not valid JSON ({e}); nothing changed",
-                path.display()
-            ))
-        })?,
-        Err(_) => json!({}),
-    };
+/// Reads `path` as a JSON object; an absent, empty or blank file is `{}`.
+pub fn read_json_object(path: &Path) -> Result<Value> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    if text.trim().is_empty() {
+        return Ok(json!({}));
+    }
+    let v: Value = serde_json::from_str(&text).map_err(|e| {
+        local(format!(
+            "{} is not valid JSON ({e}); nothing changed",
+            path.display()
+        ))
+    })?;
     if !v.is_object() {
         return Err(local(format!(
             "{} is not a JSON object; nothing changed",
             path.display()
         )));
     }
+    Ok(v)
+}
+
+/// Reads `path` with [`read_json_object`], changes it, writes it back.
+pub fn edit_json(path: &Path, change: impl FnOnce(&mut Value) -> Result<()>) -> Result<()> {
+    let mut v = read_json_object(path)?;
     change(&mut v)?;
     write_with_backup(
         path,
@@ -373,6 +392,22 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_gets_the_url_alone_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp_config.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"other":{"command":"x"},"av":{"serverUrl":"http://old/mcp"}}}"#,
+        )
+        .unwrap();
+        install_antigravity(&path, URL).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(v["mcpServers"]["other"]["command"], "x");
+        assert_eq!(v["mcpServers"]["av"], json!({ "url": URL }));
+        assert!(dir.path().join("mcp_config.json.bak").exists());
+    }
+
+    #[test]
     fn mcp_json_merges_into_any_json_file_and_names_the_agent() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("clients/settings.json");
@@ -419,6 +454,20 @@ mod tests {
         );
     }
 
+    /// Antigravity ships `~/.gemini/config/mcp_config.json` as a 0-byte file.
+    #[test]
+    fn an_empty_or_blank_config_file_is_read_as_an_empty_object() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp_config.json");
+        for blank in ["", " \n\t\r\n"] {
+            std::fs::write(&path, blank).unwrap();
+            install_mcp_json(&path, URL, "agent", false).unwrap();
+            let v: Value = serde_json::from_str(&read(&path)).unwrap();
+            assert_eq!(v["mcpServers"]["av"]["url"], URL);
+            assert_eq!(read(&dir.path().join("mcp_config.json.bak")), blank);
+        }
+    }
+
     #[test]
     fn broken_config_files_are_left_alone() {
         let dir = tempfile::tempdir().unwrap();
@@ -430,6 +479,7 @@ mod tests {
         std::fs::write(&json, "{ nope").unwrap();
         assert!(install_gemini(&json, URL, false).is_err());
         assert!(install_cursor(&json, URL, false).is_err());
+        assert!(install_antigravity(&json, URL).is_err());
         assert!(install_mcp_json(&json, URL, "muse", false).is_err());
         assert_eq!(read(&json), "{ nope");
     }
@@ -456,6 +506,10 @@ mod tests {
         assert_eq!(
             Agent::Cursor.config_path(home, None).as_deref(),
             Some(Path::new("/h/.cursor/mcp.json"))
+        );
+        assert_eq!(
+            Agent::Antigravity.config_path(home, None).as_deref(),
+            Some(Path::new("/h/.gemini/config/mcp_config.json"))
         );
         assert_eq!(Agent::McpJson.config_path(home, None), None);
     }

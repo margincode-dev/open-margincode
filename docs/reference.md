@@ -445,7 +445,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
 | `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `margincode-daemon` that `av up` starts |
 
-`av init [--name NAME] [--source PATH] [--for claude|codex|grok|gemini|cursor|mcp-json]...` adds the git repository of the current
+`av init [--name NAME] [--source PATH] [--for claude|codex|grok|gemini|cursor|antigravity|mcp-json]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
 (default: Claude Code). `--for mcp-json` also needs `--path FILE`. `--source PATH` imports PATH
 as the daemon sees it instead of this directory's git root: a daemon in Docker reads its own
@@ -1042,7 +1042,7 @@ Run as many agents as you like on one daemon. There is no seat cap: each distinc
 that calls `next` gets the work that fits it.
 
 ```bash
-av --agent claude init --for claude  # and --for codex, grok, gemini, cursor; --agent names the MCP caller
+av --agent claude init --for claude  # and --for codex, grok, gemini, cursor, antigravity; --agent names the MCP caller
 av --agent muse init --for mcp-json --path PATH/TO/settings.json   # Muse's own path is unverified
 
 av agent set claude --best code,tests --can docs --cost 4
@@ -1082,7 +1082,9 @@ the others wait (it says so once on stderr), so a burst of checks after a merge 
 builds at a time. Only `av validate` takes a build slot; an agent running `cargo test` itself
 does not.
 
-The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`).
+The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`),
+except Antigravity's, whose config has no headers: the daemon names it by its client name, so
+give its profile that name as an `--alias` (`integrations/antigravity/README.md`).
 `--for mcp-json` writes the `--agent` name into that header, so a client without its own
 writer still routes as itself. Set a profile under that same name.
 
@@ -1770,12 +1772,19 @@ opens with a warning naming the culprit merge.
   `~/.gemini/settings.json` or `~/.cursor/mcp.json`, keeps everything else in the file and the
   previous one as `*.bak`. With `AV_TOKEN` set, the file only names the variable (Codex
   `bearer_token_env_var`, Grok and Gemini `${AV_TOKEN}`, Cursor `${env:AV_TOKEN}` in a header),
-  never the token. All four also get a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`). Codex, Gemini and Cursor get no hooks: they call `start_task`/`claim_task` and
+  never the token. All four also get a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`).
+  An empty or blank config file is read as `{}`. Codex, Gemini and Cursor get no hooks: they call `start_task`/`claim_task` and
   `get_context` themselves. Grok gets `SessionStart` and `Stop` in `~/.grok/hooks/av.json` unless
   `~/.claude/settings.json` already loads them (Grok runs both; see `integrations/grok/README.md`
   for the 8-continuation cap and folder trust). The instructions to give an agent are in
   `integrations/<agent>/README.md`. All of them
   share one memory, so a dead end Claude recorded is in the pack Codex gets.
+- **Antigravity** (`agy`): `av init --for antigravity` merges `mcpServers.av` with the `/mcp` `url`
+  alone into `~/.gemini/config/mcp_config.json` (shipped as an empty file), keeping the rest and the
+  previous file as `*.bak`. Its docs give an HTTP server no headers, so there is no `X-Av-Agent`
+  (the daemon names the session by the client name Antigravity sends) and no token: with `AV_TOKEN`
+  set the daemon refuses it, and `av init` says so. No hooks: what each of its hook events reads
+  on stdout differs from what `av hook …` prints (`integrations/antigravity/README.md`).
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).
 - **Across vendors**: `scripts/relay-demo.sh` shows one memory shared by different agents. Claude

@@ -7,6 +7,30 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-19: Antigravity's hooks need their own output
+
+- **Where.** `av init --for antigravity` (`integrations/antigravity/README.md`, "Hooks"), against
+  the hook contract in the docs shipped with the Antigravity CLI (`hooks.md`).
+- **Seen.** Antigravity runs hooks from `.agents/hooks.json` with JSON on stdin and reads JSON on
+  stdout, and none of av's four hook commands prints what it reads. `SessionStart` wants
+  `{"injectSteps": [{"systemMessage": {"systemMessage": "…"}}]}` and `av hook session-start` prints
+  plain text. `PreToolUse` needs a permission `decision`, with a `reason` as its only text, where
+  `av hook pre-read` prints `additionalContext` and decides nothing. `PostToolUse` expects `{}`. `Stop` carries on only on
+  `"decision": "continue"`, and `av hook stop` prints `"block"`, so its record nudge and its wait
+  for work would be counted and then ignored. The input names differ too: `conversationId` for
+  `session_id`, `continuationActive` for `stop_hook_active`, `toolCall.args` for `tool_input`
+  (the docs do not give its file tools' names or argument keys), and no `source`. On Windows a
+  hook runs under `cmd /c`, where av's `command -v av …; exit 0` guard is not valid; the default
+  timeout is 30 s against the Stop hook's 600 s wait.
+- **Ruled out.** A field mapping alone: every event's output differs, so each command would need
+  a second output form.
+- **Guess.** An Antigravity mode for `av hook` (detected from `hookEventName` in the input, or a
+  flag) that renames the input fields and prints `injectSteps`, `{}` or `continue` would cover
+  `SessionStart`, `PostToolUse` and `Stop`; `pre-read` could hand over its records only in a
+  `reason` beside a decision it would have to make for the user. Not built
+  because nothing here can run `agy` to check it.
+- **Status.** Open. `av init --for antigravity` installs no hooks.
+
 ## 2026-11-19: a Workers Builds preview failed with "preview already exists"
 
 - **Where.** The Workers Builds check on #79 (branch `av/gate-per-task`), Cloudflare's preview

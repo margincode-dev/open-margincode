@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The README and site add the tracker's first run on release 0.0.4.** Next to the 2026-11-20 figures for release 0.0.2, `README.md`, `docs/reference.md`, `site/index.html`, `site/llms.txt` and the memory guide now give the run of 2026-11-21: release 0.0.4 cost $0.0580 against $0.0545 for plain Claude Code, 12 sessions a leg, too few for a claim.
+
 ## 0.0.4 (2026-11-21)
 
 The project is now Margincode (it was Scholion), and this is its first release from

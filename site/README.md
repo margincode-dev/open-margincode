@@ -23,6 +23,7 @@ Numbers on the page come from these result directories, and only these:
 | Retrieval (E1), 800-token caption | `bench/retrieval/results/2026-10-29-budget-800/report.md` |
 | End-to-end agents (Haiku) | `bench/results/2026-10-27-haiku/` (the `04-final-shipped-*` runs) |
 | End-to-end agents, the later tracker run (2026-11-20) | the openevaluations report [`docs/results/2026-11-20-tracker-haiku.md`](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md) |
+| End-to-end agents, the tracker run on release 0.0.4 (2026-11-21) | the openevaluations report [`docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md`](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md) |
 | Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md`; the first run (MCP) `bench/results/2026-10-28-relay/report.md`; 500 notes `bench/results/2026-11-e4-scale/README.md` |
 
 When a newer run replaces one, change this table, `index.html` and `llms.txt` in the same commit.

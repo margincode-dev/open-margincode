@@ -74,6 +74,11 @@ Measured so far, including where it didn't help:
   record what it had changed, and its first record was refused for length. Both are changed in
   release 0.0.4
   ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)).
+  On the run of 2026-11-21, release 0.0.4 cost $0.0580 against $0.0545 for plain Claude Code on
+  the same day, again a leg of 12 sessions and too few for a claim: 7 % more when paired by task
+  (95 % interval 1 % to 14 %), with 20 % more billed tokens and 10 % fewer turns, and no session
+  was stopped. The two runs differ in day and in Claude Code version
+  ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md)).
 - When one agent's lessons were passed on to the next, cost per solved task dropped by about
   **42 %**, and 30 of 30 tasks were solved instead of 18. Margincode did as well as a hand-written
   `NOTES.md`, without anyone having to write it.

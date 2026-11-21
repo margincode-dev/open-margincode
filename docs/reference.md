@@ -268,7 +268,7 @@ tracker's run of 2026-11-20, on the same four tasks and model, release 0.0.2 cos
 Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too few for a claim. In that run
 every session was stopped once after its final answer and asked to record what it had changed, and
 its first record was refused for length. Both are changed in release 0.0.4
-([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)). Merges are fuzzed (E2): about 1,700 random
+([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)). On the run of 2026-11-21, release 0.0.4 cost $0.0580 against $0.0545 for plain Claude Code on the same day, again a leg of 12 sessions and too few for a claim: 7 % more when paired by task (95 % interval 1 % to 14 %), with 20 % more billed tokens and 10 % fewer turns, and no session was stopped. The two runs differ in day and in Claude Code version ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md)). Merges are fuzzed (E2): about 1,700 random
 cases of concurrent edits, conflicts and reverts, each result checked against a line model and
 `git merge-tree`, lost no work and reported no false conflict or false clean merge. Not yet
 measured: larger repositories. In a relay test (E4, 90 sessions on

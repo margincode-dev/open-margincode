@@ -4280,6 +4280,69 @@ async fn unrecorded_names_changed_symbols_no_record_explains() {
     assert_eq!(body["unrecorded_symbols"], json!([]), "{body}");
 }
 
+const SCAN: &str = "\"\"\"Whole-collection scans.\"\"\"\n\nfrom __future__ import annotations\n\nfrom .base import RecordStore\n\n\ndef iter_records(\n    store: RecordStore,\n    page_size: int = 100,\n):\n    page = store.list_page(None, page_size)\n    for record in page.records:\n        yield record\n\n\ndef count_records(store: RecordStore) -> int:\n    return sum(1 for _ in iter_records(store))\n";
+
+/// The unrecorded symbols of a task that changed `app/scan.py` from `base` (on main) to `head`.
+async fn unrecorded_after(base: &str, head: &str) -> Value {
+    let e = env().await;
+    merged_task(&e, "Scan records", "app/scan.py", base).await;
+    let t = start_task(&e, "Scan change").await;
+    write_file(&e, &t, "app/scan.py", head);
+    let (status, body) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    unrecorded(&e, &t).await["unrecorded_symbols"].clone()
+}
+
+fn with_page_size(scan: &str) -> String {
+    scan.replace(
+        "RecordStore\n\n\n",
+        "RecordStore\n\nDEFAULT_PAGE_SIZE = 100\n\n\n",
+    )
+}
+
+fn crlf(text: &str) -> String {
+    text.replace('\n', "\r\n")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_leaves_out_symbols_that_only_moved_down() {
+    let syms = unrecorded_after(SCAN, &with_page_size(SCAN)).await;
+    assert_eq!(syms, json!(["DEFAULT_PAGE_SIZE"]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_leaves_out_symbols_whose_line_endings_alone_changed() {
+    let syms = unrecorded_after(&crlf(SCAN), &with_page_size(SCAN)).await;
+    assert_eq!(syms, json!(["DEFAULT_PAGE_SIZE"]), "CRLF base, LF head");
+    let syms = unrecorded_after(SCAN, &crlf(&with_page_size(SCAN))).await;
+    assert_eq!(syms, json!(["DEFAULT_PAGE_SIZE"]), "LF base, CRLF head");
+    assert_eq!(unrecorded_after(&crlf(SCAN), SCAN).await, json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_names_a_changed_body_in_a_file_whose_endings_changed() {
+    let body = SCAN.replace("yield record", "yield dict(record)");
+    let syms = unrecorded_after(&crlf(SCAN), &body).await;
+    assert_eq!(syms, json!(["iter_records"]), "only the edited function");
+    let mixed = crlf(SCAN).replace("yield record\r\n", "yield dict(record)\n");
+    assert_eq!(
+        unrecorded_after(SCAN, &mixed).await,
+        json!(["iter_records"])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecorded_names_a_symbol_lines_were_deleted_from() {
+    let deleted = SCAN.replace(
+        "    for record in page.records:\n        yield record\n",
+        "",
+    );
+    assert_eq!(
+        unrecorded_after(SCAN, &deleted).await,
+        json!(["iter_records"])
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn submit_still_reports_the_same_unrecorded_symbols() {
     let e = env().await;

@@ -7,23 +7,30 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
-## 2026-11-21: adding one module-level name lists every symbol of the file as changed
+## 2026-11-21: a file whose line endings changed lists every symbol of the file as changed
 
 - **Where.** `GET /v1/tasks/{id}/unrecorded` (so the Stop hook's block and `av submit`'s
   advisory), which takes its symbols from `margincode_pack::assemble::changed_symbols`. Seen on a
   build of `f2ebcde` and in Claude Code sessions on `7cc7d1f`.
-- **Seen.** Adding `DEFAULT_PAGE_SIZE = 100` to `tallyho/store/scan.py`, and touching nothing
-  else, listed `DEFAULT_PAGE_SIZE, count_records, iter_records`. A real session that changed only
-  `apply_discounts` was stopped over all 8 symbols of `discounts.py`.
-- **Ruled out.** Not checked further; not fixed here.
-- **Guess.** As the code reads, a symbol is listed when its line span at head overlaps a range
-  that `line_ranges` reports as inserted, replaced or deleted (`similar` line diff of base and
-  head), and every symbol of the file is listed when `changed_ranges_of` cannot read the file at
-  base or head. A pure line shift is not a changed range in that code, so the obvious suspect
-  does not explain it by itself. Guess: either the whole-file path is taken (a read at base or
-  head fails), or the line spans the index holds for the task's scope are not those of the head
-  text the diff is made from. Neither is verified.
-- **Status.** Open.
+- **Seen.** Adding `DEFAULT_PAGE_SIZE = 100` to `tallyho/store/scan.py` listed
+  `DEFAULT_PAGE_SIZE, count_records, iter_records`. A session that changed only
+  `apply_discounts` was stopped over all 8 symbols of `discounts.py`, three of them above the
+  edited function. Those files are stored with CRLF endings. That session made two edits, both inside
+  `apply_discounts`; every session that made one edit to its file was stopped over the edited
+  symbols only. That the second edit rewrote the file's endings is inferred from this, not
+  seen: the session's files were not kept. Reproduced through the route: the same insertion
+  with the endings kept lists only `DEFAULT_PAGE_SIZE`, and with the file saved as CRLF lists all
+  three.
+- **Ruled out.** A symbol that only moved down: an insertion above two functions lists only the
+  inserted name. The whole-file fallback of `changed_ranges_of` (both reads succeed) and stale
+  index spans (the new name is listed, so the index is at head, and a shift could not list
+  symbols above the edit).
+- **Cause.** `line_ranges` compared lines with their endings (`similar::TextDiff::from_lines`),
+  so a file whose endings changed was one replacement over every line, and every symbol
+  overlapped it. Whether, and why, an agent's edit tool rewrites a file's endings on a second
+  edit is not verified.
+- **Status.** Fixed in this change: lines are compared with `\r\n` read as `\n`, split as
+  before so the line numbers stay those of head; other differences at a line end still count.
 
 ## 2026-11-21: a file-anchored record ranks lower and goes stale on any edit in the file
 

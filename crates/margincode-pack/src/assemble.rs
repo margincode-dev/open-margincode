@@ -376,8 +376,22 @@ async fn changed_ranges_of(
 }
 
 fn line_ranges(base: &str, head: &str) -> Vec<(u32, u32)> {
-    use similar::DiffOp;
-    let diff = similar::TextDiff::from_lines(base, head);
+    use similar::{DiffOp, DiffableStr};
+    // A file whose line endings were rewritten (CRLF <-> LF) has no changed line. Lines are split
+    // as `from_lines` splits them, so the line numbers stay those of `head`.
+    let lf = |text: &str| -> Vec<String> {
+        text.tokenize_lines()
+            .into_iter()
+            .map(|l| {
+                l.strip_suffix("\r\n")
+                    .map_or(l.to_owned(), |s| format!("{s}\n"))
+            })
+            .collect()
+    };
+    let (old, new) = (lf(base), lf(head));
+    let old: Vec<&str> = old.iter().map(String::as_str).collect();
+    let new: Vec<&str> = new.iter().map(String::as_str).collect();
+    let diff = similar::TextDiff::configure().diff_slices(&old, &new);
     let mut out = vec![];
     for op in diff.ops() {
         match *op {
@@ -1913,5 +1927,37 @@ mod tests {
             "deleted line touches its neighbours"
         );
         assert_eq!(line_ranges("a\n", "a\nb\n"), vec![(2, 2)]);
+    }
+
+    #[test]
+    fn a_line_whose_ending_alone_changed_is_not_changed() {
+        let crlf = "a\r\nb\r\nc\r\n";
+        assert_eq!(line_ranges(crlf, "a\nb\nc\n"), vec![], "CRLF to LF");
+        assert_eq!(line_ranges("a\nb\nc\n", crlf), vec![], "LF to CRLF");
+        assert_eq!(line_ranges(crlf, "a\nb\r\nc\n"), vec![], "mixed head");
+        assert_eq!(line_ranges(crlf, "a\nX\r\nc\n"), vec![(2, 2)]);
+        assert_eq!(line_ranges(crlf, "a\nc\n"), vec![(1, 2)], "deleted line");
+        assert_eq!(line_ranges(crlf, "Z\na\nb\nc\n"), vec![(1, 1)]);
+    }
+
+    #[test]
+    fn other_differences_at_a_line_end_still_count() {
+        assert_eq!(
+            line_ranges("a\nb\n", "a \nb\n"),
+            vec![(1, 1)],
+            "trailing space"
+        );
+        assert_eq!(
+            line_ranges("a\nb\n", "a\t\nb\n"),
+            vec![(1, 1)],
+            "trailing tab"
+        );
+        assert_eq!(line_ranges("a\nb\n", "a\rb\n"), vec![(1, 1)], "lone CR");
+        assert_eq!(
+            line_ranges("a\nb\n", "a\nb"),
+            vec![(2, 2)],
+            "no final newline"
+        );
+        assert_eq!(line_ranges("a\r\nb\r\n", "a\r\nb"), vec![(2, 2)]);
     }
 }

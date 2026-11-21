@@ -79,8 +79,10 @@ Next:
 4. **The first release here**, `release/0.0.4` (2026-11-21): the version, the changelog and the
    install paths (`scripts/install.sh`, the binstall metadata, the image
    `ghcr.io/margincode-dev/open-margincode`, the Homebrew tap, the plugin command, the docs and the
-   site) point at this repository. Left: `Formula/margincode.rb`'s version and sums, once the
-   release's archives exist. See "Release tags" below.
+   site) point at this repository. The release is published: archives for four targets, each
+   matching its `.sha256`, and `Formula/margincode.rb` has 0.0.4 and its sums. Left: the image
+   was pushed private, and stays so until the organization's owner makes the package public.
+   See "Release tags" below.
 5. **Antigravity (`agy`) as one more agent** (the owner, 2026-11-19). Landed: `av init --for
    antigravity` writes `mcpServers.av` (`url`, and `headers` with `X-Av-Agent: antigravity` and,
    with `AV_TOKEN`, the literal bearer token; 2026-11-20, after `agy mcp add --help` showed
@@ -108,8 +110,9 @@ Left open on purpose:
   `scripts/install.sh`, the README, the Docker image and the plugin command name
   `margincode-dev/open-margincode`. The old repository still holds releases 0.0.1 to 0.0.3, its
   issues and its pull-request discussions.
-- `scripts/install.sh` was syntax-checked only after the rename; `site/og.png` and the
-  `demo-replay.png` images were not regenerated.
+- `scripts/install.sh` ran end to end against release 0.0.4 on Linux x86_64 (a clean Ubuntu
+  24.04 container, through `av up` and `av task start`; 2026-11-21); macOS and arm64 were not
+  run. `site/og.png` and the `demo-replay.png` images were not regenerated.
 
 Sections 1 to 3 below are the state of 2026-11-03 and still hold where this section does not
 say otherwise.

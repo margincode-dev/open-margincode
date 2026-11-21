@@ -655,7 +655,7 @@ h1 .why { position: relative; display: inline-block; }
       <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
       <div class="stat"><b>800</b><span>tokens in the default pack: signatures, not bodies the agent reads anyway</span></div>
       <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
-      <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost (<a href="#evidence">benchmark</a>)</span></div>
+      <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost in October's benchmark (<a href="#evidence">benchmark and a later run</a>)</span></div>
     </div>
 
     <figure class="shot reveal">
@@ -1002,7 +1002,7 @@ av post --repo api --title "Add retry" --goal "…" --needs code
       </div>
       <div class="ev reveal">
         <h3>End-to-end agents <small>Claude Code · Haiku · 40 sessions per arm</small></h3>
-        <p>Headless Claude Code fixing one-file bugs in a 25-file Python library, hidden tests decide acceptance. With av, agents reach the fix in fewer turns, and the bill stays where it was.</p>
+        <p>Headless Claude Code fixing one-file bugs in a 25-file Python library, hidden tests decide acceptance. In this October run, agents with av reached the fix in fewer turns, and the bill stayed where it was.</p>
         <div class="delta">
           <div><b>−12.9%</b><span>turns</span><small>95% CI [−18.3, −7.0]</small></div>
           <div><b>±0.0%</b><span>cost</span><small>95% CI [−3.9, +4.2]</small></div>
@@ -1010,6 +1010,7 @@ av post --repo api --title "Add retry" --goal "…" --needs code
           <div><b>−2.3%</b><span>wall time</span><small>95% CI [−7.4, +3.3]</small></div>
         </div>
         <p style="font-size:13.5px">The first pilot cost 8% more than git. We found why (repeated goal, bodies paid for twice, cold-start retrieval), fixed it, and kept the before/after in <code>bench/results/2026-10-27-haiku</code>.</p>
+        <p style="font-size:13.5px">On the openevaluations tracker's run of 2026-11-20, on the same four tasks and model, release 0.0.2 cost more than plain Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too few for a claim. In that run every session was stopped once after its final answer and asked to record what it had changed, and its first record was refused for length. Both are changed on <code>main</code> and are in no release yet (<a href="https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md">report</a>).</p>
       </div>
       <div class="ev wide reveal">
         <h3>Knowledge relay (E4) <small>Claude Code · DeepSeek Flash · 10 tasks × 3 runs per arm</small></h3>

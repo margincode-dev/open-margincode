@@ -22,6 +22,7 @@ Numbers on the page come from these result directories, and only these:
 | Retrieval (E1), 4000-token rows | `bench/retrieval/results/2026-10-28-packer-rrf/report.md` |
 | Retrieval (E1), 800-token caption | `bench/retrieval/results/2026-10-29-budget-800/report.md` |
 | End-to-end agents (Haiku) | `bench/results/2026-10-27-haiku/` (the `04-final-shipped-*` runs) |
+| End-to-end agents, the later tracker run (2026-11-20) | the openevaluations report [`docs/results/2026-11-20-tracker-haiku.md`](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md) |
 | Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md`; the first run (MCP) `bench/results/2026-10-28-relay/report.md`; 500 notes `bench/results/2026-11-e4-scale/README.md` |
 
 When a newer run replaces one, change this table, `index.html` and `llms.txt` in the same commit.
@@ -122,5 +123,13 @@ Redirect for a while: add a rule on the `openevaluations.si` zone (Rules -> Redi
 small Worker route) that sends the old Margincode paths, `/demo`, `/demo-replay.json`, `/guides/*`
 and `/llms.txt` of the old site, to the same path on `scholion.openevaluations.si` with a 301.
 Do not redirect `/`, `/tracker/`, `/handoff/` and the other openevaluations pages. Note that
-openevaluations has its own `/llms.txt` and `/margincode/`; redirect `/llms.txt` only if you want
+openevaluations has its own `/llms.txt` and no product page; redirect `/llms.txt` only if you want
 the old one gone, and drop all of these rules after a few months.
+
+State on 2026-11-21: the root serves the openevaluations tracker site (Worker `openevaluations`,
+custom domain `openevaluations.si`, repo `vinhqbui/openevaluations`). The root's placeholder
+record is gone, and the temporary rule now only sends `www` to the root with a 301 (`www` keeps
+its placeholder record so the rule fires). The zone rule of the paragraph above was not added:
+the tracker site's own `_redirects` file sends `/demo`, `/demo-replay.json`, `/og.png`,
+`/guides/*` and `/img/*` to the same path on `open.margincode.dev`, `/scholion/` to its front
+page and `/scholion/llms.txt` to its `/llms.txt`, all with a 301.

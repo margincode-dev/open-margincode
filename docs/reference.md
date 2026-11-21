@@ -14,7 +14,7 @@ work up.
 end, hands off; Codex picks the task up from a context pack instead of re-reading the repo; Gemini
 reviews. On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same
 cost** in the October 2026 benchmark ([benchmark](../bench/results/2026-10-27-haiku/), including
-where it did not help); later tracker runs found releases 0.0.2 and 0.0.4 costing more
+where it did not help); a later tracker run found release 0.0.2 costing more
 ([Does it help?](../README.md#does-it-help)).
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://open.margincode.dev/demo)

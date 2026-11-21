@@ -3,8 +3,8 @@
 **Your next Claude Code session starts knowing last session's dead ends.** Margincode pins one-line notes (decisions, and what didn't work) to the code they
 are about, and hands the next session a small brief built from them. One agent, one repo, no
 second subscription needed. On a small Python repo that meant 12.9 % fewer turns at the same cost
-in our October benchmark ([benchmark](bench/results/2026-10-27-haiku/)); tracker runs in November
-found releases 0.0.2 and 0.0.4 costing more ([Does it help?](#does-it-help)).
+in our October benchmark ([benchmark](bench/results/2026-10-27-haiku/)); a tracker run in November
+found release 0.0.2 costing more ([Does it help?](#does-it-help)).
 
 Use more than one agent and the same memory crosses vendors: Claude Code starts a job, Codex
 picks it up from the brief, Gemini reviews it, and the reviewer merges.

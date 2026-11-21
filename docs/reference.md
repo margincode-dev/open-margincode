@@ -109,9 +109,13 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
   workspace on disk (`~/ws/<repo>/<task>/`), branched from trunk. The agent edits files there with
   its usual tools; `margincode checkpoint` snapshots them.
 - **Record**: a short, typed note attached to a task: `intent` (the goal), `decision`, `attempt`
-  (a dead end and why), `note`, `handoff`, `review`. Summaries are ≤ 200 characters, and records
-  are append-only: a newer record *supersedes* an older one instead of editing it. That is also
-  how an agent corrects a record that is wrong (`av record --supersedes rec:…`, see
+  (a dead end and why), `note`, `handoff`, `review`. Summaries are ≤ 200 characters. `av record`
+  (`--summary` and `--json`), `av submit --record` and `av review --finding` do not refuse a
+  longer one: they cut it to a headline at the last sentence end in its second half, else at the
+  last word with `…`, put the whole text at the start of the body (then a blank line and the body
+  given), say so in one line on stderr and store it. The API and the MCP `record` tool still
+  refuse it. Records are append-only: a newer record *supersedes* an older one instead of
+  editing it. That is also how an agent corrects a record that is wrong (`av record --supersedes rec:…`, see
   [Correcting a record](#correcting-a-record)).
 - **Anchor**: a record's link to code, as a path or `path:Symbol`. Records resurface whenever a
   later task touches that code. The anchored code's hash is stored when the record is written, so
@@ -161,7 +165,8 @@ already approved in its current review round, since the latest submit (the answe
 approved it and when); after a resubmit the head is reviewed again.
 A review finding the reviewer already stored at the same head is not stored twice. Every finding
 is checked before anything is written (a summary that is blank or longer than 200 characters is
-refused with `400`, naming it as `findings[i]`), and the verdict is written after the findings, so
+refused with `400`, naming it as `findings[i]`; `av review --finding` fits a longer one first, as
+`av record` does), and the verdict is written after the findings, so
 a refused review leaves no verdict and no findings behind.
 
 **Claims.** A handoff stores what is done, remaining, broken and still open as a `handoff` record
@@ -1724,7 +1729,10 @@ opens with a warning naming the culprit merge.
   merges them into `~/.claude/settings.json` (previous file kept as `settings.json.bak`; running it again replaces
   them). `SessionStart` prints an 800-token pack for the task of the session's directory (a fresh pack session at
   start-up, after compaction or after `/clear`, so a new Claude Code process gets everything even when `av next` already
-  printed the pack under the task's session; only a resumed session keeps its ledger). Its code items show path, lines and signature, not bodies (`--code full` adds them):
+  printed the pack under the task's session; only a resumed session keeps its ledger), then one line starting `av: before
+  your final message` that asks for the records in one `av record --json -` call before the final message, anchoring
+  each changed symbol and its file's bare path: the Stop hook's request comes after that message, and agents then wrote
+  it again. Its code items show path, lines and signature, not bodies (`--code full` adds them):
   Claude Code must read a file before it edits it, so a body in the pack is paid for twice (bench/README.md,
   "Haiku runs"). `--no-map` leaves out the repo layout and `--max-code N` keeps the N best code items (each
   item named is a file the agent may open; `GET /v1/tasks/{id}/context?map=false&max_code=N`). `PreToolUse` on `Read|Edit|MultiEdit` adds what other tasks recorded about that file (decisions, dead
@@ -1734,7 +1742,7 @@ opens with a warning naming the culprit merge.
   (`GET /v1/tasks/{id}/records/at?path=…&session=…`). `PostToolUse` on `Edit|Write|MultiEdit` checkpoints at most
   every 2 s. `Stop` checkpoints and, when changed symbols have no record of the task anchored to them (what
   `submit` would list, `GET /v1/tasks/{id}/unrecorded`), blocks the stop once per agent session and asks for the
-  decisions and dead ends behind them. All four are silent outside a task and never fail the agent
+  decisions and dead ends behind them in one call, then a one-line end without a recap. All four are silent outside a task and never fail the agent
   (`margincode hook session-start`, `margincode hook pre-read`, `margincode hook post-edit`, `margincode hook stop`).
 
   **Disk.** In a task, `SessionStart` also creates a scratch dir and exports it to the session's Bash

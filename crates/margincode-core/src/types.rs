@@ -9,6 +9,43 @@ use crate::error::{AvError, Result};
 
 pub const MAX_SUMMARY_CHARS: usize = 200;
 
+/// A summary over `MAX_SUMMARY_CHARS` as a headline that fits, and a body that starts with the
+/// whole summary, then a blank line and `body` when there is one. `None` when the summary fits.
+/// The headline ends at the last sentence end in the second half of the limit, else at the last
+/// word with `…`, else (no whitespace) after `MAX_SUMMARY_CHARS - 1` characters with `…`.
+pub fn fit_summary(summary: &str, body: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = summary.chars().collect();
+    if chars.len() <= MAX_SUMMARY_CHARS {
+        return None;
+    }
+    let sentence_end = (MAX_SUMMARY_CHARS / 2..MAX_SUMMARY_CHARS)
+        .rev()
+        .find(|&i| matches!(chars[i], '.' | '!' | '?') && chars[i + 1].is_whitespace());
+    let headline = match sentence_end {
+        Some(i) => chars[..=i].iter().collect(),
+        None => {
+            let keep = MAX_SUMMARY_CHARS - 1;
+            let word: String = (1..=keep)
+                .rev()
+                .find(|&i| chars[i].is_whitespace())
+                .map(|i| chars[..i].iter().collect::<String>().trim_end().to_owned())
+                .unwrap_or_default();
+            let cut = if word.is_empty() {
+                chars[..keep].iter().collect()
+            } else {
+                word
+            };
+            cut + "…"
+        }
+    };
+    let body = if body.trim().is_empty() {
+        summary.to_owned()
+    } else {
+        format!("{summary}\n\n{body}")
+    };
+    Some((headline, body))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TaskId(pub Uuid);
 
@@ -555,6 +592,74 @@ mod tests {
             new_record("x".repeat(201)).validate(),
             Err(crate::AvError::SummaryTooLong(201))
         ));
+    }
+
+    fn fitted(summary: &str, body: &str) -> (String, String) {
+        let (headline, body) = fit_summary(summary, body).expect("an overlong summary is fitted");
+        assert!(headline.chars().count() <= MAX_SUMMARY_CHARS, "{headline}");
+        assert!(
+            body.starts_with(summary),
+            "the whole text leads the body: {body}"
+        );
+        (headline, body)
+    }
+
+    #[test]
+    fn a_summary_that_fits_is_left_alone() {
+        assert_eq!(fit_summary(&"x".repeat(200), "b"), None);
+        assert_eq!(fit_summary(&"é".repeat(200), ""), None);
+    }
+
+    #[test]
+    fn a_summary_without_whitespace_is_cut_hard() {
+        let long = "x".repeat(201);
+        assert_eq!(fitted(&long, ""), ("x".repeat(199) + "…", long));
+    }
+
+    #[test]
+    fn a_summary_is_cut_at_the_last_sentence_end_inside_the_limit() {
+        let first = format!("Fit the summary {}.", "a".repeat(90));
+        let second = format!("Then {}.", "b".repeat(80));
+        let long = format!("{first} {second} And a third sentence that runs past the limit.");
+        assert!(long.chars().count() > 200);
+        assert_eq!(fitted(&long, "").0, format!("{first} {second}"));
+    }
+
+    #[test]
+    fn an_early_sentence_end_or_a_file_name_is_not_a_cut() {
+        let long = format!("Short. {}", "word ".repeat(60));
+        let (headline, _) = fitted(&long, "");
+        assert!(headline.ends_with("word…"), "{headline}");
+        assert!(headline.chars().count() > 190, "{headline}");
+        let long = format!("{} hook.rs {}", "word ".repeat(25), "word ".repeat(30));
+        let (headline, _) = fitted(&long, "");
+        assert!(headline.ends_with("word…"), "{headline}");
+    }
+
+    #[test]
+    fn a_summary_is_cut_at_the_last_word_with_an_ellipsis() {
+        let long = "word ".repeat(50);
+        let (headline, body) = fitted(&long, "");
+        assert_eq!(headline, "word ".repeat(39) + "word…");
+        assert_eq!(body, long);
+    }
+
+    #[test]
+    fn multibyte_characters_around_the_cut_are_counted_as_chars() {
+        let long = "日本語 ".repeat(60);
+        let (headline, _) = fitted(&long, "");
+        assert_eq!(headline, "日本語 ".repeat(49) + "日本語…");
+        let long = "é".repeat(250);
+        assert_eq!(fitted(&long, "").0, "é".repeat(199) + "…");
+        let long = format!("{}é. ü{}", "ü".repeat(196), "x".repeat(10));
+        assert_eq!(fitted(&long, "").0, format!("{}é.", "ü".repeat(196)));
+    }
+
+    #[test]
+    fn the_body_given_follows_the_whole_summary() {
+        let long = "word ".repeat(50);
+        let (_, body) = fitted(&long, "Why it was done.");
+        assert_eq!(body, format!("{long}\n\nWhy it was done."));
     }
 
     #[test]

@@ -22,7 +22,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use client::{CliError, Client, Result};
 use margincode_agentrun::slots::{self, Kind};
-use margincode_core::{MAX_SUMMARY_CHARS, RecordKind};
+use margincode_core::{MAX_SUMMARY_CHARS, RecordKind, fit_summary};
 use serde_json::{Value, json};
 use taskfile::{Claim, TaskFile};
 
@@ -1096,12 +1096,6 @@ fn read_record_items(src: &str) -> Result<Vec<Value>> {
                      intent, review or validation)"
                 )));
             }
-            let n = s(&item["summary"]).chars().count();
-            if n > MAX_SUMMARY_CHARS {
-                return Err(CliError::Local(format!(
-                    "records[{i}]: summary is {n} chars, max {MAX_SUMMARY_CHARS}"
-                )));
-            }
             if !item["supersedes"].is_null()
                 && item["supersedes"].as_str().is_none_or(str::is_empty)
             {
@@ -1122,6 +1116,24 @@ fn read_record_items(src: &str) -> Result<Vec<Value>> {
             Ok(item)
         })
         .collect()
+}
+
+/// Cuts each overlong summary of `items` to a headline and puts the whole text in its body
+/// (`fit_summary`), saying so in one line per record. Call once the batch has passed every
+/// check, so nothing is said about records that are not sent.
+fn fit_summaries(what: &str, items: &mut [Value]) {
+    for (i, item) in items.iter_mut().enumerate() {
+        let summary = s(&item["summary"]).to_owned();
+        if let Some((headline, body)) = fit_summary(&summary, s(&item["body"])) {
+            eprintln!(
+                "av: {what}[{i}]: summary was {} chars, kept {}; the whole text is in body",
+                summary.chars().count(),
+                headline.chars().count()
+            );
+            item["summary"] = json!(headline);
+            item["body"] = json!(body);
+        }
+    }
 }
 
 /// `summary|path:symbol|body` -> finding JSON (anchor and body optional).
@@ -1844,7 +1856,7 @@ fn run(cli: Cli) -> Result<()> {
             supersedes,
             receipt,
         } => {
-            let items = match (json_src, kind, summary) {
+            let mut items = match (json_src, kind, summary) {
                 (Some(src), _, _) => read_record_items(src)?,
                 (None, Some(kind), Some(summary)) => {
                     let anchors: Vec<Value> = anchors.iter().map(|a| parse_anchor(a)).collect();
@@ -1860,6 +1872,7 @@ fn run(cli: Cli) -> Result<()> {
             let (task, _) = resolve_task(&cli)?;
             // anchors are hashed against the daemon's workspace: send a remote checkout's edits
             remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
+            fit_summaries("records", &mut items);
             for mut item in items {
                 item["agent"] = json!(cli.agent);
                 if item["receipt"].is_null() {
@@ -2150,12 +2163,13 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Submit { records } => {
-            let records = records
+            let mut records = records
                 .iter()
                 .map(|r| parse_record_spec(r))
                 .collect::<Result<Vec<_>>>()?;
             let (task, _) = resolve_task(&cli)?;
             remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
+            fit_summaries("records", &mut records);
             let mut body = json!({"agent": cli.agent});
             if !records.is_empty() {
                 body["records"] = Value::Array(records);
@@ -2302,7 +2316,8 @@ fn run(cli: Cli) -> Result<()> {
                 Some(t) => t.clone(),
                 None => resolve_task(&cli)?.0,
             };
-            let findings: Vec<Value> = findings.iter().map(|f| parse_finding(f)).collect();
+            let mut findings: Vec<Value> = findings.iter().map(|f| parse_finding(f)).collect();
+            fit_summaries("findings", &mut findings);
             let r = client.post(
                 &format!("/v1/tasks/{task}/review"),
                 &json!({"reviewer": cli.agent, "verdict": verdict.replace('-', "_"), "findings": findings}),

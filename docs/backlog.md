@@ -7,6 +7,69 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-21: adding one module-level name lists every symbol of the file as changed
+
+- **Where.** `GET /v1/tasks/{id}/unrecorded` (so the Stop hook's block and `av submit`'s
+  advisory), which takes its symbols from `margincode_pack::assemble::changed_symbols`. Seen on a
+  build of `f2ebcde` and in Claude Code sessions on `7cc7d1f`.
+- **Seen.** Adding `DEFAULT_PAGE_SIZE = 100` to `tallyho/store/scan.py`, and touching nothing
+  else, listed `DEFAULT_PAGE_SIZE, count_records, iter_records`. A real session that changed only
+  `apply_discounts` was stopped over all 8 symbols of `discounts.py`.
+- **Ruled out.** Not checked further; not fixed here.
+- **Guess.** As the code reads, a symbol is listed when its line span at head overlaps a range
+  that `line_ranges` reports as inserted, replaced or deleted (`similar` line diff of base and
+  head), and every symbol of the file is listed when `changed_ranges_of` cannot read the file at
+  base or head. A pure line shift is not a changed range in that code, so the obvious suspect
+  does not explain it by itself. Guess: either the whole-file path is taken (a read at base or
+  head fails), or the line spans the index holds for the task's scope are not those of the head
+  text the diff is made from. Neither is verified.
+- **Status.** Open.
+
+## 2026-11-21: a file-anchored record ranks lower and goes stale on any edit in the file
+
+- **Where.** The packer's record scoring and its `(changed since recorded)` check; a reader-side
+  check of deterministic packs, no model.
+- **Seen.** For a later task working on the same function, a record anchored only by the file's
+  bare path scored 0.485 (path match), and one anchored on that function, the seed symbol, 1.66.
+  After an edit anywhere in the file the file-anchored record was flagged
+  `(changed since recorded)` and dropped from 0.485 to 0.3395; a symbol-anchored one is flagged
+  only when its symbol changes. A symbol-only record does not satisfy the Stop and submit check
+  when something else in the file changed too. So the session-start line now asks for both: the
+  changed symbol, for ranking, and the file's bare path, for the check.
+- **Ruled out.** Reach: a file-anchored record reaches a later task's pack in the same cases as a
+  symbol-anchored one.
+- **Guess.** None. Whether the packer should treat a file-anchored record as anchored on the
+  symbols its own task changed is open.
+- **Status.** Open.
+
+## 2026-11-21: the pre-read hook shows a record without its changed or stale flag
+
+- **Where.** `margincode_pack::Packer::records_at` (`GET /v1/tasks/{id}/records/at`, the
+  pre-read hook's answer), `crates/margincode-pack/src/packer.rs`.
+- **Seen.** It renders each record with
+  `let (id, texts) = record_texts(rec, false, false, origins.whence(rec, task.id));`, so the
+  `stale` and `changed` arguments are always false: a record the pack prints with
+  `(changed since recorded)` or `(anchor_stale)` is shown in the pre-read answer without either
+  flag. The pack's own calls pass the computed values (`record_texts(rec, stale, changed, …)` in
+  `assemble.rs`).
+- **Ruled out.** Nothing yet.
+- **Guess.** The flags were not wired into `records_at` when it was written; not checked in its
+  history.
+- **Status.** Open.
+
+## 2026-11-20: the MCP `record` tool still refuses a summary over 200 characters
+
+- **Where.** `margincode-daemon` `mcp.rs`, `check_sizes`, for the `record` tool (and `submit`'s
+  inline records over MCP).
+- **Seen.** In Claude Code sessions with the av hooks (release 0.0.2), a first
+  `av record --json -` was refused for a summary over 200 characters and resent. `av record`, `av submit --record` and `av review --finding` now fit such a summary into
+  a headline and keep the whole text in the body. The MCP tool was left alone: its description
+  states the limit up front, and its refusal (`-32602`) names the length.
+- **Ruled out.** Nothing: whether MCP agents send overlong summaries and retry on the refusal
+  has not been measured.
+- **Guess.** If they do, the same `margincode_core::fit_summary` could serve the tool.
+- **Status.** Open.
+
 ## 2026-11-20: the dreamed-arm bench test passes in 0 s without `av` or `jq`
 
 - **Where.** `margincode-bench` `tests/runner.rs`,

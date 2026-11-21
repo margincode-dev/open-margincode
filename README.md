@@ -3,7 +3,8 @@
 **Your next Claude Code session starts knowing last session's dead ends.** Margincode pins one-line notes (decisions, and what didn't work) to the code they
 are about, and hands the next session a small brief built from them. One agent, one repo, no
 second subscription needed. On a small Python repo that meant 12.9 % fewer turns at the same cost
-([benchmark](bench/results/2026-10-27-haiku/)).
+in our October benchmark ([benchmark](bench/results/2026-10-27-haiku/)); a tracker run in November
+found release 0.0.2 costing more ([Does it help?](#does-it-help)).
 
 Use more than one agent and the same memory crosses vendors: Claude Code starts a job, Codex
 picks it up from the brief, Gemini reviews it, and the reviewer merges.
@@ -61,7 +62,13 @@ It runs on your machine. No Docker and no account, and it never sees your model 
 Measured so far, including where it didn't help:
 
 - On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same cost**
-  ([benchmark](bench/results/2026-10-27-haiku/)).
+  (October 2026, [benchmark](bench/results/2026-10-27-haiku/)).
+- On the openevaluations tracker's run of 2026-11-20, on the same four tasks and model, release
+  0.0.2 cost more than plain Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too
+  few for a claim. In that run every session was stopped once after its final answer and asked to
+  record what it had changed, and its first record was refused for length. Both are changed on
+  `main` and are in no release yet
+  ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)).
 - When one agent's lessons were passed on to the next, cost per solved task dropped by about
   **42 %**, and 30 of 30 tasks were solved instead of 18. Margincode did as well as a hand-written
   `NOTES.md`, without anyone having to write it.

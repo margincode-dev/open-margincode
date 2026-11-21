@@ -13,7 +13,9 @@ work up.
 **[Watch a recorded run](https://open.margincode.dev/demo)**: Claude records a decision and a dead
 end, hands off; Codex picks the task up from a context pack instead of re-reading the repo; Gemini
 reviews. On a small Python repo, Claude Code needed **12.9 % fewer turns per task at the same
-cost** ([benchmark](../bench/results/2026-10-27-haiku/), including where it did not help).
+cost** in the October 2026 benchmark ([benchmark](../bench/results/2026-10-27-haiku/), including
+where it did not help); a later tracker run found release 0.0.2 costing more
+([Does it help?](../README.md#does-it-help)).
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://open.margincode.dev/demo)
 
@@ -255,8 +257,13 @@ Measured so far (details in `bench/README.md` and `bench/retrieval/`): offline, 
 six public repositories (E1), the first pack names the files a fix touches best of all methods
 (0.96–0.98), and since BM25 and rank fusion went in it also shows more of the changed symbols' 
 signatures than BM25 over symbols at 4k and 8k tokens (0.73 vs 0.64 at 4k; level at 2k). With Claude Haiku on a
-25-file Python project (E3; the shipped run, 40 sessions per arm), av took about 13 % fewer turns at equal cost; wall time
-was 2.3 % lower (the cost and wall-time intervals both contain zero). Merges are fuzzed (E2): about 1,700 random
+25-file Python project (E3, October 2026; the shipped run, 40 sessions per arm), av took about 13 % fewer turns at equal cost; wall time
+was 2.3 % lower (the cost and wall-time intervals both contain zero). On the openevaluations
+tracker's run of 2026-11-20, on the same four tasks and model, release 0.0.2 cost more than plain
+Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too few for a claim. In that run
+every session was stopped once after its final answer and asked to record what it had changed, and
+its first record was refused for length. Both are changed on `main` and are in no release yet
+([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)). Merges are fuzzed (E2): about 1,700 random
 cases of concurrent edits, conflicts and reverts, each result checked against a line model and
 `git merge-tree`, lost no work and reported no false conflict or false clean merge. Not yet
 measured: larger repositories. In a relay test (E4, 90 sessions on

@@ -290,15 +290,99 @@ fn record_with_anchor_flag_parses_path_and_symbol() {
         md.contains("anchors: README.md, app/greeter.py:Greeter.hello"),
         "anchors are listed in path order:\n{md}"
     );
-    let bad = av(
+}
+
+/// The record `av record` printed as stored, as `av expand` shows it in full.
+fn expanded(d: &Daemon, ws: &Path, stdout: &str) -> String {
+    ok(av(d, ws, &["expand", &recorded_handle(stdout)]))
+}
+
+#[test]
+fn record_fits_an_overlong_summary_and_keeps_the_whole_text_in_body() {
+    let (d, ws, _scratch) = started();
+    let long = format!(
+        "Shout the greeting in hello so callers see it. {}",
+        "It also keeps the name as given. ".repeat(10)
+    );
+    let n = long.chars().count();
+    let o = av(
         &d,
         &ws,
-        &["record", "--kind", "note", "--summary", &"x".repeat(201)],
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            &long,
+            "--body",
+            "Why: louder.",
+        ],
     );
+    assert!(o.status.success(), "{}", err(&o));
+    let line = format!("av: records[0]: summary was {n} chars, kept ");
+    assert!(err(&o).starts_with(&line), "{}", err(&o));
+    assert!(err(&o).contains("the whole text is in body"), "{}", err(&o));
+    assert_eq!(err(&o).lines().count(), 1, "{}", err(&o));
+    // `av expand` indents each line of the body
+    let full = expanded(&d, &ws, &out(&o));
     assert!(
-        !bad.status.success() && err(&bad).contains("201"),
+        full.contains(&format!("\n  {long}\n  \n  Why: louder.")),
+        "{full}"
+    );
+
+    let items = format!(
+        r#"[{{"kind": "decision", "summary": "fits"}},
+            {{"kind": "attempt", "summary": "{}", "body": "it broke"}}]"#,
+        "word ".repeat(50)
+    );
+    let o = av_stdin(&d, &ws, &["record", "--json", "-"], &items);
+    assert!(o.status.success(), "{}", err(&o));
+    assert_eq!(out(&o).matches("recorded rec:").count(), 2, "{}", out(&o));
+    assert!(
+        err(&o).starts_with("av: records[1]: summary was 250 chars, kept 200;"),
         "{}",
-        err(&bad)
+        err(&o)
+    );
+    let second = out(&o).lines().nth(1).unwrap().to_owned();
+    let full = expanded(&d, &ws, &second);
+    assert!(
+        full.contains(&format!("\n  {}\n  \n  it broke", "word ".repeat(50))),
+        "{full}"
+    );
+
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    let spec = format!("decision: {} @ app/greeter.py", "x".repeat(230));
+    let o = av(&d, &ws, &["submit", "--record", &spec]);
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(
+        err(&o).starts_with("av: records[0]: summary was 230 chars, kept 200;"),
+        "{}",
+        err(&o)
+    );
+    assert!(out(&o).contains("recorded 1"), "{}", out(&o));
+
+    let finding = format!("{}|app/greeter.py:Greeter.hello|", "y ".repeat(120));
+    let o = av_as(
+        &d,
+        &ws,
+        "rev",
+        &[
+            "review",
+            "--verdict",
+            "request-changes",
+            "--finding",
+            &finding,
+        ],
+    );
+    assert!(o.status.success(), "{}", err(&o));
+    assert!(
+        err(&o).starts_with("av: findings[0]: summary was 240 chars, kept 200;"),
+        "{}",
+        err(&o)
     );
 }
 
@@ -375,28 +459,19 @@ fn record_json_writes_every_record() {
 fn record_json_checks_every_item_before_sending_any() {
     let (d, ws, _scratch) = started();
     let items = format!(
-        r#"[{{"kind": "decision", "summary": "first fine record"}},
-            {{"kind": "note", "summary": "{}"}}]"#,
-        "y".repeat(201)
+        r#"[{{"kind": "decision", "summary": "{}"}},
+            {{"kind": "idea", "summary": "x"}}]"#,
+        "first fine record ".repeat(15)
     );
     let o = av_stdin(&d, &ws, &["record", "--json", "-"], &items);
-    let e = err(&o);
-    assert!(
-        !o.status.success() && e.contains("records[1]") && e.contains("201"),
-        "{e}"
-    );
-    let bad_kind = r#"[{"kind": "decision", "summary": "fine"}, {"kind": "idea", "summary": "x"}]"#;
-    let o = av_stdin(&d, &ws, &["record", "--json", "-"], bad_kind);
     let e = err(&o);
     assert!(
         !o.status.success() && e.contains("records[1]") && e.contains("idea"),
         "{e}"
     );
+    assert!(!e.contains("whole text"), "nothing was fitted: {e}");
     let md = ok(av(&d, &ws, &["context", "--budget", "3000"]));
-    assert!(
-        !md.contains("first fine record") && !md.contains("decision: fine"),
-        "nothing was sent: {md}"
-    );
+    assert!(!md.contains("first fine record"), "nothing was sent: {md}");
 }
 
 fn recorded_handle(line: &str) -> String {
@@ -1479,6 +1554,47 @@ fn hook_session_start_prints_a_small_pack() {
     let (d, ws, _scratch) = started();
     let pack = ok(av(&d, &ws, &["hook", "session-start"]));
     assert!(pack.contains("## Task") && pack.contains("/800"), "{pack}");
+}
+
+#[test]
+fn hook_session_start_asks_for_the_record_before_the_final_message() {
+    let (d, ws, _scratch) = started();
+    let printed = ok(av(&d, &ws, &["hook", "session-start"]));
+    let at = printed
+        .find("\nav: before your final message")
+        .unwrap_or_else(|| panic!("{printed}"));
+    assert!(
+        printed.find("## Task").unwrap() < at,
+        "after the pack: {printed}"
+    );
+    let line = printed[at + 1..].lines().next().unwrap();
+    // with only `attempt` named, agents invented a kind ("fix", "change");
+    // a symbol anchor alone missed a changed constant beside the function, and a file anchor
+    // alone ranks lower for a later task on that function
+    assert!(
+        line.contains("in one call")
+            && line.contains("av record --json -")
+            && line.contains(&format!("≤ {} chars", margincode_core::MAX_SUMMARY_CHARS))
+            && line.contains("Kinds: decision, note, attempt")
+            && line.contains("\"anchors\": [\"src/app.py:changed_fn\", \"src/app.py\"]")
+            && line.contains("each symbol you changed plus its file's bare path")
+            && line.ends_with("Otherwise your stop is blocked to ask for it."),
+        "{line}"
+    );
+    assert!(line.split_whitespace().count() < 60, "{line}");
+    assert!(!line.contains("margincode"), "{line}");
+    // the example is what `av record --json -` takes, as written
+    let example = &line[line.find("[{").unwrap()..line.find("}]").unwrap() + 2];
+    assert!(example.contains("\"kind\": \"decision\""), "{example}");
+    let o = av_stdin(&d, &ws, &["record", "--json", "-"], example);
+    assert!(o.status.success(), "{example}: {}", err(&o));
+    let no_pack = av_with("http://127.0.0.1:1", &ws, &["hook", "session-start"]);
+    assert!(no_pack.status.success(), "{}", err(&no_pack));
+    assert!(
+        !out(&no_pack).contains("before your final message"),
+        "{}",
+        out(&no_pack)
+    );
 }
 
 #[test]
@@ -3216,6 +3332,20 @@ fn hook_stop_asks_for_records_before_it_keeps_the_agent_busy() {
             margincode_core::MAX_SUMMARY_CHARS
         )),
         "{v}"
+    );
+    // one record call, then a one-line end, not the answer written a second time
+    let reason = v["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("in one call")
+            && reason.contains("Then end your turn in a line; do not recap.")
+            && reason.contains("say so and stop"),
+        "{reason}"
+    );
+    // 408 chars for these names before it asked for a one-line end
+    assert!(
+        reason.chars().count() <= 408,
+        "no longer than before ({} chars): {reason}",
+        reason.chars().count()
     );
     let second = stop_with(&d, &ws, &env, "cc-1", true);
     let v: serde_json::Value = serde_json::from_str(&out(&second)).unwrap();

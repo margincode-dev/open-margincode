@@ -124,9 +124,27 @@ fn print_pack(
         query.push(("max_code", n.as_str()));
     }
     match client.get(&format!("/v1/tasks/{}/context", tf.task), &query) {
-        Ok(pack) => println!("{}", pack["markdown"].as_str().unwrap_or_default()),
+        Ok(pack) => {
+            println!("{}", pack["markdown"].as_str().unwrap_or_default());
+            println!("{}", record_first());
+        }
         Err(e) => eprintln!("av: hook session-start: {e}"),
     }
+}
+
+/// Asked for up front because the Stop hook's request comes after the agent's final message,
+/// which it then writes again. The kinds are named because agents invented one ("fix"). Both
+/// anchors: the symbol ranks the record for a later task on it, and the file's path satisfies
+/// the Stop check for the rest of the file (`flow::coverage`), which a symbol alone missed (a
+/// changed constant).
+fn record_first() -> String {
+    format!(
+        "av: before your final message, record why you changed code in one call: \
+         `av record --json -` with [{{\"kind\": \"decision\", \"summary\": \"why, ≤ \
+         {MAX_SUMMARY_CHARS} chars\", \"anchors\": [\"src/app.py:changed_fn\", \"src/app.py\"]}}]. \
+         Kinds: decision, note, attempt (dead end). Anchor each symbol you changed plus its \
+         file's bare path (it covers the rest). Otherwise your stop is blocked to ask for it."
+    )
 }
 
 /// `<ws_root>/<repo>/.scratch/<slug>` for the task workspace `dir`, created. `None` when `dir`
@@ -781,10 +799,10 @@ fn nudge_to_record(
     }
     let reason = format!(
         "av: no record explains your changes to {names}. Record why in one call so the next \
-         agent does not redo or undo it: `av record --json -` with a list of {{kind, summary, \
-         anchors}} (summary ≤ {MAX_SUMMARY_CHARS} chars; the rest goes in body), or `av submit --record \"decision: ... @ path:Symbol\"` if you are done. \
-         Use kind attempt for anything you tried that failed. If nothing is worth recording, \
-         say so and stop."
+         agent does not redo or undo it: `av record --json -` with [{{kind, summary, anchors}}] \
+         (summary ≤ {MAX_SUMMARY_CHARS} chars, rest in body; kind attempt for a dead end), or \
+         `av submit --record \"decision: ... @ path:Symbol\"` if done. Then end your turn in a \
+         line; do not recap. If nothing is worth recording, say so and stop."
     );
     println!("{}", json!({"decision": "block", "reason": reason}));
     true

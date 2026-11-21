@@ -55,7 +55,7 @@ agent.
 Claude Code and Grok Build get hooks, so they know to keep taking jobs. Codex, Gemini CLI and
 Cursor Agent do not have hooks. For those, offer to add the block under "Instructions for agents
 without hooks" from
-https://raw.githubusercontent.com/vinhqbui/scholion/main/integrations/agents-instructions.md
+https://raw.githubusercontent.com/margincode-dev/open-margincode/main/integrations/agents-instructions.md
 to the repository's `AGENTS.md` (Codex, Cursor) or `GEMINI.md` (Gemini). Ask before you
 edit those files.
 

@@ -19,7 +19,12 @@ where it did not help); a later tracker run found release 0.0.2 costing more
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://open.margincode.dev/demo)
 
-**New in 0.0.3:** agents can propose backlog items for a person to accept, `av attention` lists
+**New in 0.0.4:** agents can correct a stored record (`av record --supersedes`), packs say when a
+record comes from reverted, abandoned or open work, `av dream` and `av verdict` give records a
+second look (a verdict takes effect once a verify run or a person agrees), `av record` cuts an
+overlong summary to fit, `av init --for antigravity` connects Google's Antigravity CLI, and
+`av diff --check` attests a docs-only change. It is the first release from this repository.
+**In 0.0.3:** agents can propose backlog items for a person to accept, `av attention` lists
 what needs a person or an agent, `av repo advance` takes main back from the remote, `av notes`
 puts a task's records on its pull request, `--mine-history N` turns a repo's git history into
 records on day one, and the dashboard is redesigned. **Since 0.0.2: one backlog for all your
@@ -29,7 +34,7 @@ fits it, another agent reviews it, and the reviewer merges what it approves.
 Flash for about $0.03; it shows the loop working, not token savings. What changed:
 [CHANGELOG.md](../CHANGELOG.md).
 
-**Ask Claude to set it up**: `claude plugin marketplace add vinhqbui/scholion`, then `claude plugin
+**Ask Claude to set it up**: `claude plugin marketplace add margincode-dev/open-margincode`, then `claude plugin
 install margincode@margincode`, then say *"set up Margincode for this repo"* (`/margincode:setup`; `/margincode:team`
 for several agents, `/margincode:doctor` when something is broken). The skills are in
 `integrations/claude-code/plugin/`.
@@ -37,14 +42,14 @@ for several agents, `/margincode:doctor` when something is broken). The skills a
 **Try it by hand** (no Docker: the daemon runs its own Postgres; Linux and macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/margincode-dev/open-margincode/main/scripts/install.sh | sh
 cd your-repo && av init                          # daemon up, this repo added, Claude Code wired
 av init --for codex --for gemini --for grok --for cursor   # the same MCP server for other agents
 ```
 
 Then watch your agents at `http://localhost:7420/ui`. The installer puts `margincode`, `av` and
 `margincode-daemon` into `~/.local/bin` from the
-[releases page](https://github.com/vinhqbui/scholion/releases). The full stack with semantic search
+[releases page](https://github.com/margincode-dev/open-margincode/releases). The full stack with semantic search
 (Docker; the first build compiles the daemon, so give it a few minutes):
 
 ```bash
@@ -262,7 +267,7 @@ was 2.3 % lower (the cost and wall-time intervals both contain zero). On the ope
 tracker's run of 2026-11-20, on the same four tasks and model, release 0.0.2 cost more than plain
 Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too few for a claim. In that run
 every session was stopped once after its final answer and asked to record what it had changed, and
-its first record was refused for length. Both are changed on `main` and are in no release yet
+its first record was refused for length. Both are changed in release 0.0.4
 ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)). Merges are fuzzed (E2): about 1,700 random
 cases of concurrent edits, conflicts and reverts, each result checked against a line model and
 `git merge-tree`, lost no work and reported no false conflict or false clean merge. Not yet

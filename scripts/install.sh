@@ -1,16 +1,16 @@
 #!/bin/sh
 # Installs the prebuilt `margincode` CLI, its alias `av` and `margincode-daemon` from a GitHub release:
 #
-#   curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/margincode-dev/open-margincode/main/scripts/install.sh | sh
 #
-# MARGINCODE_VERSION   a release tag (`release/0.0.1`, `v0.1.0`); default: the newest release,
+# MARGINCODE_VERSION   a release tag (`release/0.0.4`, `v0.1.0`); default: the newest release,
 #                    pre-releases included
 # MARGINCODE_INSTALL_DIR  where the binaries go; default: ~/.local/bin
 #
 # `av init` in a git repository then starts the daemon with its own Postgres (lite mode).
 set -eu
 
-repo=vinhqbui/scholion
+repo=margincode-dev/open-margincode
 dir=${MARGINCODE_INSTALL_DIR:-${SCHOLION_INSTALL_DIR:-$HOME/.local/bin}}
 
 say() { printf 'margincode install: %s\n' "$*" >&2; }
@@ -43,8 +43,9 @@ base="https://github.com/$repo/releases/download/$tag"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-# Releases up to 0.0.3 were made under the project's earlier name: their archive and binaries
-# carry it. Such a release still installs, with `margincode` as the name of its CLI.
+# Releases up to 0.0.3 were made under the project's earlier name, in vinhqbui/scholion, which
+# this script does not read. An archive and binaries that carry that name still install, with
+# `margincode` as the name of the CLI.
 name="margincode-$ver-$target"
 old=
 say "downloading $name ($tag)"
@@ -80,5 +81,5 @@ case ":$PATH:" in
     *) say "$dir is not on PATH; add it, e.g.: export PATH=\"$dir:\$PATH\"" ;;
 esac
 say "next: cd into a git repository and run: av init"
-say "or, in Claude Code: claude plugin marketplace add vinhqbui/scholion && claude plugin install margincode@margincode, then ask Claude to set up Margincode"
-say "if Margincode helps, a star helps others find it: https://github.com/vinhqbui/scholion"
+say "or, in Claude Code: claude plugin marketplace add margincode-dev/open-margincode && claude plugin install margincode@margincode, then ask Claude to set up Margincode"
+say "if Margincode helps, a star helps others find it: https://github.com/margincode-dev/open-margincode"

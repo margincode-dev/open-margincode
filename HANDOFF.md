@@ -5,11 +5,11 @@ Delete this once you've acted on the open items. It links; the detail lives in t
 ## 0. Since 2026-11-12: the project is Margincode, and this repository is its new home
 
 The project was Scholion until 2026-11-12. This repository, `margincode-dev/open-margincode`,
-continues `vinhqbui/scholion` with its whole history; the old one still holds the releases, the
-issues and the pull-request discussions. `CLAUDE.md` ("What this is") says which names were kept
-on purpose.
+continues `vinhqbui/scholion` with its whole history; the old one still holds releases 0.0.1 to
+0.0.3, the issues and the pull-request discussions. `CLAUDE.md` ("What this is") says which
+names were kept on purpose.
 
-Landed on `main` with the move (detail in `CHANGELOG.md`, `Unreleased`):
+Landed on `main` with the move (detail in `CHANGELOG.md`, `0.0.4`):
 
 - correctable records (`av record --supersedes`), review follow-ups, and the summary limit said
   before an agent writes;
@@ -39,7 +39,7 @@ Measured since (2026-11-14 to 2026-11-18; each directory's README has the number
   against raw 91 of 100, disjoint by a thin margin, and all of the gap on the one task closest to
   the fitted notes; raw had no room on the other four.
 
-Built since and merged into `main` (#65; `CHANGELOG.md`, `Unreleased`): `av dream
+Built since and merged into `main` (#65; `CHANGELOG.md`, `0.0.4`): `av dream
 --budget-usd`, `--also-read DIR` and `--every D`; Ctrl-C ends a dream's agent too; the `promote`
 verdict (with `av dream --promote` a dream proposes a decision as a convention, and only `av
 verdict accept` under a name the daemon does not know as an agent gives it effect; migration
@@ -76,7 +76,11 @@ Next:
 3. **M0 on a second model.** Done on Claude Sonnet 5.5 (amendment 2, 2026-11-19, primary pair
    only): `av-phase0` 30 of 30 against `av-before` 10 of 30, disjoint (0.886 to 1.000 against
    0.192 to 0.512), so Phase 0 helps on both models; no `cold`, `notes` or guard ran on Sonnet.
-4. **The first release here** (`release/0.0.4`): see "Release tags" below.
+4. **The first release here**, `release/0.0.4` (2026-11-21): the version, the changelog and the
+   install paths (`scripts/install.sh`, the binstall metadata, the image
+   `ghcr.io/margincode-dev/open-margincode`, the Homebrew tap, the plugin command, the docs and the
+   site) point at this repository. Left: `Formula/margincode.rb`'s version and sums, once the
+   release's archives exist. See "Release tags" below.
 5. **Antigravity (`agy`) as one more agent** (the owner, 2026-11-19). Landed: `av init --for
    antigravity` writes `mcpServers.av` (`url`, and `headers` with `X-Av-Agent: antigravity` and,
    with `AV_TOKEN`, the literal bearer token; 2026-11-20, after `agy mcp add --help` showed
@@ -100,9 +104,10 @@ Left open on purpose:
   daemon change and architecture review are on `main` (#3, #137), and its shorter `CLAUDE.md` was
   redone on the current one (module detail word for word in `docs/architecture.md`).
   `wrong-lesson-cell`'s files are all on `main` (squashed in earlier); both branches were deleted.
-- **Release tags** are not here yet, and there is no release: `scripts/install.sh`, the README,
-  the Docker image and the plugin command still name the old repository on purpose. Point them
-  here with the first release (`release/0.0.4`).
+- **Release tags** start here with `release/0.0.4`, the first release from this repository:
+  `scripts/install.sh`, the README, the Docker image and the plugin command name
+  `margincode-dev/open-margincode`. The old repository still holds releases 0.0.1 to 0.0.3, its
+  issues and its pull-request discussions.
 - `scripts/install.sh` was syntax-checked only after the rename; `site/og.png` and the
   `demo-replay.png` images were not regenerated.
 
@@ -111,7 +116,7 @@ say otherwise.
 
 ## 1. Merged
 
-All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section, `0.0.3` and `0.0.2`).
+All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section, `0.0.4`, `0.0.3` and `0.0.2`).
 
 - **Plan 7**, overlay index scopes: `bench/results/2026-10-30-e2-overlay/`.
 - **Plan 8**, routing (backlog, agent profiles, `av next`) and **Plan 9**, the review loop (`next`
@@ -131,6 +136,8 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
 - **Release 0.0.2** (tag `release/0.0.2`), the first to ship `margincode-daemon` with bundled Postgres.
 - **Release 0.0.3** (tag `release/0.0.3`, 2026-11-06): proposals, `av attention`, `av repo advance`, `av notes`, cold start
   from git history, `embeddinggemma-2` as the default embedder, one approval per head and the redesigned dashboard.
+- **Release 0.0.4** (tag `release/0.0.4`, 2026-11-21), the first from this repository: correctable records, a record's
+  standing, dreams and verdicts, `av init --for antigravity`, and the rename to Margincode.
 
 ## 2. Open
 

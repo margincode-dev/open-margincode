@@ -1,6 +1,6 @@
 name: image
 
-# Builds ghcr.io/vinhqbui/scholion on each release tag (the same tags as release.yml) and pushes it as
+# Builds ghcr.io/margincode-dev/open-margincode on each release tag (the same tags as release.yml) and pushes it as
 # <version> and latest. Not built on pull requests. Uses the built-in GITHUB_TOKEN only.
 
 on:
@@ -18,7 +18,7 @@ permissions:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
-  IMAGE: ghcr.io/vinhqbui/scholion
+  IMAGE: ghcr.io/margincode-dev/open-margincode
 
 jobs:
   image:

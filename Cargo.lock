@@ -2685,7 +2685,7 @@ checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
 name = "margincode-agentrun"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "serde_json",
  "tempfile",
@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-bench"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "axum 0.8.9",
  "clap",
@@ -2719,7 +2719,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-cli"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "axum 0.8.9",
  "chrono",
@@ -2745,7 +2745,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2758,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-daemon"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -2791,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-index"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "margincode-core",
@@ -2812,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-pack"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-semantic"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-store"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2866,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-testutil"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "postgresql_embedded",
  "sqlx 0.8.6",
@@ -2877,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "margincode-vcs"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "async-trait",
  "flate2",

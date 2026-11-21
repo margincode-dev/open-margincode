@@ -174,8 +174,13 @@ the suspected cause, marked as a guess; the status.
   ("A preview with name 'av/antigravity-init' already exists"), 40 s after the build started; a
   new build of the same commit from the branch's trigger passed and the PR was merged after it.
   The previews of #78 and #80 to #83 passed on their first build.
-- **Status.** Open, seen twice. When it shows, start a new build from the trigger
-  rather than merging on a red check.
+- **Seen again.** #93 and #94, 2026-11-21: the Workers Builds check failed on both branches. Both
+  were merged before it had passed, against this entry's own advice: #93 while no check had
+  reported, #94 while the state was unstable. The production builds of `main` after each merge
+  (`5b9bb65`, `6945ee0`) passed. The branch builds' logs were not read, so it is not confirmed that
+  the cause was the same "already exists" race.
+- **Status.** Open, seen twice, and two more failed checks whose cause is not confirmed. When it
+  shows, start a new build from the trigger rather than merging on a red check.
 
 ## 2026-11-19: reclaim retried every tick on a workspace it could not delete
 

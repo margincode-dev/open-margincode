@@ -6,8 +6,8 @@
     "name": "VINH BUI",
     "url": "https://github.com/vinhqbui"
   },
-  "homepage": "https://github.com/vinhqbui/scholion",
-  "repository": "https://github.com/vinhqbui/scholion",
+  "homepage": "https://github.com/margincode-dev/open-margincode",
+  "repository": "https://github.com/margincode-dev/open-margincode",
   "license": "MIT",
   "keywords": ["agents", "memory", "version-control", "mcp", "backlog"]
 }

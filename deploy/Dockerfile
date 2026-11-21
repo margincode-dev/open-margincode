@@ -4,7 +4,7 @@
 #
 # Two ways to run the image:
 #   * compose (deploy/docker-compose.yml): Postgres is a separate container, `AV_DATABASE_URL` is set.
-#   * alone, lite mode: `docker run -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/vinhqbui/scholion`
+#   * alone, lite mode: `docker run -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/margincode-dev/open-margincode`
 #     with no `AV_DATABASE_URL`, so the daemon runs its own Postgres under $AV_HOME/pg (/data/pg).
 FROM rust:1.97.1-bookworm AS build
 WORKDIR /src

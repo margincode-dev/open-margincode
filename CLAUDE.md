@@ -12,8 +12,9 @@ decisions, attempts (dead ends) and notes are records anchored to code; a determ
 token-budgeted context pack hands any agent what it needs. CLI `margincode`, alias `av` (same
 program); env vars keep the `AV_` prefix. Design: `docs/superpowers/specs/2026-10-18-agentvcs-design.md`;
 plans in `docs/superpowers/plans/` (their checkboxes and signatures lag the code; where each plan
-stands is in `docs/architecture.md`). Current release: `release/0.0.3` (`CHANGELOG.md`; add an
-`## Unreleased` entry for user-visible changes). The repository is `margincode-dev/open-margincode`.
+stands is in `docs/architecture.md`). Current release: `release/0.0.4`, the first from this
+repository (`CHANGELOG.md`; add an `## Unreleased` entry for user-visible changes). The repository
+is `margincode-dev/open-margincode`; `vinhqbui/scholion` holds releases 0.0.1 to 0.0.3.
 
 The project was Scholion until 2026-11-12 (crates `scholion-*`), and before that `agentvcs` (crates
 `av-*`). The spec, `docs/superpowers/` (file names too), `bench/results/`, `bench/tasks-scholion` and

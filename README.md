@@ -12,10 +12,15 @@ picks it up from the brief, Gemini reviews it, and the reviewer merges.
 *σχόλιον (margincode): a note written in the margin of a manuscript. Margincode keeps notes in the
 margins of your code, so your AI agents stop forgetting.*
 
-[![GitHub stars](https://img.shields.io/github/stars/vinhqbui/scholion?style=social)](https://github.com/vinhqbui/scholion/stargazers)
-[![CI](https://github.com/vinhqbui/scholion/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vinhqbui/scholion/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/margincode-dev/open-margincode?style=social)](https://github.com/margincode-dev/open-margincode/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/vinhqbui/scholion?include_prereleases)](https://github.com/vinhqbui/scholion/releases)
+[![Release](https://img.shields.io/github/v/release/margincode-dev/open-margincode?include_prereleases)](https://github.com/margincode-dev/open-margincode/releases)
+
+**New in 0.0.4:** agents can correct a stored record (`av record --supersedes`), packs say when a
+record comes from reverted, abandoned or open work, `av dream` and `av verdict` give records a
+second look, and `av init --for antigravity` connects Google's Antigravity CLI. It is the first
+release from this repository; `av` and the `AV_` variables are unchanged
+([changelog](CHANGELOG.md)).
 
 ## A short story
 
@@ -66,8 +71,8 @@ Measured so far, including where it didn't help:
 - On the openevaluations tracker's run of 2026-11-20, on the same four tasks and model, release
   0.0.2 cost more than plain Claude Code: $0.0679 against $0.0540 for a leg of 12 sessions, too
   few for a claim. In that run every session was stopped once after its final answer and asked to
-  record what it had changed, and its first record was refused for length. Both are changed on
-  `main` and are in no release yet
+  record what it had changed, and its first record was refused for length. Both are changed in
+  release 0.0.4
   ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md)).
 - When one agent's lessons were passed on to the next, cost per solved task dropped by about
   **42 %**, and 30 of 30 tasks were solved instead of 18. Margincode did as well as a hand-written
@@ -83,7 +88,7 @@ Measured so far, including where it didn't help:
 **The easy way: ask Claude.** Add the Margincode plugin to Claude Code once:
 
 ```bash
-claude plugin marketplace add vinhqbui/scholion
+claude plugin marketplace add margincode-dev/open-margincode
 claude plugin install margincode@margincode
 ```
 
@@ -95,7 +100,7 @@ that isn't working.
 **By hand** (Linux, macOS on Apple silicon, or Windows through WSL):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vinhqbui/scholion/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/margincode-dev/open-margincode/main/scripts/install.sh | sh
 cd your-repo && av init                       # starts Margincode, adds this repo, connects Claude Code
 av init --for codex --for gemini --for cursor # the same for other agents (also grok, antigravity)
 ```
@@ -116,16 +121,16 @@ single steps. We have not benchmarked this; it is what the project itself is bui
 Other channels ([details](docs/install.md)):
 
 ```bash
-cargo binstall --git https://github.com/vinhqbui/scholion margincode-cli   # prebuilt, no compile
-brew tap vinhqbui/scholion https://github.com/vinhqbui/scholion && brew install margincode
-docker run -d -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/vinhqbui/scholion
+cargo binstall --git https://github.com/margincode-dev/open-margincode margincode-cli   # prebuilt, no compile
+brew tap margincode-dev/open-margincode https://github.com/margincode-dev/open-margincode && brew install margincode
+docker run -d -p 127.0.0.1:7420:7420 -e AV_LISTEN_OPEN=1 -v margincode:/data ghcr.io/margincode-dev/open-margincode
 ```
 
 ## ⭐ If it helps, star it
 
 Margincode is a small open-source project. If it saved your agents a re-read, a
-[star](https://github.com/vinhqbui/scholion/stargazers) is how other people find it.
-Bugs and ideas are welcome in [issues](https://github.com/vinhqbui/scholion/issues).
+[star](https://github.com/margincode-dev/open-margincode/stargazers) is how other people find it.
+Bugs and ideas are welcome in [issues](https://github.com/margincode-dev/open-margincode/issues).
 
 ## Learn more
 

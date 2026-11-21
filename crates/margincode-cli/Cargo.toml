@@ -1,6 +1,6 @@
 [package]
 name = "margincode-cli"
-version = "0.0.3"
+version = "0.0.4"
 edition.workspace = true
 publish.workspace = true
 
@@ -43,7 +43,7 @@ tokio.workspace = true
 # The tag is `release/<version>`; the archive holds one directory `margincode-v<version>-<target>/`
 # with margincode, av and margincode-daemon. Windows ships a zip with the CLI only.
 [package.metadata.binstall]
-pkg-url = "https://github.com/vinhqbui/scholion/releases/download/release/{ version }/margincode-v{ version }-{ target }.{ archive-format }"
+pkg-url = "https://github.com/margincode-dev/open-margincode/releases/download/release/{ version }/margincode-v{ version }-{ target }.{ archive-format }"
 bin-dir = "margincode-v{ version }-{ target }/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 

@@ -71,7 +71,7 @@ the token: after changing it, run `av init --for antigravity` again. For `claude
 
 Collect `av --version`, `uname -sm`, the failing command with its full output, and the end of
 `daemon.log`. Remove any token or key before you show them. Suggest opening an issue at
-https://github.com/vinhqbui/scholion/issues with that information.
+https://github.com/margincode-dev/open-margincode/issues with that information.
 
 The full reference is at
-https://github.com/vinhqbui/scholion/blob/main/docs/reference.md.
+https://github.com/margincode-dev/open-margincode/blob/main/docs/reference.md.

@@ -7,6 +7,39 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-21: the installer and the formula install on a glibc that is too old
+
+- **Where.** `brew install margincode` from the 0.0.4 formula in the `homebrew/brew` image
+  (Ubuntu 22.04, glibc 2.35).
+- **Seen.** The archive's sum matched and the three binaries were linked; `margincode --version`
+  then stopped with ``version `GLIBC_2.39' not found``. `scripts/install.sh` makes no check
+  either. On Ubuntu 24.04 (glibc 2.39) both work.
+- **Status.** Open; `docs/install.md` now states the requirement. The installer could read
+  `ldd --version` and say so before it downloads.
+
+## 2026-11-21: a local build of the lite image fails with 401 when no token is given
+
+- **Where.** `deploy/Dockerfile`, built by hand with
+  `--build-arg FEATURES=margincode-daemon/bundled-postgres` and no `github_token` secret
+  (Docker 29.9.3, buildx 0.38.1), at the 0.0.4 release commit.
+- **Seen.** `postgresql_embedded`'s build script stops with "401 Unauthorized" from
+  `api.github.com/repos/theseus-rs/postgresql-binaries/releases`. The same `cargo build` in a
+  `rust:1.97.1` container started with `docker run`, with no token at all, passes.
+- **Cause.** `--mount=type=secret,id=github_token,env=GITHUB_TOKEN,required=false` sets
+  `GITHUB_TOKEN` to an empty string when the secret is absent (a three-line Dockerfile shows
+  "set, length 0"), and the build script sends the empty token.
+- **Not affected.** `image.yml` passes the secret, so the published image builds; Compose
+  builds without the feature.
+- **Status.** Open. Unsetting an empty `GITHUB_TOKEN` before `cargo build` would do.
+
+## 2026-11-21: `margincode-daemon --version` starts a daemon
+
+- **Where.** The 0.0.4 archive, in the release's install check.
+- **Seen.** `margincode-daemon --version` printed "lite mode: embedded postgres started" and
+  "margincode-daemon ready", and was still running when `timeout 25` ended it: the daemon reads
+  no arguments. `margincode --version` and `av --version` print the version.
+- **Status.** Open.
+
 ## 2026-11-21: a file whose line endings changed lists every symbol of the file as changed
 
 - **Where.** `GET /v1/tasks/{id}/unrecorded` (so the Stop hook's block and `av submit`'s

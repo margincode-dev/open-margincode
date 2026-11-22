@@ -12,7 +12,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use margincode_core::{Advance, AvError, BackupState, Result};
+use margincode_core::{Advance, AvError, BackupState, Result, without_credentials};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -53,7 +53,10 @@ pub(crate) async fn run_backup(st: &AppState, repo: &str) -> Result<BackupState>
                 "not advancing trunk: it and the remote's {ADVANCE_BRANCH} have diverged"
             ),
             Ok(_) => {}
-            Err(e) => tracing::warn!(%repo, error = %e, "advancing trunk before the backup failed"),
+            Err(e) => tracing::warn!(
+                %repo, error = %without_credentials(&e.to_string()),
+                "advancing trunk before the backup failed"
+            ),
         }
     }
     match st
@@ -63,9 +66,10 @@ pub(crate) async fn run_backup(st: &AppState, repo: &str) -> Result<BackupState>
     {
         Ok(pushed) => st.pg.backup_succeeded(repo, &pushed).await,
         Err(e) => {
-            tracing::warn!(%repo, error = %e, "backup push failed");
+            let error = without_credentials(&e.to_string());
+            tracing::warn!(%repo, %error, "backup push failed");
             st.pg
-                .backup_failed(repo, &e.to_string(), backoff(state.failures + 1))
+                .backup_failed(repo, &error, backoff(state.failures + 1))
                 .await
         }
     }
@@ -99,11 +103,19 @@ pub async fn start_backups(st: &AppState, remotes: &[(String, String)]) -> Resul
     st.pg.mark_backups_due().await
 }
 
+/// `state` as clients see it: no credentials in the remote or the last error, also when an older
+/// daemon stored them.
+pub(crate) fn shown(mut state: BackupState) -> BackupState {
+    state.remote = state.remote.as_deref().map(without_credentials);
+    state.last_error = state.last_error.as_deref().map(without_credentials);
+    state
+}
+
 pub(crate) async fn get_backup(
     State(st): State<AppState>,
     Path(repo): Path<String>,
 ) -> ApiResult<BackupState> {
-    Ok(Json(st.pg.backup_state(&repo).await?))
+    Ok(Json(shown(st.pg.backup_state(&repo).await?)))
 }
 
 #[derive(Deserialize)]
@@ -129,7 +141,10 @@ pub(crate) async fn set_backup(
     if let Some(r) = remote
         && (r.starts_with('-') || r.starts_with("ext::"))
     {
-        return Err(AvError::Invalid(format!("{r:?} is not a remote git may push to")).into());
+        return Err(AvError::Invalid(without_credentials(&format!(
+            "{r:?} is not a remote git may push to"
+        )))
+        .into());
     }
     if let Some(b) = &b.branch {
         margincode_core::check_backup_branch(b)?;
@@ -141,14 +156,14 @@ pub(crate) async fn set_backup(
     if state.remote.is_some() {
         spawn_backup(&st, &repo);
     }
-    Ok(Json(state))
+    Ok(Json(shown(state)))
 }
 
 pub(crate) async fn push_backup(
     State(st): State<AppState>,
     Path(repo): Path<String>,
 ) -> ApiResult<BackupState> {
-    Ok(Json(run_backup(&st, &repo).await?))
+    Ok(Json(shown(run_backup(&st, &repo).await?)))
 }
 
 /// The remote branch trunk advances from when none is named.
@@ -179,19 +194,6 @@ pub(crate) async fn advance_trunk(
         crate::build_cache::ensure_logged(st, repo).await;
     }
     Ok(outcome)
-}
-
-/// `remote` without a password or token in it (`https://user:token@host/x` gives
-/// `https://host/x`), for the event feed.
-fn without_credentials(remote: &str) -> String {
-    let Some((scheme, rest)) = remote.split_once("://") else {
-        return remote.to_owned();
-    };
-    let host_end = rest.find('/').unwrap_or(rest.len());
-    match rest[..host_end].rfind('@') {
-        Some(at) => format!("{scheme}://{}", &rest[at + 1..]),
-        None => remote.to_owned(),
-    }
 }
 
 #[derive(Deserialize, Default)]
@@ -249,22 +251,6 @@ fn short(hex: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn credentials_never_reach_the_feed() {
-        assert_eq!(
-            without_credentials("https://x:ghp_secret@github.com/o/r.git"),
-            "https://github.com/o/r.git"
-        );
-        for kept in [
-            "https://github.com/o/r.git",
-            "git@github.com:o/r.git",
-            "/srv/r.git",
-            "https://host/a@b",
-        ] {
-            assert_eq!(without_credentials(kept), kept);
-        }
-    }
 
     #[test]
     fn backoff_doubles_and_caps_at_300s() {

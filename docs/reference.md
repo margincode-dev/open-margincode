@@ -404,6 +404,10 @@ Several agents work against one daemon at once:
   after 1 s, 2 s, 4 s … up to 5 min, and `margincode status` / `margincode repo backup` show it. Credentials are the
   daemon's own: the host's in lite mode; in the Docker stack, a key you mount for it (SSH) or a path
   on a mount (see [Getting main to GitHub (self-hosted)](#getting-main-to-github-self-hosted)).
+  A remote URL may carry them (`https://user:token@host/r.git`): the push uses it as given, but
+  the user and token are taken out of every URL in the daemon's log lines, the stored last error,
+  the backup state that `GET /v1/repos/{name}/backup`, `GET /v1/tasks/{id}` and the MCP `status`
+  tool answer (the `remote` field too) and the feed, also for an error an older daemon stored.
   By default main is pushed to a branch of the same name; `margincode repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.

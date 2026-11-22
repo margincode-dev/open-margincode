@@ -1733,6 +1733,52 @@ async fn merge_succeeds_when_remote_unreachable_and_records_failure() {
     assert_eq!(status["backup"]["failures"], state["failures"], "{status}");
 }
 
+const CRED_REMOTE: &str = "https://user:s3cr3t-tok@127.0.0.1:1/r.git";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_push_stores_and_shows_no_credentials() {
+    let e = env().await;
+    let set = set_remote(&e, CRED_REMOTE).await;
+    let shown = settled(&e).await;
+    let stored = e.store.backup_state("demo").await.unwrap();
+    assert_eq!(
+        stored.remote.as_deref(),
+        Some(CRED_REMOTE),
+        "pushes still use the remote as given"
+    );
+    let error = stored.last_error.unwrap();
+    assert!(
+        error.contains("127.0.0.1:1") && !error.contains("s3cr3t-tok"),
+        "{error}"
+    );
+    for body in [set, shown] {
+        assert!(!body.to_string().contains("s3cr3t-tok"), "{body}");
+        assert_eq!(body["remote"], "https://127.0.0.1:1/r.git", "{body}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stored_backup_state_is_shown_without_credentials() {
+    let e = env().await;
+    // as an older daemon stored it: the token in the remote and in git's error
+    e.store
+        .set_backup_remote("demo", Some(CRED_REMOTE), None)
+        .await
+        .unwrap();
+    let error = format!("git [\"push\", \"--\", \"{CRED_REMOTE}\"]: fatal");
+    e.store
+        .backup_failed("demo", &error, std::time::Duration::from_secs(300))
+        .await
+        .unwrap();
+    let t = start_task(&e, "Improve greeting").await;
+    let task = task_json(&e, &t).await;
+    assert_eq!(task["backup"]["failures"], 1, "{task}");
+    for body in [backup(&e).await, task] {
+        assert!(body.to_string().contains("127.0.0.1:1"), "{body}");
+        assert!(!body.to_string().contains("s3cr3t-tok"), "{body}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn successful_retry_clears_failure_state_and_pushes_main() {
     let e = env().await;
@@ -1936,6 +1982,35 @@ async fn advance_fast_forwards_trunk_to_a_remote_commit_on_top_of_it() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["outcome"], "fast_forwarded", "{body}");
     assert_eq!(body["to"], next.as_str(), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trunk_advance_from_a_remote_with_credentials_keeps_them_out_of_the_feed() {
+    let e = env().await;
+    let dir = TempDir::new().unwrap();
+    let remote = origin_at_trunk(&e, dir.path());
+    let url = "https://user:s3cr3t-tok@example.invalid/origin.git";
+    let rewrite = format!("url.{}.insteadOf", remote.to_str().unwrap());
+    git(
+        &e._store.path().join("demo").join("git"),
+        &["config", &rewrite, url],
+    );
+    let landed = land_on_remote(&e, &remote, "app/farewell.py", FAREWELL);
+    let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["to"], landed.as_str(), "{body}");
+    let (_, events) = call(&e.app, "GET", "/v1/events?repo=demo&since=0", None).await;
+    let ev = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|ev| ev["kind"] == "trunk:advanced")
+        .unwrap_or_else(|| panic!("no trunk:advanced event: {events}"));
+    assert_eq!(
+        ev["payload"]["remote"], "https://example.invalid/origin.git",
+        "{ev}"
+    );
+    assert!(!events.to_string().contains("s3cr3t-tok"), "{events}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

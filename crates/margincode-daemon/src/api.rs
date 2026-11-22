@@ -638,7 +638,7 @@ async fn get_task(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult
     let changed = changed_for(&st, &task).await?;
     let merge = st.store.merge_state(task.id).await?;
     let verdict = st.store.latest_verdict(task.id, &task.head_change).await?;
-    let backup = st.pg.backup_state(&task.repo).await?;
+    let backup = crate::backup::shown(st.pg.backup_state(&task.repo).await?);
     Ok(Json(json!({
         "task": task, "record_count": record_count, "changed": changed, "merge": merge,
         "backup": backup,

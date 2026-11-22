@@ -1052,6 +1052,26 @@ async fn status_takes_a_slug() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn status_shows_no_backup_credentials() {
+    let e = env().await;
+    let remote = "https://user:s3cr3t-tok@127.0.0.1:1/r.git";
+    e.store
+        .set_backup_remote("demo", Some(remote), None)
+        .await
+        .unwrap();
+    let error = format!("git [\"push\", \"--\", \"{remote}\"]: fatal");
+    e.store
+        .backup_failed("demo", &error, std::time::Duration::from_secs(300))
+        .await
+        .unwrap();
+    let t = start_task(&e, "Improve greeting").await;
+    let s = connect(&e, "grok").await;
+    let out = text(&tool(&e, &s, "status", json!({"task_id": id(&t)})).await);
+    assert!(out.contains("127.0.0.1:1"), "{out}");
+    assert!(!out.contains("s3cr3t-tok"), "{out}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn review_task_takes_repo_slash_slug() {
     let e = env().await;
     let t = submitted(&e, "Improve greeting").await;

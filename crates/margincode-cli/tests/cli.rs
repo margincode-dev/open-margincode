@@ -4429,6 +4429,639 @@ fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
     );
 }
 
+/// `node` from `PATH`, else `None` after a `SKIPPED` line: the OpenCode plugin's tests need it.
+fn node_or_skip(test: &str) -> Option<PathBuf> {
+    let node = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| d.join("node"))
+        .find(|p| p.is_file());
+    if node.is_none() {
+        use std::io::Write;
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIPPED {test}: node is not on PATH, so the OpenCode plugin was NOT tested"
+        );
+    }
+    node
+}
+
+/// OpenCode's config dir as `av init --for opencode` leaves it: `opencode.json` naming the daemon
+/// at `url` (no file for `None`) and `plugins/av.js` running `av_bin`.
+fn opencode_config(url: Option<&str>, av_bin: &Path) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    if let Some(url) = url {
+        let config = serde_json::json!({"mcp": {"servers": {"av": {
+            "type": "remote", "url": format!("{url}/mcp"), "headers": {"X-Av-Agent": "opencode"},
+        }}}});
+        std::fs::write(dir.path().join("opencode.json"), config.to_string()).unwrap();
+    }
+    let plugin = std::fs::read_to_string(repo_root().join("integrations/opencode/av.js")).unwrap();
+    let line = "const AV_BIN = \"av\";";
+    assert_eq!(plugin.lines().nth(1), Some(line));
+    let bin = serde_json::to_string(av_bin.to_str().unwrap()).unwrap();
+    std::fs::create_dir_all(dir.path().join("plugins")).unwrap();
+    std::fs::write(
+        dir.path().join("plugins/av.js"),
+        plugin.replacen(line, &format!("const AV_BIN = {bin};"), 1),
+    )
+    .unwrap();
+    dir
+}
+
+/// Plays `script` (see `tests/opencode/harness.mjs`) to the plugin in `config` under `node`, with
+/// the environment of a server that has no av variables (`env` on top), from a directory that is
+/// no workspace. Every hook must return, whatever happened; the result is what the plugin did.
+fn play(
+    node: &Path,
+    config: &Path,
+    env: &[(&str, &str)],
+    script: serde_json::Value,
+) -> serde_json::Value {
+    let cwd = TempDir::new().unwrap();
+    let file = cwd.path().join("script.json");
+    std::fs::write(&file, script.to_string()).unwrap();
+    let mut cmd = Command::new(node);
+    cmd.current_dir(cwd.path())
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/opencode/harness.mjs"))
+        .arg(config.join("plugins/av.js"))
+        .arg(&file)
+        .env("AV_FOOTPRINT", "off");
+    for var in [
+        "AV_URL",
+        "AV_TOKEN",
+        "AV_AGENT",
+        "AV_TASK",
+        "AV_SESSION",
+        "AV_HOOK_WAIT_SECS",
+        "AV_HOOK_MAX_CONTINUES",
+        "AV_OPENCODE_HOOK_TIMEOUT_MS",
+        "AV_FOOTPRINT_ROOTS",
+        "AV_WS_ROOT",
+        "CLAUDE_ENV_FILE",
+        "GROK_HOOK_EVENT",
+        "GROK_SESSION_ID",
+    ] {
+        cmd.env_remove(var);
+    }
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let o = cmd.output().unwrap();
+    assert!(o.status.success(), "{}{}", out(&o), err(&o));
+    let v: serde_json::Value = serde_json::from_str(&out(&o))
+        .unwrap_or_else(|e| panic!("{e}: {}\nstderr: {}", out(&o), err(&o)));
+    for step in v["steps"].as_array().unwrap() {
+        assert_eq!(step["returned"], true, "{step}\nstderr: {}", err(&o));
+    }
+    v
+}
+
+fn oc_prompt(session: &str) -> serde_json::Value {
+    serde_json::json!({"hook": "prompt", "event": {
+        "sessionID": session, "messageID": "msg", "prompt": {"text": "go"}, "delivery": "steer",
+    }})
+}
+
+fn oc_compaction(session: &str) -> serde_json::Value {
+    serde_json::json!({"hook": "compaction", "event": {"sessionID": session}})
+}
+
+fn oc_idle(session: &str, background: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"hook": "experimental.idle", "event": {
+        "sessionID": session, "background": background,
+    }})
+}
+
+/// What the tool read or wrote, as the result's content OpenCode hands `execute.after`.
+const OC_CONTENT: &str = "tool output";
+
+fn oc_tool(session: &str, tool: &str, input: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"hook": "tool.execute.after", "event": {
+        "tool": tool, "sessionID": session, "agent": "build", "messageID": "msg", "id": "call",
+        "input": input, "status": "completed",
+        "result": {"output": OC_CONTENT, "content": [{"type": "text", "text": OC_CONTENT}]},
+    }})
+}
+
+/// The text parts the plugin added to step `i`'s result.
+fn oc_added(v: &serde_json::Value, i: usize) -> Vec<String> {
+    let content = v["steps"][i]["content"].as_array().unwrap();
+    assert_eq!(content[0]["text"], OC_CONTENT, "{v}");
+    content[1..]
+        .iter()
+        .map(|p| p["text"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// A stand-in `av` that appends `$AV_AGENT`, the hook's name and its stdin to `av.log` in `dir`
+/// (one line per call), then runs the real one on that stdin.
+fn logging_av(dir: &Path) -> (PathBuf, PathBuf) {
+    let log = dir.join("av.log");
+    let bin = dir.join("av-logged");
+    write_script(
+        &bin,
+        &format!(
+            "#!/bin/sh\nin=$(/bin/cat)\nprintf '%s %s %s\\n' \"$AV_AGENT\" \"$2\" \"$in\" >> '{}'\n\
+             printf '%s' \"$in\" | '{}' \"$@\"\n",
+            log.display(),
+            env!("CARGO_BIN_EXE_av")
+        ),
+    );
+    (bin, log)
+}
+
+/// The stdin of each logged call of `hook`, with the `AV_AGENT` it ran under.
+fn logged(log: &Path, hook: &str) -> Vec<(String, serde_json::Value)> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let (agent, rest) = l.split_once(' ')?;
+            let (name, input) = rest.split_once(' ')?;
+            (name == hook).then(|| (agent.to_owned(), serde_json::from_str(input).unwrap()))
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_puts_the_pack_once_and_again_after_compaction() {
+    let Some(node) = node_or_skip("opencode_plugin_puts_the_pack_once_and_again_after_compaction")
+    else {
+        return;
+    };
+    let (d, ws, _scratch) = started();
+    let config = opencode_config(Some(&d.url), Path::new(env!("CARGO_BIN_EXE_av")));
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": ws}},
+            "steps": [oc_prompt("s1"), oc_prompt("s1"), oc_compaction("s1"), oc_prompt("s1")],
+        }),
+    );
+    assert_eq!(
+        v["hooks"],
+        serde_json::json!([
+            "compaction",
+            "experimental.idle",
+            "prompt",
+            "tool.execute.after"
+        ])
+    );
+    let puts = v["puts"].as_array().unwrap();
+    assert_eq!(puts.len(), 2, "{v}");
+    for put in puts {
+        assert_eq!(
+            (&put["sessionID"], &put["key"]),
+            (&"s1".into(), &"av-pack".into())
+        );
+        let pack = put["value"].as_str().unwrap();
+        assert!(pack.contains("Improve greeting"), "{pack}");
+        assert!(!pack.contains("sent earlier"), "sent in full: {pack}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_does_not_put_a_pack_that_is_already_there() {
+    let Some(node) = node_or_skip("opencode_plugin_does_not_put_a_pack_that_is_already_there")
+    else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    let (bin, log) = logging_av(scratch.path());
+    let config = opencode_config(Some(&d.url), &bin);
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": ws}},
+            "entries": {"s1": [{"key": "av-pack", "value": "the pack from before"}]},
+            "steps": [oc_prompt("s1"), oc_prompt("s1"), oc_compaction("s1"), oc_prompt("s1")],
+        }),
+    );
+    let starts = logged(&log, "session-start");
+    assert_eq!(starts.len(), 1, "{starts:?}");
+    assert_eq!(
+        starts[0].1,
+        serde_json::json!({"session_id": "s1", "source": "compact", "cwd": ws})
+    );
+    let puts = v["puts"].as_array().unwrap();
+    assert_eq!(puts.len(), 1, "{v}");
+    assert!(
+        puts[0]["value"]
+            .as_str()
+            .unwrap()
+            .contains("Improve greeting")
+    );
+}
+
+/// Another task's record on `app/greeter.py`, for `pre-read` to hand on.
+fn record_in_another_task(d: &Daemon, scratch: &Path) {
+    ok(av(
+        d,
+        scratch,
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Earlier try",
+            "--goal",
+            "Cache names",
+        ],
+    ));
+    ok(av(
+        d,
+        &d.ws.join("demo/earlier-try"),
+        &[
+            "record",
+            "--kind",
+            "attempt",
+            "--summary",
+            "tried caching hello; greetings went stale",
+            "--anchor",
+            "app/greeter.py",
+        ],
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_adds_other_tasks_records_to_a_read() {
+    let Some(node) = node_or_skip("opencode_plugin_adds_other_tasks_records_to_a_read") else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    record_in_another_task(&d, scratch.path());
+    let config = opencode_config(Some(&d.url), Path::new(env!("CARGO_BIN_EXE_av")));
+    // as models write it: relative to the session's directory, not the server's
+    let read = oc_tool("s1", "read", serde_json::json!({"path": "app/greeter.py"}));
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({"sessions": {"s1": {"directory": ws}}, "steps": [read, read]}),
+    );
+    let added = oc_added(&v, 0);
+    assert_eq!(added.len(), 1, "{v}");
+    assert!(added[0].contains("greetings went stale"), "{added:?}");
+    assert_eq!(oc_added(&v, 1), Vec::<String>::new(), "each record once");
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_checkpoints_after_an_edit() {
+    let Some(node) = node_or_skip("opencode_plugin_checkpoints_after_an_edit") else {
+        return;
+    };
+    let (d, ws, _scratch) = started();
+    let config = opencode_config(Some(&d.url), Path::new(env!("CARGO_BIN_EXE_av")));
+    let run = |step: serde_json::Value| {
+        play(
+            &node,
+            config.path(),
+            &[],
+            serde_json::json!({"sessions": {"s1": {"directory": ws}}, "steps": [step]}),
+        )
+    };
+    std::fs::write(ws.join("app/greeter.py"), "class Greeter:\n    pass\n").unwrap();
+    run(oc_tool(
+        "s1",
+        "read",
+        serde_json::json!({"path": "app/greeter.py"}),
+    ));
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(!status.contains("app/greeter.py"), "a read: {status}");
+    run(oc_tool(
+        "s1",
+        "edit",
+        serde_json::json!({"path": "app/greeter.py", "oldString": "x", "newString": "y"}),
+    ));
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(status.contains("changed (1): app/greeter.py"), "{status}");
+    // past post-edit's 2 s debounce, as the next edit of a session would be
+    set_last_checkpoint_ms(&ws, now_ms() - 2_100);
+    std::fs::write(ws.join("README.md"), "# changed\n").unwrap();
+    run(oc_tool(
+        "s1",
+        "write",
+        serde_json::json!({"path": ws.join("README.md"), "content": "# changed\n"}),
+    ));
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(status.contains("changed (2):"), "{status}");
+    // `patch` names its files in the result (seen with OpenCode 2.3.2), not in the input
+    set_last_checkpoint_ms(&ws, now_ms() - 2_100);
+    std::fs::write(ws.join("app/extra.py"), "X = 1\n").unwrap();
+    let mut patch = oc_tool(
+        "s1",
+        "patch",
+        serde_json::json!({"patchText": "*** Begin Patch"}),
+    );
+    patch["event"]["result"]["metadata"] =
+        serde_json::json!({"files": [{"file": "app/extra.py", "status": "added"}]});
+    run(patch);
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(status.contains("changed (3):"), "{status}");
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_asks_once_for_records_then_offers_queued_work() {
+    let Some(node) = node_or_skip("opencode_plugin_asks_once_for_records_then_offers_queued_work")
+    else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    std::fs::write(
+        ws.join("app/greeter.py"),
+        "class Greeter:\n    def hello(self, name):\n        return name.upper()\n",
+    )
+    .unwrap();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let (bin, log) = logging_av(scratch.path());
+    let config = opencode_config(Some(&d.url), &bin);
+    let shell = serde_json::json!([{"kind": "shell", "sessionID": "s1", "shellID": "sh", "command": "sleep 9"}]);
+    // no AV_HOOK_WAIT_SECS on the server: the plugin's own default applies
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": ws}},
+            "steps": [
+                oc_idle("s1", serde_json::json!([])),
+                oc_idle("s1", serde_json::json!([])),
+                oc_idle("s1", shell),
+            ],
+        }),
+    );
+    let sent: Vec<&str> = v["synthetic"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            assert_eq!(s["sessionID"], "s1");
+            s["text"].as_str().unwrap()
+        })
+        .collect();
+    assert_eq!(sent.len(), 2, "{v}");
+    assert!(sent[0].contains("no record explains"), "{}", sent[0]);
+    assert!(sent[0].contains("Greeter.hello"), "{}", sent[0]);
+    assert!(sent[1].contains("Fix the README typos"), "{}", sent[1]);
+    assert!(
+        sent[1].ends_with("call start_task with no title"),
+        "{}",
+        sent[1]
+    );
+    let stops = logged(&log, "stop");
+    assert_eq!(
+        stops.len(),
+        2,
+        "no stop while the session has background work"
+    );
+    for ((agent, input), active) in stops.iter().zip([false, true]) {
+        assert_eq!(agent, "opencode");
+        assert_eq!(
+            *input,
+            serde_json::json!({"session_id": "s1", "cwd": ws, "stop_hook_active": active})
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_is_silent_outside_a_task_and_does_not_wait_for_the_pack() {
+    let Some(node) =
+        node_or_skip("opencode_plugin_is_silent_outside_a_task_and_does_not_wait_for_the_pack")
+    else {
+        return;
+    };
+    let (d, _ws, scratch) = started();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let outside = TempDir::new().unwrap();
+    std::fs::write(outside.path().join("x.py"), "X = 1\n").unwrap();
+    let (bin, _log) = logging_av(scratch.path());
+    let config = opencode_config(Some(&d.url), &bin);
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": outside.path()}},
+            "steps": [
+                oc_prompt("s1"),
+                oc_tool("s1", "read", serde_json::json!({"path": "x.py"})),
+                oc_tool("s1", "edit", serde_json::json!({"path": "x.py"})),
+                oc_idle("s1", serde_json::json!([])),
+            ],
+        }),
+    );
+    assert_eq!(
+        (&v["puts"], &v["synthetic"]),
+        (&serde_json::json!([]), &serde_json::json!([]))
+    );
+    assert_eq!(oc_added(&v, 1), Vec::<String>::new());
+    assert_eq!(oc_added(&v, 2), Vec::<String>::new());
+
+    // an hour-long `session-start`: the prompt goes on, and the hook still started it
+    let pid = scratch.path().join("pid");
+    let slow = scratch.path().join("slow-av");
+    write_script(
+        &slow,
+        &format!(
+            "#!/bin/sh\necho $$ > '{}'\nexec /bin/sleep 3600\n",
+            pid.display()
+        ),
+    );
+    let config = opencode_config(Some(&d.url), &slow);
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": outside.path()}},
+            "steps": [oc_prompt("s1"), {"untilFile": pid}],
+        }),
+    );
+    let pid = std::fs::read_to_string(&pid).unwrap();
+    let _ = Command::new("kill").arg(pid.trim()).status();
+    assert_eq!(v["puts"], serde_json::json!([]));
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_survives_a_broken_av() {
+    let Some(node) = node_or_skip("opencode_plugin_survives_a_broken_av") else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    record_in_another_task(&d, scratch.path());
+    std::fs::write(ws.join("app/greeter.py"), "class Greeter:\n    pass\n").unwrap();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let steps = serde_json::json!([
+        oc_prompt("s1"),
+        oc_tool("s1", "read", serde_json::json!({"path": "app/greeter.py"})),
+        oc_tool("s1", "edit", serde_json::json!({"path": "app/greeter.py"})),
+        oc_idle("s1", serde_json::json!([])),
+    ]);
+    let script = serde_json::json!({"sessions": {"s1": {"directory": ws}}, "steps": steps});
+    let untouched = |v: &serde_json::Value, what: &str| {
+        assert_eq!(v["puts"], serde_json::json!([]), "{what}: {v}");
+        assert_eq!(v["synthetic"], serde_json::json!([]), "{what}: {v}");
+        assert_eq!(oc_added(v, 1), Vec::<String>::new(), "{what}");
+        assert_eq!(oc_added(v, 2), Vec::<String>::new(), "{what}");
+    };
+    // what each hook would act on, but from a broken av
+    let answers = "case \"$2\" in session-start) echo PACK ;; \
+                   stop) echo '{\"decision\": \"block\", \"reason\": \"go on\"}' ;; \
+                   *) echo '{\"hookSpecificOutput\": {\"additionalContext\": \"more\"}}' ;; esac";
+    let scripts = [
+        (
+            "garbage",
+            "case \"$2\" in session-start) ;; *) echo '{\"decision\": ' ;; esac".to_owned(),
+        ),
+        ("exit 1", format!("{answers}\nexit 1")),
+        ("past the limit", "exec /bin/sleep 3600".to_owned()),
+    ];
+    for (what, body) in scripts {
+        let bin = scratch.path().join("broken-av");
+        write_script(&bin, &format!("#!/bin/sh\n{body}\n"));
+        let config = opencode_config(Some(&d.url), &bin);
+        let env = [
+            ("AV_OPENCODE_HOOK_TIMEOUT_MS", "300"),
+            ("AV_HOOK_WAIT_SECS", "0"),
+        ];
+        untouched(&play(&node, config.path(), &env, script.clone()), what);
+    }
+
+    let empty = TempDir::new().unwrap();
+    let config = opencode_config(Some(&d.url), &empty.path().join("av"));
+    let path = [("PATH", empty.path().to_str().unwrap())];
+    untouched(&play(&node, config.path(), &path, script.clone()), "no av");
+
+    let config = opencode_config(
+        Some("http://127.0.0.1:1"),
+        Path::new(env!("CARGO_BIN_EXE_av")),
+    );
+    untouched(
+        &play(&node, config.path(), &[], script.clone()),
+        "dead daemon",
+    );
+
+    // OpenCode's own calls failing: the first nudge, then the queued work, reach `synthetic`
+    let (bin, log) = logging_av(scratch.path());
+    for fails in [
+        serde_json::json!(["session.get"]),
+        serde_json::json!(["entry.list", "synthetic"]),
+        serde_json::json!(["entry.put", "synthetic"]),
+    ] {
+        let config = opencode_config(Some(&d.url), &bin);
+        let mut script = script.clone();
+        script["throw"] = fails.clone();
+        let v = play(&node, config.path(), &[], script);
+        assert_eq!(v["puts"], serde_json::json!([]), "{fails}: {v}");
+        assert_eq!(v["synthetic"], serde_json::json!([]), "{fails}: {v}");
+    }
+
+    // without an `av` entry the children run with the server's AV_URL, as `opencode`
+    std::fs::remove_file(&log).unwrap();
+    let config = opencode_config(None, &bin);
+    let v = play(&node, config.path(), &[("AV_URL", &d.url)], script.clone());
+    assert_eq!(v["puts"].as_array().unwrap().len(), 1, "{v}");
+    let starts = logged(&log, "session-start");
+    assert_eq!(starts.len(), 1, "{starts:?}");
+    assert_eq!(starts[0].0, "opencode");
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_leaves_child_sessions_their_tool_hooks_only() {
+    let Some(node) = node_or_skip("opencode_plugin_leaves_child_sessions_their_tool_hooks_only")
+    else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    record_in_another_task(&d, scratch.path());
+    std::fs::write(ws.join("app/greeter.py"), "class Greeter:\n    pass\n").unwrap();
+    post_item(&d, scratch.path(), "Fix the README typos");
+    let config = opencode_config(Some(&d.url), Path::new(env!("CARGO_BIN_EXE_av")));
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"child": {"directory": ws, "parentID": "s1"}},
+            "steps": [
+                oc_prompt("child"),
+                oc_tool("child", "read", serde_json::json!({"path": "app/greeter.py"})),
+                oc_tool("child", "edit", serde_json::json!({"path": "app/greeter.py"})),
+                oc_idle("child", serde_json::json!([])),
+            ],
+        }),
+    );
+    assert_eq!(
+        (&v["puts"], &v["synthetic"]),
+        (&serde_json::json!([]), &serde_json::json!([]))
+    );
+    let added = oc_added(&v, 1);
+    assert!(
+        added.len() == 1 && added[0].contains("greetings went stale"),
+        "{added:?}"
+    );
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(status.contains("changed (1): app/greeter.py"), "{status}");
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_sends_nothing_after_an_interrupt() {
+    let Some(node) = node_or_skip("opencode_plugin_sends_nothing_after_an_interrupt") else {
+        return;
+    };
+    let (d, ws, scratch) = started();
+    let pid = scratch.path().join("pid");
+    let bin = scratch.path().join("av-pid");
+    write_script(
+        &bin,
+        &format!(
+            "#!/bin/sh\necho $$ > '{}'\nexec '{}' \"$@\"\n",
+            pid.display(),
+            env!("CARGO_BIN_EXE_av")
+        ),
+    );
+    let config = opencode_config(Some(&d.url), &bin);
+    // with nothing queued, `av hook stop` waits an hour for work: the hook returns at all only
+    // because the interrupt ended it
+    let interrupted = serde_json::json!({
+        "type": "session.execution.interrupted", "data": {"sessionID": "s1", "reason": "user"},
+    });
+    let mut idle = oc_idle("s1", serde_json::json!([]));
+    idle["wait"] = false.into();
+    let v = play(
+        &node,
+        config.path(),
+        &[("AV_HOOK_WAIT_SECS", "3600")],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": ws}},
+            "steps": [idle, {"untilFile": pid}, {"emit": interrupted}],
+        }),
+    );
+    assert_eq!(v["synthetic"], serde_json::json!([]), "{v}");
+    let pid = std::fs::read_to_string(&pid).unwrap();
+    let start = std::time::Instant::now();
+    while alive(pid.trim()) {
+        assert!(start.elapsed() < HANG, "av hook stop {pid} still runs");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 fn daemon_with_repo() -> (Daemon, TempDir) {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();

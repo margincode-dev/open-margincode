@@ -46,4 +46,4 @@ to start. Publish the port wider only with a token.
 The image holds `margincode-daemon`, `margincode` and `av`. With no `AV_DATABASE_URL` the daemon runs
 its own Postgres under `/data/pg` (lite mode); keep `/data` on a volume. The dashboard is at
 `http://localhost:7420/ui`. To use Compose with a separate Postgres and Qdrant, see
-`deploy/docker-compose.yml`. Tags: the release version (e.g. `0.0.4`) and `latest`.
+`deploy/docker-compose.yml`. Tags: the release version (e.g. `0.0.5`) and `latest`.

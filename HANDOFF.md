@@ -119,7 +119,7 @@ say otherwise.
 
 ## 1. Merged
 
-All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section, `0.0.4`, `0.0.3` and `0.0.2`).
+All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section, `0.0.5`, `0.0.4`, `0.0.3` and `0.0.2`).
 
 - **Plan 7**, overlay index scopes: `bench/results/2026-10-30-e2-overlay/`.
 - **Plan 8**, routing (backlog, agent profiles, `av next`) and **Plan 9**, the review loop (`next`
@@ -141,6 +141,8 @@ All on `main`; per-feature detail is in `CHANGELOG.md` (the `Unreleased` section
   from git history, `embeddinggemma-2` as the default embedder, one approval per head and the redesigned dashboard.
 - **Release 0.0.4** (tag `release/0.0.4`, 2026-11-21), the first from this repository: correctable records, a record's
   standing, dreams and verdicts, `av init --for antigravity`, and the rename to Margincode.
+- **Release 0.0.5** (tag `release/0.0.5`, 2026-11-22): two security fixes, a token-less daemon refusing a foreign
+  `Host` or `Origin` (`AV_ALLOWED_HOSTS`, #100) and a backup remote's credentials kept out of logs and answers (#99).
 
 ## 2. Open
 

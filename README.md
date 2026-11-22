@@ -16,10 +16,13 @@ margins of your code, so your AI agents stop forgetting.*
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/margincode-dev/open-margincode?include_prereleases)](https://github.com/margincode-dev/open-margincode/releases)
 
-**New in 0.0.4:** agents can correct a stored record (`av record --supersedes`), packs say when a
+**New in 0.0.5:** two security fixes. A daemon without `AV_TOKEN` refuses requests a web page on
+another site could send (a `Host` that is an unknown dotted name, a foreign `Origin`); a client
+that reaches it by such a name needs `AV_TOKEN` or `AV_ALLOWED_HOSTS`. A backup remote's
+credentials stay out of logs, stored errors and answers. **In 0.0.4**, the first release from
+this repository: agents can correct a stored record (`av record --supersedes`), packs say when a
 record comes from reverted, abandoned or open work, `av dream` and `av verdict` give records a
-second look, and `av init --for antigravity` connects Google's Antigravity CLI. It is the first
-release from this repository; `av` and the `AV_` variables are unchanged
+second look, and `av init --for antigravity` connects Google's Antigravity CLI
 ([changelog](CHANGELOG.md)).
 
 ## A short story

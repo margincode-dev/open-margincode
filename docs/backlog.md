@@ -7,6 +7,23 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-22: the build-slot test missed its "waiting" line once under load
+
+- **Where.** `margincode-cli` `tests/cli.rs` `validate_waits_for_a_free_build_slot_on_the_host`,
+  in `cargo test --workspace` on the release 0.0.5 branch (version bump only), in a
+  `rust:1.97.1` container while two other workspaces' test runs used the same host.
+- **Seen.** The assertion at line 5158 failed: stderr did not contain "all 1 build slots on this
+  host are in use; waiting". The checks before it passed (nothing ran during the 1.5 s, the
+  command was still running, it then succeeded and wrote its file). The other 158 tests of the
+  binary passed. Rerun alone in the same container: passed in 5.9 s.
+- **Ruled out.** The change under test: it touches versions and text only.
+- **Guess.** `av validate` checkpoints the task before it asks for a build slot. When that took
+  longer than the test's 1.5 s, the test released the slot before validate reached
+  `slots::wait_for`, which then found it free and printed nothing. The 1.5 s sleep is then an
+  upper bound on the checkpoint's time, which `CONTRIBUTING.md` ("Timing") forbids. The test
+  could wait for the "waiting" line on stderr instead of sleeping.
+- **Status.** Open.
+
 ## 2026-11-21: the installer and the formula install on a glibc that is too old
 
 - **Where.** `brew install margincode` from the 0.0.4 formula in the `homebrew/brew` image

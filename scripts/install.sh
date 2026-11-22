@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/margincode-dev/open-margincode/main/scripts/install.sh | sh
 #
-# MARGINCODE_VERSION   a release tag (`release/0.0.4`, `v0.1.0`); default: the newest release,
+# MARGINCODE_VERSION   a release tag (`release/0.0.5`, `v0.1.0`); default: the newest release,
 #                    pre-releases included
 # MARGINCODE_INSTALL_DIR  where the binaries go; default: ~/.local/bin
 #

@@ -114,6 +114,9 @@ services:
       AV_INDEX_MAX_FANOUT: ${AV_INDEX_MAX_FANOUT:-}
       # Shared bearer token for every route but /healthz; export the same AV_TOKEN for the CLI.
       AV_TOKEN: ${AV_TOKEN:-}
+      # Without a token: dotted host names (port ignored) clients may reach the daemon by, beyond
+      # loopback names, IPs, single-label names and host.docker.internal.
+      AV_ALLOWED_HOSTS: ${AV_ALLOWED_HOSTS:-}
       # Git backup of main after every merge: whitespace-separated repo=url pairs. SSH remotes need
       # a key: mount it read-only (see the volume below) and set AV_BACKUP_SSH_COMMAND to use it.
       AV_BACKUP_REMOTES: ${AV_BACKUP_REMOTES:-}

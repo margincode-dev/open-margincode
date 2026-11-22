@@ -518,7 +518,8 @@ Defaults (override with environment variables before `up`):
 | `AV_PG_MAX_CONNECTIONS` | `16` | daemon's Postgres pool size. Raise it when many agents work at once. |
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `margincode claim` it. |
-| `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth. |
+| `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth, and `/v1` and `/mcp` refuse a request from another site (see [Security](#security)). |
+| `AV_ALLOWED_HOSTS` | (none) | without `AV_TOKEN`: comma-separated host names (port ignored) the daemon also answers as `Host` and `Origin`, for a client that reaches it by a dotted DNS name (`daemon-host.lan`). |
 | `AV_LISTEN` | `127.0.0.1:7420` | the daemon's address. A non-loopback host needs `AV_TOKEN` or `AV_LISTEN_OPEN=1`, else the daemon refuses to start. |
 | `AV_LISTEN_OPEN` | off | `1`: allow a non-loopback `AV_LISTEN` without a token, when something else (a port published on `127.0.0.1`) limits who reaches it. |
 | `AV_BACKUP_REMOTES` | (none) | `repo=url` pairs, whitespace-separated: main is pushed there after every merge and undo (`margincode repo backup` sets one at runtime). |
@@ -1658,7 +1659,15 @@ scripts/smoke.sh         # end-to-end against the Docker stack (needs Docker)
 
 Set `AV_TOKEN` to require `Authorization: Bearer <token>` on every route but `/healthz` and `/ui` (compared in constant time; `/ui` is a static page with no data in it);
 the `av` CLI and its hooks send `$AV_TOKEN`. Without it the daemon is open, which is why the compose file publishes it
-(and Postgres, Qdrant) on `127.0.0.1` only; do not expose these ports either way. Agent names (`--agent`, `AV_AGENT`)
+(and Postgres, Qdrant) on `127.0.0.1` only; do not expose these ports either way.
+Without a token, `/v1` and `/mcp` also refuse (403) what a web page on another site could send
+through the browser, for example after DNS rebinding a name to `127.0.0.1`: a `Host` that is a
+dotted DNS name other than `localhost`, `*.localhost`, `host.docker.internal`,
+`gateway.docker.internal` or one listed in `AV_ALLOWED_HOSTS` (an IP address, a single-label
+name such as a compose service, and no `Host` at all pass), and an `Origin` whose host is not
+loopback, not in `AV_ALLOWED_HOSTS` and not the request's own `Host` (`null` included). The
+`av` CLI and its hooks send no `Origin`, and the `/ui` page's calls are same-origin.
+With `AV_TOKEN` set neither is checked. Agent names (`--agent`, `AV_AGENT`)
 are self-asserted: "the reviewer is not the owner", "only the owner hands off" and claim fencing prevent accidents
 between cooperating agents, not impersonation. Repository names are restricted to a single path component,
 `margincode repo add` only accepts an existing local directory, and backup remotes that look like git options are refused.

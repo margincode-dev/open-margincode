@@ -455,7 +455,15 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
         Some(cfg.store_root.clone()),
         cfg.database_url.is_none().then(|| cfg.pg_dir.clone()),
     )
-    .with_token(cfg.token.clone());
+    .with_token(cfg.token.clone())
+    // read here, not into `Config`: a new field there breaks every struct literal of it downstream
+    .with_allowed_hosts(
+        std::env::var("AV_ALLOWED_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::to_owned)
+            .collect(),
+    );
     let state = match cfg.max_concurrent_starts {
         Some(n) => state.with_start_limit(n),
         None => state,

@@ -5,8 +5,9 @@ channels, all built from the same release assets
 (`margincode-v<version>-<target>.tar.gz`, with `margincode`, `av` and `margincode-daemon`).
 
 The Linux binaries are built on Ubuntu 24.04 and need glibc 2.39 or newer. On an older system
-(Ubuntu 22.04 has 2.35) they install and then stop with ``version `GLIBC_2.39' not found``;
-build from source there (`cargo build --release -p margincode-cli -p margincode-daemon`).
+(Ubuntu 22.04 has 2.35) the install script stops and says so; installed another way (Homebrew,
+the archive by hand) they stop with ``version `GLIBC_2.39' not found``. Build from source there
+(`cargo build --release -p margincode-cli -p margincode-daemon`).
 
 ## Homebrew
 

@@ -27,6 +27,18 @@ case "$(uname -s)-$(uname -m)" in
     *) die "no prebuilt binary for $(uname -s) $(uname -m); build from source: cargo build --release -p margincode-cli -p margincode-daemon" ;;
 esac
 
+# The Linux binaries are built on Ubuntu 24.04 (release.yml's runners) and need its glibc; on an
+# older one they install and then stop with "version `GLIBC_2.39' not found" (docs/install.md).
+# A system whose glibc cannot be read is not refused.
+need=2.39
+if [ "$(uname -s)" = Linux ]; then
+    have=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+    if [ -n "$have" ] && { [ "${have%%.*}" -lt "${need%%.*}" ] ||
+        { [ "${have%%.*}" -eq "${need%%.*}" ] && [ "${have#*.}" -lt "${need#*.}" ]; }; }; then
+        die "the prebuilt binaries need glibc $need or newer and this system has $have; build from source: cargo build --release -p margincode-cli -p margincode-daemon"
+    fi
+fi
+
 # `/releases/latest` skips pre-releases, so take the first (newest) entry of the list instead.
 tag=${MARGINCODE_VERSION:-${SCHOLION_VERSION:-}}
 if [ -z "$tag" ]; then

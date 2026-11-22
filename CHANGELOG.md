@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`av init --for opencode` connects OpenCode 2.x.** It writes the `av` MCP server into
+  OpenCode's global `opencode.json` (`mcp.servers.av`, under `$XDG_CONFIG_HOME/opencode`, default
+  `~/.config/opencode` on every OS), keeping the rest of the file and the previous one as `*.bak`.
+  OpenCode reads that file in its background service, which does not see your shell's
+  `AV_TOKEN`, so with a token set the file holds the token itself and is made readable by you
+  alone on Linux and macOS; run `av init --for opencode` again when the token changes. A file with
+  comments or trailing commas is left as it is, with a message. Sessions then start and work av
+  tasks through OpenCode's MCP tools; there are no hooks for OpenCode yet
+  (`integrations/opencode/README.md`).
+
 ## 0.0.5 (2026-11-22)
 
 Two security fixes. A daemon without `AV_TOKEN` now refuses requests a web page on another site

@@ -55,7 +55,7 @@ Many developers now pay for more than one agent subscription, such as Claude Cod
   they touched. When any agent opens that file later, the note comes with it.
 - **A brief instead of a re-read.** Every agent starts from a small brief, sized to a token
   budget: the goal, the history that matters, and the code to look at.
-- **One backlog for all your agents.** Claude Code, Codex, Gemini, Cursor, Grok and Antigravity share it. Each
+- **One backlog for all your agents.** Claude Code, Codex, Gemini, Cursor, Grok, Antigravity and OpenCode share it. Each
   takes the work it's best at, another agent reviews it, and the reviewer merges.
 - **A dashboard** at `http://localhost:7420/ui` to watch them work.
 - **A disk that stays lean.** Workspaces of merged and abandoned tasks are removed after an hour
@@ -110,7 +110,7 @@ that isn't working.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/margincode-dev/open-margincode/main/scripts/install.sh | sh
 cd your-repo && av init                       # starts Margincode, adds this repo, connects Claude Code
-av init --for codex --for gemini --for cursor # the same for other agents (also grok, antigravity)
+av init --for codex --for gemini --for cursor # the same for other agents (also grok, antigravity, opencode)
 ```
 
 Restart your agent, then ask it to *"start an av task to …"*. Open `http://localhost:7420/ui` to

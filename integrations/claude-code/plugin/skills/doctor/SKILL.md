@@ -63,8 +63,9 @@ then open Claude Code in the workspace it prints.
 
 The daemon was started with `AV_TOKEN`, and the client does not send it. Export the same
 `AV_TOKEN` in the shell that runs `av` and the agents. The agents' configs name the variable,
-never the token itself, except Antigravity's (`~/.gemini/config/mcp_config.json`), which holds
-the token: after changing it, run `av init --for antigravity` again. For `claude mcp add`, add
+never the token itself, except Antigravity's (`~/.gemini/config/mcp_config.json`) and
+OpenCode's (`~/.config/opencode/opencode.json`), which hold the token: after changing it, run
+`av init --for antigravity` or `av init --for opencode` again. For `claude mcp add`, add
 `--header "Authorization: Bearer $AV_TOKEN"`.
 
 ## 7. Still stuck?

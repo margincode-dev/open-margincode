@@ -1833,8 +1833,18 @@ opens with a warning naming the culprit merge.
   itself; on Unix the file and its `*.bak` are then owner-only, and `av init` says to run it again
   when the token changes. A file with comments or trailing commas is left unchanged with a message,
   and `av init` warns when an `opencode.jsonc` beside it could override the entry. A running
-  OpenCode server picks up the change by itself. Checked against OpenCode 2.3.2 with a free model.
-  No hooks yet (`integrations/opencode/README.md`).
+  OpenCode server picks up the change by itself. It also writes the plugin `plugins/av.js` beside
+  that file (and prints `OpenCode plugin: <path>`), which runs the four hooks: on a session's first
+  prompt (and the first after a compaction) `session-start` puts the pack as the session's
+  instruction entry `av-pack`; after `read` OpenCode hands the model other tasks' records with the
+  file (`pre-read`); after `edit`, `write` and `patch` it checkpoints (`post-edit`); when the session
+  goes idle, `stop` asks once for records and offers queued work as a message that continues the
+  session. The idle hook holds the next prompt while it runs, so the wait for work is 1 s unless
+  the OpenCode server's environment sets `AV_HOOK_WAIT_SECS`; an interrupt ends it with nothing sent.
+  Subagent sessions get the `read` and edit hooks only. The plugin reads the daemon's URL, the agent
+  name and the token from the `av` entry (`opencode.json`, then `opencode.jsonc`, comments allowed),
+  so the server needs no av variables. Checked against OpenCode 2.3.2 with a free model
+  (`integrations/opencode/README.md`).
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).
 - **Across vendors**: `scripts/relay-demo.sh` shows one memory shared by different agents. Claude

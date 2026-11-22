@@ -7,6 +7,72 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-22: OpenCode sessions do not get `AV_SCRATCH` or `AV_DOCKER_LABELS`
+
+- **Where.** The OpenCode plugin (`integrations/opencode/av.js`), live with OpenCode 2.3.2.
+- **Seen.** `av hook session-start` exports `AV_SCRATCH` and `AV_DOCKER_LABELS` by appending to
+  `$CLAUDE_ENV_FILE`, which only Claude Code sets. Under OpenCode the variable is unset, so the
+  model's shell commands have neither; the pack still names the scratch directory in its last
+  line, and nothing tells the model to label its containers.
+- **Ruled out.** Nothing: the plugin does not try to pass them on.
+- **Guess.** OpenCode 2.3.2 has a plugin hook `shell` `create.before` whose `env` the plugin may
+  change before a shell command starts (`packages/core/src/shell.ts` at `v2.3.2`; read, not run).
+  The plugin could point `CLAUDE_ENV_FILE` at a file of its own for `av hook session-start`, read
+  the `export` lines back, and add them to each command of that session. Not done in the change
+  that added the plugin.
+- **Status.** Open.
+
+## 2026-11-22: under OpenCode, the hook messages' `av record` fails and MCP `record` needs a `task_id`
+
+- **Where.** Live OpenCode 2.3.2 sessions in a task, free model, a private server with no av
+  variables in its environment.
+- **Seen.** The pack's last line and the stop's message tell the model to run `av record --json -`.
+  In the model's shell that failed (`av: command not found` there; with `av` on `PATH` it would
+  still lack `AV_URL` and `AV_TOKEN`). The model then called the MCP tool `tools.av.record`
+  without `task_id` and got `no task: pass task_id, or call start_task or claim_task first`; it
+  found the task by trying `get_context` and `status` with the slug as `task_id`, and recorded
+  with that. Each session spent several tool calls on this.
+- **Ruled out.** The plugin: the hooks themselves ran and their messages arrived.
+- **Guess.** The MCP session is not bound to the workspace's task, since OpenCode's MCP client
+  starts outside it. The pack or the messages could name the `task_id` for MCP callers (a change
+  to the hook text), and the `shell` `create.before` hook (entry above) could give the model's
+  shell `AV_URL`, `AV_AGENT` and `AV_TOKEN`.
+- **Status.** Open.
+
+## 2026-11-22: OpenCode's automatic compaction is untested with the plugin
+
+- **Where.** The OpenCode plugin's `compaction` hook.
+- **Seen.** A compaction started through `opencode api session.compact` fired the hook, and the
+  next prompt got a fresh pack. A compaction OpenCode starts by itself when the context fills
+  was not reached on the free model.
+- **Guess.** The same hook fires for both: a manual, an automatic and an overflow compaction all
+  go through `SessionCompaction.compact` (`packages/core/src/session/compaction.ts` at `v2.3.2`).
+  That was read, not run.
+- **Status.** Open.
+
+## 2026-11-22: the OpenCode plugin can still send a stop message the interrupt meant to stop
+
+- **Where.** `integrations/opencode/av.js`, the `experimental.idle` hook.
+- **Seen.** The plugin learns of an interrupt from the server-wide event
+  `session.execution.interrupted`, which reaches a plugin's subscription after the interrupt has
+  happened. Live, an interrupt while `av hook stop` waited killed that child and nothing was sent.
+  But when `av hook stop` has already answered `block` and the plugin has called `synthetic`
+  before the event arrives, the message goes out and starts a new turn (a late `synthetic` after
+  an interrupt does, as the gates saw).
+- **Guess.** The window is the event's delivery delay after `av hook stop` answers. Closing it
+  needs a session state OpenCode does not hand the idle hook (whether it was interrupted).
+- **Status.** Open.
+
+## 2026-11-22: one `av plugin:` line in OpenCode's log, then silence
+
+- **Where.** `integrations/opencode/av.js`, `warn`.
+- **Seen.** By design the plugin logs only its first problem per server. A benign first line on
+  `av hook`'s stderr (for example a footprint scan marked `partial`) uses it up, and a later real
+  failure is then not logged.
+- **Guess.** A per-kind once (a can't-start, a time-out, a failed exit) would keep the log short
+  and still show a later failure.
+- **Status.** Open.
+
 ## 2026-11-22: the embedded test Postgres refuses to start as root
 
 - **Where.** `margincode-cli` `tests/cli.rs` (any test that calls `start_daemon`), in a

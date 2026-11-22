@@ -9,8 +9,20 @@
   `AV_TOKEN`, so with a token set the file holds the token itself and is made readable by you
   alone on Linux and macOS; run `av init --for opencode` again when the token changes. A file with
   comments or trailing commas is left as it is, with a message. Sessions then start and work av
-  tasks through OpenCode's MCP tools; there are no hooks for OpenCode yet
-  (`integrations/opencode/README.md`).
+  tasks through OpenCode's MCP tools (`integrations/opencode/README.md`).
+- **OpenCode gets av's hooks.** `av init --for opencode` also writes a plugin,
+  `plugins/av.js`, beside OpenCode's `opencode.json` and prints its path. In a task's workspace it
+  gives a session the task's pack on its first prompt (again after a compaction), other tasks'
+  records about a file the model reads, a checkpoint after each edit, and, when the session goes
+  idle, the stop check: one request for the records behind unrecorded changes, else queued work.
+  OpenCode holds your next prompt while that check runs, so it waits 1 s for work unless the
+  OpenCode server's environment sets `AV_HOOK_WAIT_SECS`; interrupting the session ends the wait.
+  Subagent sessions get the read and edit hooks only; outside a task only the disk footprint
+  check runs. The plugin reads the daemon's address and token from the `av` entry, including one
+  added by hand to a commented `opencode.json` or to `opencode.jsonc`, and never fails a prompt, a
+  tool call or a turn: when `av` or the daemon fails, the session goes on as without it. `av init`
+  now installs the plugin even when it refuses to edit a commented config. Delete the file to
+  remove it.
 
 ## 0.0.5 (2026-11-22)
 

@@ -1841,9 +1841,10 @@ opens with a warning naming the culprit merge.
   goes idle, `stop` asks once for records and offers queued work as a message that continues the
   session. The idle hook holds the next prompt while it runs, so the wait for work is 1 s unless
   the OpenCode server's environment sets `AV_HOOK_WAIT_SECS`; an interrupt ends it with nothing sent.
-  Subagent sessions get the `read` and edit hooks only. The plugin reads the daemon's URL, the agent
-  name and the token from the `av` entry (`opencode.json`, then `opencode.jsonc`, comments allowed),
-  so the server needs no av variables. Checked against OpenCode 2.3.2 with a free model
+  Subagent sessions get the `read` and edit hooks only. The plugin reads the daemon's URL and the
+  token from the `av` entry (`opencode.json`, then `opencode.jsonc`, comments allowed), so the
+  server needs no av variables. The hooks act as the task's owner unless the server's environment
+  sets `AV_AGENT`; the entry's `X-Av-Agent` names the MCP session only. Checked against OpenCode 2.3.2 with a free model
   (`integrations/opencode/README.md`).
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).

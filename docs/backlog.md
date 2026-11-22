@@ -63,6 +63,18 @@ the suspected cause, marked as a guess; the status.
   needs a session state OpenCode does not hand the idle hook (whether it was interrupted).
 - **Status.** Open.
 
+## 2026-11-22: with the daemon unreachable, every hooked OpenCode tool call waits
+
+- **Where.** `integrations/opencode/av.js`, the `read` and edit hooks (`execute.after`), with
+  the daemon stopped, live with OpenCode 2.3.2.
+- **Seen.** The first prompt of a session in a task went through without a pack once
+  `av hook session-start` had given up on the connection. By the code, every later `read`,
+  `edit`, `write` and `patch` of the session runs `av hook pre-read` or `post-edit` and waits the
+  same way before the tool's result reaches the model; only the first prompt was run.
+- **Guess.** A short cool-down after a hook that could not reach the daemon (skip the `av hook`
+  calls of that server for a while) would bound the wait to one per cool-down.
+- **Status.** Open.
+
 ## 2026-11-22: one `av plugin:` line in OpenCode's log, then silence
 
 - **Where.** `integrations/opencode/av.js`, `warn`.

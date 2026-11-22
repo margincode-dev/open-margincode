@@ -4893,6 +4893,41 @@ fn opencode_plugin_checkpoints_after_an_edit() {
     assert!(status.contains("changed (3):"), "{status}");
 }
 
+/// A server with no `AV_AGENT` runs unnamed hooks, which act as the task's owner whoever started
+/// it, as Claude Code's do; the entry's `X-Av-Agent` names the MCP session only.
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_acts_as_the_tasks_owner() {
+    let Some(node) = node_or_skip("opencode_plugin_acts_as_the_tasks_owner") else {
+        return;
+    };
+    let (d, ws, _scratch) = started_as("alice");
+    let config = opencode_config(Some(&d.url), Path::new(env!("CARGO_BIN_EXE_av")));
+    let code = "def louder(name):\n    return name.upper()\n";
+    std::fs::write(ws.join("app/extra.py"), code).unwrap();
+    let v = play(
+        &node,
+        config.path(),
+        &[],
+        serde_json::json!({
+            "sessions": {"s1": {"directory": ws}},
+            "steps": [
+                oc_tool("s1", "write", serde_json::json!({"path": "app/extra.py", "content": code})),
+                oc_idle("s1", serde_json::json!([])),
+            ],
+        }),
+    );
+    let status = ok(av(&d, &ws, &["status"]));
+    assert!(status.contains("changed (1): app/extra.py"), "{status}");
+    let added = oc_added(&v, 0);
+    assert!(!added.iter().any(|t| t.contains("now owns")), "{added:?}");
+    let sent = v["synthetic"].as_array().unwrap();
+    assert_eq!(sent.len(), 1, "{v}");
+    let text = sent[0]["text"].as_str().unwrap();
+    assert!(text.contains("no record explains"), "{text}");
+    assert!(text.contains("louder"), "{text}");
+}
+
 #[cfg(unix)]
 #[test]
 fn opencode_plugin_asks_once_for_records_then_offers_queued_work() {
@@ -4949,7 +4984,7 @@ fn opencode_plugin_asks_once_for_records_then_offers_queued_work() {
         "no stop while the session has background work"
     );
     for ((agent, input), active) in stops.iter().zip([false, true]) {
-        assert_eq!(agent, "opencode");
+        assert_eq!(agent, "", "unnamed, so the hook acts as the task's owner");
         assert_eq!(
             *input,
             serde_json::json!({"session_id": "s1", "cwd": ws, "stop_hook_active": active})
@@ -5092,14 +5127,28 @@ fn opencode_plugin_survives_a_broken_av() {
         assert_eq!(v["synthetic"], serde_json::json!([]), "{fails}: {v}");
     }
 
-    // without an `av` entry the children run with the server's AV_URL, as `opencode`
+    // without an `av` entry the children run with the server's AV_URL, and unnamed
     std::fs::remove_file(&log).unwrap();
     let config = opencode_config(None, &bin);
     let v = play(&node, config.path(), &[("AV_URL", &d.url)], script.clone());
     assert_eq!(v["puts"].as_array().unwrap().len(), 1, "{v}");
     let starts = logged(&log, "session-start");
     assert_eq!(starts.len(), 1, "{starts:?}");
-    assert_eq!(starts[0].0, "opencode");
+    assert_eq!(starts[0].0, "");
+
+    // a name comes from the server's environment (`av watch` sets one), not the entry's header
+    std::fs::remove_file(&log).unwrap();
+    let config = opencode_config(Some(&d.url), &bin);
+    let v = play(
+        &node,
+        config.path(),
+        &[("AV_AGENT", "watcher")],
+        script.clone(),
+    );
+    assert_eq!(v["puts"].as_array().unwrap().len(), 1, "{v}");
+    let starts = logged(&log, "session-start");
+    assert_eq!(starts.len(), 1, "{starts:?}");
+    assert_eq!(starts[0].0, "watcher");
 }
 
 #[cfg(unix)]

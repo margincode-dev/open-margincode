@@ -74,10 +74,11 @@ that off.
 
 **The daemon.** The plugin reads the `av` entry at each call, from `opencode.json` and then
 `opencode.jsonc` in that config directory (comments and trailing commas allowed; the later file
-wins), and passes its URL, its `X-Av-Agent` and its token to `av hook` in the environment. So the
-server needs no `AV_URL` or `AV_TOKEN` of its own, and the agent name is the entry's
-`X-Av-Agent`. A value written as `{env:…}` or `{file:…}` is left to OpenCode, and `av hook` then
-uses the server's own environment.
+wins), and passes its URL and its token to `av hook` in the environment, so the server needs no
+`AV_URL` or `AV_TOKEN` of its own. A value written as `{env:…}` or `{file:…}` is left to
+OpenCode, and `av hook` then uses the server's own environment. The hooks act as the task's owner,
+whoever started the task, unless the server's environment sets `AV_AGENT` (as `av watch` does for
+the command it runs); the entry's `X-Av-Agent` names the MCP session only.
 
 **The wait for work.** Claude Code's `Stop` hook waits up to `AV_HOOK_WAIT_SECS` (600 s) for
 queued work. OpenCode gives the idle hook no time limit and holds the next prompt you type until

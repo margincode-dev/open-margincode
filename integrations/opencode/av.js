@@ -49,11 +49,13 @@ function parseJsonc(text) {
   return JSON.parse(out);
 }
 
-// The `av` entry in the config beside this plugin's folder, read at each call: the token lives
-// in that file only and reaches the child in its environment, never in its arguments. OpenCode
-// reads opencode.jsonc after opencode.json, and the later file's server wins.
+// The daemon's address and token from the `av` entry in the config beside this plugin's folder,
+// read at each call: the token lives in that file only and reaches the child in its environment,
+// never in its arguments. OpenCode reads opencode.jsonc after opencode.json, and the later file's
+// server wins. No agent name is added: unnamed hooks act as the task's owner, as Claude Code's
+// do, and only the server's own AV_AGENT (`av watch` sets one) names them.
 async function avEnv() {
-  const env = { ...process.env, AV_AGENT: process.env.AV_AGENT || "opencode" };
+  const env = { ...process.env };
   let av;
   for (const name of ["opencode.json", "opencode.jsonc"]) {
     try {
@@ -65,7 +67,6 @@ async function avEnv() {
   const literal = (v) => typeof v === "string" && !/\{(env|file):/.test(v);
   const headers = av?.headers ?? {};
   if (literal(av?.url)) env.AV_URL = av.url.replace(/\/mcp\/?$/, "");
-  if (literal(headers["X-Av-Agent"])) env.AV_AGENT = headers["X-Av-Agent"];
   if (literal(headers.Authorization) && headers.Authorization.startsWith("Bearer "))
     env.AV_TOKEN = headers.Authorization.slice("Bearer ".length);
   return env;

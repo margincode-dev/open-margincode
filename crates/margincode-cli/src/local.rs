@@ -373,7 +373,7 @@ pub fn init(
         if agent != Agent::Claude {
             let note = match (agent, token.is_some()) {
                 (_, false) => "",
-                (Agent::Antigravity, true) => {
+                (Agent::Antigravity | Agent::Opencode, true) => {
                     " (the token is written into the file: run `av init` again when it changes)"
                 }
                 (_, true) => " (reads the token from AV_TOKEN when it starts)",
@@ -385,6 +385,14 @@ pub fn init(
                 path.display(),
             );
         }
+        // OpenCode loads opencode.jsonc after opencode.json, and the later file's server wins
+        let jsonc = path.with_extension("jsonc");
+        if agent == Agent::Opencode && jsonc.exists() {
+            println!(
+                "OpenCode also reads {}: an mcp.servers.av entry there overrides this one",
+                jsonc.display()
+            );
+        }
     }
     println!(
         "Other MCP clients: streamable HTTP at {mcp_url}, or\n  \
@@ -392,7 +400,7 @@ pub fn init(
          \n\
          Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
          av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \
-         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent, agy)\n\
+         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent, agy, opencode)\n\
          Dashboard: {}/ui",
         url.trim_end_matches('/')
     );

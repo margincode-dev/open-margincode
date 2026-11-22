@@ -365,7 +365,14 @@ pub fn init(
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
             Agent::Antigravity => agents::install_antigravity(&path, &mcp_url, token)?,
-            Agent::Opencode => agents::install_opencode(&path, &mcp_url, token)?,
+            Agent::Opencode => {
+                agents::install_opencode(&path, &mcp_url, token)?;
+                let av_bin = std::env::current_exe()
+                    .map_err(|e| local(format!("cannot find av's own path: {e}")))?;
+                let config_dir = path.parent().expect("the config file is in a directory");
+                let plugin = agents::install_opencode_plugin(config_dir, &av_bin)?;
+                println!("OpenCode plugin: {}", plugin.display());
+            }
             Agent::McpJson => {
                 agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
             }

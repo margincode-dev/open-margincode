@@ -4350,6 +4350,20 @@ fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
     ));
     assert!(out.contains("OpenCode MCP server `av`"), "{out}");
     assert!(!out.contains("also reads"), "{out}");
+    let plugins = home.path().join(".config/opencode/plugins");
+    assert!(
+        out.contains(&format!(
+            "OpenCode plugin: {}",
+            plugins.join("av.js").display()
+        )),
+        "{out}"
+    );
+    let plugin = std::fs::read_to_string(plugins.join("av.js")).unwrap();
+    let bin = serde_json::to_string(env!("CARGO_BIN_EXE_av")).unwrap();
+    assert_eq!(
+        plugin.lines().nth(1),
+        Some(format!("const AV_BIN = {bin};").as_str())
+    );
     let (url, headers) = mcp_endpoint("opencode", home.path(), "");
     assert_eq!(url, format!("{}/mcp", d.url));
     assert_eq!(
@@ -4374,6 +4388,7 @@ fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
     let status = c.tool("status", serde_json::json!({}));
     assert!(status.contains("\"owner_agent\": \"opencode\""), "{status}");
 
+    std::fs::write(plugins.join("mine.js"), "export default {}\n").unwrap();
     let env = [
         ("HOME", home.path().to_str().unwrap()),
         ("XDG_CONFIG_HOME", ""),
@@ -4394,6 +4409,18 @@ fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
     assert!(
         headers.contains(&("Authorization".to_owned(), "Bearer sekrit".to_owned())),
         "{headers:?}"
+    );
+    // OpenCode loads every plugin in the folder: av's is replaced, nothing is added beside it
+    let mut names: Vec<String> = std::fs::read_dir(&plugins)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["av.js", "mine.js"]);
+    assert!(
+        !std::fs::read_to_string(plugins.join("av.js"))
+            .unwrap()
+            .contains("sekrit")
     );
 
     let xdg = TempDir::new().unwrap();

@@ -102,8 +102,10 @@ records through the `av` MCP tools.
 **Failures.** The plugin never fails a prompt, a tool call or a turn: an `av` that cannot start,
 fails, or runs past 60 s (`AV_OPENCODE_HOOK_TIMEOUT_MS`; the stop hook gets its wait on top), or
 a daemon that does not answer,
-leaves the session as it was. The first problem is written once to the server's standard error,
-as `av plugin: …`; `opencode serve --print-logs` shows it among its log lines.
+leaves the session as it was. The first problem of each kind (an `av` that cannot start, a
+time-out, a failed exit, a note on a hook's standard error, an error in one of the plugin's own
+hooks) is written once to the server's standard error, as `av plugin: …`;
+`opencode serve --print-logs` shows it among its log lines.
 
 **Removing it.** Delete `plugins/av.js`; `av init --for opencode` writes it again.
 

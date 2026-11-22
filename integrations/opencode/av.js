@@ -12,12 +12,14 @@ import path from "node:path";
 const LIMIT_MS = Number(process.env.AV_OPENCODE_HOOK_TIMEOUT_MS) || 60_000;
 const EDITS = new Set(["edit", "write", "patch"]);
 
-let warned = false;
-function warn(message) {
-  if (warned) return;
-  warned = true;
+// One line per kind of problem and server: a harmless first line (a hook's note on stderr) must
+// not use up the only one and hide a later failure.
+const warned = new Set();
+function warn(kind, message) {
+  if (warned.has(kind)) return;
+  warned.add(kind);
   try {
-    console.error(`av plugin: ${message} (further problems are not logged)`);
+    console.error(`av plugin: ${message} (more of this kind are not logged)`);
   } catch {}
 }
 
@@ -81,27 +83,27 @@ async function avHook(name, payload, { env = {}, limitMs = LIMIT_MS, signal } = 
     let err = "";
     let child;
     let done = false;
-    const end = (text, problem) => {
+    const end = (text, kind, problem) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
-      if (problem) warn(problem);
+      if (problem) warn(kind, problem);
       resolve(text);
     };
-    const stop = (problem) => {
+    const stop = (kind, problem) => {
       try {
         child?.kill();
       } catch {}
-      end("", problem);
+      end("", kind, problem);
     };
     const abort = () => stop();
-    const timer = setTimeout(() => stop(`av hook ${name} ran past ${limitMs} ms and was stopped`), limitMs);
+    const timer = setTimeout(() => stop("timeout", `av hook ${name} ran past ${limitMs} ms and was stopped`), limitMs);
     signal?.addEventListener("abort", abort);
     try {
       const bin = path.isAbsolute(AV_BIN) && fs.existsSync(AV_BIN) ? AV_BIN : "av";
       child = spawn(bin, ["hook", name], { env: fullEnv, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-      child.on("error", (e) => end("", `cannot run av (${e.message}): the av hooks do nothing`));
+      child.on("error", (e) => end("", "run", `cannot run av (${e.message}): the av hooks do nothing`));
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
       child.stdout.on("data", (d) => (out += d));
@@ -110,12 +112,12 @@ async function avHook(name, payload, { env = {}, limitMs = LIMIT_MS, signal } = 
       child.stderr.on("error", () => {});
       child.stdin.on("error", () => {});
       child.on("close", (code) =>
-        end(code === 0 ? out : "", code === 0 ? err.trim().split("\n")[0] : `av hook ${name} exited with ${code}`),
+        code === 0 ? end(out, "note", err.trim().split("\n")[0]) : end("", "exit", `av hook ${name} exited with ${code}`),
       );
       child.stdin.end(JSON.stringify(payload));
       if (signal?.aborted) abort();
     } catch (e) {
-      stop(`cannot run av (${e}): the av hooks do nothing`);
+      stop("run", `cannot run av (${e}): the av hooks do nothing`);
     }
   });
 }
@@ -160,7 +162,7 @@ export default {
           const interrupts = ctx.event.subscribe({ types: ["session.execution.interrupted"], signal: events.signal });
           for await (const event of interrupts) stopping.get(event?.data?.sessionID)?.abort();
         } catch (e) {
-          warn(`cannot follow interrupts (${e})`);
+          warn("interrupts", `cannot follow interrupts (${e})`);
         }
       })();
 
@@ -186,7 +188,7 @@ export default {
           const pack = await avHook("session-start", payload);
           if (pack.trim()) await ctx.session.instructions.entry.put({ sessionID: id, key: "av-pack", value: pack });
         } catch (e) {
-          warn(`prompt: ${e}`);
+          warn("prompt", `prompt: ${e}`);
         }
       });
 
@@ -211,7 +213,7 @@ export default {
           const text = additionalContext(out);
           if (text) event.result.content = [...contentOf(event.result), { type: "text", text }];
         } catch (e) {
-          warn(`${event?.tool}: ${e}`);
+          warn("tool", `${event?.tool}: ${e}`);
         }
       });
 
@@ -241,13 +243,13 @@ export default {
             continued.delete(id);
           }
         } catch (e) {
-          warn(`idle: ${e}`);
+          warn("idle", `idle: ${e}`);
         } finally {
           if (stopping.get(id) === interrupt) stopping.delete(id);
         }
       });
     } catch (e) {
-      warn(`cannot register the av hooks (${e})`);
+      warn("register", `cannot register the av hooks (${e})`);
     }
     return () => events.abort();
   },

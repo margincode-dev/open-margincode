@@ -5905,6 +5905,28 @@ fn watch_starts_no_more_agents_than_the_host_has_slots() {
     assert!(dir.path().join("second").exists());
 }
 
+/// `c` with the signals `av` catches at their defaults. A test run started as a script's
+/// background job inherits SIGINT ignored, `av` leaves an ignored signal ignored, and the
+/// interrupt tests then waited for an `av` that never ended.
+#[cfg(unix)]
+fn default_signals(c: &mut Command) -> &mut Command {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: `signal` is async-signal-safe and the closure touches nothing else
+    unsafe {
+        c.pre_exec(|| {
+            for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT] {
+                libc::signal(sig, libc::SIG_DFL);
+            }
+            Ok(())
+        })
+    }
+}
+
+#[cfg(not(unix))]
+fn default_signals(c: &mut Command) -> &mut Command {
+    c
+}
+
 #[test]
 fn an_interrupted_watch_ends_its_command_too() {
     use std::io::BufRead;
@@ -5928,7 +5950,7 @@ fn an_interrupted_watch_ends_its_command_too() {
             args.push("--once");
         }
         args.extend(["--", "sh", "-c", script]);
-        let mut child = watch_in(&d, dir.path(), home.path(), &args)
+        let mut child = default_signals(&mut watch_in(&d, dir.path(), home.path(), &args))
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -7758,7 +7780,7 @@ fn an_interrupted_dream_ends_its_agent_too() {
         // the agent and a child of its own, both waiting on a pipe nothing writes to
         let script = "mkfifo hold; cat hold & echo \"agent-started $$ $!\"; wait";
         args.extend(["--", "sh", "-c", script]);
-        let mut child = Command::new(env!("CARGO_BIN_EXE_av"))
+        let mut child = default_signals(&mut Command::new(env!("CARGO_BIN_EXE_av")))
             .current_dir(home)
             .env("AV_URL", &d.url)
             .env("AV_HOME", home)

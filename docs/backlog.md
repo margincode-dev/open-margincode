@@ -7,6 +7,23 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-22: two interrupt tests hang when the suite runs as a background job
+
+- **Where.** `margincode-cli` `tests/cli.rs`, `an_interrupted_dream_ends_its_agent_too` and
+  `an_interrupted_watch_ends_its_command_too`, in a `cargo test --workspace` started with `&`
+  from a non-interactive shell (seen in the Commercial repository's suite, on the vendored tests).
+- **Seen.** Both printed "has been running for over 60 seconds" and were still running about 23
+  minutes later, when the test binary was killed. The same binary run in the foreground passed.
+  Reproduced: `(trap '' INT; exec <the test binary> <both tests>) &` was still running after
+  40 s, with `av dream` and `av watch --once` alive under it.
+- **Cause.** A non-interactive shell starts a background job with SIGINT ignored, and that is
+  inherited through cargo and the test binary. `av` leaves a signal it was started ignoring
+  ignored (`dream.rs`, `catch`, on purpose), so the test's `kill -INT` did nothing and
+  `child.wait()` never returned. A wrapper that installs its own handler (`timeout`) hides it:
+  a caught signal is reset to its default across `exec`.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: both tests start `av` with the four signals
+  at their defaults (`default_signals`). With SIGINT ignored as above, both then passed in 4 s.
+
 ## 2026-11-22: OpenCode sessions do not get `AV_SCRATCH` or `AV_DOCKER_LABELS`
 
 - **Where.** The OpenCode plugin (`integrations/opencode/av.js`), live with OpenCode 2.3.2.

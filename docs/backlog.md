@@ -7,6 +7,22 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-22: the embedded test Postgres refuses to start as root
+
+- **Where.** `margincode-cli` `tests/cli.rs` (any test that calls `start_daemon`), in a
+  `rust:1.97.1` container run as root, with no PostgreSQL installed in it and
+  `AV_TEST_DATABASE_URL` unset.
+- **Seen.** `TestDb::new` panicked with `postgres setup (needs network on first run):
+  DatabaseInitializationError("Command error: stdout=; stderr=initdb: error: cannot be run as
+  root ...")`, and the test then failed with `daemon failed to start: RecvError`.
+- **Ruled out.** The change under test (OpenCode's `av init` writer): the same tests passed once
+  `AV_TEST_DATABASE_URL` pointed at a throwaway `postgres:16` container.
+- **Guess.** As root, only the installed-binaries path (`installed.rs`) drops to `postgres` or
+  `nobody`; the embedded fallback runs `initdb` as the current user. `CLAUDE.md` ("Test
+  environment") reads as if a root container works without an installed PostgreSQL. Either the
+  embedded path could drop privileges too, or that text could name the requirement.
+- **Status.** Open.
+
 ## 2026-11-22: the build-slot test missed its "waiting" line once under load
 
 - **Where.** `margincode-cli` `tests/cli.rs` `validate_waits_for_a_free_build_slot_on_the_host`,

@@ -330,13 +330,14 @@ pub fn init(
     }
     let mcp_url = format!("{}/mcp", url.trim_end_matches('/'));
     let codex_home = env_path("CODEX_HOME");
+    let xdg_config_home = env_path("XDG_CONFIG_HOME");
     for &agent in agents {
         let path = match agent {
             Agent::McpJson => mcp_json
                 .ok_or_else(|| local("--for mcp-json needs --path FILE"))?
                 .to_path_buf(),
             other => other
-                .config_path(&home(), codex_home.clone())
+                .config_path(&home(), codex_home.clone(), xdg_config_home.clone())
                 .expect("every agent but mcp-json has a home config"),
         };
         match agent {
@@ -364,6 +365,7 @@ pub fn init(
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
             Agent::Antigravity => agents::install_antigravity(&path, &mcp_url, token)?,
+            Agent::Opencode => agents::install_opencode(&path, &mcp_url, token)?,
             Agent::McpJson => {
                 agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
             }
@@ -371,7 +373,7 @@ pub fn init(
         if agent != Agent::Claude {
             let note = match (agent, token.is_some()) {
                 (_, false) => "",
-                (Agent::Antigravity, true) => {
+                (Agent::Antigravity | Agent::Opencode, true) => {
                     " (the token is written into the file: run `av init` again when it changes)"
                 }
                 (_, true) => " (reads the token from AV_TOKEN when it starts)",
@@ -383,6 +385,14 @@ pub fn init(
                 path.display(),
             );
         }
+        // OpenCode loads opencode.jsonc after opencode.json, and the later file's server wins
+        let jsonc = path.with_extension("jsonc");
+        if agent == Agent::Opencode && jsonc.exists() {
+            println!(
+                "OpenCode also reads {}: an mcp.servers.av entry there overrides this one",
+                jsonc.display()
+            );
+        }
     }
     println!(
         "Other MCP clients: streamable HTTP at {mcp_url}, or\n  \
@@ -390,7 +400,7 @@ pub fn init(
          \n\
          Next: start a task and work in its workspace (or let the agent call the `start_task` tool):\n  \
          av task start --repo {name} --title \"Add retry\" --goal \"retry failed calls with backoff\"\n  \
-         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent, agy)\n\
+         cd <the workspace it prints> && claude   (or codex, grok, gemini, cursor-agent, agy, opencode)\n\
          Dashboard: {}/ui",
         url.trim_end_matches('/')
     );

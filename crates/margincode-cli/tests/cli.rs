@@ -4107,6 +4107,23 @@ fn mcp_endpoint(agent: &str, home: &Path, token: &str) -> (String, Vec<(String, 
             };
             (url.as_str().unwrap().to_owned(), headers)
         }
+        // OpenCode 2.x reads `mcp.servers`; the token is the literal, so nothing is expanded
+        "opencode" => {
+            let file = home.join(".config/opencode/opencode.json");
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+            let av = &v["mcp"]["servers"]["av"];
+            assert_eq!(av["type"], "remote");
+            let headers = av["headers"]
+                .as_object()
+                .map(|h| {
+                    h.iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            (av["url"].as_str().unwrap().to_owned(), headers)
+        }
         other => panic!("no reader for {other}"),
     }
 }
@@ -4156,6 +4173,7 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
     let env = [
         ("HOME", home.path().to_str().unwrap()),
         ("CODEX_HOME", ""),
+        ("XDG_CONFIG_HOME", ""),
         ("AV_TOKEN", "sekrit"),
     ];
     let out = ok(av_env(
@@ -4176,10 +4194,19 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
             "cursor",
             "--for",
             "antigravity",
+            "--for",
+            "opencode",
         ],
     ));
     assert!(!out.contains("sekrit"), "{out}");
-    for agent in ["codex", "grok", "gemini", "cursor", "antigravity"] {
+    for agent in [
+        "codex",
+        "grok",
+        "gemini",
+        "cursor",
+        "antigravity",
+        "opencode",
+    ] {
         let (url, headers) = mcp_endpoint(agent, home.path(), "sekrit");
         assert_eq!(url, format!("{}/mcp", d.url), "{agent}");
         // without the header the daemon refuses: the config, not luck, carries the token
@@ -4197,7 +4224,8 @@ fn agents_wired_by_init_can_start_record_checkpoint_and_submit() {
         };
         // the name each CLI gives itself, which is not the agent's name: the config's
         // `X-Av-Agent` header must win (Codex's checked against Codex CLI 0.166.0 on 2026-11-04,
-        // Grok's against Grok Build 1.0.70; Gemini's, Cursor's and Antigravity's are stand-ins)
+        // Grok's against Grok Build 1.0.70; Gemini's, Cursor's, Antigravity's and OpenCode's are
+        // stand-ins)
         let client = match agent {
             "codex" => "codex-mcp-client",
             "grok" => "grok-shell-av",
@@ -4302,6 +4330,103 @@ fn antigravity_is_wired_into_its_empty_config_and_named_by_its_header() {
         "{out}"
     );
     assert!(!out.contains("sekrit"), "{out}");
+}
+
+/// OpenCode 2.3.2 names itself `opencode` in `clientInfo` (seen 2026-11-22); a stand-in name here
+/// shows the `X-Av-Agent` header carries it either way.
+#[test]
+fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", ""),
+    ];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "opencode"],
+    ));
+    assert!(out.contains("OpenCode MCP server `av`"), "{out}");
+    assert!(!out.contains("also reads"), "{out}");
+    let (url, headers) = mcp_endpoint("opencode", home.path(), "");
+    assert_eq!(url, format!("{}/mcp", d.url));
+    assert_eq!(
+        headers,
+        vec![("X-Av-Agent".to_owned(), "opencode".to_owned())]
+    );
+    let mut c = McpClient {
+        url,
+        headers,
+        session: None,
+    };
+    c.send(
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                   "clientInfo": {"name": "some-mcp-client", "version": "1"}}}),
+    );
+    c.send(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    c.tool(
+        "start_task",
+        serde_json::json!({"repo": "demo", "title": "opencode task", "goal": "Make hello louder"}),
+    );
+    let status = c.tool("status", serde_json::json!({}));
+    assert!(status.contains("\"owner_agent\": \"opencode\""), "{status}");
+
+    let env = [
+        ("HOME", home.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", ""),
+        ("AV_TOKEN", "sekrit"),
+    ];
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "opencode"],
+    ));
+    assert!(
+        out.contains("(the token is written into the file: run `av init` again when it changes)"),
+        "{out}"
+    );
+    assert!(!out.contains("sekrit"), "{out}");
+    let (_, headers) = mcp_endpoint("opencode", home.path(), "");
+    assert!(
+        headers.contains(&("Authorization".to_owned(), "Bearer sekrit".to_owned())),
+        "{headers:?}"
+    );
+
+    let xdg = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let env = [
+        ("HOME", elsewhere.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", xdg.path().to_str().unwrap()),
+    ];
+    ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "opencode"],
+    ));
+    assert!(xdg.path().join("opencode/opencode.json").exists());
+    assert!(!elsewhere.path().join(".config").exists());
+
+    // OpenCode loads opencode.jsonc after opencode.json, so an `av` entry there wins
+    let jsonc = xdg.path().join("opencode/opencode.jsonc");
+    std::fs::write(&jsonc, "{}\n").unwrap();
+    let out = ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "opencode"],
+    ));
+    assert!(
+        out.contains(&format!(
+            "OpenCode also reads {}: an mcp.servers.av entry there overrides this one",
+            jsonc.display()
+        )),
+        "{out}"
+    );
 }
 
 fn daemon_with_repo() -> (Daemon, TempDir) {

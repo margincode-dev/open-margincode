@@ -16,11 +16,11 @@ repository is not listed, follow the `setup` skill (`/margincode:setup`) first.
 
 ## 2. Connect the agents
 
-Check which agent CLIs are installed: `command -v claude codex gemini grok cursor-agent`. Connect
-each one the user wants, from inside the repository:
+Check which agent CLIs are installed: `command -v claude codex gemini grok cursor-agent agy opencode`.
+Connect each one the user wants, from inside the repository:
 
 ```bash
-av init --for claude --for codex --for gemini --for grok --for cursor --for antigravity   # only the ones installed
+av init --for claude --for codex --for gemini --for grok --for cursor --for antigravity --for opencode   # only the ones installed
 av --agent NAME init --for mcp-json --path FILE   # any other client with an mcpServers JSON file
 ```
 

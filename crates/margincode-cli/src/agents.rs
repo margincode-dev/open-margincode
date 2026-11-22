@@ -3,8 +3,8 @@
 //! same SessionStart and Stop hooks in `~/.grok/hooks/av.json` unless that settings file already
 //! loads them (Grok runs both). Codex, Gemini CLI and Cursor Agent get the MCP server only, and
 //! their agent calls `start_task` and `context` itself (or runs under
-//! `integrations/generic/av-wrap.sh`); so does Antigravity, whose file holds the token itself
-//! when there is one. `mcp-json` merges the same server into any JSON file that
+//! `integrations/generic/av-wrap.sh`); so do Antigravity and OpenCode, whose files hold the token
+//! itself when there is one. `mcp-json` merges the same server into any JSON file that
 //! has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file, keeps
 //! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
 
@@ -31,6 +31,8 @@ pub enum Agent {
     Cursor,
     /// Google Antigravity CLI (`agy`): MCP in ~/.gemini/config/mcp_config.json.
     Antigravity,
+    /// OpenCode 2.x: MCP in $XDG_CONFIG_HOME/opencode/opencode.json (default ~/.config).
+    Opencode,
     /// Any client that reads `mcpServers` JSON. The file is `--path`, not a home path.
     McpJson,
 }
@@ -44,13 +46,19 @@ impl Agent {
             Agent::Gemini => "Gemini CLI",
             Agent::Cursor => "Cursor Agent",
             Agent::Antigravity => "Antigravity",
+            Agent::Opencode => "OpenCode",
             Agent::McpJson => "mcp-json",
         }
     }
 
     /// The config file `av init` writes for this agent, under `home`.
     /// [`Agent::McpJson`] has none: that file is `--path`.
-    pub fn config_path(self, home: &Path, codex_home: Option<PathBuf>) -> Option<PathBuf> {
+    pub fn config_path(
+        self,
+        home: &Path,
+        codex_home: Option<PathBuf>,
+        xdg_config_home: Option<PathBuf>,
+    ) -> Option<PathBuf> {
         let path = match self {
             Agent::Claude => home.join(".claude/settings.json"),
             Agent::Codex => codex_home
@@ -60,6 +68,10 @@ impl Agent {
             Agent::Gemini => home.join(".gemini/settings.json"),
             Agent::Cursor => home.join(".cursor/mcp.json"),
             Agent::Antigravity => home.join(".gemini/config/mcp_config.json"),
+            // on Windows too: OpenCode does not use %APPDATA%
+            Agent::Opencode => xdg_config_home
+                .unwrap_or_else(|| home.join(".config"))
+                .join("opencode/opencode.json"),
             Agent::McpJson => return None,
         };
         Some(path)
@@ -134,8 +146,63 @@ pub fn install_antigravity(path: &Path, mcp_url: &str, token: Option<&str>) -> R
         server["headers"]["Authorization"] = json!(format!("Bearer {t}"));
     }
     put_mcp_server(path, server)?;
-    #[cfg(unix)]
     if token.is_some() {
+        restrict_to_owner(path)?;
+    }
+    Ok(())
+}
+
+/// OpenCode 2.x: `mcp.servers.av = {type: remote, url, headers}`, the shape
+/// `opencode mcp add --url --header` writes (1.x used `mcp.av`, left alone here). OpenCode expands
+/// `{env:…}` in its server process, by default its background service, which does not see the
+/// shell's `AV_TOKEN`; so the token is the literal and the file is then owner-only (seen with
+/// OpenCode 2.3.2 on 2026-11-22, `integrations/opencode/README.md`).
+pub fn install_opencode(path: &Path, mcp_url: &str, token: Option<&str>) -> Result<()> {
+    let mut server = json!({
+        "type": "remote",
+        "url": mcp_url,
+        "headers": { "X-Av-Agent": "opencode" },
+    });
+    if let Some(t) = token {
+        server["headers"]["Authorization"] = json!(format!("Bearer {t}"));
+    }
+    read_json_object(path).map_err(|e| {
+        local(format!(
+            "{e}. OpenCode allows comments and trailing commas in this file; av cannot edit them. \
+             Add the entry by hand (integrations/opencode/README.md)"
+        ))
+    })?;
+    edit_json(path, |settings| {
+        let mcp = settings
+            .as_object_mut()
+            .expect("checked by edit_json")
+            .entry("mcp")
+            .or_insert_with(|| json!({}));
+        if !mcp.is_object() {
+            *mcp = json!({});
+        }
+        let servers = mcp
+            .as_object_mut()
+            .expect("an object")
+            .entry("servers")
+            .or_insert_with(|| json!({}));
+        if !servers.is_object() {
+            *servers = json!({});
+        }
+        servers[SERVER] = server;
+        Ok(())
+    })?;
+    if token.is_some() {
+        restrict_to_owner(path)?;
+    }
+    Ok(())
+}
+
+/// For a file that holds the token itself: `path` and its `.bak` become readable by the owner
+/// alone (Unix; elsewhere nothing changes).
+fn restrict_to_owner(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
         let mut bak = path.as_os_str().to_owned();
         bak.push(".bak");
@@ -146,6 +213,8 @@ pub fn install_antigravity(path: &Path, mcp_url: &str, token: Option<&str>) -> R
             }
         }
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -460,6 +529,84 @@ mod tests {
     }
 
     #[test]
+    fn opencode_merges_into_mcp_servers_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.json");
+        std::fs::write(
+            &path,
+            r#"{"model":"x/y","mcp":{"av":{"type":"remote","url":"http://v1/mcp"},"servers":{"other":{"type":"local","command":["x"]},"av":{"type":"remote","url":"http://old/mcp"}}}}"#,
+        )
+        .unwrap();
+        install_opencode(&path, URL, None).unwrap();
+        install_opencode(&path, URL, None).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(v["model"], "x/y");
+        assert_eq!(v["mcp"]["av"]["url"], "http://v1/mcp");
+        assert_eq!(v["mcp"]["servers"]["other"]["command"][0], "x");
+        assert_eq!(
+            v["mcp"]["servers"]["av"],
+            json!({ "type": "remote", "url": URL, "headers": { "X-Av-Agent": "opencode" } })
+        );
+        assert!(dir.path().join("opencode.json.bak").exists());
+    }
+
+    #[test]
+    fn opencode_replaces_an_mcp_or_servers_that_is_not_an_object() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.json");
+        for text in [r#"{"mcp":[]}"#, r#"{"mcp":{"servers":"x"}}"#] {
+            std::fs::write(&path, text).unwrap();
+            install_opencode(&path, URL, None).unwrap();
+            let v: Value = serde_json::from_str(&read(&path)).unwrap();
+            assert_eq!(v["mcp"]["servers"]["av"]["url"], URL, "{text}");
+        }
+    }
+
+    /// OpenCode expands `{env:…}` in its server process, by default its background service, which
+    /// does not see the shell's `AV_TOKEN` (seen with OpenCode 2.3.2 on 2026-11-22).
+    #[test]
+    fn opencode_writes_the_token_itself_only_when_there_is_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.json");
+        install_opencode(&path, URL, Some("t0k3n")).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert_eq!(
+            v["mcp"]["servers"]["av"]["headers"],
+            json!({ "X-Av-Agent": "opencode", "Authorization": "Bearer t0k3n" })
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            install_opencode(&path, URL, Some("t0k3n")).unwrap();
+            for p in [path.clone(), dir.path().join("opencode.json.bak")] {
+                let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o600, "{}", p.display());
+            }
+        }
+        install_opencode(&path, URL, None).unwrap();
+        let v: Value = serde_json::from_str(&read(&path)).unwrap();
+        assert!(
+            v["mcp"]["servers"]["av"]["headers"]
+                .get("Authorization")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn opencode_leaves_a_config_with_comments_alone_and_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.json");
+        let text = "{\n  // mine\n  \"model\": \"x/y\",\n}\n";
+        std::fs::write(&path, text).unwrap();
+        let e = install_opencode(&path, URL, None).unwrap_err().to_string();
+        assert!(e.contains("nothing changed"), "{e}");
+        assert!(e.contains("comments"), "{e}");
+        assert_eq!(read(&path), text);
+        assert!(!dir.path().join("opencode.json.bak").exists());
+    }
+
+    #[test]
     fn mcp_json_merges_into_any_json_file_and_names_the_agent() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("clients/settings.json");
@@ -532,6 +679,7 @@ mod tests {
         assert!(install_gemini(&json, URL, false).is_err());
         assert!(install_cursor(&json, URL, false).is_err());
         assert!(install_antigravity(&json, URL, None).is_err());
+        assert!(install_opencode(&json, URL, None).is_err());
         assert!(install_mcp_json(&json, URL, "muse", false).is_err());
         assert_eq!(read(&json), "{ nope");
     }
@@ -540,29 +688,41 @@ mod tests {
     fn config_paths() {
         let home = Path::new("/h");
         assert_eq!(
-            Agent::Codex.config_path(home, None).as_deref(),
+            Agent::Codex.config_path(home, None, None).as_deref(),
             Some(Path::new("/h/.codex/config.toml"))
         );
         assert_eq!(
-            Agent::Codex.config_path(home, Some("/c".into())).as_deref(),
+            Agent::Codex
+                .config_path(home, Some("/c".into()), Some("/x".into()))
+                .as_deref(),
             Some(Path::new("/c/config.toml"))
         );
         assert_eq!(
-            Agent::Gemini.config_path(home, None).as_deref(),
+            Agent::Gemini.config_path(home, None, None).as_deref(),
             Some(Path::new("/h/.gemini/settings.json"))
         );
         assert_eq!(
-            Agent::Grok.config_path(home, None).as_deref(),
+            Agent::Grok.config_path(home, None, None).as_deref(),
             Some(Path::new("/h/.grok/config.toml"))
         );
         assert_eq!(
-            Agent::Cursor.config_path(home, None).as_deref(),
+            Agent::Cursor.config_path(home, None, None).as_deref(),
             Some(Path::new("/h/.cursor/mcp.json"))
         );
         assert_eq!(
-            Agent::Antigravity.config_path(home, None).as_deref(),
+            Agent::Antigravity.config_path(home, None, None).as_deref(),
             Some(Path::new("/h/.gemini/config/mcp_config.json"))
         );
-        assert_eq!(Agent::McpJson.config_path(home, None), None);
+        assert_eq!(
+            Agent::Opencode.config_path(home, None, None).as_deref(),
+            Some(Path::new("/h/.config/opencode/opencode.json"))
+        );
+        assert_eq!(
+            Agent::Opencode
+                .config_path(home, Some("/c".into()), Some("/x".into()))
+                .as_deref(),
+            Some(Path::new("/x/opencode/opencode.json"))
+        );
+        assert_eq!(Agent::McpJson.config_path(home, None, None), None);
     }
 }

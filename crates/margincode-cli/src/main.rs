@@ -74,7 +74,8 @@ enum Cmd {
         #[arg(long)]
         name: Option<String>,
         /// Agent CLI to wire to the daemon (repeatable): claude (hooks and MCP), codex, grok,
-        /// gemini, cursor, antigravity (MCP), or mcp-json (merge into --path). Default: claude.
+        /// gemini, cursor, antigravity, opencode (MCP), or mcp-json (merge into --path). Default:
+        /// claude.
         #[arg(long = "for", value_enum)]
         agents: Vec<agents::Agent>,
         /// Leave Claude Code's settings alone (same as naming only other agents).

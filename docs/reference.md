@@ -471,7 +471,7 @@ and an embedder (below); packs then rank by structure and Postgres full-text.
 | `AV_PG_INSTALL_DIR` | (none) | an existing PostgreSQL 16 installation (the directory holding `bin/`, e.g. `/usr/lib/postgresql/16`) instead of the bundled or downloaded one |
 | `AV_DAEMON_BIN` | next to `av`, else `PATH` | the `margincode-daemon` that `av up` starts |
 
-`av init [--name NAME] [--source PATH] [--for claude|codex|grok|gemini|cursor|antigravity|mcp-json]...` adds the git repository of the current
+`av init [--name NAME] [--source PATH] [--for claude|codex|grok|gemini|cursor|antigravity|opencode|mcp-json]...` adds the git repository of the current
 directory (as an import job it polls, so size is no problem) and wires the named agent CLIs
 (default: Claude Code). `--for mcp-json` also needs `--path FILE`. `--source PATH` imports PATH
 as the daemon sees it instead of this directory's git root: a daemon in Docker reads its own
@@ -1071,7 +1071,7 @@ Run as many agents as you like on one daemon. There is no seat cap: each distinc
 that calls `next` gets the work that fits it.
 
 ```bash
-av --agent claude init --for claude  # and --for codex, grok, gemini, cursor, antigravity; --agent names the MCP caller
+av --agent claude init --for claude  # and --for codex, grok, gemini, cursor, antigravity, opencode; --agent names the MCP caller
 av --agent muse init --for mcp-json --path PATH/TO/settings.json   # Muse's own path is unverified
 
 av agent set claude --best code,tests --can docs --cost 4
@@ -1112,7 +1112,7 @@ builds at a time. Only `av validate` takes a build slot; an agent running `cargo
 does not.
 
 The dedicated writers put a fixed `X-Av-Agent` header (`codex`, `grok`, `gemini`, `cursor`,
-`antigravity`). `--for mcp-json` writes the `--agent` name into that header, so a client without its own
+`antigravity`, `opencode`). `--for mcp-json` writes the `--agent` name into that header, so a client without its own
 writer still routes as itself. Set a profile under that same name.
 
 The reserve window, review order and `--max-open` are in the next section.
@@ -1825,6 +1825,16 @@ opens with a warning naming the culprit merge.
   are then made owner-only, and `av init` says to run it again when the token changes. From
   `agy mcp add --help` and the docs shipped with the CLI, not yet run against a real `agy`. No hooks: what each of its hook events reads
   on stdout differs from what `av hook …` prints (`integrations/antigravity/README.md`).
+- **OpenCode** (2.x): `av init --for opencode` merges `mcp.servers.av` (`type` `remote`, the `/mcp`
+  `url`, `headers` with `X-Av-Agent: opencode`) into `$XDG_CONFIG_HOME/opencode/opencode.json`
+  (default `~/.config/opencode`, on Windows too), keeping the rest and the previous file as `*.bak`.
+  OpenCode expands `{env:…}` in its server process, by default a background service that does not
+  see the shell's `AV_TOKEN`, so with `AV_TOKEN` set the `Authorization` header holds the token
+  itself; on Unix the file and its `*.bak` are then owner-only, and `av init` says to run it again
+  when the token changes. A file with comments or trailing commas is left unchanged with a message,
+  and `av init` warns when an `opencode.jsonc` beside it could override the entry. A running
+  OpenCode server picks up the change by itself. Checked against OpenCode 2.3.2 with a free model.
+  No hooks yet (`integrations/opencode/README.md`).
 - **Muse Code**: installed and its headless mode checked, but its MCP settings file was not (needs a
   login); see `integrations/muse/README.md` for what works today (`av next` with `av-wrap.sh`).
 - **Across vendors**: `scripts/relay-demo.sh` shows one memory shared by different agents. Claude

@@ -1,11 +1,11 @@
 # Instructions for agents without hooks
 
 The `av` MCP server already sends short instructions when an agent connects (how to work a task,
-take the next job with `start_task`, and review). Claude Code, Grok Build and Cursor Agent show them to
+take the next job with `start_task`, and review). Claude Code, Grok Build, Cursor Agent and OpenCode show them to
 the model, so the basics need no setup. What the server deliberately does not say is to keep taking
 jobs: an agent you open for your own work should not start pulling the backlog. To make an agent
-loop, put this in the instructions file it reads (`AGENTS.md` for Codex, Grok Build and Cursor
-Agent, `GEMINI.md` for Gemini CLI), or say it in the prompt:
+loop, put this in the instructions file it reads (`AGENTS.md` for Codex, Grok Build, Cursor
+Agent and OpenCode, `GEMINI.md` for Gemini CLI), or say it in the prompt:
 
 ```markdown
 ## Margincode (`av` MCP server)

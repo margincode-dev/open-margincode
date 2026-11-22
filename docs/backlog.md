@@ -83,7 +83,10 @@ the suspected cause, marked as a guess; the status.
   failure is then not logged.
 - **Guess.** A per-kind once (a can't-start, a time-out, a failed exit) would keep the log short
   and still show a later failure.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: `warn` logs once per kind (cannot run `av`, a time-out, a failed
+  exit, a note on stderr, an error in each of the plugin's hooks). Run under node with a stand-in
+  for OpenCode's context and for `av`: a note, then a failed exit, then a time-out gave three
+  lines, where the old plugin gave one. Not run in OpenCode itself.
 
 ## 2026-11-22: the embedded test Postgres refuses to start as root
 
@@ -99,7 +102,8 @@ the suspected cause, marked as a guess; the status.
   `nobody`; the embedded fallback runs `initdb` as the current user. `CLAUDE.md` ("Test
   environment") reads as if a root container works without an installed PostgreSQL. Either the
   embedded path could drop privileges too, or that text could name the requirement.
-- **Status.** Open.
+- **Status.** The text is fixed on `claude/cloud-tasks-ab7x78`: `CLAUDE.md` says the embedded Postgres refuses to start
+  as root and what a root container needs. The embedded path still does not drop privileges.
 
 ## 2026-11-22: the build-slot test missed its "waiting" line once under load
 
@@ -116,7 +120,9 @@ the suspected cause, marked as a guess; the status.
   `slots::wait_for`, which then found it free and printed nothing. The 1.5 s sleep is then an
   upper bound on the checkpoint's time, which `CONTRIBUTING.md` ("Timing") forbids. The test
   could wait for the "waiting" line on stderr instead of sleeping.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: the test reads validate's stderr and waits (up to `HANG`) for the
+  "waiting" line, then checks that nothing was built and the command still runs, and only then
+  frees the slot. The failure itself was not reproduced.
 
 ## 2026-11-21: the installer and the formula install on a glibc that is too old
 
@@ -125,8 +131,11 @@ the suspected cause, marked as a guess; the status.
 - **Seen.** The archive's sum matched and the three binaries were linked; `margincode --version`
   then stopped with ``version `GLIBC_2.39' not found``. `scripts/install.sh` makes no check
   either. On Ubuntu 24.04 (glibc 2.39) both work.
-- **Status.** Open; `docs/install.md` now states the requirement. The installer could read
-  `ldd --version` and say so before it downloads.
+- **Status.** The installer's half is fixed on `claude/cloud-tasks-ab7x78`: on Linux `scripts/install.sh` reads
+  `getconf GNU_LIBC_VERSION` and stops before the download when it is older than 2.39, naming
+  both versions; a system whose glibc it cannot read is not refused. Tried with a stand-in
+  `getconf` answering 1.99, 2.35 (refused), 2.39, 2.41, 3.0 and nothing (not refused). The 2.39
+  is written in the script and follows `release.yml`'s runners by hand. The formula is as it was.
 
 ## 2026-11-21: a local build of the lite image fails with 401 when no token is given
 
@@ -141,7 +150,9 @@ the suspected cause, marked as a guess; the status.
   "set, length 0"), and the build script sends the empty token.
 - **Not affected.** `image.yml` passes the secret, so the published image builds; Compose
   builds without the feature.
-- **Status.** Open. Unsetting an empty `GITHUB_TOKEN` before `cargo build` would do.
+- **Status.** Changed on `claude/cloud-tasks-ab7x78`, not built: the `RUN` unsets an empty `GITHUB_TOKEN` before
+  `cargo build`. The session that wrote it had no Docker daemon, so neither build (with and
+  without the secret) was run.
 
 ## 2026-11-21: `margincode-daemon --version` starts a daemon
 
@@ -149,7 +160,9 @@ the suspected cause, marked as a guess; the status.
 - **Seen.** `margincode-daemon --version` printed "lite mode: embedded postgres started" and
   "margincode-daemon ready", and was still running when `timeout 25` ended it: the daemon reads
   no arguments. `margincode --version` and `av --version` print the version.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: `--version` and `-V` print `margincode-daemon <version>` and exit;
+  any other argument is refused with exit status 2 instead of being ignored
+  (`tests/binary.rs`). The Commercial daemon has its own `main` and is as it was.
 
 ## 2026-11-21: a file whose line endings changed lists every symbol of the file as changed
 
@@ -206,7 +219,10 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** Nothing yet.
 - **Guess.** The flags were not wired into `records_at` when it was written; not checked in its
   history.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: `records_at` asks `assemble::record_flags` (the pack's own
+  `AnchorCtx::standing`, with a confirming verdict's hashes as the pack reads them) and passes
+  the two flags on. Pinned by
+  `records_at_flags_a_changed_and_a_stale_record_as_the_pack_does`, which failed before.
 
 ## 2026-11-20: the MCP `record` tool still refuses a summary over 200 characters
 
@@ -235,7 +251,9 @@ the suspected cause, marked as a guess; the status.
 - **Guess.** None needed. A loop that means to exercise it needs both, and nothing in the bar's
   output says it skipped. Marking it `#[ignore]` with its needs in the reason, or failing when an
   environment variable asks for it, would make a skip visible.
-- **Status.** Open.
+- **Status.** Fixed on `claude/cloud-tasks-ab7x78`: with `CI` set the test fails where it used to skip ("cannot run
+  with CI set: jq not installed"); without it the skip is as before. Run both ways with `jq` off
+  `PATH`. The other tests that skip with a printed line are as they were.
 
 ## 2026-11-20: a session-start pack showed a disputed record without its reason, and another not at all
 

@@ -23,6 +23,19 @@
   tool call or a turn: when `av` or the daemon fails, the session goes on as without it. `av init`
   now installs the plugin even when it refuses to edit a commented config. Delete the file to
   remove it.
+- **The pre-read answer flags a record whose code changed.** The records `av hook pre-read`
+  shows about a file now carry `(changed since recorded)` or `(anchor_stale)` as the pack's
+  lines do; before, they were shown as if still current.
+- **`margincode-daemon --version` prints the version.** It used to start a daemon: the binary
+  ignored its arguments. Any other argument is now refused (the daemon is configured by `AV_*`
+  variables only).
+- **The installer checks glibc before it downloads.** On a Linux older than the binaries need
+  (glibc 2.39) `scripts/install.sh` stops and says so, instead of installing binaries that
+  cannot start.
+- **A local build of the lite image needs no token.** `deploy/Dockerfile` no longer sends an
+  empty `GITHUB_TOKEN` when the `github_token` secret is absent (not yet built with Docker).
+- **The OpenCode plugin logs one line per kind of problem**, so a harmless first note no longer
+  hides a later failure.
 
 ## 0.0.5 (2026-11-22)
 

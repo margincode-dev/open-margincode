@@ -376,6 +376,32 @@ async fn push_backup_rejects_option_like_and_ext_remotes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn backup_errors_never_carry_the_remotes_credentials() {
+    let e = env().await;
+    let refused = "https://user:s3cr3t-tok@127.0.0.1:1/r.git";
+    let push = e.vcs.push_backup("demo", refused, None).await.unwrap_err();
+    let fetch = e
+        .vcs
+        .advance_trunk("demo", refused, "main")
+        .await
+        .unwrap_err();
+    let bad = e
+        .vcs
+        .push_backup("demo", "-https://user:s3cr3t-tok@h/r.git", None)
+        .await
+        .unwrap_err();
+    for err in [push, fetch, bad] {
+        let text = err.to_string();
+        assert!(
+            text.contains("127.0.0.1:1") || text.contains("//h/"),
+            "{text}"
+        );
+        assert!(!text.contains("s3cr3t-tok"), "{text}");
+        assert!(!text.contains("user:"), "{text}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn push_backup_to_a_named_branch_leaves_the_trunk_name_alone() {
     let e = env().await;
     let remote = bare_remote();

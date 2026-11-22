@@ -376,8 +376,8 @@ fn parse_backup_remotes(value: Option<&str>) -> Result<Vec<(String, String)>> {
             Some((repo, url)) if !repo.is_empty() && !url.is_empty() => {
                 Ok((repo.to_owned(), url.to_owned()))
             }
-            _ => Err(AvError::Invalid(format!(
-                "AV_BACKUP_REMOTES: expected repo=url, got {pair:?}"
+            _ => Err(AvError::Invalid(margincode_core::without_credentials(
+                &format!("AV_BACKUP_REMOTES: expected repo=url, got {pair:?}"),
             ))),
         })
         .collect()

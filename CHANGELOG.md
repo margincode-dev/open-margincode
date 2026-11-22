@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A backup remote's credentials no longer reach logs, stored errors or answers.** A failed git push or fetch was reported with git's whole argument list, so a remote such as `https://user:token@host/r.git` put its token in the daemon's log, in the backup's stored last error, and in what `GET /v1/repos/{name}/backup`, `GET /v1/tasks/{id}` and the MCP `status` tool return; the backup state also returned the remote URL as given. Now the user and password are taken out of every URL in those errors before they are logged or stored, and out of the `remote` and `last_error` fields whenever backup state is answered, so an error stored by an older daemon is shown without its token too. The stored remote is unchanged and pushes still use it as given; the `trunk:advanced` feed event already left credentials out (2026-11-21).
 - **The README and site add the tracker's first run on release 0.0.4.** Next to the 2026-11-20 figures for release 0.0.2, `README.md`, `docs/reference.md`, `site/index.html`, `site/llms.txt` and the memory guide now give the run of 2026-11-21: release 0.0.4 cost $0.0580 against $0.0545 for plain Claude Code, 12 sessions a leg, too few for a claim.
 
 ## 0.0.4 (2026-11-21)

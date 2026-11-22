@@ -49,6 +49,7 @@ use jj_lib::working_copy::{LockedWorkingCopy, SnapshotOptions};
 use jj_lib::workspace::Workspace;
 use margincode_core::{
     Advance, AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
+    without_credentials,
 };
 use pollster::block_on;
 
@@ -260,10 +261,10 @@ fn git_cmd(dir: &Path, args: &[&str]) -> Result<String> {
         .output()
         .map_err(verr)?;
     if !out.status.success() {
-        return Err(AvError::Vcs(format!(
+        return Err(AvError::Vcs(without_credentials(&format!(
             "git {args:?}: {}",
             String::from_utf8_lossy(&out.stderr).trim()
-        )));
+        ))));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
@@ -277,9 +278,9 @@ const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 fn remote_arg<'a>(remote_url: &'a str, verb: &str) -> Result<&'a str> {
     let url = remote_url.trim();
     if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
-        return Err(AvError::Invalid(format!(
+        return Err(AvError::Invalid(without_credentials(&format!(
             "remote {remote_url:?} is not a URL or path git may {verb}"
-        )));
+        ))));
     }
     Ok(url)
 }
@@ -309,19 +310,19 @@ fn git_cmd_timeout(dir: &Path, args: &[&str], timeout: std::time::Duration) -> R
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(AvError::Vcs(format!(
+            return Err(AvError::Vcs(without_credentials(&format!(
                 "git {args:?} timed out after {}s",
                 timeout.as_secs()
-            )));
+            ))));
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     let out = child.wait_with_output().map_err(verr)?;
     if !out.status.success() {
-        return Err(AvError::Vcs(format!(
+        return Err(AvError::Vcs(without_credentials(&format!(
             "git {args:?}: {}",
             String::from_utf8_lossy(&out.stderr).trim()
-        )));
+        ))));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }

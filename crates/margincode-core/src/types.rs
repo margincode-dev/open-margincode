@@ -375,6 +375,29 @@ pub enum Advance {
     Diverged { trunk: ChangeId, remote: ChangeId },
 }
 
+/// `text` with the user and password taken out of every URL in it (`https://user:token@host/x`
+/// gives `https://host/x`), so a remote's token reaches no log, stored error or response.
+pub fn without_credentials(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("://") {
+        let (head, tail) = rest.split_at(i + 3);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| c == '/' || c.is_whitespace() || matches!(c, '"' | '\'' | '`'))
+            .unwrap_or(tail.len());
+        let authority = &tail[..end];
+        let host = match authority.rfind('@') {
+            Some(at) => &authority[at + 1..],
+            None => authority,
+        };
+        out.push_str(host);
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Checks a backup branch name: what git accepts as a branch (see `git check-ref-format`), and
 /// nothing that could be read as an option or a refspec (`:`, a leading `-` or `+`).
 pub fn check_backup_branch(name: &str) -> Result<()> {
@@ -582,6 +605,31 @@ mod tests {
             supersedes: None,
             author_agent: "test".into(),
             anchors: vec![],
+        }
+    }
+
+    #[test]
+    fn credentials_are_taken_out_of_every_url_in_a_text() {
+        assert_eq!(
+            without_credentials("https://x:ghp_secret@github.com/o/r.git"),
+            "https://github.com/o/r.git"
+        );
+        assert_eq!(
+            without_credentials(
+                "git [\"push\", \"--\", \"https://u:tok1@h:8443/r.git\", \"a:b\"]: fatal: \
+                 unable to access 'https://tok2@h/r.git/': refused; also ssh://u:tok3@h"
+            ),
+            "git [\"push\", \"--\", \"https://h:8443/r.git\", \"a:b\"]: fatal: \
+             unable to access 'https://h/r.git/': refused; also ssh://h"
+        );
+        for kept in [
+            "https://github.com/o/r.git",
+            "git@github.com:o/r.git",
+            "/srv/r.git",
+            "https://host/a@b",
+            "no url here",
+        ] {
+            assert_eq!(without_credentials(kept), kept);
         }
     }
 

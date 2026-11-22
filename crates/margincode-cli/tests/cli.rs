@@ -6043,6 +6043,7 @@ fn hold_build_slot(home: &Path) -> std::fs::File {
 
 #[test]
 fn validate_waits_for_a_free_build_slot_on_the_host() {
+    use std::io::BufRead;
     let (d, ws, _scratch) = started();
     let home = TempDir::new().unwrap();
     for (flag, var) in [(Some("--max-builds"), None), (None, Some("1"))] {
@@ -6071,24 +6072,37 @@ fn validate_waits_for_a_free_build_slot_on_the_host() {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        assert!(
-            !ws.join("built").exists(),
-            "the only build slot is held: the command must wait"
-        );
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "validate gave up instead of waiting"
-        );
+        let stderr = child.stderr.take().unwrap();
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let mut seen = String::new();
+            for line in std::io::BufReader::new(stderr).lines() {
+                let line = line.unwrap();
+                if line.contains("all 1 build slots on this host are in use; waiting") {
+                    let _ = waiting_tx.send(());
+                }
+                seen.push_str(&line);
+                seen.push('\n');
+            }
+            seen
+        });
+        // validate checkpoints the task first, which may take long: wait for it to say it waits
+        let said = waiting_rx.recv_timeout(HANG);
+        let waited =
+            said.is_ok() && !ws.join("built").exists() && child.try_wait().unwrap().is_none();
         drop(held);
         let o = child.wait_with_output().unwrap();
-        assert!(o.status.success(), "{}", err(&o));
-        assert!(ws.join("built").exists(), "{}", out(&o));
+        let seen = reader.join().unwrap();
         assert!(
-            err(&o).contains("all 1 build slots on this host are in use; waiting"),
-            "{}",
-            err(&o)
+            said.is_ok(),
+            "validate never said it waits for a slot: {seen}"
         );
+        assert!(
+            waited,
+            "the only build slot was held: the command must wait: {seen}"
+        );
+        assert!(o.status.success(), "{seen}");
+        assert!(ws.join("built").exists(), "{}", out(&o));
     }
 }
 

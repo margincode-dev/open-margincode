@@ -3,6 +3,7 @@
 //! file (Plan 12: build output is the disk agents spend).
 
 mod api;
+mod binary;
 mod common;
 mod disk;
 mod dream;

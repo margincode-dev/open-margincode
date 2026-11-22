@@ -6,6 +6,18 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
+    // The daemon is configured by AV_* variables alone: an argument it ignored would start one.
+    if let Some(arg) = std::env::args().nth(1) {
+        if matches!(arg.as_str(), "--version" | "-V") {
+            println!("margincode-daemon {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        eprintln!(
+            "margincode-daemon: unexpected argument {arg:?}: it takes none but --version \
+             (AV_* variables configure it, docs/reference.md)"
+        );
+        std::process::exit(2);
+    }
     tracing_subscriber::fmt()
         // `av up` sends the log to a file
         .with_ansi(std::io::stdout().is_terminal())

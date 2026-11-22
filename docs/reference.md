@@ -19,7 +19,12 @@ where it did not help); a later tracker run found release 0.0.2 costing more
 
 [![A recorded run: Codex's context pack leads with Claude's decision and dead end](img/demo-replay.png)](https://open.margincode.dev/demo)
 
-**New in 0.0.4:** agents can correct a stored record (`av record --supersedes`), packs say when a
+**New in 0.0.5:** two security fixes. A daemon without `AV_TOKEN` refuses (403) a `Host` that is
+a dotted DNS name it does not know and an `Origin` from another site, so a web page cannot reach
+it through DNS rebinding; a client that reaches such a daemon by a dotted name sets `AV_TOKEN` or
+lists the name in `AV_ALLOWED_HOSTS` ([Security](#security)). A backup remote's user and password
+no longer appear in the daemon's log, the backup's stored error, the API or the MCP `status` tool.
+**In 0.0.4:** agents can correct a stored record (`av record --supersedes`), packs say when a
 record comes from reverted, abandoned or open work, `av dream` and `av verdict` give records a
 second look (a verdict takes effect once a verify run or a person agrees), `av record` cuts an
 overlong summary to fit, `av init --for antigravity` connects Google's Antigravity CLI, and

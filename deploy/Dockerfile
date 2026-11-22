@@ -17,6 +17,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # `av dream`'s instructions are compiled into the CLI (include_str! in crates/margincode-cli/src/dream.rs).
 COPY integrations/dream ./integrations/dream
+# The OpenCode plugin `av init --for opencode` installs (include_str! in crates/margincode-cli/src/agents.rs).
+COPY integrations/opencode/av.js ./integrations/opencode/av.js
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN,required=false \

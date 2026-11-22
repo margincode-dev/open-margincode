@@ -1,12 +1,14 @@
 //! `av init --for NAME`: wires an agent CLI to the daemon's MCP server (`/mcp`). Claude Code
 //! gets hooks in `~/.claude/settings.json` (`local::install_claude_hooks`). Grok Build gets the
 //! same SessionStart and Stop hooks in `~/.grok/hooks/av.json` unless that settings file already
-//! loads them (Grok runs both). Codex, Gemini CLI and Cursor Agent get the MCP server only, and
-//! their agent calls `start_task` and `context` itself (or runs under
-//! `integrations/generic/av-wrap.sh`); so do Antigravity and OpenCode, whose files hold the token
-//! itself when there is one. `mcp-json` merges the same server into any JSON file that
-//! has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file, keeps
-//! everything else in it, replaces an earlier `av` entry, and keeps the previous file as `*.bak`.
+//! loads them (Grok runs both). OpenCode gets all four hooks from a plugin in its config dir
+//! (`plugins/av.js`, [`install_opencode_plugin`]). Codex, Gemini CLI and Cursor Agent get the
+//! MCP server only, and their agent calls `start_task` and `context` itself (or runs under
+//! `integrations/generic/av-wrap.sh`); so does Antigravity. Antigravity's and OpenCode's files
+//! hold the token itself when there is one. `mcp-json` merges the same server into any JSON file
+//! that has an `mcpServers` object (`--path`). Each writer merges into the CLI's own config file,
+//! keeps everything else in it, replaces an earlier `av` entry, and keeps the previous file as
+//! `*.bak`.
 
 use std::path::{Path, PathBuf};
 
@@ -196,6 +198,34 @@ pub fn install_opencode(path: &Path, mcp_url: &str, token: Option<&str>) -> Resu
         restrict_to_owner(path)?;
     }
     Ok(())
+}
+
+/// The OpenCode plugin that runs `av hook …` from OpenCode's plugin API.
+pub const OPENCODE_PLUGIN: &str = include_str!("../../../integrations/opencode/av.js");
+
+/// [`OPENCODE_PLUGIN`] running `av_bin`: its `AV_BIN` line holds that path as a JSON string.
+pub fn opencode_plugin(av_bin: &Path) -> String {
+    let bin = serde_json::to_string(&av_bin.to_string_lossy()).expect("serializable");
+    OPENCODE_PLUGIN.replacen(
+        "const AV_BIN = \"av\";",
+        &format!("const AV_BIN = {bin};"),
+        1,
+    )
+}
+
+/// Writes [`opencode_plugin`] to `<config_dir>/plugins/av.js` and returns that path. OpenCode
+/// loads every plugin in that folder and reloads a changed one, so the file is replaced whole
+/// (written beside it, then renamed) and no `.bak` is kept there.
+pub fn install_opencode_plugin(config_dir: &Path, av_bin: &Path) -> Result<PathBuf> {
+    let dir = config_dir.join("plugins");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| local(format!("cannot create {}: {e}", dir.display())))?;
+    let path = dir.join("av.js");
+    let tmp = dir.join("av.js.tmp");
+    std::fs::write(&tmp, opencode_plugin(av_bin))
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| local(format!("cannot write {}: {e}", path.display())))?;
+    Ok(path)
 }
 
 /// For a file that holds the token itself: `path` and its `.bak` become readable by the owner
@@ -604,6 +634,47 @@ mod tests {
         assert!(e.contains("comments"), "{e}");
         assert_eq!(read(&path), text);
         assert!(!dir.path().join("opencode.json.bak").exists());
+    }
+
+    #[test]
+    fn opencode_plugin_holds_avs_path_as_a_valid_string() {
+        let placeholder = "const AV_BIN = \"av\";";
+        assert_eq!(OPENCODE_PLUGIN.matches(placeholder).count(), 1);
+        let plugin = opencode_plugin(Path::new(r"C:\Program Files\av\av.exe"));
+        let line = r#"const AV_BIN = "C:\\Program Files\\av\\av.exe";"#;
+        assert_eq!(plugin.lines().nth(1), Some(line));
+        let changed: Vec<(&str, &str)> = OPENCODE_PLUGIN
+            .lines()
+            .zip(plugin.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(changed, [(placeholder, line)]);
+        assert_eq!(OPENCODE_PLUGIN.lines().count(), plugin.lines().count());
+    }
+
+    #[test]
+    fn opencode_plugin_is_written_into_the_plugins_folder_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("plugins")).unwrap();
+        std::fs::write(dir.path().join("plugins/mine.js"), "export default {}\n").unwrap();
+        for _ in 0..2 {
+            let path = install_opencode_plugin(dir.path(), Path::new("/opt/av/bin/av")).unwrap();
+            assert_eq!(path, dir.path().join("plugins/av.js"));
+        }
+        let mut names: Vec<String> = std::fs::read_dir(dir.path().join("plugins"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["av.js", "mine.js"]);
+        assert_eq!(
+            read(&dir.path().join("plugins/av.js")),
+            opencode_plugin(Path::new("/opt/av/bin/av"))
+        );
+        assert_eq!(
+            read(&dir.path().join("plugins/mine.js")),
+            "export default {}\n"
+        );
     }
 
     #[test]

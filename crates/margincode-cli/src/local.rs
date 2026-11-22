@@ -330,13 +330,14 @@ pub fn init(
     }
     let mcp_url = format!("{}/mcp", url.trim_end_matches('/'));
     let codex_home = env_path("CODEX_HOME");
+    let xdg_config_home = env_path("XDG_CONFIG_HOME");
     for &agent in agents {
         let path = match agent {
             Agent::McpJson => mcp_json
                 .ok_or_else(|| local("--for mcp-json needs --path FILE"))?
                 .to_path_buf(),
             other => other
-                .config_path(&home(), codex_home.clone())
+                .config_path(&home(), codex_home.clone(), xdg_config_home.clone())
                 .expect("every agent but mcp-json has a home config"),
         };
         match agent {
@@ -364,6 +365,7 @@ pub fn init(
             Agent::Gemini => agents::install_gemini(&path, &mcp_url, token.is_some())?,
             Agent::Cursor => agents::install_cursor(&path, &mcp_url, token.is_some())?,
             Agent::Antigravity => agents::install_antigravity(&path, &mcp_url, token)?,
+            Agent::Opencode => agents::install_opencode(&path, &mcp_url, token)?,
             Agent::McpJson => {
                 agents::install_mcp_json(&path, &mcp_url, agent_name, token.is_some())?
             }

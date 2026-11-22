@@ -10,8 +10,9 @@ FROM rust:1.97.1-bookworm AS build
 WORKDIR /src
 # Lite mode's Postgres: `--build-arg FEATURES=margincode-daemon/bundled-postgres` compiles it into the
 # daemon (the release image does; the build script lists Postgres releases through the GitHub API, so
-# pass a token: `--secret id=github_token,env=GITHUB_TOKEN`). Left empty, as compose builds it, the
-# daemon downloads Postgres on first start instead.
+# pass a token: `--secret id=github_token,env=GITHUB_TOKEN`; without one the list is read
+# anonymously, within GitHub's rate limit). Left empty, as compose builds it, the daemon downloads
+# Postgres on first start instead.
 ARG FEATURES=""
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -19,10 +20,12 @@ COPY crates ./crates
 COPY integrations/dream ./integrations/dream
 # The OpenCode plugin `av init --for opencode` installs (include_str! in crates/margincode-cli/src/agents.rs).
 COPY integrations/opencode/av.js ./integrations/opencode/av.js
+# An absent secret arrives as an empty GITHUB_TOKEN, which the build script would send (401).
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN,required=false \
-    cargo build --release --locked -p margincode-cli -p margincode-daemon ${FEATURES:+--features "$FEATURES"} \
+    if [ -z "${GITHUB_TOKEN:-}" ]; then unset GITHUB_TOKEN; fi \
+    && cargo build --release --locked -p margincode-cli -p margincode-daemon ${FEATURES:+--features "$FEATURES"} \
     && cp target/release/margincode target/release/av target/release/margincode-daemon /usr/local/bin/
 
 FROM debian:bookworm-slim

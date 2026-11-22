@@ -78,6 +78,9 @@ pub struct AppState {
     pub(crate) attention: AttentionLimits,
     /// `AV_TOKEN`: when set, every route but `/healthz` and `/ui` needs it as a bearer token.
     pub(crate) token: Option<String>,
+    /// `AV_ALLOWED_HOSTS`: names beyond loopback a token-less daemon answers as `Host` and
+    /// `Origin` (`auth::foreign`), lower case, without a port.
+    pub(crate) allowed_hosts: Vec<String>,
     /// `AV_WS_RETAIN_SECS`: how long a merged or abandoned task's workspace stays; `None` = for
     /// good, `Some(0)` = removed by the merge or abandon itself.
     pub(crate) ws_retain: Option<u64>,
@@ -152,6 +155,7 @@ impl AppState {
             lease_secs: wiring::DEFAULT_LEASE_SECS,
             attention: AttentionLimits::default(),
             token: None,
+            allowed_hosts: Vec::new(),
             ws_retain: Some(wiring::DEFAULT_WS_RETAIN_SECS),
             reclaim_tick: disk::RECLAIM_TICK,
             reclaim_failed: Arc::default(),
@@ -321,6 +325,17 @@ impl AppState {
     /// Requires `token` on every route but `/healthz` and `/ui`; `None` leaves the API open.
     pub fn with_token(mut self, token: Option<String>) -> Self {
         self.token = token.filter(|t| !t.trim().is_empty());
+        self
+    }
+
+    /// Without a token, also answers these hosts (`AV_ALLOWED_HOSTS`) as `Host` and `Origin`; a
+    /// port is ignored.
+    pub fn with_allowed_hosts(mut self, hosts: Vec<String>) -> Self {
+        self.allowed_hosts = hosts
+            .iter()
+            .map(|h| auth::host_name(h))
+            .filter(|h| !h.is_empty())
+            .collect();
         self
     }
 

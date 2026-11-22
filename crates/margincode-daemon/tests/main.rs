@@ -8,6 +8,7 @@ mod disk;
 mod dream;
 mod embedded_pg;
 mod history;
+mod hosts;
 mod mcp;
 mod office;
 mod remote;

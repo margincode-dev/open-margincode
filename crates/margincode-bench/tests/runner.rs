@@ -750,20 +750,28 @@ else
 fi
 "#;
 
+/// A test that cannot run here passes with a line only `--nocapture` shows; where `CI` is set it
+/// fails instead, so a run that means to cover it cannot report a pass that ran nothing.
+fn skip(why: &str) {
+    assert!(
+        std::env::var_os("CI").is_none(),
+        "cannot run with CI set: {why}"
+    );
+    println!("skip: {why}");
+}
+
 #[test]
 fn a_frozen_dream_is_replayed_into_a_session_of_the_dreamed_arm() {
     let _g = serial();
     let Some(av) = real_av() else {
-        println!("skip: no av binary beside the test binary (cargo build -p margincode-cli)");
-        return;
+        return skip("no av binary beside the test binary (cargo build -p margincode-cli)");
     };
     if std::process::Command::new("jq")
         .arg("--version")
         .output()
         .is_err()
     {
-        println!("skip: jq not installed");
-        return;
+        return skip("jq not installed");
     }
     let d = start_daemon(None);
     let mut f = fixture("fix");

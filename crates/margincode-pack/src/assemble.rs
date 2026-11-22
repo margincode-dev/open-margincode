@@ -1665,6 +1665,31 @@ impl AnchorCtx<'_> {
     }
 }
 
+/// (any anchor stale, any anchored code changed since the record was written) at `task`'s head,
+/// as a pack flags `rec`.
+pub(crate) async fn record_flags(
+    vcs: &dyn Vcs,
+    index: &dyn CodeIndex,
+    task: &Task,
+    rec: &Record,
+) -> Result<(bool, bool)> {
+    let (syms, hops, paths) = (HashSet::new(), HashMap::new(), BTreeSet::new());
+    let (_, stale, _, changed) = AnchorCtx {
+        index,
+        vcs,
+        repo: &task.repo,
+        scope: &task.slug,
+        head: (!task.head_change.0.is_empty()).then_some(&task.head_change),
+        seed_set: &syms,
+        hops_by_sym: &hops,
+        seed_paths: &paths,
+        neighbor_paths: &paths,
+    }
+    .standing(rec)
+    .await?;
+    Ok((stale, changed))
+}
+
 /// SHA-256 (hex) of what `a` points at in `change`: the anchored symbol's source lines, or the whole
 /// file for a path anchor. `None` when the file or symbol does not exist there.
 pub(crate) async fn anchor_hash(

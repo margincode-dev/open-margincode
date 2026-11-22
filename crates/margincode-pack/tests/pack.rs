@@ -2863,6 +2863,51 @@ async fn records_at_and_expand_say_the_origin_too() {
     assert!(text.contains(" decision, reverted: "), "{text}");
 }
 
+#[tokio::test]
+async fn records_at_flags_a_changed_and_a_stale_record_as_the_pack_does() {
+    let fx = fixture().await;
+    let changed = decision_of_task(&fx, "earlier", "hello must stay pure", "merged").await;
+    fx.store
+        .set_anchor_hashes(changed.id, &[Some("0".repeat(64))])
+        .await
+        .unwrap();
+    let same = decision_of_task(&fx, "untouched", "hello takes one name", "merged").await;
+    let now = fx
+        .packer
+        .anchor_hashes(fx.task.id, &same.anchors)
+        .await
+        .unwrap();
+    fx.store.set_anchor_hashes(same.id, &now).await.unwrap();
+    let gone = fx.store.create_task(new_task("gone")).await.unwrap();
+    fx.store
+        .add_record(record(
+            gone.id,
+            RecordKind::Decision,
+            "hello must stay synchronous",
+            "",
+            vec![anchor("app/greeter.py", Some("Greeter.renamed_away"))],
+        ))
+        .await
+        .unwrap();
+    let at = fx
+        .packer
+        .records_at(fx.task.id, "app/greeter.py", None)
+        .await
+        .unwrap();
+    let line = |needle| line_of(&at.markdown, needle);
+    assert!(
+        line("stay pure").contains("(changed since recorded)"),
+        "{}",
+        at.markdown
+    );
+    assert!(
+        line("stay synchronous").contains("(anchor_stale)"),
+        "{}",
+        at.markdown
+    );
+    assert!(!line("takes one name").contains('('), "{}", at.markdown);
+}
+
 /// A task of `fx`'s repo with `goal`, on `fx`'s base and head.
 async fn task_with_goal(fx: &Fx, title: &str, goal: &str) -> Task {
     let t = fx

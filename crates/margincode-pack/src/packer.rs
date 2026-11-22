@@ -500,7 +500,14 @@ impl Packer {
         let (mut lines, mut ids) = (vec![], vec![]);
         let mut shows_correctable = false;
         for rec in recs {
-            let (id, texts) = record_texts(rec, false, false, origins.whence(rec, task.id));
+            let (stale, changed) = crate::assemble::record_flags(
+                self.vcs.as_ref(),
+                self.index.as_ref(),
+                &task,
+                &origins.judged(rec, task.id),
+            )
+            .await?;
+            let (id, texts) = record_texts(rec, stale, changed, origins.whence(rec, task.id));
             if is_sent(&id) {
                 continue;
             }

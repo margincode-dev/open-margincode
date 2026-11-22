@@ -4454,6 +4454,32 @@ fn opencode_is_wired_through_its_global_config_and_named_by_its_header() {
         )),
         "{out}"
     );
+
+    // a file av cannot edit gets the entry by hand, and the hooks still come from the plugin
+    let commented = TempDir::new().unwrap();
+    std::fs::create_dir_all(commented.path().join("opencode")).unwrap();
+    let config = commented.path().join("opencode/opencode.json");
+    std::fs::write(&config, "// mine\n{}\n").unwrap();
+    let env = [
+        ("HOME", elsewhere.path().to_str().unwrap()),
+        ("XDG_CONFIG_HOME", commented.path().to_str().unwrap()),
+    ];
+    let o = av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &["init", "--name", "demo", "--for", "opencode"],
+    );
+    assert!(!o.status.success());
+    assert!(err(&o).contains("comments"), "{}", err(&o));
+    let plugin = commented.path().join("opencode/plugins/av.js");
+    let printed = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        printed.contains(&format!("OpenCode plugin: {}", plugin.display())),
+        "{printed}"
+    );
+    assert!(plugin.exists());
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), "// mine\n{}\n");
 }
 
 /// `node` from `PATH`, else `None` after a `SKIPPED` line: the OpenCode plugin's tests need it.
@@ -4686,6 +4712,75 @@ fn opencode_plugin_does_not_put_a_pack_that_is_already_there() {
             .unwrap()
             .contains("Improve greeting")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn opencode_plugin_reads_an_entry_added_by_hand() {
+    let Some(node) = node_or_skip("opencode_plugin_reads_an_entry_added_by_hand") else {
+        return;
+    };
+    let (d, ws, _scratch) = started();
+    let entry = |url: &str| {
+        format!(
+            "{{\"type\": \"remote\", \"url\": \"{url}/mcp\", // the daemon\n \
+             \"headers\": {{\"X-Av-Agent\": \"opencode\",}},}}"
+        )
+    };
+    let commented = format!(
+        "// added by hand\n{{\"mcp\": {{\"servers\": {{\n  /* av */ \"av\": {},\n}}}}}}\n",
+        entry(&d.url)
+    );
+    let wrong = "http://127.0.0.1:9";
+    let server = |url: &str| format!("{{\"mcp\": {{\"servers\": {{\"av\": {}}}}}}}", entry(url));
+    let cases = [
+        (
+            "a commented opencode.json",
+            Some(commented.clone()),
+            None,
+            "",
+        ),
+        ("opencode.jsonc alone", None, Some(commented.clone()), ""),
+        (
+            "opencode.jsonc after opencode.json",
+            Some(server(wrong)),
+            Some(commented),
+            "",
+        ),
+        // OpenCode's to expand: the server's own AV_URL stands in
+        ("an {env:} url", Some(server("{env:AV_URL}")), None, &*d.url),
+    ];
+    for (case, json, jsonc, server_url) in cases {
+        let config = opencode_config(None, Path::new(env!("CARGO_BIN_EXE_av")));
+        for (name, text) in [("opencode.json", json), ("opencode.jsonc", jsonc)] {
+            if let Some(text) = text {
+                std::fs::write(config.path().join(name), text).unwrap();
+            }
+        }
+        let env: &[(&str, &str)] = if server_url.is_empty() {
+            &[]
+        } else {
+            &[("AV_URL", server_url)]
+        };
+        let v = play(
+            &node,
+            config.path(),
+            env,
+            serde_json::json!({
+                "sessions": {"s1": {"directory": ws}},
+                "steps": [oc_prompt("s1")],
+            }),
+        );
+        let puts = v["puts"].as_array().unwrap();
+        assert_eq!(puts.len(), 1, "{case}: {v}");
+        assert!(
+            puts[0]["value"]
+                .as_str()
+                .unwrap()
+                .contains("Improve greeting"),
+            "{case}: {v}"
+        );
+    }
 }
 
 /// Another task's record on `app/greeter.py`, for `pre-read` to hand on.

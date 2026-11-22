@@ -21,19 +21,53 @@ function warn(message) {
   } catch {}
 }
 
-// The `av` entry `av init` wrote beside this plugin's folder, read at each call: the token lives
-// in that file only and reaches the child in its environment, never in its arguments.
+// OpenCode's config syntax: JSON with comments and trailing commas.
+function parseJsonc(text) {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 1;
+      out += " ";
+    } else if (c === "}" || c === "]") {
+      out = out.trimEnd();
+      if (out.endsWith(",")) out = out.slice(0, -1);
+      out += c;
+    } else {
+      out += c;
+    }
+  }
+  return JSON.parse(out);
+}
+
+// The `av` entry in the config beside this plugin's folder, read at each call: the token lives
+// in that file only and reaches the child in its environment, never in its arguments. OpenCode
+// reads opencode.jsonc after opencode.json, and the later file's server wins.
 async function avEnv() {
   const env = { ...process.env, AV_AGENT: process.env.AV_AGENT || "opencode" };
-  try {
-    const text = await fs.promises.readFile(new URL("../opencode.json", import.meta.url), "utf8");
-    const av = JSON.parse(text)?.mcp?.servers?.av;
-    const headers = av?.headers ?? {};
-    if (typeof av?.url === "string") env.AV_URL = av.url.replace(/\/mcp\/?$/, "");
-    if (typeof headers["X-Av-Agent"] === "string") env.AV_AGENT = headers["X-Av-Agent"];
-    if (typeof headers.Authorization === "string" && headers.Authorization.startsWith("Bearer "))
-      env.AV_TOKEN = headers.Authorization.slice("Bearer ".length);
-  } catch {}
+  let av;
+  for (const name of ["opencode.json", "opencode.jsonc"]) {
+    try {
+      const text = await fs.promises.readFile(new URL(`../${name}`, import.meta.url), "utf8");
+      av = parseJsonc(text)?.mcp?.servers?.av ?? av;
+    } catch {}
+  }
+  // `{env:…}` and `{file:…}` are OpenCode's to expand; the server's environment stands instead
+  const literal = (v) => typeof v === "string" && !/\{(env|file):/.test(v);
+  const headers = av?.headers ?? {};
+  if (literal(av?.url)) env.AV_URL = av.url.replace(/\/mcp\/?$/, "");
+  if (literal(headers["X-Av-Agent"])) env.AV_AGENT = headers["X-Av-Agent"];
+  if (literal(headers.Authorization) && headers.Authorization.startsWith("Bearer "))
+    env.AV_TOKEN = headers.Authorization.slice("Bearer ".length);
   return env;
 }
 

@@ -948,9 +948,10 @@ What counts:
 
 - **Changed files** are the files of the merge's diff (main before the merge to the merge commit)
   that existed before and still exist, are in a language the index parses (`.py`, `.ts`, `.tsx`,
-  `.rs`) and are not tests: the same rule as the benchmark's gold files
-  (`margincode_core::outcome::counted`, which `margincode-bench retrieval` uses too). Added and
-  deleted files, test files, docs, SQL and other files are left out.
+  `.rs`) and are not tests: the rule of the benchmark's gold files (`margincode_core::outcome`,
+  whose `indexable` and `is_test_path` `margincode-bench retrieval` uses; the benchmark takes the
+  modified ones from `git diff --name-status`). Added and deleted files, test files, docs, SQL and
+  other files are left out.
 - **Code tokens** are the tokens of the code items (`sym:…`) in every stored receipt of the task.
   An item an earlier pack of the same session already sent at that tier or higher counts nothing
   (it was a back-reference). Map skeletons, records, conventions and live work are not code.
@@ -974,7 +975,8 @@ version, the task count, the medians of the two shares (over the tasks whose pac
 `no_code` counts the others), of code tokens and of the file counts. `?tasks=1` adds `rows`, one
 per task with its counts and the missed and opened-not-sent paths.
 `POST /v1/repos/{name}/context/backfill` (`?limit=`, default 200, at most 1000) measures merged
-tasks without a row, oldest first, and answers `{computed, failed, more}`.
+tasks without a row, oldest first, and answers `{computed, failed, more}`. A task that fails
+keeps no row, so it stays first in line on the next call.
 
 - The outcome is computed once the merge is recorded, outside the merge's locks; a failure is
   logged and the merge answers as it would without it (`av context backfill` fills the gap).
@@ -991,8 +993,9 @@ What the numbers cannot see:
   for how many tasks nothing reached the daemon. A file it needed and neither changed nor opened
   through the daemon counts as unused.
 - A pack built twice because main moved while it was built stores two receipts that look like
-  two packs of one session; both count. The second refers back to the first, so the pair costs
-  the first's tokens plus whatever the second added.
+  two packs of one session; both count. With a session the second refers back to the first, so
+  the pair costs the first's tokens plus whatever the second added; without one both count in
+  full.
 - Back-references are found from the receipts, which keep each item's tier and tokens but not its
   text: an item a later pack sent again at a higher tier whose text did not change, or one sent
   after the session's ledger was pruned, may be counted as new (a few tokens either way).

@@ -150,12 +150,18 @@ enum Cmd {
     },
     /// Show task status.
     Status,
-    /// Print the full text behind an id shown in a pack (rec:… or sym:…).
+    /// Print the full text behind an id shown in a pack (rec:…, sym:…, conv:…, art:…, org:…, const).
     Expand { id: String },
     /// Conventions: rules served in packs when their path glob matches the task's files.
     Convention {
         #[command(subcommand)]
         cmd: ConventionCmd,
+    },
+    /// The constitution: up to ten numbered articles a person writes, which every pack carries
+    /// and which outrank conventions and records.
+    Constitution {
+        #[command(subcommand)]
+        cmd: ConstitutionCmd,
     },
     /// Print the manifest of a context pack: what was sent, at which tier, and why.
     Receipt { id: String },
@@ -759,6 +765,62 @@ enum ConventionCmd {
     },
     /// Every convention of the repo (default repo: the current task's).
     List {
+        #[arg(long)]
+        repo: Option<String>,
+    },
+}
+
+/// Who amends is `--agent` (or AV_AGENT) when given, else `user`; a registered agent's name, or
+/// the name of any task's agent in the repository, is refused.
+#[derive(Subcommand)]
+enum ConstitutionCmd {
+    /// The articles in force (the organisation's first, read-only here) and notes on the rules.
+    Show {
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Add an article to the repository's own constitution.
+    Add {
+        #[arg(long)]
+        repo: Option<String>,
+        /// At most 60 characters; the pack shows it.
+        #[arg(long)]
+        title: String,
+        /// A command `av validate` runs in the workspace; approval needs it to exit 0 at the head.
+        #[arg(long)]
+        check: Option<String>,
+        /// Why (at most 200 characters); kept in the history.
+        #[arg(long)]
+        reason: String,
+        /// At most 400 characters.
+        text: String,
+    },
+    /// Amend article N; what is not given stays as it is.
+    Amend {
+        n: i32,
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        check: Option<String>,
+        /// Remove the article's check.
+        #[arg(long, conflicts_with = "check")]
+        no_check: bool,
+        #[arg(long)]
+        reason: String,
+        text: Option<String>,
+    },
+    /// Repeal article N (its number is never used again).
+    Repeal {
+        n: i32,
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Every amendment of the repository and of the organisation, oldest first.
+    History {
         #[arg(long)]
         repo: Option<String>,
     },
@@ -1547,6 +1609,121 @@ fn print_receipt(pack: &Value) {
 }
 
 /// Each `degraded` entry of a response, as `av: note: …` on stderr.
+/// The free notes on a repository's rules (`notes` of the constitution and conventions routes).
+fn print_rule_notes(r: &Value) {
+    for n in r["notes"].as_array().into_iter().flatten() {
+        println!("note: {}", s(n));
+    }
+}
+
+fn constitution(cli: &Cli, client: &Client, cmd: &ConstitutionCmd) -> Result<()> {
+    let base = |repo: &str| format!("/v1/repos/{}/constitution", urlencode(repo));
+    let amended = |r: &Value| {
+        let a = &r["amendment"];
+        let done = match s(&a["action"]) {
+            "add" => "added",
+            "amend" => "amended",
+            _ => "repealed",
+        };
+        println!("{} {done} (v{})", s(&a["handle"]), a["version"]);
+    };
+    match cmd {
+        ConstitutionCmd::Show { repo } => {
+            let repo = repo_for(cli, client, repo)?;
+            let r = client.get(&base(&repo), &[])?;
+            let shared = r["articles"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|a| a["shared"] == true);
+            let version = if shared {
+                format!("v{}, organisation v{}", r["version"], r["shared_version"])
+            } else {
+                format!("v{}", r["version"])
+            };
+            println!("constitution of {repo}: {version} (it outranks conventions and records)");
+            for a in r["articles"].as_array().into_iter().flatten() {
+                let check = a["check"]
+                    .as_str()
+                    .map(|c| format!(" [check: {c}]"))
+                    .unwrap_or_default();
+                println!(
+                    "{} {}{check}\n  {}",
+                    s(&a["handle"]),
+                    s(&a["title"]),
+                    s(&a["text"])
+                );
+            }
+            print_rule_notes(&r);
+        }
+        ConstitutionCmd::Add {
+            repo,
+            title,
+            check,
+            reason,
+            text,
+        } => {
+            let repo = repo_for(cli, client, repo)?;
+            let r = client.post(
+                &format!("{}/articles", base(&repo)),
+                &json!({"title": title, "text": text, "check": check, "by": person(cli),
+                        "reason": reason}),
+            )?;
+            amended(&r);
+        }
+        ConstitutionCmd::Amend {
+            n,
+            repo,
+            title,
+            check,
+            no_check,
+            reason,
+            text,
+        } => {
+            let repo = repo_for(cli, client, repo)?;
+            let check = if *no_check {
+                Some("")
+            } else {
+                check.as_deref()
+            };
+            let r = client.put(
+                &format!("{}/articles/{n}", base(&repo)),
+                &json!({"title": title, "text": text, "check": check, "by": person(cli),
+                        "reason": reason}),
+            )?;
+            amended(&r);
+        }
+        ConstitutionCmd::Repeal { n, repo, reason } => {
+            let repo = repo_for(cli, client, repo)?;
+            let r = client.delete_with(
+                &format!("{}/articles/{n}", base(&repo)),
+                &json!({"by": person(cli), "reason": reason}),
+            )?;
+            amended(&r);
+        }
+        ConstitutionCmd::History { repo } => {
+            let repo = repo_for(cli, client, repo)?;
+            let r = client.get(&base(&repo), &[("history", "1")])?;
+            for a in r["history"].as_array().into_iter().flatten() {
+                let level = match s(&a["repo"]) {
+                    "" => "organisation",
+                    own => own,
+                };
+                println!(
+                    "{} {level} v{} {} {} by {}: {}",
+                    s(&a["at"]).get(..10).unwrap_or_default(),
+                    a["version"],
+                    s(&a["action"]),
+                    s(&a["handle"]),
+                    s(&a["by"]),
+                    s(&a["reason"])
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn print_notes(r: &Value) {
     for d in r["degraded"]
         .as_array()
@@ -1934,7 +2111,8 @@ fn run(cli: Cli) -> Result<()> {
             }
             let r = client.post(
                 &format!("/v1/repos/{repo}/conventions"),
-                &json!({"scope_glob": scope, "text": text, "required": required, "check": check}),
+                &json!({"scope_glob": scope, "text": text, "required": required, "check": check,
+                        "by": person(&cli)}),
             )?;
             println!(
                 "convention conv:{} added{}",
@@ -1957,7 +2135,10 @@ fn run(cli: Cli) -> Result<()> {
             cmd: ConventionCmd::Rm { id, repo },
         } => {
             let repo = repo_for(&cli, &client, repo)?;
-            client.delete(&format!("/v1/repos/{repo}/conventions/{id}"))?;
+            client.delete(&format!(
+                "/v1/repos/{repo}/conventions/{id}?by={}",
+                urlencode(person(&cli))
+            ))?;
             println!("convention conv:{id} removed");
         }
         Cmd::Convention {
@@ -1988,7 +2169,9 @@ fn run(cli: Cli) -> Result<()> {
                     s(&c["text"])
                 );
             }
+            print_rule_notes(&r);
         }
+        Cmd::Constitution { cmd } => constitution(&cli, &client, cmd)?,
         Cmd::Events {
             repo,
             since,
@@ -2272,9 +2455,12 @@ fn run(cli: Cli) -> Result<()> {
                     &root,
                     cmd,
                 )?;
+                let handle = c["handle"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("conv:{}", c["convention_id"]));
                 println!(
-                    "check conv:{} {} (`{cmd}`, exit {exit})",
-                    c["convention_id"],
+                    "check {handle} {} (`{cmd}`, exit {exit})",
                     if exit == 0 { "passed" } else { "FAILED" }
                 );
                 checks_failed |= exit != 0;

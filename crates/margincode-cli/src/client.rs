@@ -97,6 +97,11 @@ impl Client {
         self.finish(path, req.call())
     }
 
+    pub fn delete_with(&self, path: &str, body: &Value) -> Result<Value> {
+        let req = self.authorized(self.agent.delete(&format!("{}{path}", self.base)));
+        self.finish(path, req.send_json(body))
+    }
+
     pub fn put(&self, path: &str, body: &Value) -> Result<Value> {
         let req = self.authorized(self.agent.put(&format!("{}{path}", self.base)));
         self.finish(path, req.send_json(body))

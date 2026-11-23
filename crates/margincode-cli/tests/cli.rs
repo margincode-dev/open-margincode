@@ -760,6 +760,116 @@ fn convention_list_and_events_feed() {
 }
 
 #[test]
+fn a_person_writes_the_constitution_and_an_agent_cannot() {
+    let (d, ws, scratch) = started();
+    let at = |args: &[&str]| av(&d, scratch.path(), args);
+    let added = ok(at(&[
+        "constitution",
+        "add",
+        "--repo",
+        "demo",
+        "--title",
+        "Never log a key",
+        "--check",
+        "make lint",
+        "--reason",
+        "we agreed",
+        "No provider key in a log line.",
+    ]));
+    assert!(added.contains("art:1 added (v1)"), "{added}");
+    ok(at(&[
+        "constitution",
+        "amend",
+        "1",
+        "--repo",
+        "demo",
+        "--no-check",
+        "--reason",
+        "no linter yet",
+    ]));
+    ok(at(&[
+        "constitution",
+        "add",
+        "--repo",
+        "demo",
+        "--title",
+        "Second",
+        "--reason",
+        "why",
+        "Another rule.",
+    ]));
+    let repealed = ok(at(&[
+        "constitution",
+        "repeal",
+        "2",
+        "--repo",
+        "demo",
+        "--reason",
+        "gone",
+    ]));
+    assert!(repealed.contains("art:2 repealed (v4)"), "{repealed}");
+    // from the task's workspace, the repository is the task's
+    let shown = ok(av(&d, &ws, &["constitution", "show"]));
+    assert!(
+        shown.starts_with(
+            "constitution of demo: v4 (it outranks conventions and records)
+"
+        ) && shown.contains(
+            "art:1 Never log a key
+  No provider key in a log line.
+"
+        ) && !shown.contains("Second"),
+        "{shown}"
+    );
+    let history = ok(at(&["constitution", "history", "--repo", "demo"]));
+    let lines: Vec<&str> = history.lines().collect();
+    assert_eq!(lines.len(), 4, "{history}");
+    assert!(
+        lines[1].contains("demo v2 amend art:1 by user: no linter yet"),
+        "{history}"
+    );
+    ok(at(&[
+        "--agent", "claude", "task", "start", "--repo", "demo", "--title", "Other", "--goal", "x",
+    ]));
+    let refused = at(&[
+        "--agent",
+        "claude",
+        "constitution",
+        "add",
+        "--repo",
+        "demo",
+        "--title",
+        "Mine",
+        "--reason",
+        "why",
+        "text",
+    ]);
+    assert!(!refused.status.success());
+    assert!(
+        err(&refused).contains("the constitution is amended by a person"),
+        "{}",
+        err(&refused)
+    );
+
+    ok(at(&[
+        "convention",
+        "add",
+        "--repo",
+        "demo",
+        "--scope",
+        "docs/**",
+        "no provider key in a log line.",
+    ]));
+    let list = ok(av(&d, &ws, &["convention", "list"]));
+    assert!(
+        list.contains("note: conv:") && list.contains("matches no file on main"),
+        "{list}"
+    );
+    assert!(list.contains("have the same text"), "{list}");
+    assert!(ok(av(&d, &ws, &["constitution", "show"])).contains("have the same text"));
+}
+
+#[test]
 fn a_required_check_scoped_to_every_path_gets_a_hint() {
     let (d, _ws, scratch) = started();
     let add = |scope: &str| {

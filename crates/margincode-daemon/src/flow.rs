@@ -1048,9 +1048,10 @@ pub(crate) async fn merge(
         }
     };
     if let Some((pre_merge, main)) = merged_already(&st, &task).await? {
-        return Ok(Json(
-            record_merge(&st, &task, pre_merge, main, b.agent, true).await?,
-        ));
+        let answer = record_merge(&st, &task, pre_merge, main, b.agent, true).await?;
+        drop((_task_guard, _guard));
+        crate::outcomes::after_merge(&st, task.id).await;
+        return Ok(Json(answer));
     }
     let action = crate::Guarded::Merge {
         task: &task,
@@ -1080,9 +1081,12 @@ pub(crate) async fn merge(
         .merge_task(&task.repo, &task.slug, &head, &message)
         .await?
     {
-        MergeOutcome::Merged { pre_merge, main } => Ok(Json(
-            record_merge(&st, &task, pre_merge, main, b.agent, false).await?,
-        )),
+        MergeOutcome::Merged { pre_merge, main } => {
+            let answer = record_merge(&st, &task, pre_merge, main, b.agent, false).await?;
+            drop((_task_guard, _guard));
+            crate::outcomes::after_merge(&st, task.id).await;
+            Ok(Json(answer))
+        }
         MergeOutcome::Conflicted { paths } => {
             let mut state = st.store.merge_state(task.id).await?;
             state.conflicts = paths.clone();

@@ -1097,6 +1097,7 @@ async fn run_tool(
                 out["task"]["id"].as_str().unwrap_or_default(),
                 out["generation"].as_i64(),
             ),
+            "read_file" => note_read_file(st, s, args),
             _ => {}
         }
         return Ok(Ran {
@@ -1115,6 +1116,32 @@ async fn run_tool(
         text: Err(message),
         started: None,
     })
+}
+
+/// A `read_file` opened that path for the session's task, if it has one in the repo read: found
+/// on a task of its own, so the answer does not wait for it.
+fn note_read_file(st: &AppState, s: &McpSession, args: &Value) {
+    let (st, s, args) = (st.clone(), s.clone(), args.clone());
+    tokio::spawn(async move {
+        let Ok((task, _)) = target(&st, &s, &args).await else {
+            return;
+        };
+        let Ok(id) = task_ref(&st, &task).await else {
+            return;
+        };
+        let Ok(id) = id.parse::<Uuid>().map(margincode_core::TaskId) else {
+            return;
+        };
+        let Ok(t) = st.store.get_task(id).await else {
+            return;
+        };
+        if str_arg(&args, "repo").is_some_and(|r| r != t.repo) {
+            return;
+        }
+        if let Some(path) = str_arg(&args, "path") {
+            crate::outcomes::note_read(&st, id, path, false);
+        }
+    });
 }
 
 fn with_session<R>(st: &AppState, sid: &str, f: impl FnOnce(&mut McpSession) -> R) -> Option<R> {

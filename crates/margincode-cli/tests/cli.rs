@@ -8615,3 +8615,19 @@ fn the_docker_build_context_has_every_file_the_crates_embed() {
         "the scan finds the one embedded file known to sit outside crates/: {outside:?}"
     );
 }
+
+#[test]
+fn context_stats_and_backfill_read_the_tasks_repo() {
+    let (d, ws, _scratch) = started();
+    let stats = ok(av(&d, &ws, &["context", "stats"]));
+    assert_eq!(stats, "demo: 0 merged tasks measured\n");
+    let json = ok(av(&d, &ws, &["context", "stats", "--repo", "demo", "--tasks", "--json"]));
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["measured"], 0, "{v}");
+    assert_eq!(v["rows"], serde_json::json!([]), "{v}");
+    let filled = ok(av(&d, &ws, &["context", "backfill", "--limit", "5"]));
+    assert_eq!(filled, "measured 0 merged tasks\n");
+    let o = av(&d, &ws, &["context", "stats", "--repo", "nope"]);
+    assert!(!o.status.success(), "{}", out(&o));
+    assert!(!av(&d, &ws, &["context", "--budget", "100", "stats"]).status.success());
+}

@@ -142,9 +142,15 @@ the code and hands any agent a deterministic, token-budgeted context pack built 
   and is `open`. `GET /v1/tasks/{id}/records` and search answer the same as
   `standing: {origin, factor}` on each record.
 - **Convention**: a repo rule scoped by path glob (`src/api/**`), shown only to tasks touching
-  matching files. A `required` convention is always included, whatever the budget.
-- **Context pack**: Markdown with the sections *Task, Map, Decisions & dead ends, Code,
-  Conventions, Live work*, built for one task within a token budget. No LLM is involved: seeds
+  matching files. A `required` convention's line is reserved before the section shares are
+  applied, so ranking never drops it; only a budget too small for the reserved lines themselves
+  leaves one out, and it is then listed in the footer's omitted items.
+- **Constitution**: up to ten numbered articles a person writes for a repository, which every
+  pack of its tasks carries, whatever they changed (see [The constitution](#the-constitution)).
+  Precedence, for agents and reviewers: an article outranks a convention, and a convention
+  outranks a record.
+- **Context pack**: Markdown with the sections *Task, Constitution, Map, Decisions & dead ends,
+  Code, Conventions, Live work*, built for one task within a token budget. No LLM is involved: seeds
   (the goal, changed files and symbols, an optional focus) pull in candidates (reference-graph
   neighbours, records anchored up to two hops away, semantic hits, other tasks touching the same files), which are
   scored and fitted into per-section shares (map 10 % · task 10 % · history 20 % · code 50 % ·
@@ -857,6 +863,75 @@ agents: check against the code; correct wrong ones with `av record --supersedes 
 left out when the section holds only the task's own records, or only back-references to an earlier
 pack of the session. The pre-read hook's answer ends with the same advice once per session.
 
+### The constitution
+
+A repository's constitution is a short list of numbered articles (`art:1`, `art:2`, …) that a
+person writes and that outrank everything else an agent is told: an article outranks a
+convention, a convention outranks a record. An organisation level (`org:1`, …) can come before
+them; Community has no route or command that writes it (an extension writes it through
+`AppState::amend_shared_constitution`), and `av constitution show` lists it read-only.
+
+```bash
+av constitution add --repo NAME --title 'Never log a provider key' --reason 'we agreed' \
+  'No provider key in a log line, ever.'
+av constitution add --repo NAME --title 'Lint passes' --check 'make lint' --reason '...' 'Run the linter.'
+av constitution amend 2 --reason '...' 'Run the linter before review.'   # also --title, --check, --no-check
+av constitution repeal 2 --reason 'the linter is a convention now'
+av constitution show       # the articles in force, both versions, notes; --repo NAME outside a task
+av constitution history    # every amendment of both levels, oldest first
+```
+
+- An article has a title (at most 60 characters, the line packs show), a text (at most 400)
+  and an optional check; every amendment needs a reason (1 to 200 characters), kept in the
+  history. A repository holds at most ten articles in force, its organisation's included. A
+  number is never used again: a repeal leaves a gap. The version is the count of amendments,
+  one for the repository and one for the organisation; nothing is edited in place or deleted.
+- An article's check gates approval and carried approvals exactly as a required convention's
+  check does, and applies whatever the task changed: `av validate` runs it, and
+  `GET /v1/tasks/{id}/checks` lists it with `article` and `handle` (`art:N`) beside its
+  `convention_id`.
+- **In the pack** the constitution is one item, rendered second, right after Task:
+  `## Constitution (v4; it outranks conventions and records)` (or `(v4, organisation v2; …)`)
+  over `- org:N title` then `- art:N title` lines, `[check]` after an article with a check, and
+  each article's text when the budget allows. It is reserved like a required convention, below
+  the task line and above every convention, and articles are not also listed under Conventions.
+  A session is sent it once, and again after an amendment at either level (the versions are in
+  its id, `const:v4` or `const:v4.2`). When the budget does not hold even the titles, the footer
+  says `constitution v4 not shown (N tokens): av expand const`. `av expand const`, `av expand
+  art:N` and `av expand org:N` (and the MCP `expand` tool) answer in full, with each check and
+  the last amendment's reason. The review bundle's checklist lists the articles first, as
+  `- [ ] art:N title`.
+- **Who amends.** `by` is `--agent` (or `AV_AGENT`) when given, else `user`. The daemon refuses a
+  `by` that is a registered agent profile's name or alias, or the agent of any task of the
+  repository: "the constitution is amended by a person; an agent proposes a rule with a decision
+  record". Community has one shared token and no identities, so this is a rule about names, not
+  authentication: whoever holds the token can send any name. The guard (`MergeGuard`) is asked
+  before every amendment (`Guarded::MemoryWrite` with `MemoryAction::Rule`, kind `Article`); a
+  refusal is a `422` and nothing is written.
+- **Notes**, never errors, on `av constitution show`, `av convention list` and both routes'
+  `notes`: a convention whose glob matches no file on main, two rules with the same text
+  (whitespace and letter case aside), and an article and a convention that run the same check.
+
+Routes (writes carry `by` and `reason`, and write the repository's own level only):
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /v1/repos/{name}/constitution` (`?history=1`) | | `{repo, version, shared_version, articles: [{handle, number, shared, title, text, check, convention_id, last}], notes}`, plus `history` |
+| `POST /v1/repos/{name}/constitution/articles` | `{title, text, check?, by, reason}` | `{amendment, constitution}` |
+| `PUT /v1/repos/{name}/constitution/articles/{n}` | `{title?, text?, check?, by, reason}` (`check: ""` removes it) | `{amendment, constitution}` |
+| `DELETE /v1/repos/{name}/constitution/articles/{n}` | `{by, reason}` | `{amendment, constitution}` |
+
+An article is stored as a required convention row with a number, so
+`DELETE /v1/repos/{name}/conventions/{id}` refuses an article's row: only an amendment repeals it.
+
+**Required conventions ask the guard too.** Adding a convention with `required: true`
+(`av convention add --required`) and removing a required one (`av convention rm`) ask the guard
+before anything is written, as `MemoryAction::Rule` with kind `RequiredConvention` and the `by`
+the request gave (`by` in the body, `?by=` on the `DELETE`; the CLI sends the same name as for
+an amendment). Ordinary conventions are not asked about, and the rule on agent names does not
+apply to conventions. Community's default guard allows everything; an edition that hosts the
+daemon may restrict who adds or removes a required convention.
+
 ### A second look at records: dreams and verdicts
 
 Records pile up, and a wrong one is trusted by the agent that reads it. A **dream** is an offline
@@ -1314,7 +1389,8 @@ for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{na
 `?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
 repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
 `GET /v1/repos/{name}/diff`, `GET /v1/receipts/{id}`, `GET /v1/repos/{name}/log`,
-`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`,
+`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`
+(with `notes`), `GET /v1/repos/{name}/constitution`,
 `GET /v1/repos/{name}/import`, `GET /v1/disk`, `GET /v1/attention` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink); a proposed backlog item is accepted

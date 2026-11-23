@@ -89,37 +89,9 @@ fn distinctive(line: &str) -> bool {
     line.len() >= MIN_LINE && line.chars().any(char::is_alphanumeric)
 }
 
-/// Languages the Margincode index parses; gold and baselines stay within them.
-pub fn indexable(path: &str) -> bool {
-    matches!(
-        path.rsplit_once('.').map(|(_, e)| e),
-        Some("py" | "ts" | "tsx" | "rs")
-    )
-}
-
-pub fn is_test_path(path: &str) -> bool {
-    let p = path.to_ascii_lowercase();
-    let dirs: Vec<&str> = p.split('/').collect();
-    let file = dirs.last().copied().unwrap_or("");
-    dirs[..dirs.len().saturating_sub(1)].iter().any(|d| {
-        matches!(
-            *d,
-            "test" | "tests" | "__tests__" | "spec" | "specs" | "testing"
-        )
-    }) || file.starts_with("test_")
-        || file == "conftest.py"
-        || [
-            "_test.py",
-            "_tests.py",
-            "_test.rs",
-            ".test.ts",
-            ".test.tsx",
-            ".spec.ts",
-            ".spec.tsx",
-        ]
-        .iter()
-        .any(|s| file.ends_with(s))
-}
+/// Gold and baselines stay within the languages the index parses; the daemon's live measure of
+/// packs (`margincode_core::outcome`) counts the same files.
+pub use margincode_core::outcome::{indexable, is_test_path};
 
 const STOP: &[&str] = &[
     "the", "and", "for", "with", "that", "this", "from", "into", "when", "should", "must", "not",

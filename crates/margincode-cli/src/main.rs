@@ -10,6 +10,7 @@ mod footprint;
 mod hook;
 mod local;
 mod notes;
+mod outcomes;
 mod remote;
 mod runner;
 mod target_dir;
@@ -134,8 +135,12 @@ enum Cmd {
         #[arg(long)]
         receipt: Option<String>,
     },
-    /// Print a token-budgeted context pack for the task.
+    /// Print a token-budgeted context pack for the task; `stats` and `backfill` measure how good
+    /// merged tasks' packs were.
+    #[command(args_conflicts_with_subcommands = true)]
     Context {
+        #[command(subcommand)]
+        sub: Option<ContextCmd>,
         #[arg(long, default_value_t = 800)]
         budget: u32,
         /// `signatures`: path, lines and signature of each code item; `full`: with its source.
@@ -580,6 +585,33 @@ enum Cmd {
     Verdict {
         #[command(subcommand)]
         cmd: VerdictCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContextCmd {
+    /// How good merged tasks' packs were, medians per packer version: the share of code tokens
+    /// on files the task changed (or its agent opened), and the changed files no pack carried.
+    Stats {
+        /// Default: the repo of the task of this directory.
+        #[arg(long)]
+        repo: Option<String>,
+        /// One line per measured task too.
+        #[arg(long)]
+        tasks: bool,
+        /// Print the daemon's answer as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Measure the merged tasks that have no outcome yet (merged before outcomes were kept),
+    /// from their stored receipts.
+    Backfill {
+        /// Default: the repo of the task of this directory.
+        #[arg(long)]
+        repo: Option<String>,
+        /// At most this many tasks per run (the daemon's default is 200, its most 1000).
+        #[arg(long)]
+        limit: Option<u32>,
     },
 }
 
@@ -2065,6 +2097,42 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Context {
+            sub: Some(ContextCmd::Stats { repo, tasks, json }),
+            ..
+        } => {
+            let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
+                CliError::NoTask => CliError::Local("context stats needs --repo <name>".into()),
+                e => e,
+            })?;
+            let query: &[(&str, &str)] = if *tasks { &[("tasks", "1")] } else { &[] };
+            let r = client.get(
+                &format!("/v1/repos/{}/context/outcomes", urlencode(&repo)),
+                query,
+            )?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+            } else {
+                print!("{}", outcomes::render(&r));
+            }
+        }
+        Cmd::Context {
+            sub: Some(ContextCmd::Backfill { repo, limit }),
+            ..
+        } => {
+            let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
+                CliError::NoTask => CliError::Local("context backfill needs --repo <name>".into()),
+                e => e,
+            })?;
+            let limit = limit.map(|l| l.to_string());
+            let path = match &limit {
+                Some(l) => format!("/v1/repos/{}/context/backfill?limit={l}", urlencode(&repo)),
+                None => format!("/v1/repos/{}/context/backfill", urlencode(&repo)),
+            };
+            let r = client.post(&path, &json!({}))?;
+            print!("{}", outcomes::render_backfill(&r));
+        }
+        Cmd::Context {
+            sub: None,
             budget,
             code,
             focus,

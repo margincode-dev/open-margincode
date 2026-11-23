@@ -236,6 +236,31 @@ async fn write(
     })))
 }
 
+/// Asks the guard about a required convention's add or removal; ordinary ones are not asked.
+pub(crate) async fn guard_required(
+    st: &AppState,
+    repo: &str,
+    change: RuleChange<'_>,
+    by: &str,
+) -> Result<()> {
+    let action = Guarded::MemoryWrite {
+        repo,
+        action: MemoryAction::Rule {
+            kind: RuleKind::RequiredConvention,
+            change,
+        },
+        by,
+        dream: None,
+    };
+    st.guard.check(action).await.map_err(|reason| {
+        let what = match change {
+            RuleChange::Remove { convention, .. } => format!("remove {}", convention.handle()),
+            _ => "add a required convention".to_owned(),
+        };
+        AvError::IllegalState(format!("cannot {what}: {reason}"))
+    })
+}
+
 fn normalized(text: &str) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()

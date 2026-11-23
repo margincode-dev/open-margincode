@@ -297,6 +297,25 @@ impl AppState {
             .await
     }
 
+    /// Adds a convention, required or not, as `POST /v1/repos/{name}/conventions` does, without
+    /// asking the guard.
+    pub async fn add_convention(
+        &self,
+        convention: &margincode_core::NewConvention,
+    ) -> margincode_core::Result<margincode_core::ConventionId> {
+        self.store.add_convention_with(convention).await
+    }
+
+    /// Removes a convention, as `DELETE /v1/repos/{name}/conventions/{id}` does, without asking
+    /// the guard. An article's row is refused: an amendment repeals it.
+    pub async fn remove_convention(
+        &self,
+        repo: &str,
+        id: margincode_core::ConventionId,
+    ) -> margincode_core::Result<()> {
+        self.store.remove_convention(repo, id).await
+    }
+
     pub(crate) fn work_changed(&self) {
         self.work.send_modify(|n| *n = n.wrapping_add(1));
     }

@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use crate::common::*;
-use margincode_core::{ArticleChange, ConventionId, IntentStore as _};
+use margincode_core::{ArticleChange, ConventionId, IntentStore as _, NewConvention};
 use margincode_daemon::{Guarded, MemoryAction, RuleChange};
 
 async fn article(
@@ -287,6 +287,89 @@ async fn the_guard_is_asked_before_an_amendment_and_its_refusal_writes_nothing()
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_required_convention_is_guarded_and_an_ordinary_one_is_not() {
+    let e = with_board().await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/conventions",
+        Some(json!({"scope_glob": "app/**", "text": "lint", "required": true, "check": "ruff", "by": "user"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        board(&e),
+        [r#"RequiredConvention add None None app/** Some("ruff") by user"#]
+    );
+    let (_, list) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    assert!(list["conventions"].as_array().unwrap().is_empty(), "{list}");
+
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/conventions",
+        Some(json!({"scope_glob": "app/**", "text": "type hints"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let ordinary = body["id"].as_i64().unwrap();
+    let (status, _) = call(
+        &e.app,
+        "DELETE",
+        &format!("/v1/repos/demo/conventions/{ordinary}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(board(&e).is_empty());
+
+    let required = e
+        .state
+        .add_convention(&NewConvention {
+            repo: "demo".into(),
+            scope_glob: "app/**".into(),
+            text: "lint".into(),
+            required: true,
+            check: Some("ruff".into()),
+        })
+        .await
+        .unwrap();
+    let (status, body) = call(
+        &e.app,
+        "DELETE",
+        &format!("/v1/repos/demo/conventions/{}?by=user", required.0),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        board(&e),
+        [format!(
+            "RequiredConvention remove None conv:{} by user",
+            required.0
+        )]
+    );
+    e.state.remove_convention("demo", required).await.unwrap();
+    let (_, list) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    assert!(list["conventions"].as_array().unwrap().is_empty(), "{list}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_convention_leaves_no_row() {
+    let e = env().await;
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/conventions",
+        Some(json!({"scope_glob": "app/**", "text": "lint", "check": "ruff"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (_, list) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    assert!(list["conventions"].as_array().unwrap().is_empty(), "{list}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

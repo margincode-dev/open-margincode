@@ -996,6 +996,9 @@ struct ConventionBody {
     /// A check command (required conventions only): approval needs it to pass at the head.
     #[serde(default)]
     check: Option<String>,
+    /// Who adds it, for the guard (asked about a required one only).
+    #[serde(default)]
+    by: String,
 }
 
 async fn add_convention(
@@ -1003,10 +1006,7 @@ async fn add_convention(
     Path(repo): Path<String>,
     Json(b): Json<ConventionBody>,
 ) -> ApiResult<Value> {
-    let id = st
-        .store
-        .add_convention(&repo, &b.scope_glob, &b.text)
-        .await?;
+    margincode_store::check_scope_glob(&b.scope_glob)?;
     let check = b.check.filter(|c| !c.trim().is_empty());
     if check.is_some() && !b.required {
         return Err(AvError::Invalid(
@@ -1015,20 +1015,54 @@ async fn add_convention(
         .into());
     }
     if b.required {
-        st.store.set_convention_required(id, true).await?;
+        let change = crate::RuleChange::Add {
+            number: None,
+            title: None,
+            text: &b.text,
+            scope_glob: &b.scope_glob,
+            check: check.as_deref().map(str::trim),
+        };
+        crate::constitution::guard_required(&st, &repo, change, b.by.trim()).await?;
     }
-    if let Some(c) = &check {
-        st.store.set_convention_check(id, Some(c)).await?;
-    }
+    let id = st
+        .store
+        .add_convention_with(&NewConvention {
+            repo: repo.clone(),
+            scope_glob: b.scope_glob,
+            text: b.text,
+            required: b.required,
+            check: check.clone(),
+        })
+        .await?;
     Ok(Json(
         json!({ "id": id.0, "repo": repo, "required": b.required, "check": check }),
     ))
 }
 
+#[derive(Deserialize)]
+struct ByQuery {
+    #[serde(default)]
+    by: String,
+}
+
 async fn remove_convention(
     State(st): State<AppState>,
     Path((repo, id)): Path<(String, i64)>,
+    Query(q): Query<ByQuery>,
 ) -> ApiResult<Value> {
+    let required = st
+        .store
+        .conventions(&repo)
+        .await?
+        .into_iter()
+        .find(|c| c.id.0 == id && c.required);
+    if let Some(c) = &required {
+        let change = crate::RuleChange::Remove {
+            number: None,
+            convention: c,
+        };
+        crate::constitution::guard_required(&st, &repo, change, q.by.trim()).await?;
+    }
     st.store.remove_convention(&repo, ConventionId(id)).await?;
     Ok(Json(json!({"removed": id})))
 }

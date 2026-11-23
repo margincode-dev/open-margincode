@@ -39,6 +39,14 @@
   no file on main, two rules with the same text, an article and a convention with the same check
   (`GET /v1/repos/{name}/conventions?notes=1`; without `?notes=1` the route answers as before).
 - A repository with a blank name is refused.
+- **How good the packs were, measured at each merge.** When a task merges, the daemon measures
+  its packs against the merge's diff and the files its agent opened through the daemon: the share
+  of code tokens on files the task changed (and changed or opened), the changed files no pack
+  carried as code, those it only named, and the files the agent opened that no pack sent.
+  `av context stats` (and `GET /v1/repos/{name}/context/outcomes`) shows medians per packer
+  version; `av context backfill` measures tasks merged before. Reads are noted from the pre-read
+  hook, `expand`/`read_symbol` and MCP `read_file`. Nothing here changes a pack, and a failure to
+  measure or note never fails the merge or the read. Migration `0034`.
 
 ## 0.0.5 (2026-11-22)
 

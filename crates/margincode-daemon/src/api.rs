@@ -178,6 +178,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::disk::routes())
         .merge(crate::remote::routes())
         .merge(crate::dream::routes())
+        .merge(crate::constitution::routes())
 }
 
 const PRUNE_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
@@ -286,6 +287,10 @@ async fn add_repo(
     State(st): State<AppState>,
     Json(req): Json<AddRepo>,
 ) -> std::result::Result<(axum::http::StatusCode, Json<ImportJob>), crate::error::ApiError> {
+    // an empty name is the shared level of the constitution, and the store root on disk
+    if req.name.trim().is_empty() {
+        return Err(AvError::Invalid("repo name must not be blank".into()).into());
+    }
     // before any job, so `wait: false` (what `av repo add` sends) gets the hint as its answer
     visible_source(&req.git_source)?;
     let job = ImportJob {
@@ -1028,16 +1033,16 @@ async fn remove_convention(
     Ok(Json(json!({"removed": id})))
 }
 
-/// The checks `av validate` must run for this task: required conventions with a check command
-/// whose glob matches a changed path.
+/// The checks `av validate` must run for this task: the articles with a check (shared ones
+/// first) and the required conventions with a check command whose glob matches a changed path.
 async fn task_checks(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Value> {
     let task = st.store.get_task(task_id(id)).await?;
     let (changed, wanted) = crate::flow::changed_and_checks(&st, &task).await?;
     let checks: Vec<Value> = wanted
         .into_iter()
         .map(|c| {
-            json!({"convention_id": c.id.0, "command": c.check_command,
-                   "scope_glob": c.scope_glob, "text": c.text})
+            json!({"convention_id": c.id.0, "article": c.article, "handle": c.handle(),
+                   "command": c.check_command, "scope_glob": c.scope_glob, "text": c.text})
         })
         .collect();
     // `av validate` expands a check's `{crates}` from these
@@ -1249,14 +1254,16 @@ async fn put_settings(
     Ok(Json(s))
 }
 
-/// Every convention of the repo, oldest first.
+/// Every convention of the repo, oldest first (articles are not listed), and the free notes on
+/// the repo's rules (`constitution::rule_notes`).
 async fn list_conventions(
     State(st): State<AppState>,
     Path(repo): Path<String>,
 ) -> ApiResult<Value> {
-    Ok(Json(
-        json!({"conventions": st.store.conventions(&repo).await?}),
-    ))
+    Ok(Json(json!({
+        "conventions": st.store.conventions(&repo).await?,
+        "notes": crate::constitution::rule_notes(&st, &repo).await?,
+    })))
 }
 
 #[derive(Deserialize)]

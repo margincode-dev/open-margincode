@@ -4,6 +4,7 @@
 
 mod api;
 mod common;
+mod constitution;
 mod disk;
 mod dream;
 mod embedded_pg;

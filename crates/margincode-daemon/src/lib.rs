@@ -6,6 +6,7 @@ mod auth;
 mod backup;
 mod build_cache;
 mod checks;
+mod constitution;
 mod deps_cache;
 mod derived;
 mod disk;
@@ -47,7 +48,7 @@ pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
 pub use ext::{
     AllowAll, CheckpointHook, ExtTool, Guarded, MemoryAction, MergeGuard, NoCheckpointHook,
-    NoUsage, ToolHandler, UsageReport, UsageSink,
+    NoUsage, RuleChange, RuleKind, ToolHandler, UsageReport, UsageSink,
 };
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use remote::MAX_PATCH_BYTES;
@@ -255,6 +256,45 @@ impl AppState {
         self.store.put_profile(profile).await?;
         self.work_changed();
         Ok(())
+    }
+
+    /// Amends `repo`'s own constitution, as `POST`, `PUT` and `DELETE
+    /// /v1/repos/{name}/constitution/articles…` do, without asking the guard and without the
+    /// routes' rule on agent names: an extension that knows who `by` is writes through here while
+    /// its guard refuses the routes. The store's limits and its one lock still hold.
+    pub async fn amend_constitution(
+        &self,
+        repo: &str,
+        change: &margincode_core::ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> margincode_core::Result<margincode_core::Amendment> {
+        self.store
+            .amend_constitution(
+                margincode_core::ConstitutionLevel::Repo(repo),
+                change,
+                by,
+                reason,
+            )
+            .await
+    }
+
+    /// Amends the shared (organisation) level, whose articles (`org:N`) every repository's
+    /// constitution starts with. No Community route writes it; only this does.
+    pub async fn amend_shared_constitution(
+        &self,
+        change: &margincode_core::ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> margincode_core::Result<margincode_core::Amendment> {
+        self.store
+            .amend_constitution(
+                margincode_core::ConstitutionLevel::Shared,
+                change,
+                by,
+                reason,
+            )
+            .await
     }
 
     pub(crate) fn work_changed(&self) {

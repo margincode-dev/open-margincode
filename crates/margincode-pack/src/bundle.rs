@@ -387,17 +387,29 @@ fn risk_items(
     out
 }
 
+/// Articles first (shared ones, then the repository's, as `conventions_for` orders them), then
+/// the conventions.
 fn checklist_items(conventions: &[Convention]) -> Vec<Item> {
     conventions
         .iter()
-        .map(|c| {
-            let h = format!("- [ ] conv:{} ({}) {}", c.id.0, c.scope_glob, c.text);
+        .enumerate()
+        .map(|(n, c)| {
+            let (h, score) = match (&c.title, c.article) {
+                (Some(title), Some(_)) => (format!("- [ ] {} {title}", c.handle()), 1.1),
+                _ => (
+                    format!("- [ ] conv:{} ({}) {}", c.id.0, c.scope_glob, c.text),
+                    1.0,
+                ),
+            };
             let mut it = item(
                 format!("check:{}", c.id.0),
                 "checklist",
-                1.0,
+                score,
                 [h.clone(), h.clone(), h],
             );
+            if c.article.is_some() {
+                it = it.ordered(format!("{n:03}"));
+            }
             it.required = c.required;
             it
         })

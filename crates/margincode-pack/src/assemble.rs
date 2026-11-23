@@ -1086,6 +1086,13 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             );
         }
     }
+    // articles are the constitution's one item, read directly: they apply whatever was changed
+    conventions.retain(|c| c.article.is_none());
+    let constitution = d
+        .store
+        .constitution(margincode_core::ConstitutionLevel::Repo(repo))
+        .await?;
+    items.extend(crate::constitution::item(&constitution));
     for c in conventions {
         let handle = format!("- conv:{} {}", c.id.0, clip(&c.text, 70));
         let full = format!("- conv:{} ({}) {}", c.id.0, c.scope_glob, c.text);

@@ -62,6 +62,8 @@ pub(crate) fn claim_shown(item: &Item, foreign: &HashSet<String>, tier: Option<T
 }
 
 /// `foreign`: ids of History items that are another task's supersedable records (`Gathered::foreign`).
+/// `not_shown`: the footer line for a constitution the budget did not hold (`constitution::not_shown`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     chosen: &[(Item, Tier)],
     foreign: &HashSet<String>,
@@ -70,6 +72,7 @@ pub(crate) fn render(
     tokens: u32,
     budget: u32,
     show_empty_map: bool,
+    not_shown: Option<&str>,
 ) -> String {
     let pick = |pred: &dyn Fn(&Item) -> bool| -> Vec<&(Item, Tier)> {
         chosen.iter().filter(|(i, _)| pred(i)).collect()
@@ -81,6 +84,15 @@ pub(crate) fn render(
         &pick(&|i| i.section == Section::Task),
         true,
     );
+    let constitution = pick(&|i| i.section == Section::Constitution);
+    if let Some((first, _)) = constitution.first() {
+        push_section(
+            &mut out,
+            &crate::constitution::heading(&first.id),
+            &constitution,
+            false,
+        );
+    }
     push_section(
         &mut out,
         "Conflicts",
@@ -123,6 +135,10 @@ pub(crate) fn render(
         false,
     );
     push_footer(&mut out, omitted, omitted_total, tokens, budget);
+    if let Some(line) = not_shown {
+        out.push_str(line);
+        out.push('\n');
+    }
     out
 }
 
@@ -194,14 +210,19 @@ fn stable(render: impl Fn(u32) -> String, family: AgentFamily) -> (String, u32) 
 
 /// Worst-case fixed text of a pack (every heading, footer with large numbers, and with `claims`
 /// the line under the records heading: `CORRECT_HINT`, for a pack that may show another task's
-/// record); its token cost is subtracted from the budget before items are allocated.
-pub(crate) fn skeleton_text(claims: bool) -> String {
+/// record; the constitution's heading only with its item id, `constitution`); its token cost is
+/// subtracted from the budget before items are allocated.
+pub(crate) fn skeleton_text(claims: bool, constitution: Option<&str>) -> String {
     let chosen: Vec<(Item, Tier)> = Section::ALL
         .iter()
+        .filter(|s| **s != Section::Constitution || constitution.is_some())
         .map(|s| {
             (
                 Item {
-                    id: "conv:0".into(),
+                    id: match s {
+                        Section::Constitution => constitution.unwrap_or_default().into(),
+                        _ => "conv:0".into(),
+                    },
                     section: *s,
                     score: 0.0,
                     tiers: [String::new(), String::new(), String::new()],
@@ -216,7 +237,7 @@ pub(crate) fn skeleton_text(claims: bool) -> String {
         })
         .collect();
     let foreign: HashSet<String> = claims.then(|| "conv:0".to_owned()).into_iter().collect();
-    let mut text = render(&chosen, &foreign, &[], 99_999, 99_999, 99_999, true);
+    let mut text = render(&chosen, &foreign, &[], 99_999, 99_999, 99_999, true, None);
     text.push_str("## Live work\n");
     text
 }

@@ -5,5 +5,6 @@
 mod budget;
 mod bundle;
 mod common;
+mod constitution;
 mod determinism;
 mod pack;

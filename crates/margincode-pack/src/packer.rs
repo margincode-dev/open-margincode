@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use margincode_core::{
-    AgentFamily, AvError, IntentStore, NewReceipt, PackMode, ReceiptItem, Result, Semantic, TaskId,
-    Tier, Vcs, history,
+    AgentFamily, AvError, ConstitutionLevel, IntentStore, NewReceipt, PackMode, ReceiptItem,
+    Result, Semantic, TaskId, Tier, Vcs, history,
 };
 use margincode_index::{CodeIndex, ScopeView};
 use serde::{Deserialize, Serialize};
@@ -86,7 +86,7 @@ const RECORDS_AT_HINT: &str =
 const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 11;
+pub const PACKER_VERSION: u32 = 12;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -150,7 +150,9 @@ impl Packer {
         let mut gathered =
             gather(&self.deps(), &task, req.focus.as_deref(), req.budget_tokens).await?;
         if task.pack_mode == PackMode::TaskOnly {
-            gathered.items.retain(|i| i.section == Section::Task);
+            gathered
+                .items
+                .retain(|i| matches!(i.section, Section::Task | Section::Constitution));
         }
         if !req.map {
             gathered.items.retain(|i| i.section != Section::Map);
@@ -167,10 +169,20 @@ impl Packer {
                 i.tiers[Tier::Full as usize] = i.tiers[Tier::Summary as usize].clone();
             }
         }
+        let titles = |items: &[crate::budget::Item]| {
+            items
+                .iter()
+                .find(|i| i.section == Section::Constitution)
+                .map(|i| (i.id.clone(), i.tiers[Tier::Handle as usize].clone()))
+        };
+        let not_shown = titles(&gathered.items).map(|(id, handle)| {
+            crate::constitution::not_shown(&id, estimate_tokens(&handle, req.family))
+        });
         if let Some(session) = &req.session {
             let sent = self.store.ledger_get(session).await?;
             collapse_sent(&mut gathered.items, &sent);
         }
+        let constitution = titles(&gathered.items);
 
         let mut foreign = std::mem::take(&mut gathered.foreign);
         if self.plain_records {
@@ -182,12 +194,19 @@ impl Packer {
             .items
             .iter()
             .any(|i| i.section == Section::History && claim_shown(i, &foreign, None));
-        let skeleton = estimate_tokens(&skeleton_text(claims), req.family);
-        let alloc = allocate(
+        let skeleton = estimate_tokens(
+            &skeleton_text(claims, constitution.as_ref().map(|(id, _)| id.as_str())),
+            req.family,
+        );
+        let mut alloc = allocate(
             gathered.items,
             req.budget_tokens.saturating_sub(skeleton),
             req.family,
         );
+        // a constitution left out is named by its own footer line, not in the omitted list
+        if let Some((_, handle)) = &constitution {
+            alloc.omitted.retain(|line| line != handle);
+        }
         let mut chosen = alloc.chosen;
         let mut omitted_total = alloc.omitted_total;
 
@@ -198,14 +217,17 @@ impl Packer {
             req.budget_tokens,
             req.family,
             |c, total, n| {
+                let left_out = constitution.is_some()
+                    && !c.iter().any(|(i, _)| i.section == Section::Constitution);
                 render(
                     c,
                     &foreign,
                     &alloc.omitted,
-                    total,
+                    if left_out { total - 1 } else { total },
                     n,
                     req.budget_tokens,
                     req.map && task.pack_mode == PackMode::Full,
+                    not_shown.as_deref().filter(|_| left_out),
                 )
             },
         );
@@ -566,7 +588,8 @@ impl Packer {
         crate::relevance::fuse(&words, &similarity)
     }
 
-    /// Full text of one item id shown in a pack: `rec:<hex>` or `sym:<n>`.
+    /// Full text of one item id shown in a pack: `rec:<hex>`, `sym:<n>`, `conv:<n>`, an article
+    /// (`art:<n>`, `org:<n>`), the whole constitution (`const`) or `task:<slug>`.
     pub async fn expand(&self, task_id: TaskId, item_id: &str) -> Result<String> {
         let task = self.store.get_task(task_id).await?;
         let elsewhere = || AvError::NotFound(format!("{item_id} is not in repo {}", task.repo));
@@ -637,6 +660,26 @@ impl Packer {
                 c.scope_glob, c.text
             ));
         }
+        if item_id == "const" || item_id.starts_with("const:") {
+            let c = self
+                .store
+                .constitution(ConstitutionLevel::Repo(&task.repo))
+                .await?;
+            return Ok(crate::constitution::full(&c));
+        }
+        if item_id.starts_with("art:") || item_id.starts_with("org:") {
+            return self
+                .store
+                .constitution(ConstitutionLevel::Repo(&task.repo))
+                .await?
+                .articles
+                .iter()
+                .find(|a| a.handle == item_id)
+                .map(crate::constitution::article_full)
+                .ok_or_else(|| {
+                    AvError::NotFound(format!("{item_id} is not in force in repo {}", task.repo))
+                });
+        }
         if let Some(slug) = item_id.strip_prefix("task:") {
             let t = self.store.task_by_slug(&task.repo, slug).await?;
             let mut out = format!(
@@ -659,7 +702,7 @@ impl Packer {
             return Ok(out);
         }
         Err(AvError::Invalid(format!(
-            "cannot expand {item_id:?}; expected rec:<id>, sym:<n>, conv:<n> or task:<slug>"
+            "cannot expand {item_id:?}; expected rec:<id>, sym:<n>, conv:<n>, art:<n>, org:<n>, const or task:<slug>"
         )))
     }
 }

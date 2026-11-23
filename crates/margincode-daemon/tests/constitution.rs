@@ -535,3 +535,64 @@ async fn a_repo_with_a_blank_name_is_refused() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_pack_carries_the_constitution_and_an_amendment_resends_it() {
+    let e = env().await;
+    article(
+        &e,
+        "Never log a key",
+        "No provider key in a log line.",
+        None,
+        "user",
+    )
+    .await;
+    let t = start_task(&e, "Improve greeting").await;
+    let md = t["pack"]["markdown"].as_str().unwrap();
+    assert!(
+        md.contains(
+            "## Constitution (v1; it outranks conventions and records)\n- art:1 Never log a key"
+        ),
+        "{md}"
+    );
+    let context = || async {
+        let (_, pack) = call(
+            &e.app,
+            "GET",
+            &format!("/v1/tasks/{}/context?session=s-1", id(&t)),
+            None,
+        )
+        .await;
+        pack["markdown"].as_str().unwrap().to_owned()
+    };
+    let again = context().await;
+    assert!(again.contains("- ↩ const:v1 (sent earlier)"), "{again}");
+    e.state
+        .amend_shared_constitution(
+            &ArticleChange::Add {
+                title: "Org rule".into(),
+                text: "For all.".into(),
+                check: None,
+            },
+            "owner",
+            "for every repo",
+        )
+        .await
+        .unwrap();
+    let after = context().await;
+    assert!(
+        after.contains("## Constitution (v1, organisation v1; it outranks conventions and records)\n- org:1 Org rule\n  For all.\n- art:1 Never log a key"),
+        "{after}"
+    );
+    let (_, full) = call(
+        &e.app,
+        "GET",
+        &format!("/v1/tasks/{}/items/org:1", id(&t)),
+        None,
+    )
+    .await;
+    assert!(
+        full["full"].as_str().unwrap().contains("for every repo"),
+        "{full}"
+    );
+}

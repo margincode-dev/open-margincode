@@ -626,7 +626,7 @@ async fn expand_accepts_convention_and_task_ids() {
     ));
 }
 
-fn normalize(md: &str) -> String {
+pub(crate) fn normalize(md: &str) -> String {
     let mut out = String::new();
     let mut rest = md;
     while let Some(i) = rest.find("rec:") {

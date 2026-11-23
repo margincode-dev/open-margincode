@@ -52,6 +52,19 @@ pub struct OutcomeRow {
     pub reverted: bool,
 }
 
+/// The fields of a receipt item the measure reads; an item without an id or tier is skipped, so
+/// one odd item does not lose the task's outcome.
+fn sent_item(v: &serde_json::Value) -> Option<ReceiptItem> {
+    Some(ReceiptItem {
+        id: v["id"].as_str()?.to_owned(),
+        tier: v["tier"].as_str()?.parse().ok()?,
+        score: 0.0,
+        reason: v["reason"].as_str().unwrap_or_default().to_owned(),
+        source: serde_json::from_value(v["source"].clone()).ok().flatten(),
+        tokens: v["tokens"].as_u64().unwrap_or(0) as u32,
+    })
+}
+
 impl PgStore {
     pub async fn task_packs(&self, task: TaskId) -> Result<TaskPacks> {
         let rows = sqlx::query(
@@ -73,10 +86,13 @@ impl PgStore {
                     r.try_get("budget").map_err(serr)?,
                 ));
             }
-            let items: serde_json::Value = r.try_get("items").map_err(serr)?;
+            let items: Vec<serde_json::Value> = r
+                .try_get::<sqlx::types::Json<Vec<serde_json::Value>>, _>("items")
+                .map_err(serr)?
+                .0;
             out.packs.push(SentPack {
                 session: r.try_get("session").map_err(serr)?,
-                items: serde_json::from_value(items).map_err(|e| AvError::Store(e.to_string()))?,
+                items: items.iter().filter_map(sent_item).collect(),
             });
         }
         Ok(out)

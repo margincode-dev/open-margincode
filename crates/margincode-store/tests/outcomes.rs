@@ -171,3 +171,29 @@ async fn task_packs_are_the_receipts_oldest_first_and_backfill_finds_merged_task
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn an_odd_receipt_item_is_skipped_and_the_rest_still_count() {
+    let (_db, s) = store().await;
+    let t = task(&s, "a").await;
+    sqlx::query(
+        "INSERT INTO context_receipts
+           (id, task_id, session, head_change, packer_version, budget, tokens, items, omitted)
+         VALUES (gen_random_uuid(), $1, '', '', 9, 800, 30, $2, '[]')",
+    )
+    .bind(t.id.0)
+    .bind(serde_json::json!([
+        {"id": "sym:1", "tier": "summary", "tokens": 30, "source": ["app/a.py", 1, 4]},
+        {"tier": "full", "tokens": 99},
+        {"id": "rec:ab", "tier": "summary"},
+    ]))
+    .execute(s.pool())
+    .await
+    .unwrap();
+    let packs = s.task_packs(t.id).await.unwrap();
+    let items = &packs.packs[0].items;
+    assert_eq!(items.len(), 2, "{items:?}");
+    assert_eq!(items[0].source, Some(("app/a.py".into(), 1, 4)));
+    assert_eq!((items[1].tokens, items[1].source.clone()), (0, None));
+    assert_eq!(packs.first, Some((9, 800)));
+}

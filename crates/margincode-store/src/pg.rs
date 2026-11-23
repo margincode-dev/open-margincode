@@ -320,6 +320,23 @@ pub struct TaskSummary {
     pub record_count: i64,
 }
 
+pub(crate) const CONVENTION_COLS: &str =
+    "id, repo, scope_glob, text, required, check_command, source, article, title";
+
+pub(crate) fn convention_from_row(r: &PgRow) -> Result<Convention> {
+    Ok(Convention {
+        id: ConventionId(r.try_get("id").map_err(serr)?),
+        repo: r.try_get("repo").map_err(serr)?,
+        scope_glob: r.try_get("scope_glob").map_err(serr)?,
+        text: r.try_get("text").map_err(serr)?,
+        required: r.try_get("required").map_err(serr)?,
+        check_command: r.try_get("check_command").map_err(serr)?,
+        source: r.try_get("source").map_err(serr)?,
+        article: r.try_get("article").map_err(serr)?,
+        title: r.try_get("title").map_err(serr)?,
+    })
+}
+
 /// The one check of a convention's path glob, for one written by hand and one a `promote`
 /// verdict proposes.
 pub fn check_scope_glob(scope_glob: &str) -> Result<()> {
@@ -338,14 +355,28 @@ impl PgStore {
         text: &str,
         source: &str,
     ) -> Result<ConventionId> {
+        PgStore::insert_convention_with(tx, repo, scope_glob, text, source, false, None).await
+    }
+
+    async fn insert_convention_with(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        repo: &str,
+        scope_glob: &str,
+        text: &str,
+        source: &str,
+        required: bool,
+        check: Option<&str>,
+    ) -> Result<ConventionId> {
         let (id,): (i64,) = sqlx::query_as(
-            "INSERT INTO conventions (repo, scope_glob, text, source) VALUES ($1,$2,$3,$4)
-             RETURNING id",
+            "INSERT INTO conventions (repo, scope_glob, text, source, required, check_command)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
         )
         .bind(repo)
         .bind(scope_glob)
         .bind(text)
         .bind(source)
+        .bind(required)
+        .bind(check)
         .fetch_one(&mut **tx)
         .await
         .map_err(serr)?;
@@ -1913,13 +1944,55 @@ impl IntentStore for PgStore {
         Ok(id)
     }
 
+    async fn add_convention_with(&self, c: &NewConvention) -> Result<ConventionId> {
+        check_scope_glob(&c.scope_glob)?;
+        let check = c.check.as_deref().map(str::trim).filter(|k| !k.is_empty());
+        if check.is_some() && !c.required {
+            return Err(AvError::Invalid(
+                "a check command needs a required convention (--required)".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await.map_err(serr)?;
+        let id = PgStore::insert_convention_with(
+            &mut tx,
+            &c.repo,
+            &c.scope_glob,
+            &c.text,
+            "",
+            c.required,
+            check,
+        )
+        .await?;
+        tx.commit().await.map_err(serr)?;
+        Ok(id)
+    }
+
+    async fn constitution(&self, level: ConstitutionLevel<'_>) -> Result<Constitution> {
+        self.read_constitution(level).await
+    }
+
+    async fn amendments(&self, level: ConstitutionLevel<'_>) -> Result<Vec<Amendment>> {
+        self.read_amendments(level).await
+    }
+
+    async fn amend_constitution(
+        &self,
+        level: ConstitutionLevel<'_>,
+        change: &ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> Result<Amendment> {
+        self.write_amendment(level, change, by, reason).await
+    }
+
     async fn set_convention_required(&self, id: ConventionId, required: bool) -> Result<()> {
-        let done = sqlx::query("UPDATE conventions SET required = $2 WHERE id = $1")
-            .bind(id.0)
-            .bind(required)
-            .execute(&self.pool)
-            .await
-            .map_err(serr)?;
+        let done =
+            sqlx::query("UPDATE conventions SET required = $2 WHERE id = $1 AND article IS NULL")
+                .bind(id.0)
+                .bind(required)
+                .execute(&self.pool)
+                .await
+                .map_err(serr)?;
         if done.rows_affected() == 0 {
             return Err(AvError::NotFound(format!("convention {}", id.0)));
         }
@@ -1971,37 +2044,27 @@ impl IntentStore for PgStore {
     }
 
     async fn conventions(&self, repo: &str) -> Result<Vec<Convention>> {
-        let rows = sqlx::query(
-            "SELECT id, repo, scope_glob, text, required, check_command, source FROM conventions
-             WHERE repo = $1 AND removed_at IS NULL ORDER BY id",
-        )
+        let rows = sqlx::query(&format!(
+            "SELECT {CONVENTION_COLS} FROM conventions
+             WHERE repo = $1 AND removed_at IS NULL AND article IS NULL ORDER BY id"
+        ))
         .bind(repo)
         .fetch_all(&self.pool)
         .await
         .map_err(serr)?;
-        rows.iter()
-            .map(|r| {
-                Ok(Convention {
-                    id: ConventionId(r.try_get("id").map_err(serr)?),
-                    repo: r.try_get("repo").map_err(serr)?,
-                    scope_glob: r.try_get("scope_glob").map_err(serr)?,
-                    text: r.try_get("text").map_err(serr)?,
-                    required: r.try_get("required").map_err(serr)?,
-                    check_command: r.try_get("check_command").map_err(serr)?,
-                    source: r.try_get("source").map_err(serr)?,
-                })
-            })
-            .collect()
+        rows.iter().map(convention_from_row).collect()
     }
 
     async fn set_convention_check(&self, id: ConventionId, command: Option<&str>) -> Result<()> {
-        let n = sqlx::query("UPDATE conventions SET check_command = $2 WHERE id = $1")
-            .bind(id.0)
-            .bind(command.filter(|c| !c.trim().is_empty()))
-            .execute(&self.pool)
-            .await
-            .map_err(serr)?
-            .rows_affected();
+        let n = sqlx::query(
+            "UPDATE conventions SET check_command = $2 WHERE id = $1 AND article IS NULL",
+        )
+        .bind(id.0)
+        .bind(command.filter(|c| !c.trim().is_empty()))
+        .execute(&self.pool)
+        .await
+        .map_err(serr)?
+        .rows_affected();
         if n == 0 {
             return Err(AvError::NotFound(format!("convention {}", id.0)));
         }
@@ -2011,7 +2074,7 @@ impl IntentStore for PgStore {
     async fn remove_convention(&self, repo: &str, id: ConventionId) -> Result<()> {
         let n = sqlx::query(
             "UPDATE conventions SET removed_at = now()
-             WHERE id = $1 AND repo = $2 AND removed_at IS NULL",
+             WHERE id = $1 AND repo = $2 AND removed_at IS NULL AND article IS NULL",
         )
         .bind(id.0)
         .bind(repo)
@@ -2020,6 +2083,22 @@ impl IntentStore for PgStore {
         .map_err(serr)?
         .rows_affected();
         if n == 0 {
+            let article: Option<(String, i32)> = sqlx::query_as(
+                "SELECT repo, article FROM conventions
+                 WHERE id = $1 AND article IS NOT NULL AND removed_at IS NULL",
+            )
+            .bind(id.0)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(serr)?;
+            if let Some((owner, number)) = article {
+                return Err(AvError::IllegalState(format!(
+                    "conv:{} is {} of the constitution, not a convention: only an amendment \
+                     repeals it",
+                    id.0,
+                    article_handle(owner.is_empty(), number)
+                )));
+            }
             return Err(AvError::NotFound(format!(
                 "convention {} in repo {repo}",
                 id.0
@@ -2029,8 +2108,18 @@ impl IntentStore for PgStore {
     }
 
     async fn conventions_for(&self, repo: &str, paths: &[String]) -> Result<Vec<Convention>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {CONVENTION_COLS} FROM conventions
+             WHERE (repo = $1 OR (repo = '' AND article IS NOT NULL)) AND removed_at IS NULL
+             ORDER BY article IS NULL, repo <> '', article, id"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
         let mut out = vec![];
-        for c in self.conventions(repo).await? {
+        for row in &rows {
+            let c = convention_from_row(row)?;
             let matcher = Glob::new(&c.scope_glob)
                 .map_err(|e| AvError::Store(e.to_string()))?
                 .compile_matcher();

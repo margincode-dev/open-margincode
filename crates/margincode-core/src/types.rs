@@ -323,6 +323,151 @@ pub struct Convention {
     /// accepted `promote` verdict promoted (its retraction removes it).
     #[serde(default)]
     pub source: String,
+    /// For an article of a constitution: its number. `None` for an ordinary convention.
+    #[serde(default)]
+    pub article: Option<i32>,
+    /// An article's title (what a pack shows); `None` for an ordinary convention.
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+impl Convention {
+    /// A shared (organisation) article: its row has no repository.
+    pub fn is_shared(&self) -> bool {
+        self.repo.is_empty() && self.article.is_some()
+    }
+
+    /// What packs and messages call it: `art:N`, `org:N` or `conv:<id>`.
+    pub fn handle(&self) -> String {
+        match self.article {
+            Some(n) => article_handle(self.repo.is_empty(), n),
+            None => format!("conv:{}", self.id.0),
+        }
+    }
+}
+
+/// `org:N` for a shared article, `art:N` for a repository's own.
+pub fn article_handle(shared: bool, number: i32) -> String {
+    format!("{}:{number}", if shared { "org" } else { "art" })
+}
+
+/// The most articles in force for one repository, the shared ones included.
+pub const MAX_ARTICLES: usize = 10;
+/// Limits in characters: an article's title and text, an amendment's reason.
+pub const MAX_ARTICLE_TITLE: usize = 60;
+pub const MAX_ARTICLE_TEXT: usize = 400;
+pub const MAX_AMENDMENT_REASON: usize = 200;
+
+/// `v` trimmed; refused (`IllegalState`, HTTP 422) when empty or over `max` characters.
+pub fn within_limit(what: &str, v: &str, max: usize) -> Result<String> {
+    let v = v.trim();
+    let n = v.chars().count();
+    if n == 0 {
+        return Err(AvError::IllegalState(format!("{what} must not be empty")));
+    }
+    if n > max {
+        return Err(AvError::IllegalState(format!(
+            "{what} is {n} characters; the limit is {max}"
+        )));
+    }
+    Ok(v.to_owned())
+}
+
+/// Which constitution an amendment changes or a read returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstitutionLevel<'a> {
+    /// The shared (organisation) level, which every repository's constitution starts with.
+    Shared,
+    /// One repository's own articles (a read also returns the shared ones, first).
+    Repo(&'a str),
+}
+
+str_enum!(AmendAction {
+    Add => "add",
+    Amend => "amend",
+    Repeal => "repeal",
+});
+
+/// One change to a constitution. A level's version is the number of amendments it has had.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Amendment {
+    /// Empty for the shared level.
+    pub repo: String,
+    /// `art:N` or `org:N`.
+    pub handle: String,
+    pub version: i32,
+    pub at: DateTime<Utc>,
+    pub by: String,
+    pub action: AmendAction,
+    pub article: i32,
+    /// The convention row in force after it; `None` for a repeal.
+    pub convention_id: Option<ConventionId>,
+    pub reason: String,
+}
+
+/// An article in force.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Article {
+    /// `art:N` or `org:N`.
+    pub handle: String,
+    pub number: i32,
+    pub shared: bool,
+    pub title: String,
+    pub text: String,
+    /// A command whose exit 0 shows a change follows it, as a required convention's check.
+    pub check: Option<String>,
+    /// Its row in `conventions`: what approval's checks and `av validate` name.
+    pub convention_id: ConventionId,
+    pub last: Amendment,
+}
+
+/// A repository's constitution: the shared articles first, then its own, each by number.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Constitution {
+    /// Empty when only the shared level was read.
+    pub repo: String,
+    /// The repository's own version (the shared level's, when only it was read).
+    pub version: i32,
+    pub shared_version: i32,
+    pub articles: Vec<Article>,
+}
+
+/// A change to one level's articles. `Amend` keeps what it leaves `None`; a `check` of `""`
+/// removes the check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ArticleChange {
+    Add {
+        title: String,
+        text: String,
+        #[serde(default)]
+        check: Option<String>,
+    },
+    Amend {
+        number: i32,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        check: Option<String>,
+    },
+    Repeal {
+        number: i32,
+    },
+}
+
+/// A convention written by hand, with its `required` flag and check in the same write.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewConvention {
+    pub repo: String,
+    pub scope_glob: String,
+    pub text: String,
+    #[serde(default)]
+    pub required: bool,
+    /// Only for a required convention.
+    #[serde(default)]
+    pub check: Option<String>,
 }
 
 /// Where a task stands with respect to trunk: the last merge (until undone) and the paths of the

@@ -44,8 +44,9 @@ the suspected cause, marked as a guess; the status.
   `retrieval_gate::two_runs_on_fresh_daemons_give_the_same_rows_and_packs` fails when the two
   runs' ids differ, and `retrieval::repo_map_is_the_same_every_time` failed before the change.
   The index test for the tie (`lexical::copies_of_one_function_tie_*`) passes on the code before
-  the fix too: on a fixture that small the planner keeps each chunk's terms in order. `PACKER_VERSION` is unchanged although exact ties can now order differently from
-  before; whether that needs a bump is open. Not checked: the semantic path.
+  the fix too: on a fixture that small the planner keeps each chunk's terms in order. Exact ties
+  can now order differently from before, so `PACKER_VERSION` went to 13. Not checked: the
+  semantic path.
 
 ## 2026-11-23: records found by full-text search tie on a random id
 

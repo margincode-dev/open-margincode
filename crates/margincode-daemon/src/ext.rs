@@ -3,7 +3,9 @@
 //! none of them (`AllowAll`, `NoCheckpointHook`, `NoUsage`, no extensions).
 //!
 //! Points: `router_with` (routes), `with_extension` (typed services), `subscribe_events`, `MergeGuard`,
-//! `with_mcp_tools`, `UsageSink`, `CheckpointHook`, `put_profile`, and `migrate_extension` then `pool` for the
+//! `with_mcp_tools`, `UsageSink`, `CheckpointHook`, `put_profile`, the constitution's reads (`constitution`,
+//! `constitution_history`) and the unguarded rule writes (`amend_constitution`, `amend_shared_constitution`,
+//! `add_convention`, `remove_convention`), and `migrate_extension` then `pool` for the
 //! extension's own tables. `AppState::shutdown` turns `true` when the daemon stops, for `customize`'s background tasks.
 
 use std::any::{Any, TypeId};
@@ -12,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use margincode_core::routing::BacklogEntry;
-use margincode_core::{AvEvent, IntentStore, Record, Task, Verdict};
+use margincode_core::{AvEvent, Convention, IntentStore, Record, Task, Verdict};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -90,10 +92,58 @@ pub enum MemoryAction<'a> {
         record: &'a Record,
         agree: bool,
     },
+    /// A rule agents are held to would change: an article of `repo`'s own constitution (`POST`,
+    /// `PUT`, `DELETE /v1/repos/{name}/constitution/articles…`), or a required convention
+    /// (`POST /v1/repos/{name}/conventions` with `required`, `DELETE` of a required one).
+    /// Ordinary conventions are not asked about. `by` is the name the request gave (for a
+    /// convention, empty when it gave none: `by` in the body, `?by=` on the `DELETE`). Asked after
+    /// the daemon's own checks and before anything is written. The `AppState` methods that write
+    /// rules for an extension do not ask.
+    Rule {
+        kind: RuleKind,
+        change: RuleChange<'a>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleKind {
+    /// An article of the repository's own constitution (`art:N`).
+    Article,
+    /// A required convention.
+    RequiredConvention,
+}
+
+/// What `MemoryAction::Rule` would do.
+#[derive(Debug, Clone, Copy)]
+pub enum RuleChange<'a> {
+    /// A new rule as it would read. For an article, `number` is the one it would get (unless
+    /// another amendment comes first), `title` is set and `scope_glob` is `**`; for a required
+    /// convention `number` and `title` are `None`.
+    Add {
+        number: Option<i32>,
+        title: Option<&'a str>,
+        text: &'a str,
+        scope_glob: &'a str,
+        check: Option<&'a str>,
+    },
+    /// Article `number` as it would read after the amendment (articles only).
+    Amend {
+        number: i32,
+        title: &'a str,
+        text: &'a str,
+        check: Option<&'a str>,
+    },
+    /// Article `number` repealed, or a required convention (`number` is `None`) removed;
+    /// `convention` is the row in force now.
+    Remove {
+        number: Option<i32>,
+        convention: &'a Convention,
+    },
 }
 
 /// Asked before a submit, a review verdict, an approval, a merge, the acceptance of a proposed
-/// backlog item and a write to shared memory (a supersede, a verdict's review). `Err(reason)`
+/// backlog item and a write to shared memory (a supersede, a verdict's review, a change to an
+/// article or a required convention). `Err(reason)`
 /// refuses the request with HTTP 422 and the reason; the task (or item, record or verdict) stays
 /// as it was. A review verdict asks `Review` first and, for an approval, `Approve`
 /// after it.

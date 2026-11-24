@@ -24,6 +24,22 @@
   now installs the plugin even when it refuses to edit a commented config. Delete the file to
   remove it.
 
+- **A constitution per repository.** `av constitution add | amend N | repeal N | show |
+  history` keeps up to ten numbered articles a person writes, with a reason for every amendment
+  and a history that is never edited. Every pack carries them second, right after Task, as
+  `## Constitution (v4; it outranks conventions and records)`, whatever the task changed, and
+  sends them again after an amendment; an article's check gates approval like a required
+  convention's. An amendment by a name that is an agent's is refused, and the guard is asked
+  first. An extension can add organisation-wide articles (`org:N`) that every repository's
+  constitution starts with. Routes: `GET /v1/repos/{name}/constitution` and
+  `POST`/`PUT`/`DELETE …/constitution/articles[/{n}]`. Packs record packer version 12.
+- **Adding or removing a required convention asks the guard first**, and nothing is written
+  when it refuses; Community's default guard allows everything.
+- `av convention list` and `av constitution show` print notes on the rules: a glob that matches
+  no file on main, two rules with the same text, an article and a convention with the same check
+  (`GET /v1/repos/{name}/conventions?notes=1`; without `?notes=1` the route answers as before).
+- A repository with a blank name is refused.
+
 ## 0.0.5 (2026-11-22)
 
 Two security fixes. A daemon without `AV_TOKEN` now refuses requests a web page on another site

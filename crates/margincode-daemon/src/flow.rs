@@ -660,7 +660,8 @@ fn same_edit(
     }
 }
 
-/// Required conventions with a check command whose glob matches a path the task changed.
+/// Articles with a check, and required conventions with a check command whose glob matches a
+/// path the task changed (an article matches every path).
 pub(crate) async fn applicable_checks(st: &AppState, task: &Task) -> Result<Vec<Convention>> {
     Ok(changed_and_checks(st, task).await?.1)
 }
@@ -731,24 +732,23 @@ async fn check_problem(st: &AppState, task: &Task, head: &ChangeId) -> Result<Op
     }
     let mut problems = vec![];
     for c in wanted {
+        let handle = c.handle();
         let cmd = c.check_command.unwrap_or_default();
         match latest.get(&c.id.0) {
             Some(0) => {}
             Some(code) => problems.push(format!(
-                "conv:{} check `{cmd}` failed (exit {code}): {}",
-                c.id.0, c.text
+                "{handle} check `{cmd}` failed (exit {code}): {}",
+                c.text
             )),
             None if cmd.contains(CRATES) => problems.push(format!(
-                "conv:{} check `{cmd}` not run at head {} (`av validate` runs it and replaces \
+                "{handle} check `{cmd}` not run at head {} (`av validate` runs it and replaces \
                  {CRATES} with -p for each changed crate and its dependants, or --workspace; a \
                  result counts only with that expanded `command`): {}",
-                c.id.0,
                 short(&head.0),
                 c.text
             )),
             None => problems.push(format!(
-                "conv:{} check `{cmd}` not run at head {} (`av validate` runs it): {}",
-                c.id.0,
+                "{handle} check `{cmd}` not run at head {} (`av validate` runs it): {}",
                 short(&head.0),
                 c.text
             )),

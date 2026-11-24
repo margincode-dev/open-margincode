@@ -6,6 +6,7 @@ mod auth;
 mod backup;
 mod build_cache;
 mod checks;
+mod constitution;
 mod deps_cache;
 mod derived;
 mod disk;
@@ -47,7 +48,7 @@ pub use embed_choice::EmbedChoice;
 pub use embedded_pg::EmbeddedPg;
 pub use ext::{
     AllowAll, CheckpointHook, ExtTool, Guarded, MemoryAction, MergeGuard, NoCheckpointHook,
-    NoUsage, ToolHandler, UsageReport, UsageSink,
+    NoUsage, RuleChange, RuleKind, ToolHandler, UsageReport, UsageSink,
 };
 pub use reindex::{SEMANTIC_LOCK_KEY, worker_tick};
 pub use remote::MAX_PATCH_BYTES;
@@ -255,6 +256,81 @@ impl AppState {
         self.store.put_profile(profile).await?;
         self.work_changed();
         Ok(())
+    }
+
+    /// Amends `repo`'s own constitution, as `POST`, `PUT` and `DELETE
+    /// /v1/repos/{name}/constitution/articles…` do, without asking the guard and without the
+    /// routes' rule on agent names: an extension that knows who `by` is writes through here while
+    /// its guard refuses the routes. The store's limits and its one lock still hold.
+    pub async fn amend_constitution(
+        &self,
+        repo: &str,
+        change: &margincode_core::ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> margincode_core::Result<margincode_core::Amendment> {
+        self.store
+            .amend_constitution(
+                margincode_core::ConstitutionLevel::Repo(repo),
+                change,
+                by,
+                reason,
+            )
+            .await
+    }
+
+    /// Amends the shared (organisation) level, whose articles (`org:N`) every repository's
+    /// constitution starts with. No Community route writes it; only this does.
+    pub async fn amend_shared_constitution(
+        &self,
+        change: &margincode_core::ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> margincode_core::Result<margincode_core::Amendment> {
+        self.store
+            .amend_constitution(
+                margincode_core::ConstitutionLevel::Shared,
+                change,
+                by,
+                reason,
+            )
+            .await
+    }
+
+    /// The articles in force at `level`, as `GET /v1/repos/{name}/constitution` answers them
+    /// (for `Shared`, the shared level alone, which needs no repository).
+    pub async fn constitution(
+        &self,
+        level: margincode_core::ConstitutionLevel<'_>,
+    ) -> margincode_core::Result<margincode_core::Constitution> {
+        self.store.constitution(level).await
+    }
+
+    /// Every amendment at `level`, oldest first (for a repository, the shared level's too).
+    pub async fn constitution_history(
+        &self,
+        level: margincode_core::ConstitutionLevel<'_>,
+    ) -> margincode_core::Result<Vec<margincode_core::Amendment>> {
+        self.store.amendments(level).await
+    }
+
+    /// Adds a convention, required or not, as `POST /v1/repos/{name}/conventions` does, without
+    /// asking the guard.
+    pub async fn add_convention(
+        &self,
+        convention: &margincode_core::NewConvention,
+    ) -> margincode_core::Result<margincode_core::ConventionId> {
+        self.store.add_convention_with(convention).await
+    }
+
+    /// Removes a convention, as `DELETE /v1/repos/{name}/conventions/{id}` does, without asking
+    /// the guard. An article's row is refused: an amendment repeals it.
+    pub async fn remove_convention(
+        &self,
+        repo: &str,
+        id: margincode_core::ConventionId,
+    ) -> margincode_core::Result<()> {
+        self.store.remove_convention(repo, id).await
     }
 
     pub(crate) fn work_changed(&self) {

@@ -1,6 +1,7 @@
 mod assemble;
 mod budget;
 mod bundle;
+mod constitution;
 pub mod diff;
 mod ledger;
 pub mod lexical;

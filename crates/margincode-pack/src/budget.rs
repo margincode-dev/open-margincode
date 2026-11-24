@@ -11,6 +11,8 @@ const OMITTED_LINE_TOKENS: u32 = 12;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Section {
     Task,
+    /// The articles in force (`constitution::item`): one item, reserved, with no share of its own.
+    Constitution,
     /// A merge into main that did not apply: conflicting paths, symbols and the records of the
     /// task that changed them on main.
     Conflicts,
@@ -22,8 +24,9 @@ pub enum Section {
 
 impl Section {
     /// Fill order; unused budget flows from each section to the next.
-    pub const ALL: [Section; 6] = [
+    pub const ALL: [Section; 7] = [
         Section::Task,
+        Section::Constitution,
         Section::Conflicts,
         Section::Map,
         Section::History,
@@ -34,6 +37,7 @@ impl Section {
     pub fn key(self) -> &'static str {
         match self {
             Section::Task => "task",
+            Section::Constitution => "constitution",
             Section::Conflicts => "conflicts",
             Section::Map => "map",
             Section::History => "history",
@@ -42,12 +46,13 @@ impl Section {
         }
     }
 
-    /// task/intent 10 · conflicts 5 · map 10 · history 20 · code 45 · conventions+live work 10.
+    /// task/intent 10 · constitution 0 (it lives on its reservation) · conflicts 5 · map 10 · history 20 · code 45 · conventions+live work 10.
     /// An unused share (conflicts, almost always) flows on to the next section.
     pub fn share_percent(self) -> u64 {
         match self {
             Section::Task | Section::Map | Section::ConventionsLive => 10,
             Section::Conflicts => 5,
+            Section::Constitution => 0,
             Section::History => 20,
             Section::Code => 45,
         }

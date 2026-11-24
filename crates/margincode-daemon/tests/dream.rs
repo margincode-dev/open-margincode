@@ -984,6 +984,7 @@ impl margincode_daemon::MergeGuard for MemoryPolicy {
                 format!("review {kind} of {:?} agree={agree}", record.summary),
                 by != "owner",
             ),
+            MemoryAction::Rule { .. } => return Ok(()),
         };
         let from = if dream.is_some() { " from a run" } else { "" };
         self.0

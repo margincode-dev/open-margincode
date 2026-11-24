@@ -476,6 +476,25 @@ pub trait IntentStore: Send + Sync {
         text: &str,
     ) -> Result<ConventionId>;
     async fn set_convention_required(&self, id: ConventionId, required: bool) -> Result<()>;
+    /// Writes a convention with its `required` flag and check in one statement, after checking
+    /// its glob and that only a required one has a check: a refused one leaves no row.
+    async fn add_convention_with(&self, c: &NewConvention) -> Result<ConventionId>;
+    /// The articles in force: for a repository the shared ones first, then its own, each by
+    /// number, with its last amendment and both versions; for `Shared`, the shared ones alone.
+    async fn constitution(&self, level: ConstitutionLevel<'_>) -> Result<Constitution>;
+    /// Every amendment, oldest first: for a repository its own and the shared level's.
+    async fn amendments(&self, level: ConstitutionLevel<'_>) -> Result<Vec<Amendment>>;
+    /// One amendment, in one transaction under the lock every amendment takes. Refuses (as
+    /// `IllegalState`) a title over 60 characters, a text over 400, a reason outside 1..=200,
+    /// an empty title or text, an article not in force, an amendment that changes nothing, and
+    /// an add that would put more than ten articles (shared ones included) on any repository.
+    async fn amend_constitution(
+        &self,
+        level: ConstitutionLevel<'_>,
+        change: &ArticleChange,
+        by: &str,
+        reason: &str,
+    ) -> Result<Amendment>;
     /// Events after `since` (of one repo, or all), oldest first, at most `limit`.
     async fn events_since(
         &self,
@@ -487,10 +506,14 @@ pub trait IntentStore: Send + Sync {
     async fn last_event_id(&self, repo: Option<&str>) -> Result<i64>;
     /// Sets (or with `None` clears) a convention's check command.
     async fn set_convention_check(&self, id: ConventionId, command: Option<&str>) -> Result<()>;
-    /// Hides a convention from packs, lists and checks (its row stays).
+    /// Hides a convention from packs, lists and checks (its row stays). An article's row is
+    /// refused: only an amendment repeals it.
     async fn remove_convention(&self, repo: &str, id: ConventionId) -> Result<()>;
-    /// Every convention of the repo, oldest first.
+    /// Every convention of the repo, oldest first; articles are not conventions here.
     async fn conventions(&self, repo: &str) -> Result<Vec<Convention>>;
+    /// What applies to `paths`: the articles (shared ones first, then the repo's own, each by
+    /// number; an article matches every path, so none when `paths` is empty) and then the
+    /// conventions whose glob matches one.
     async fn conventions_for(&self, repo: &str, paths: &[String]) -> Result<Vec<Convention>>;
     /// Stores a pack manifest; returns its id as shown to agents (`rcp:<8 hex>`).
     async fn add_receipt(&self, r: NewReceipt) -> Result<String>;

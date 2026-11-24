@@ -719,6 +719,60 @@ async fn the_task_section_names_what_the_workspace_leaves_off_disk() {
     }
 }
 
+/// Today's behaviour (`docs/backlog.md`, 2026-11-24): the index and the packer do not read the
+/// workspace's sparse list, so a file left off disk is a seed and a Map entry with no mark.
+#[tokio::test]
+async fn today_a_symbol_in_a_file_left_off_disk_is_seeded_and_mapped_with_no_mark() {
+    let fx = fixture().await;
+    let mut files: Vec<(&str, &str)> = BASE.to_vec();
+    files.push(("bench/results/r1/analyze.py", "def main():\n    return 1\n"));
+    fx.vcs.set("sparse", &files);
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let t = fx
+        .store
+        .create_task(NewTask {
+            goal: "Make `main` print its total".into(),
+            ..new_task("Totals")
+        })
+        .await
+        .unwrap();
+    let base = ChangeId("sparse".into());
+    fx.store
+        .set_workspace(t.id, std::path::Path::new("/ws/demo/totals"), &base)
+        .await
+        .unwrap();
+    fx.store.set_head(t.id, &base, &[]).await.unwrap();
+    fx.index
+        .index_paths(
+            "demo",
+            &t.slug,
+            files
+                .iter()
+                .filter(|(p, _)| p.ends_with(".py"))
+                .map(|(p, c)| (p.to_string(), c.as_bytes().to_vec()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    let t = fx.store.get_task(t.id).await.unwrap();
+    let md = fx
+        .packer
+        .build(req(&t, 2000, "off-disk"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(md.contains("Not on disk: bench/results/"), "{md}");
+    assert!(
+        md.contains("\n- bench/results/r1/analyze.py\n  L1: def main():\n"),
+        "the Map lists it like any file:\n{md}"
+    );
+    let code = &md[md.find("## Code").expect("a Code section")..];
+    assert!(
+        code.contains(" main (bench/results/r1/analyze.py:1-2)\n"),
+        "the seed, its line as any other's:\n{md}"
+    );
+}
+
 #[tokio::test]
 async fn semantic_hit_on_unanchored_other_task_record_is_included() {
     let fx = fixture().await;

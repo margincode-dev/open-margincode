@@ -51,6 +51,63 @@ async fn slug_is_unique_for_same_title() {
     assert_eq!(a.status, TaskStatus::Open);
 }
 
+/// A copy of `margincode-vcs`'s rule for a task workspace's name (`jj.rs`: `valid_component` and
+/// `task_workspace`, both private).
+fn workspace_accepts(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug.len() <= 100
+        && !slug.starts_with('.')
+        && !slug
+            .chars()
+            .any(|c| c == '/' || c == '\\' || c.is_control())
+        && slug != "main"
+        && slug != "default"
+}
+
+#[tokio::test]
+async fn a_long_multibyte_title_gets_a_slug_the_workspace_accepts_with_any_suffix() {
+    let (_db, s) = store().await;
+    let longest = format!("-{}", u32::MAX);
+    for (title, slug) in [
+        ("中".repeat(40), "中".repeat(29)),
+        (
+            format!("a{}", "中".repeat(39)),
+            format!("a{}", "中".repeat(29)),
+        ),
+        (
+            format!("{} {}", "文".repeat(29), "文".repeat(10)),
+            "文".repeat(29),
+        ),
+    ] {
+        let a = s.create_task(new_task(&title)).await.unwrap();
+        let b = s.create_task(new_task(&title)).await.unwrap();
+        assert_eq!(a.slug, slug, "{title}");
+        assert_eq!(b.slug, format!("{slug}-2"));
+        assert!(workspace_accepts(&format!("{slug}{longest}")), "{title}");
+    }
+
+    let ascii = s.create_task(new_task(&"ab ".repeat(30))).await.unwrap();
+    assert_eq!(ascii.slug, "ab-".repeat(13) + "a");
+}
+
+#[tokio::test]
+async fn a_title_named_like_the_repos_own_workspace_gets_another_slug() {
+    let (_db, s) = store().await;
+    let titles = ["Main", "default", "  MAIN!", "Main", "Default", "?! ¿…"];
+    let want = [
+        "main-task",
+        "default-task",
+        "main-task-2",
+        "main-task-3",
+        "default-task-2",
+        "task",
+    ];
+    for (title, want) in titles.into_iter().zip(want) {
+        let t = s.create_task(new_task(title)).await.unwrap();
+        assert_eq!(t.slug, want, "{title:?}");
+    }
+}
+
 #[tokio::test]
 async fn concurrent_creates_with_same_title_get_distinct_slugs() {
     let (_db, s) = store().await;

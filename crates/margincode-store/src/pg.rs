@@ -32,6 +32,22 @@ fn slugify(title: &str) -> String {
     if slug.is_empty() { "task".into() } else { slug }
 }
 
+/// A task's slug names its jj workspace, which `margincode-vcs` caps at 100 bytes; `create_task`
+/// may add a suffix of up to 11 (`-4294967295`).
+const MAX_TASK_SLUG_BYTES: usize = 89;
+
+/// `slugify`, cut to a name `margincode-vcs` accepts for a task's workspace with any suffix, and
+/// never `main` or `default`, which belong to the repo's own workspace.
+fn task_slug(title: &str) -> String {
+    let slug = slugify(title);
+    let slug = slug[..slug.floor_char_boundary(MAX_TASK_SLUG_BYTES)].trim_end_matches('-');
+    if slug == "main" || slug == "default" {
+        format!("{slug}-task")
+    } else {
+        slug.to_owned()
+    }
+}
+
 fn task_from_row(r: &PgRow) -> Result<Task> {
     let status: String = r.try_get("status").map_err(serr)?;
     Ok(Task {
@@ -899,7 +915,7 @@ impl IntentStore for PgStore {
     }
 
     async fn create_task(&self, t: NewTask) -> Result<Task> {
-        let base = slugify(&t.title);
+        let base = task_slug(&t.title);
         let id = Uuid::new_v4();
         for n in 1u32.. {
             let slug = if n == 1 {

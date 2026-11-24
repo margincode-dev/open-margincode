@@ -7,6 +7,39 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: a title word that names a common symbol filled a first pack with `main` functions
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), on the task that
+  gave "Main" and "Default" titles slugs of their own. Its title held the word "Main"; its goal
+  named, in backticks, `slugify`, `create_task`, `valid_component` and `task_workspace`, the
+  file `pg.rs` by its crate and name alone, and the other four files the change touched
+  (`CHANGELOG.md`, `docs/backlog.md` and the two test files) with their paths.
+- **Seen.** The Map listed two files under `bench/results/`, and the Code section held three
+  functions named `main` from `bench/results/` and a `load` of `bench/tasks-m0/`. `bench/results/`
+  is in `.av/sparse`, so none of those is in the task's workspace. The pack carried none of the
+  five changed files as code: it named `crates/margincode-store/src/pg.rs` only in its list of
+  omitted items, and the other four were not in the shown part of that list. A second pack with
+  `--focus crates/margincode-store/src/pg.rs` carried `slugify` and `IntentStore.create_task`,
+  but also a `slugify` of `bench/tallyho/` and another `main` of `bench/results/`.
+- **Ruled out.** Nothing yet; the scores were not looked at.
+- **Guess.** The same as the entry below on a Map that listed a left-out file, with the title's
+  words weighed above the goal's backticked names: a common word that is also a symbol name
+  matches many same-named symbols across the repository.
+- **Status.** Open.
+
+## 2026-11-24: `av record --anchor path:create_task` was taken, but did not cover `PgStore.create_task`
+
+- **Where.** `av record --kind decision --anchor crates/margincode-store/src/pg.rs:create_task`,
+  then `av submit`, on the same task as the entry above.
+- **Seen.** The record answered `recorded` with no warning. `av submit` then advised that two
+  changed symbols had no record anchored, and `GET /v1/tasks/{id}/unrecorded` named
+  `MAX_TASK_SLUG_BYTES` and `PgStore.create_task`. A new record anchored to
+  `pg.rs:PgStore.create_task` cleared it.
+- **Ruled out.** Nothing; where the first anchor landed was not looked at.
+- **Guess.** An anchor names a symbol by its qualified name, and one that matches no symbol is
+  stored without a word to the agent.
+- **Status.** Open.
+
 ## 2026-11-24: four places print a record with no verdict mark at all
 
 - **Where.** `av why` (`derived::why` and its CLI print), `av search` (the CLI print of
@@ -166,6 +199,26 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** A change of ours: the tree was `main` as merged.
 - **Guess.** A crash in a dependency under load, or a stack overflow in one test thread. Not
   reproduced.
+- **Status.** Open.
+
+## 2026-11-22: `JjVcs::create_workspace` takes the names `main` and `default`
+
+- **Where.** `margincode-vcs` `jj.rs`, `create_workspace`, reached through `POST /v1/tasks` on
+  `main` 7e3bfea with a task titled "Main" or "Default" (a daemon API test). On 2026-11-24 the
+  test `a_reserved_or_long_multibyte_title_starts_and_its_workspace_is_reclaimed`, run before the
+  fix, got the same two answers to the start; the directory and `av gc` were not looked at again.
+- **Seen.** `create_workspace` checks only `valid_component`, not `task_workspace`, so it makes a
+  workspace for either slug. "Main": the workspace was made, then `init_task_overlay` refused
+  with `400 invalid input: main never has an overlay`, the task was set abandoned, its directory
+  stayed, and `POST /v1/gc` with `retain_secs: 0` answered the error `workspace main belongs to
+  the repo, not a task`. "Default": jj-lib panicked with `BUG: Descendants have not been rebased
+  after the last rewrites.` and the start answered 500.
+- **Ruled out.** Whether the "Default" start changed the repo's own workspace was not checked.
+- **Guess.** The store now never gives a task such a slug (it becomes `main-task` or
+  `default-task`), so the daemon no longer reaches this. Refusing them in `create_workspace`
+  would change `JjVcs`'s behaviour, which the Commercial edition's engine mirrors, so it was left.
+  A task made before the change with the slug `main` or `default` keeps it, and its workspace
+  still cannot be reclaimed.
 - **Status.** Open.
 
 ## 2026-11-22: OpenCode sessions do not get `AV_SCRATCH` or `AV_DOCKER_LABELS`

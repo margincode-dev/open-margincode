@@ -68,6 +68,15 @@
   version; `av context backfill` measures tasks merged before. Reads are noted from the pre-read
   hook, `expand`/`read_symbol` and MCP `read_file`. Nothing here changes a pack, and a failure to
   measure or note never fails the merge or the read. Migration `0034`.
+- **A task titled "Main" or "Default", or with a long title in a script such as Chinese, starts.**
+  A task's slug names its workspace. "Main" gave the slug `main`, which belongs to the repo's own
+  workspace, so the start failed and left a workspace `av gc` could not remove; "Default"
+  failed with a 500. Such a title now gets `main-task` or `default-task`. A slug was cut at 40
+  characters, which in a three-byte script is more than the 100 bytes a workspace name may have,
+  so the start failed with "invalid workspace name"; it is now also cut at 89 bytes, on a
+  character boundary, so the `-2`, `-3`, … a repeated title gets still fits. Titles in plain
+  ASCII get the same slugs as before, existing tasks keep theirs, and targets' slugs do not
+  change.
 
 ## 0.0.5 (2026-11-22)
 

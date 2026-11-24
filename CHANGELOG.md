@@ -14,6 +14,14 @@
 - **`av submit` on a task in review says what to do.** The refusal said only that an in-review
   task cannot take Submit; it now says the review judges the head as it is (naming it), so after
   a change only `av validate` is needed.
+- **A head moved in review passes the submit checks before it is approved.** A change made
+  during review skipped every check a submit makes. A reviewer's approval of a head the latest
+  submit did not see now refuses it while it has no changes, still holds conflict markers, or an
+  extension's submit guard (`Guarded::Submit`, with the head's changed paths) refuses it; the
+  `422` names the head, the submitted one and why. The lifecycle is unchanged, and an unmoved
+  head is not checked twice. An approval `av` carries asks no guard (it keeps the approved
+  changed files), but is no longer made while a changed file holds a conflict marker, which a
+  reworded `carry_globs` file could carry before.
 - **A dream can say a record contradicts a rule.** `av dream --conflicts` (review runs only) hands
   each record the rules that cover it, the constitution's articles and the conventions on its
   paths, and tells the agent it may propose a `conflict`: the record's own words against a

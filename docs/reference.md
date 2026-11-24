@@ -186,9 +186,12 @@ again and, with no conflict markers left, sends the task back to review. Until t
 `GET /v1/tasks/{id}` (`av status`, the MCP `status` tool) carries a `next` line saying what is left.
 A task in review can still be checkpointed and validated: a review judges its head as it is when
 the verdict is given, so a change made during review needs no new submit (`av submit` on it is
-refused and says so), only a passing `av validate` at the new head. The checks a submit makes
-(the record gate, the conflict-marker refusal, an extension's submit guard) are not made again
-for a head moved in review.
+refused and says so), only a passing `av validate` at the new head. A reviewer's approval of a
+head that moved since the latest submit first passes what a submit checks on that head: it must
+change something, hold no conflict markers, and pass an extension's submit guard with its
+changed paths; a refusal names the head and why, and nothing is approved. The record gate needs
+no second look: records are append-only. An approval `av` carries asks no guard, since it keeps
+the approved set of changed files, but is not made while a changed file holds a conflict marker.
 A review finding the reviewer already stored at the same head is not stored twice. Every finding
 is checked before anything is written (a summary that is blank or longer than 200 characters is
 refused with `400`, naming it as `findings[i]`; `av review --finding` fits a longer one first, as

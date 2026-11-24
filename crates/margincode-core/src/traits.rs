@@ -425,6 +425,11 @@ pub trait IntentStore: Send + Sync {
     ) -> Result<Vec<(Task, chrono::DateTime<chrono::Utc>)>> {
         Ok(vec![])
     }
+    /// The task's head as its latest submit saw it (that `submit` event's change); `None` when it
+    /// was never submitted, or the store keeps no events.
+    async fn submitted_head(&self, _task: TaskId) -> Result<Option<ChangeId>> {
+        Ok(None)
+    }
     /// Appends a feed event (`GET /v1/events`) that is not a status change, such as
     /// `workspace:reclaimed`. Does nothing unless the store keeps events.
     async fn add_event(

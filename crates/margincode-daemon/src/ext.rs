@@ -55,7 +55,10 @@ pub enum Guarded<'a> {
     Merge { task: &'a Task, agent: &'a str },
     /// The owner submits `task` for review; `changed_paths` are the files its workspace changes
     /// against its base. Asked after the "nothing to submit" and conflict-marker checks and before
-    /// anything is written, so a refusal leaves the task open and adds no records.
+    /// anything is written, so a refusal leaves the task open and adds no records. Asked the same
+    /// way, with the head's changed paths, before a reviewer's approval of a head that moved
+    /// since the latest submit; a refusal then refuses that approval. Not asked for an approval
+    /// `av` carries: a carry keeps the approved set of changed files.
     Submit {
         task: &'a Task,
         changed_paths: &'a [String],

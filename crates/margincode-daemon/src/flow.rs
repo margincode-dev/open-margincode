@@ -219,7 +219,8 @@ pub(crate) async fn submit(
     if task.status == TaskStatus::InReview {
         return Err(AvError::IllegalState(format!(
             "task {} is already in review, so there is nothing to submit: a review judges its \
-             head as it is now ({}); after a change, run `av validate` so that head can be approved",
+             head as it is now ({}); after a change, run `av validate`, and the approval of that \
+             head first checks it as a submit would",
             task.slug,
             short(&task.head_change.0)
         ))
@@ -477,18 +478,63 @@ async fn first_markers(
 ) -> Result<Vec<String>> {
     let mut found = vec![];
     for (path, bytes) in st.vcs.read_files(repo, head, paths).await? {
-        let Ok(bytes) = bytes else { continue };
-        let Ok(text) = String::from_utf8(bytes) else {
-            continue;
-        };
-        for (i, line) in text.lines().enumerate() {
-            if MARKERS.iter().any(|m| line.starts_with(m)) {
-                found.push(format!("{path}:{}", i + 1));
-                break;
-            }
+        if let Some(line) = bytes.ok().as_deref().and_then(marker_line) {
+            found.push(format!("{path}:{line}"));
         }
     }
     Ok(found)
+}
+
+/// The 1-based line of the first conflict marker in a UTF-8 text file's `bytes`.
+fn marker_line(bytes: &[u8]) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    text.lines()
+        .position(|line| MARKERS.iter().any(|m| line.starts_with(m)))
+        .map(|i| i + 1)
+}
+
+/// Why the task's head may not be approved yet (`None`: it may): it moved since the latest submit,
+/// and a submit of it now would be refused (nothing changed, conflict markers, or the guard's
+/// `Submit` with its changed paths). The record gate is left out: records are append-only, so a
+/// task that passed it once always does. Callers hold the task's lock.
+async fn moved_head_problem(st: &AppState, task: &Task) -> Result<Option<String>> {
+    let head = &task.head_change;
+    let submitted = st.store.submitted_head(task.id).await?;
+    if submitted.as_ref() == Some(head) {
+        return Ok(None);
+    }
+    let since = submitted.map_or_else(
+        || "the submit".to_owned(),
+        |s| format!("the submit at {}", short(&s.0)),
+    );
+    let moved = format!("head {} moved since {since}", short(&head.0));
+    let changed = st
+        .vcs
+        .changed_paths(&task.repo, &task.base_change, head)
+        .await?;
+    if *head == task.base_change || changed.is_empty() {
+        return Ok(Some(format!(
+            "{moved}, and it has no changes since the task started"
+        )));
+    }
+    let found = first_markers(st, &task.repo, head, &changed).await?;
+    if !found.is_empty() {
+        return Ok(Some(format!(
+            "{moved}, and conflict markers are still in {}: the owner resolves them, then \
+             `av checkpoint` and `av validate`",
+            found.join(", ")
+        )));
+    }
+    let action = crate::Guarded::Submit {
+        task,
+        changed_paths: &changed,
+    };
+    if let Err(reason) = st.guard.check(action).await {
+        return Ok(Some(format!(
+            "{moved}, and its submit is refused: {reason}"
+        )));
+    }
+    Ok(None)
 }
 
 /// What is left for the owner of a conflicted task, in one line. The task stays conflicted
@@ -567,9 +613,12 @@ fn one_line(name: &str) -> String {
 /// - a passing validation exists at the current head;
 /// - the changed files are the same set, and per file the edits are identical
 ///   (`patch_signature`, line numbers aside), or the file was changed by main too
-///   (`changed(base0, H0) ∩ changed(base0, base)`) and matches the repo's `carry_globs`.
+///   (`changed(base0, H0) ∩ changed(base0, base)`) and matches the repo's `carry_globs`;
+/// - no changed file holds a conflict marker at the current head, as a submit refuses: a
+///   `carry_globs` file may differ from the approved one.
 ///
-/// Anything missing fails closed. A carry is an `approve` verdict by `av` plus a `review` record.
+/// It asks no guard: the set of changed files is the approved one, so what the guard judged at
+/// the approved head's submit or approval still holds. Anything missing fails closed. A carry is an `approve` verdict by `av` plus a `review` record.
 /// Idempotent; takes no lock (callers hold the task's).
 pub(crate) async fn carry_approval(st: &AppState, task: &Task) -> Result<Option<ChangeId>> {
     let head = &task.head_change;
@@ -643,6 +692,9 @@ pub(crate) async fn carry_approval(st: &AppState, task: &Task) -> Result<Option<
             file(&new_base)?,
             file(&new_head)?,
         );
+        if nh.as_deref().and_then(marker_line).is_some() {
+            return Ok(None);
+        }
         if same_edit(&ob, &oh, &nb, &nh) {
             continue;
         }
@@ -950,6 +1002,9 @@ pub(crate) async fn review(
             }
         }
         if let Some(problem) = check_problem(&st, &task, &head).await? {
+            return Err(AvError::IllegalState(format!("cannot approve: {problem}")).into());
+        }
+        if let Some(problem) = moved_head_problem(&st, &task).await? {
             return Err(AvError::IllegalState(format!("cannot approve: {problem}")).into());
         }
         let action = crate::Guarded::Approve {

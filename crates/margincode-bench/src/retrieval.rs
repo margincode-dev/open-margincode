@@ -669,6 +669,9 @@ pub struct RetrievalArgs {
     pub no_pack: bool,
     /// Reuse the repos an earlier run (this id) imported into the same daemon; only the packing is measured anew.
     pub reuse_run: Option<String>,
+    /// Names the imports (`r<id>-<task>`). The name is in every pack (its workspace path), so a
+    /// run id that changed between runs would change what fits a budget.
+    pub run_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -777,16 +780,7 @@ pub fn run(
     args: &RetrievalArgs,
 ) -> Result<Vec<Row>> {
     std::fs::create_dir_all(args.out.join("texts")).map_err(|e| e.to_string())?;
-    let run_id = args.reuse_run.clone().unwrap_or_else(|| {
-        format!(
-            "{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-                & 0xffffff
-        )
-    });
+    let run_id = args.reuse_run.as_ref().unwrap_or(&args.run_id);
     let mut rows = vec![];
     let mut golds = vec![];
     let mut semantic_any = None;
@@ -811,7 +805,7 @@ pub fn run(
         let mut texts: Vec<(&str, u32, String, Vec<String>)> = vec![];
         if !args.no_pack {
             let daemon = daemon.ok_or("the pack method needs a daemon (--url)")?;
-            let (ps, semantic) = packs(t, &run_id, &src, daemon, args)?;
+            let (ps, semantic) = packs(t, run_id, &src, daemon, args)?;
             semantic_any = Some(semantic_any.unwrap_or(false) || semantic);
             texts.extend(ps);
         }

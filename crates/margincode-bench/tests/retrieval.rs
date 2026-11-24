@@ -258,6 +258,7 @@ fn args(out: &Path, import: &Path, no_pack: bool) -> RetrievalArgs {
         index_wait_secs: 30,
         no_pack,
         reuse_run: None,
+        run_id: "e1".into(),
     }
 }
 

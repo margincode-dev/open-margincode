@@ -133,6 +133,7 @@ fn the_pack_keeps_its_retrieval_scores_on_the_fixture_repo() {
         index_wait_secs: 30,
         no_pack: false,
         reuse_run: None,
+        run_id: "e1".into(),
     };
     let rows = run(&ts, Some(&daemon), &args).unwrap();
     let packs: Vec<&Row> = rows.iter().filter(|r| r.method == "pack").collect();
@@ -155,6 +156,83 @@ fn the_pack_keeps_its_retrieval_scores_on_the_fixture_repo() {
          on the fixture.\n",
         failed.join("\n  "),
         file!()
+    );
+}
+
+/// Every file of a results directory, by its path inside it.
+fn files(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(d) = todo.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                todo.push(p);
+            } else {
+                out.insert(
+                    p.strip_prefix(dir).unwrap().to_path_buf(),
+                    std::fs::read(&p).unwrap(),
+                );
+            }
+        }
+    }
+    out
+}
+
+/// What a ranking change is judged by must not move between two runs of one build: same run id,
+/// same workspace root, a fresh database each. The packs are compared as well as the rows, since
+/// a run-specific string in a pack moves the rows only when it changes the pack's token count.
+#[test]
+fn two_runs_on_fresh_daemons_give_the_same_rows_and_packs() {
+    let repo = TempDir::new().unwrap();
+    let ts = tasks(repo.path());
+    let ws = TempDir::new().unwrap();
+    let import = TempDir::new().unwrap();
+    let outs = [TempDir::new().unwrap(), TempDir::new().unwrap()];
+    for out in &outs {
+        std::fs::remove_dir_all(ws.path()).unwrap();
+        std::fs::create_dir(ws.path()).unwrap();
+        let td = start_daemon_in(ws.path());
+        let args = RetrievalArgs {
+            budgets: BUDGETS.to_vec(),
+            out: out.path().to_path_buf(),
+            import_dir: import.path().to_path_buf(),
+            import_mount: import.path().to_string_lossy().into(),
+            allow_no_semantic: true,
+            index_wait_secs: 30,
+            no_pack: false,
+            reuse_run: None,
+            run_id: "e1".into(),
+        };
+        run(&ts, Some(&Daemon::new(&td.url, None)), &args).unwrap();
+    }
+    let (a, b) = (files(outs[0].path()), files(outs[1].path()));
+    assert!(
+        a.keys().any(|p| p.ends_with("pack-300.md")),
+        "{:?}",
+        a.keys()
+    );
+    assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>());
+    let differ: Vec<String> = a
+        .iter()
+        .filter(|(p, bytes)| b[*p] != **bytes)
+        .map(|(p, bytes)| {
+            let (x, y) = (
+                String::from_utf8_lossy(bytes),
+                String::from_utf8_lossy(&b[p]),
+            );
+            let line = x.lines().zip(y.lines()).find(|(l, m)| l != m);
+            format!("{}: {line:?}", p.display())
+        })
+        .collect();
+    assert!(
+        differ.is_empty(),
+        "differ between runs:
+{}",
+        differ.join(
+            "
+"
+        )
     );
 }
 

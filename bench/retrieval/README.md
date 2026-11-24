@@ -57,6 +57,17 @@ margincode-bench retrieval bench/retrieval/public.jsonl --url http://127.0.0.1:7
 already imported into the same daemon, so a rerun takes minutes instead of an hour of embedding.
 Reruns differ by about ±0.02 between themselves (semantic search sometimes times out).
 
+**Repeatable runs.** Without a semantic layer, two runs of one build write the same `rows.jsonl`,
+`gold.jsonl` and `texts/`, byte for byte, when each runs on a fresh daemon database with the same
+`--run-id` (default `e1`) and the same daemon workspace root (`AV_WS_ROOT`, `AV_WS_HOST_ROOT`). A
+pack shows its task's workspace path, which holds the repo name `r<run id>-<task>`: another id or
+root changes the pack's token count, and so what fits a budget. A daemon that already has a run's
+repos refuses to import them again; start a fresh one, pass another `--run-id`, or measure on them
+with `--reuse-run ID`. A `--reuse-run` rerun does not repeat its first run byte for byte: its task
+gets the next free slug (`<task>-2`), so another workspace path. The test
+`retrieval_gate::two_runs_on_fresh_daemons_give_the_same_rows_and_packs` checks this on the
+fixture below.
+
 ## CI regression gate
 
 `cargo test -p margincode-bench --test it retrieval_gate::` (part of `cargo test --workspace`, about 5 s)

@@ -696,7 +696,8 @@ async fn list_records(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiRe
 }
 
 /// Records as JSON, each with `standing` (`{origin, factor}`): what became of its task, and the
-/// multiplier that gives its score in packs (`margincode_core::standing`).
+/// multiplier that gives its score in packs (`margincode_core::standing`); `verdict` and
+/// `overruled` when a verdict is in effect on it.
 async fn with_standing(st: &AppState, records: Vec<Record>) -> Result<Vec<Value>> {
     let ids: Vec<RecordId> = records.iter().map(|r| r.id).collect();
     let origins = st.store.record_origins(&ids).await?;
@@ -714,6 +715,17 @@ async fn with_standing(st: &AppState, records: Vec<Record>) -> Result<Vec<Value>
             if let Some(verdict) = origins.get(&r.id).and_then(|f| f.verdict.as_ref()) {
                 v["verdict"] = json!(verdict);
                 v["verdict"]["handle"] = json!(verdict.handle());
+            }
+            if let Some(facts) = origins.get(&r.id).filter(|f| !f.overruled.is_empty()) {
+                v["overruled"] = facts
+                    .overruled
+                    .iter()
+                    .map(|o| {
+                        let mut one = json!(o);
+                        one["handle"] = json!(o.handle());
+                        one
+                    })
+                    .collect();
             }
             v
         })

@@ -1090,7 +1090,7 @@ av --agent claude dream --repo myrepo --every 24h --budget-usd 2 -- claude -p "R
 av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.md and do what it says"
 ```
 
-- `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?}` starts a run and answers what it
+- `POST /v1/repos/{repo}/dreams` `{agent, mode?, area?, limit?, rules?}` starts a run and answers what it
   is to look at. `mode` is `review` (the default) or `verify`; `area` is a path prefix (the whole
   repository without it); `limit` is 20 by default and at most 50. One run of a mode per area at
   a time (`409` when a running one's area contains this one's or is inside it); a run past its
@@ -1111,12 +1111,21 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
   reverted, its code changed) leads again. Each item carries the
   record with its standing, its task (goal, status, lifecycle events), the anchored code on
   `main` now, the other live records on the same anchors and earlier verdicts, word for word.
+  With `rules: true` (review runs only; `400` with `verify`) the run's `worklist` keeps
+  `rules: true` and each item also carries `rules`: the articles in force (organisation first,
+  then the repository's, by number), then the repository's conventions whose glob matches one of
+  the record's anchor paths, each `{handle, title?, text, scope_glob}` (`title` for an article
+  only). A record with no anchors is covered by the articles alone. Without `rules` a run is
+  handed what it was handed before the flag existed: no `rules` key anywhere.
 - `POST /v1/dreams/{id}/verdicts` `{verdicts: [{record, verdict, reason?, canonical?,
   evidence}]}` answers per item `accepted` or `why` it was refused; a refused item writes
   nothing. The record must be on the run's list. Evidence entries are `{code: path, commit?,
-  quote}`, `{record: id, quote}` and `{event: id}`; a quote has at least 12 characters that are
-  not white space and must be found word for word in the file at that commit (the run's own
-  without `commit`) or in the record's summary or body.
+  quote}`, `{record: id, quote}`, `{rule: handle, quote}` and `{event: id}`; a quote has at
+  least 12 characters that are not white space and must be found word for word in the file at
+  that commit (the run's own without `commit`), in the record's summary or body, or in the title
+  or text of the rule (`art:N`, `org:N`, `conv:<id>`) as it is in force now. A `rule` quote
+  counts only in a run started with `rules` and in a person's review; elsewhere it is refused
+  as an unknown entry.
 
 | Verdict | Needs | Effect once a second look agrees |
 |---|---|---|
@@ -1124,6 +1133,7 @@ av --agent grok dream --verify --repo myrepo --every 24h -- grok -p "Read DREAM.
 | `disputed` | a `reason` (≤ 200 characters) and a quote of code or an event | the record ranks at 0.3 and its line ends `(disputed: <reason>, vd:…)`. It is shown: a disputed decision is a dead end worth a warning |
 | `duplicate` | `canonical`, a live record of the same kind sharing an anchor, and a quote from each of the two | left out of packs and the pre-read hook's answer; the canonical record is shown |
 | `outdated` | a quote of code or an event | left out of packs and the pre-read hook's answer |
+| `conflict` | a run started with `rules` (`av dream --conflicts`); a record that is not an `attempt`; `against`, a rule in force that covers the record (the daemon works this out again; it does not trust the list it sent); a `reason` (≤ 200 characters); a `record` quote of the record and a `rule` quote of that rule; no other conflict of the record against the same rule row that is waiting, accepted or rejected | only an acceptance by a person, by name, gives it effect (as for `promote`, below): the record is still shown, ranks at 0.3 (with a `disputed` too, still 0.3) and its line ends `(overruled by art:2: <reason>, vd:…)`, after any `(disputed: …)`; a short line says `(overruled by art:2)`. Against several rules, the organisation's articles come first, then this repository's, then conventions: two are shown, then `+N more`. Packs, the pre-read hook's answer and `av expand rec:…` say it; record lists and search add `overruled: [{id, handle, rule, reason}]`. It never hides a record, and a later `confirmed` does not clear it. It lapses by itself when the rule is amended, repealed or removed |
 | `promote` | a live `decision` with no other promote waiting or accepted, the convention's `text` (not empty, at most 400 characters) and `scope_glob` (checked as `av convention add` checks it), and a quote of the decision itself | only an acceptance by another name than its proposer's gives it effect (see below): a convention (`conventions.source` = `vd:<verdict id>`) that packs carry as any other. The record itself is shown as before |
 
 A `promote` proposes a repository convention from a decision that states a rule for a set of
@@ -1147,6 +1157,22 @@ asked (`Guarded::MemoryWrite`, kind `promote`, no `dream`) before anything is wr
 Commercial edition's guard is that place. `av verdict accept vd:…` writes the convention;
 `av verdict reject` writes none. Two reviews at once leave one: the second answers `409`.
 
+A `conflict` says a record tells agents the opposite of a rule in force: an article, or a
+convention that covers the record's anchors. The agent is told about it only when the run asks:
+`av dream --conflicts` (review runs only; refused with `--verify`; it may go with `--promote`)
+sends `rules: true` and appends a section on `conflict` to that run's `DREAM.md`, so its
+`instructions_sha` is the hash of that copy. A run without it gets `DREAM.md` and its bundle
+byte for byte as before. A conflict is reviewed by name only, under the same rules as a
+`promote`: a verify run is never handed one and a review of one that names a `dream` is `422`,
+and its proposer cannot review it. `against` is the rule's `conventions` row, so a conflict
+counts only while that row is in force: once the article is amended or repealed, or the
+convention removed, the verdict is `lapsed` (`av verdict list --state lapsed`), whatever its
+review said; it no longer marks the record, waits in no list and keeps the record off no
+worklist. A review of a lapsed conflict is `409` (the rule changed: a later run may propose it
+against the rule now in force); a retraction still takes it back. A rejected conflict is not
+proposed again against the same rule row, so it does not come back every night; it may come
+back once the rule changes, since that is a new row.
+
 Retracting the verdict, or `av dream undo` of its run, removes that convention (`removed_at`,
 as `av convention rm` does) and no other: a convention written by hand has an empty `source`
 and is never touched. A retraction and an acceptance at once are ordered on the verdict's row,
@@ -1165,6 +1191,7 @@ accepted; `av convention list` ends a promoted one with `(from vd:…)`.
   list, which holds the proposed verdicts with their records and evidence, and the review needs a
   quote of its own, checked the same way. Without `dream` the reviewer is a person. A verdict is
   reviewed once (`409` after); it is `effective` when the review agrees and `rejected` when not.
+  A `conflict` whose rule's row is no longer in force is `lapsed` instead, and is not reviewed.
 - **Taking it back.** `POST /v1/verdicts/{id}/retract` `{by}` writes a `retracted` row that names
   the verdict, whatever its state; `POST /v1/dreams/{id}/undo` `{by}` retracts everything a
   review run wrote. Packs are then what they were before, byte for byte.

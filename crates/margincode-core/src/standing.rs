@@ -49,6 +49,25 @@ pub struct OriginFacts {
     pub reverted_at: Option<DateTime<Utc>>,
     /// The newest verdict on the record that a second look confirmed and nothing retracted.
     pub verdict: Option<EffectiveVerdict>,
+    /// The agreed `conflict` verdicts whose rule is still in force, read beside `verdict` and
+    /// never in its place: organisation articles first, then the repository's, then conventions.
+    pub overruled: Vec<Overruling>,
+}
+
+/// An agreed `conflict` verdict: the record tells agents the opposite of the rule `rule`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Overruling {
+    pub id: uuid::Uuid,
+    /// `org:N`, `art:N` or `conv:<id>`.
+    pub rule: String,
+    pub reason: String,
+}
+
+impl Overruling {
+    /// `vd:<8 hex>`, as a record's line names it.
+    pub fn handle(&self) -> String {
+        format!("vd:{}", &self.id.simple().to_string()[..8])
+    }
 }
 
 /// A later look at a record (`av dream`) that a second run or a person agreed on; it never edits it.
@@ -144,11 +163,13 @@ pub fn standing(facts: &OriginFacts, kind: RecordKind, written: DateTime<Utc>) -
         (Origin::Reverted, _) => REVERTED_FACTOR,
         (Origin::Abandoned, _) => ABANDONED_FACTOR,
     };
-    // a disputed record of any kind: an attempt someone showed to be wrong is not a dead end
-    if facts
-        .verdict
-        .as_ref()
-        .is_some_and(|v| v.kind == VerdictKind::Disputed)
+    // a disputed record of any kind: an attempt someone showed to be wrong is not a dead end;
+    // overruled by a rule ranks the same, and both together no lower
+    if !facts.overruled.is_empty()
+        || facts
+            .verdict
+            .as_ref()
+            .is_some_and(|v| v.kind == VerdictKind::Disputed)
     {
         factor *= DISPUTED_FACTOR;
     }
@@ -162,6 +183,7 @@ pub fn without_origin(facts: &OriginFacts, kind: RecordKind, written: DateTime<U
         status: TaskStatus::Merged,
         reverted_at: None,
         verdict: facts.verdict.clone(),
+        overruled: facts.overruled.clone(),
     };
     standing(&merged, kind, written)
 }
@@ -195,6 +217,7 @@ mod tests {
             status,
             reverted_at: reverted_after.map(|s| written + Duration::seconds(s)),
             verdict: None,
+            overruled: vec![],
         };
         standing(&facts, kind, written)
     }
@@ -286,6 +309,7 @@ mod tests {
                 status,
                 reverted_at: None,
                 verdict: Some(verdict(kind)),
+                overruled: vec![],
             };
             standing(&facts, record, written).factor
         };
@@ -340,6 +364,7 @@ mod tests {
                         status,
                         reverted_at,
                         verdict: None,
+                        overruled: vec![],
                     };
                     let s = without_origin(&facts, kind, written);
                     assert_eq!((s.origin, s.factor), (Origin::Merged, 1.0), "{status:?}");
@@ -356,6 +381,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn an_overruled_record_ranks_as_a_disputed_one_and_both_together_no_lower() {
+        let written = Utc::now();
+        let overruled = vec![Overruling {
+            id: uuid::Uuid::nil(),
+            rule: "art:2".into(),
+            reason: "logs bodies".into(),
+        }];
+        let disputed = EffectiveVerdict {
+            id: uuid::Uuid::nil(),
+            kind: VerdictKind::Disputed,
+            reason: "no".into(),
+            anchor_hashes: vec![],
+        };
+        let facts = |verdict: Option<EffectiveVerdict>, overruled: Vec<Overruling>| OriginFacts {
+            status: TaskStatus::Merged,
+            reverted_at: None,
+            verdict,
+            overruled,
+        };
+        let factor = |f: &OriginFacts| standing(f, RecordKind::Decision, written).factor;
+        assert_eq!(factor(&facts(None, overruled.clone())), DISPUTED_FACTOR);
+        assert_eq!(
+            factor(&facts(Some(disputed.clone()), overruled.clone())),
+            DISPUTED_FACTOR
+        );
+        assert_eq!(
+            without_origin(&facts(None, overruled), RecordKind::Note, written).factor,
+            DISPUTED_FACTOR
+        );
+        assert_eq!(factor(&facts(None, vec![])), 1.0);
     }
 
     #[test]

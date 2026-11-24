@@ -7,6 +7,111 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: a title word that names a common symbol filled a first pack with `main` functions
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), on the task that
+  gave "Main" and "Default" titles slugs of their own. Its title held the word "Main"; its goal
+  named, in backticks, `slugify`, `create_task`, `valid_component` and `task_workspace`, the
+  file `pg.rs` by its crate and name alone, and the other four files the change touched
+  (`CHANGELOG.md`, `docs/backlog.md` and the two test files) with their paths.
+- **Seen.** The Map listed two files under `bench/results/`, and the Code section held three
+  functions named `main` from `bench/results/` and a `load` of `bench/tasks-m0/`. `bench/results/`
+  is in `.av/sparse`, so none of those is in the task's workspace. The pack carried none of the
+  five changed files as code: it named `crates/margincode-store/src/pg.rs` only in its list of
+  omitted items, and the other four were not in the shown part of that list. A second pack with
+  `--focus crates/margincode-store/src/pg.rs` carried `slugify` and `IntentStore.create_task`,
+  but also a `slugify` of `bench/tallyho/` and another `main` of `bench/results/`.
+- **Ruled out.** Nothing yet; the scores were not looked at.
+- **Guess.** The same as the entry below on a Map that listed a left-out file, with the title's
+  words weighed above the goal's backticked names: a common word that is also a symbol name
+  matches many same-named symbols across the repository.
+- **Status.** Open.
+
+## 2026-11-24: `av record --anchor path:create_task` was taken, but did not cover `PgStore.create_task`
+
+- **Where.** `av record --kind decision --anchor crates/margincode-store/src/pg.rs:create_task`,
+  then `av submit`, on the same task as the entry above.
+- **Seen.** The record answered `recorded` with no warning. `av submit` then advised that two
+  changed symbols had no record anchored, and `GET /v1/tasks/{id}/unrecorded` named
+  `MAX_TASK_SLUG_BYTES` and `PgStore.create_task`. A new record anchored to
+  `pg.rs:PgStore.create_task` cleared it.
+- **Ruled out.** Nothing; where the first anchor landed was not looked at.
+- **Guess.** An anchor names a symbol by its qualified name, and one that matches no symbol is
+  stored without a word to the agent.
+- **Status.** Open.
+
+## 2026-11-24: a first pack for a new bench subcommand named the files beside it, not its entry point
+
+- **Where.** `av task start` in this repository, on a task whose goal asked for a planted set
+  under `bench/` and a `margincode-bench` command to run `av dream` on it.
+- **Seen.** The pack named `crates/margincode-bench/src/dreamed.rs`, `isolate.rs`, the CLI's
+  `dream.rs` and a `check_set.py`; the change went into `crates/margincode-bench/src/main.rs`
+  (the subcommand), `lib.rs` (the module line) and `runner.rs` (one helper made visible), none of
+  which it named.
+- **Ruled out.** Nothing yet: whether the three files were in the index at start was not checked.
+- **Guess.** The goal's words match the dream code, not the clap enum or the module list, and
+  nothing ranks a crate's entry point for a "new command" goal.
+- **Status.** Open.
+
+## 2026-11-24: four places print a record with no verdict mark at all
+
+- **Where.** `av why` (`derived::why` and its CLI print), `av search` (the CLI print of
+  `GET /v1/repos/{repo}/search`), the MCP tool `search_history`, and `av expand task:<slug>`
+  (`Packer::expand` prints the task's records with an empty `Whence`).
+- **Seen.** Each prints a record's id, kind and summary and nothing of its verdicts: a disputed
+  record is not marked, and since the conflict verdict an overruled one is not either. Packs, the
+  pre-read hook's answer and `av expand rec:…` mark both, and search's JSON carries `verdict` and
+  `overruled`.
+- **Ruled out.** A conflict-only gap: the same holds for `disputed`, so these places were left as
+  they are to keep the two consistent.
+- **Guess.** These views predate verdicts and were never passed `Origins`.
+- **Status.** Open.
+
+## 2026-11-24: a first pack for a change to packs named no file of the packer
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), on a task whose
+  goal named the rank factor, the pack line, the packer version, `records_at`, `av expand`,
+  `av why` and the MCP record text.
+- **Seen.** The Map listed `crates/margincode-daemon/src/api.rs` and its tests, then
+  `bench/results/2026-11-14-m0/sonnet_spend.py` (left out of the workspace by `.av/sparse`, as in
+  the entry below), `bench/tallyho/src/tallyho/money.py` and `scripts/demo-replay.py`. Code named
+  `records_at` and the `CONFLICTS` text of the previous task. Nothing named
+  `crates/margincode-core/src/standing.rs`, `crates/margincode-pack/src/assemble.rs` or
+  `crates/margincode-pack/src/packer.rs`, where the change went.
+- **Ruled out.** Nothing yet.
+- **Guess.** Words such as "rank", "line" and "version" match many files weakly, and the goal's
+  names (`Whence`, `DISPUTED_FACTOR`) were not in it, so no symbol seeded the packer's files.
+- **Status.** Open.
+
+## 2026-11-24: a first pack's Map listed a file the task workspace leaves out
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), twice on
+  2026-11-24, on tasks about dreams and verdicts.
+- **Seen.** Both Maps listed `bench/results/2026-10-27-haiku/tool-mass.py`, and the second one
+  had it among four entries. `bench/results/` is in `.av/sparse`, so the file is not in the task's
+  workspace; it can be read only with `av show`. The second pack also named `mcp.rs`, which the
+  goal mentioned, but not `crates/margincode-cli/src/main.rs`, where the new flag went, nor
+  `crates/margincode-daemon/tests/dream.rs`, which held the tests the goal asked for.
+- **Ruled out.** Nothing yet; why that file scored was not looked at.
+- **Guess.** The Map ranks the repository's files without knowing the workspace's sparse
+  patterns, and a large Python file wins on a word or two of text.
+- **Status.** Open.
+
+## 2026-11-24: a first pack named a same-named struct of another crate and no migration
+
+- **Where.** `av task start` on a task whose goal named `VerdictRow`, `NewVerdict`,
+  `VERDICT_STATE`, `record_origins` and "migration 0035" (packer version 13, budget 800).
+- **Seen.** The Code section listed `VerdictRow` at `crates/margincode-core/src/types.rs`, the
+  task-review struct, not the `VerdictRow` of `crates/margincode-store/src/dreams.rs` the goal
+  meant (that file was in the Map through another symbol). Neither
+  `crates/margincode-store/migrations/` nor `tests/migrations_frozen.rs`, which a new migration
+  must touch, was named. The other files the task changed (`standing.rs`, `dreams.rs`, `pg.rs`)
+  were in the Map.
+- **Ruled out.** A stale index: the task started on a fresh `main`.
+- **Guess.** A bare name in the goal seeds every symbol of that name, and the first one found
+  wins the slot; a `.sql` file has no symbols for "migration" to match.
+- **Status.** Open; seen once.
+
 ## 2026-11-24: `swarm_loop_runs_backlog_to_merged` failed once in a full test run
 
 - **Where.** `crates/margincode-daemon/tests/swarm.rs`, `cargo test --workspace` in the local
@@ -107,6 +212,26 @@ the suspected cause, marked as a guess; the status.
 - **Ruled out.** A change of ours: the tree was `main` as merged.
 - **Guess.** A crash in a dependency under load, or a stack overflow in one test thread. Not
   reproduced.
+- **Status.** Open.
+
+## 2026-11-22: `JjVcs::create_workspace` takes the names `main` and `default`
+
+- **Where.** `margincode-vcs` `jj.rs`, `create_workspace`, reached through `POST /v1/tasks` on
+  `main` 7e3bfea with a task titled "Main" or "Default" (a daemon API test). On 2026-11-24 the
+  test `a_reserved_or_long_multibyte_title_starts_and_its_workspace_is_reclaimed`, run before the
+  fix, got the same two answers to the start; the directory and `av gc` were not looked at again.
+- **Seen.** `create_workspace` checks only `valid_component`, not `task_workspace`, so it makes a
+  workspace for either slug. "Main": the workspace was made, then `init_task_overlay` refused
+  with `400 invalid input: main never has an overlay`, the task was set abandoned, its directory
+  stayed, and `POST /v1/gc` with `retain_secs: 0` answered the error `workspace main belongs to
+  the repo, not a task`. "Default": jj-lib panicked with `BUG: Descendants have not been rebased
+  after the last rewrites.` and the start answered 500.
+- **Ruled out.** Whether the "Default" start changed the repo's own workspace was not checked.
+- **Guess.** The store now never gives a task such a slug (it becomes `main-task` or
+  `default-task`), so the daemon no longer reaches this. Refusing them in `create_workspace`
+  would change `JjVcs`'s behaviour, which the Commercial edition's engine mirrors, so it was left.
+  A task made before the change with the slug `main` or `default` keeps it, and its workspace
+  still cannot be reclaimed.
 - **Status.** Open.
 
 ## 2026-11-22: OpenCode sessions do not get `AV_SCRATCH` or `AV_DOCKER_LABELS`

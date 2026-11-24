@@ -24,6 +24,26 @@ async fn post_tasks_returns_workspace_pack_and_host_path() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_reserved_or_long_multibyte_title_starts_and_its_workspace_is_reclaimed() {
+    let e = env_with(|s| s.with_ws_retain(Some(0))).await;
+    for title in ["Main", "Default", &"中".repeat(40)] {
+        let (status, t) = call(
+            &e.app,
+            "POST",
+            "/v1/tasks",
+            Some(json!({"repo": "demo", "title": title, "goal": "g", "agent": "claude", "session": "s-1"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{title}: {t}");
+        assert!(ws_dir(&e, &t).join("app/greeter.py").exists(), "{t}");
+        let (status, body) = post(&e, &t, "abandon", json!({"agent": "claude"})).await;
+        assert_eq!(status, StatusCode::OK, "{title}: {body}");
+        assert_eq!(body["workspace"], "removed", "{title}: {body}");
+        assert!(!ws_dir(&e, &t).exists(), "{title}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn checkpoint_then_context_reflects_edit() {
     let e = env().await;
     let t = start_task(&e, "Improve greeting").await;

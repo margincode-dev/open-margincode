@@ -529,7 +529,8 @@ enum Cmd {
     },
     /// A second look at records: start an agent that checks the records the daemon chose
     /// against the code and proposes verdicts (confirmed, disputed, duplicate, outdated, or
-    /// promote: a decision as a convention, which another agent or a person accepts), each with
+    /// promote: a decision as a convention, which another agent or a person accepts; with
+    /// --conflicts also conflict: a record against a rule, which a person accepts), each with
     /// quotes the daemon checks word for word. Nothing changes in packs until a second
     /// look agrees: `av dream --verify -- <agent command>`, or `av verdict accept`. E.g.
     /// `av dream --repo demo -- claude -p "Read DREAM.md and do what it says"`.
@@ -564,6 +565,13 @@ enum Cmd {
         /// run that proposed it. Review runs only.
         #[arg(long, conflicts_with = "verify")]
         promote: bool,
+        /// Hand the agent the rules that cover each record (the constitution's articles and the
+        /// conventions on its paths) and tell it it may propose `conflict` verdicts: a record
+        /// that tells agents the opposite of a rule. Only a person accepts one (`av verdict
+        /// accept`); once accepted, the record ranks low and its line names the rule. Review
+        /// runs only.
+        #[arg(long, conflicts_with = "verify")]
+        conflicts: bool,
         /// Appends `--max-budget-usd X` to the agent command, for a CLI that takes that flag
         /// (Claude Code does); the cap is the CLI's, and the daemon stores no dollars.
         #[arg(long, value_name = "USD", value_parser = dream::parse_budget)]
@@ -633,7 +641,7 @@ enum VerdictCmd {
         /// Default: the repo of the task of this directory.
         #[arg(long)]
         repo: Option<String>,
-        /// proposed, effective, rejected or retracted.
+        /// proposed, effective, rejected, retracted or lapsed (a conflict whose rule changed).
         #[arg(long)]
         state: Option<String>,
         /// Only this record's (rec:…).
@@ -3346,6 +3354,7 @@ fn run(cli: Cli) -> Result<()> {
             also_read,
             every,
             promote,
+            conflicts,
             cmd,
         } => {
             let repo = repo_for(&cli, &client, repo).map_err(|e| match e {
@@ -3367,6 +3376,7 @@ fn run(cli: Cli) -> Result<()> {
                 max_agents: *max_agents,
                 budget_usd: *budget_usd,
                 promote: *promote,
+                conflicts: *conflicts,
                 also_read: &also_read,
                 slots_dir: Kind::Agents.host_dir(),
                 dreams_dir: margincode_agentrun::slots::av_home().join("dreams"),

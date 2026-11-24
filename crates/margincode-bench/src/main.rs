@@ -271,6 +271,45 @@ enum Cmd {
         #[arg(long, default_value_t = 20, requires = "until_empty")]
         max_runs: u32,
     },
+    /// The conflict verdict's check (bench/conflict-check/README.md): seed the planted set
+    /// twice, one `av dream` review run on each copy (one with --conflicts), score conditions
+    /// (a) to (d). With --dry a scripted agent and no model; else the plan, and with --confirm
+    /// the model on CLAUDE_API_KEY, stopping before $2. Exits 1 when a condition fails.
+    ConflictCheck {
+        /// The set's directory.
+        #[arg(default_value = "bench/conflict-check")]
+        set: PathBuf,
+        /// Where the stores' dream directories, the logs and the result go (not the repo).
+        #[arg(long)]
+        out: PathBuf,
+        /// No model: the scripted agent, `keyed` (what the key says) or `break-a` to
+        /// `break-d` (each breaks one condition).
+        #[arg(long, conflicts_with = "confirm")]
+        dry: Option<String>,
+        /// Run the model and spend.
+        #[arg(long)]
+        confirm: bool,
+        /// The bench daemon (never your real one).
+        #[arg(long, env = "AV_BENCH_URL")]
+        av_url: String,
+        #[arg(long, env = "AV_TOKEN", hide_env_values = true)]
+        av_token: Option<String>,
+        #[arg(long, default_value = "av")]
+        av_bin: String,
+        /// Host directory the daemon imports from.
+        #[arg(long)]
+        import_dir: PathBuf,
+        /// The same directory as the daemon sees it [default: IMPORT_DIR].
+        #[arg(long)]
+        import_mount: Option<String>,
+    },
+    /// The scripted agent of `conflict-check --dry`, run by `av dream` in a run's directory.
+    #[command(hide = true)]
+    ConflictFake {
+        set: PathBuf,
+        #[arg(long)]
+        mode: String,
+    },
     /// Render report.md from a results directory.
     Report { results: PathBuf },
     /// Offline pack retrieval (Plan 6, E1): score first packs and three baselines against each
@@ -867,6 +906,67 @@ fn main() -> ExitCode {
                 );
                 return Ok(1);
             }
+            Ok(0)
+        })(),
+        Cmd::ConflictCheck {
+            set,
+            out,
+            dry,
+            confirm,
+            av_url,
+            av_token,
+            av_bin,
+            import_dir,
+            import_mount,
+        } => (|| {
+            use margincode_bench::conflict;
+            let set_dir = std::fs::canonicalize(expand(&set))
+                .map_err(|e| format!("{}: {e}", set.display()))?;
+            let agent = match &dry {
+                Some(mode) => conflict::Agent::Fake {
+                    exe: std::env::current_exe().map_err(|e| e.to_string())?,
+                    mode: conflict::FakeMode::parse(mode)?,
+                },
+                None => conflict::Agent::Model {
+                    dreamer: set_dir.join("dreamer.sh"),
+                },
+            };
+            if dry.is_none() && !confirm {
+                conflict::Set::load(&set_dir)?.check()?;
+                println!(
+                    "plan: seed {} twice on {av_url}, then two av dream review runs (one with \
+                     --conflicts), {}; at most ${:.2} (every round at its cap), stopped before \
+                     ${:.2}. Nothing spent: add --confirm to run it.",
+                    set_dir.display(),
+                    agent.describe(),
+                    conflict::CALL_CAP_USD * f64::from(2 * (conflict::FIX_ROUNDS + 1)),
+                    conflict::CEILING_USD
+                );
+                return Ok(0);
+            }
+            let import_dir = expand(&import_dir);
+            let out = expand(&out);
+            std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+            let out = std::fs::canonicalize(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+            let args = conflict::CheckArgs {
+                import_mount: import_mount
+                    .unwrap_or_else(|| import_dir.to_string_lossy().into_owned()),
+                set_dir,
+                out,
+                av_bin,
+                av_url,
+                av_token,
+                import_dir,
+                agent,
+            };
+            let outcome = conflict::check(&args)?;
+            print!("{}", outcome.report);
+            Ok(if outcome.score.pass { 0 } else { 1 })
+        })(),
+        Cmd::ConflictFake { set, mode } => (|| {
+            let set = margincode_bench::conflict::Set::load(&set)?;
+            let mode = margincode_bench::conflict::FakeMode::parse(&mode)?;
+            margincode_bench::conflict::fake_agent(&set, mode, Path::new("."))?;
             Ok(0)
         })(),
         Cmd::Noise { repo, rev, n, seed } => (|| {

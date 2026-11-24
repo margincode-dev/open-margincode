@@ -4,7 +4,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use futures::future::join_all;
 use margincode_core::standing::{
-    EffectiveVerdict, Origin, OriginFacts, Standing, VerdictKind, standing, without_origin,
+    EffectiveVerdict, Origin, OriginFacts, Overruling, Standing, VerdictKind, standing,
+    without_origin,
 };
 use margincode_core::*;
 use margincode_index::{AnchorResolution, CodeIndex, IndexedSymbol, ScopeView};
@@ -111,16 +112,30 @@ impl Origins {
             disputed: self
                 .verdict(rec, reader)
                 .filter(|v| v.kind == VerdictKind::Disputed),
+            overruled: self.overruled(rec, reader),
         }
+    }
+
+    fn overruled(&self, rec: &Record, reader: TaskId) -> &[Overruling] {
+        if rec.task_id == reader || history::is_mined(&rec.author_agent) {
+            return &[];
+        }
+        self.facts
+            .get(&rec.id)
+            .map_or(&[], |f| f.overruled.as_slice())
     }
 }
 
-/// What a record's line says beyond the record: what became of its task, and a `disputed` verdict in effect on it.
+/// What a record's line says beyond the record: what became of its task, a `disputed` verdict in
+/// effect on it, and the rules an agreed `conflict` says overrule it (organisation first).
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Whence<'a> {
     pub origin: Option<Origin>,
     pub disputed: Option<&'a EffectiveVerdict>,
+    pub overruled: &'a [Overruling],
 }
+
+const OVERRULINGS_SHOWN: usize = 2;
 
 pub(crate) struct Gathered {
     pub items: Vec<Item>,
@@ -300,6 +315,29 @@ pub(crate) fn record_texts(
             format!(" (disputed: {}, {})", v.reason, v.handle()),
         ),
         None => (String::new(), String::new()),
+    };
+    let (short, long) = match whence.overruled {
+        [] => (short, long),
+        all => {
+            let shown = &all[..all.len().min(OVERRULINGS_SHOWN)];
+            let more = match all.len() - shown.len() {
+                0 => String::new(),
+                n => format!(", +{n} more"),
+            };
+            let rules: Vec<&str> = shown.iter().map(|o| o.rule.as_str()).collect();
+            let why: Vec<String> = shown
+                .iter()
+                .map(|o| match o.reason.as_str() {
+                    "" => format!("{}, {}", o.rule, o.handle()),
+                    r => format!("{}: {r}, {}", o.rule, o.handle()),
+                })
+                .collect();
+            let more_long = more.replacen(',', ";", 1);
+            (
+                format!("{short} (overruled by {}{more})", rules.join(", ")),
+                format!("{long} (overruled by {}{more_long})", why.join("; ")),
+            )
+        }
     };
     let handle = format!("- {id} {kind}: {}{flag}{short}", clip(&rec.summary, 70));
     let mut summary = format!("- {id} {kind}: {}{flag}{long}", rec.summary);
@@ -1897,6 +1935,7 @@ mod tests {
         let whence = super::Whence {
             origin: None,
             disputed: Some(&verdict),
+            overruled: &[],
         };
         let (_, [handle, summary, full]) = super::record_texts(&disputed, false, false, whence);
         assert_eq!(
@@ -1913,6 +1952,68 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    #[test]
+    fn an_overruled_records_line_names_its_rules_after_any_dispute_two_then_how_many_more() {
+        let rule = |n: u128, rule: &str, reason: &str| standing::Overruling {
+            id: uuid::Uuid::from_u128(n << 96),
+            rule: rule.into(),
+            reason: reason.into(),
+        };
+        let disputed = standing::EffectiveVerdict {
+            id: uuid::Uuid::from_u128(0xabcdef12 << 96),
+            kind: standing::VerdictKind::Disputed,
+            reason: "the handler logs nothing".into(),
+            anchor_hashes: vec![],
+        };
+        let record = Record {
+            kind: RecordKind::Decision,
+            summary: "log the full request body on error".into(),
+            ..rec("claude")
+        };
+        let texts = |disputed, overruled| {
+            let whence = super::Whence {
+                origin: None,
+                disputed,
+                overruled,
+            };
+            super::record_texts(&record, false, false, whence).1
+        };
+        let one = [rule(0x11111111, "art:2", "says to log request bodies")];
+        let [handle, summary, full] = texts(None, &one);
+        assert_eq!(
+            handle,
+            "- rec:00000000 decision: log the full request body on error (overruled by art:2)"
+        );
+        for text in [&summary, &full] {
+            assert!(
+                text.starts_with(
+                    "- rec:00000000 decision: log the full request body on error (overruled by \
+                     art:2: says to log request bodies, vd:11111111)"
+                ),
+                "{text}"
+            );
+        }
+        let three = [
+            rule(0x22222222, "org:1", "logs personal data"),
+            rule(0x11111111, "art:2", "says to log request bodies"),
+            rule(0x33333333, "conv:7", "logs in handlers"),
+        ];
+        let [handle, summary, _] = texts(Some(&disputed), &three);
+        assert_eq!(
+            handle,
+            "- rec:00000000 decision: log the full request body on error (disputed) (overruled \
+             by org:1, art:2, +1 more)"
+        );
+        assert!(
+            summary.starts_with(
+                "- rec:00000000 decision: log the full request body on error (disputed: the \
+                 handler logs nothing, vd:abcdef12) (overruled by org:1: logs personal data, \
+                 vd:22222222; art:2: says to log request bodies, vd:11111111; +1 more)"
+            ),
+            "{summary}"
+        );
     }
 
     #[test]

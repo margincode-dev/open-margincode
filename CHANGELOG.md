@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **A dream can say a record contradicts a rule.** `av dream --conflicts` (review runs only) hands
+  each record the rules that cover it, the constitution's articles and the conventions on its
+  paths, and tells the agent it may propose a `conflict`: the record's own words against a
+  rule's own words, with a quote of each, which the daemon checks word for word against the rule
+  as it is in force. Only a person accepts one, by name (`av verdict accept`); no verify run is
+  handed it. A conflict lapses by itself when its rule is amended, repealed or removed
+  (`av verdict list --state lapsed`), and a rejected one is not proposed again against the same
+  rule. Once accepted, the record is still shown, but it ranks at 0.3 like a disputed one (both
+  together are still 0.3) and its line ends `(overruled by art:2: <reason>, vd:…)` in packs, the
+  pre-read hook's answer and `av expand`; record lists and search add `overruled`. A run without
+  `--conflicts` is handed the same `DREAM.md` and bundle as before (migration `0035`, packer
+  version 14).
+- **`margincode-bench conflict-check`: the check `--conflicts` passes before it is switched on.**
+  `bench/conflict-check` is a planted set (a fixture repository, three articles, three
+  conventions, 24 records: 8 that contradict a rule and 16 controls, with a key). The command
+  seeds it twice in a bench daemon, makes one `av dream` review run on each copy, one with
+  `--conflicts`, and scores the design's four conditions from the key. `--dry` runs the whole
+  path with a scripted agent and no model; without it the command prints the plan, and
+  `--confirm` runs the last freeze's dreamer on Sonnet 5.5, at most $0.45 a call, and starts no
+  run that could take the spend past $2 (`bench/conflict-check/README.md`).
 - **The retrieval benchmark repeats itself.** `margincode-bench retrieval --run-id ID` (default
   `e1`) names its imports instead of the clock, so two runs of one build on fresh daemons with the
   same workspace root write the same rows and packs (`bench/retrieval/README.md`, "Repeatable
@@ -56,6 +76,15 @@
   version; `av context backfill` measures tasks merged before. Reads are noted from the pre-read
   hook, `expand`/`read_symbol` and MCP `read_file`. Nothing here changes a pack, and a failure to
   measure or note never fails the merge or the read. Migration `0034`.
+- **A task titled "Main" or "Default", or with a long title in a script such as Chinese, starts.**
+  A task's slug names its workspace. "Main" gave the slug `main`, which belongs to the repo's own
+  workspace, so the start failed and left a workspace `av gc` could not remove; "Default"
+  failed with a 500. Such a title now gets `main-task` or `default-task`. A slug was cut at 40
+  characters, which in a three-byte script is more than the 100 bytes a workspace name may have,
+  so the start failed with "invalid workspace name"; it is now also cut at 89 bytes, on a
+  character boundary, so the `-2`, `-3`, … a repeated title gets still fits. Titles in plain
+  ASCII get the same slugs as before, existing tasks keep theirs, and targets' slugs do not
+  change.
 
 ## 0.0.5 (2026-11-22)
 

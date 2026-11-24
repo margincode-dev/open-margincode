@@ -51,6 +51,19 @@ async fn qnames(idx: &PgIndex, hits: &[(SymbolId, f32)]) -> Vec<String> {
         .collect()
 }
 
+async fn paths(idx: &PgIndex, hits: &[(SymbolId, f32)]) -> Vec<String> {
+    let mut out = vec![];
+    for (id, _) in hits {
+        out.push(
+            idx.get_symbols(&[*id]).await.unwrap()[0]
+                .symbol
+                .path
+                .clone(),
+        );
+    }
+    out
+}
+
 fn terms(t: &[&str]) -> Vec<String> {
     t.iter().map(|s| (*s).to_owned()).collect()
 }
@@ -200,6 +213,64 @@ async fn equal_scores_keep_symbol_order() {
             hits[0].0.0 < hits[1].0.0 || hits[0].1 > hits[1].1,
             "{hits:?}"
         );
+    }
+}
+
+/// A float sum depends on its order, and Postgres hands an aggregate its rows in no fixed order
+/// (on a large repo a sort-based `GROUP BY` mixes each chunk's terms): two copies of one function
+/// must still tie, and go by path. The filler makes the planner search term by term, as there.
+#[tokio::test]
+async fn copies_of_one_function_tie_whatever_order_the_rows_come_in() {
+    let words = [
+        "query", "event", "cookies", "encode", "headers", "parse", "result", "body",
+    ];
+    // each word a different number of times, and in a different number of files, so that every
+    // term adds a different amount
+    let body: String = words
+        .iter()
+        .enumerate()
+        .map(|(i, w)| format!("    {w}_{i} = [{}]\n", vec![*w; i + 1].join(", ")))
+        .collect();
+    let body = format!("def handle():\n{body}");
+    let mut files = vec![("src/lambda/handler.py".to_owned(), body.clone())];
+    for (i, w) in words.iter().enumerate() {
+        for k in 0..i {
+            files.push((
+                format!("src/f{i}_{k}.py"),
+                format!("def f{i}_{k}():\n    return {w}\n"),
+            ));
+        }
+    }
+    for f in 0..40 {
+        let defs: String = (0..50)
+            .map(|j| {
+                format!(
+                    "def filler_{j}():\n    return {}\n\n\n",
+                    words[(f + j) % words.len()]
+                )
+            })
+            .collect();
+        files.push((format!("lib/filler_{f}.py"), defs));
+    }
+    files.push(("adapters/lambda/handler.py".to_owned(), body));
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, s)| (p.as_str(), s.as_str()))
+        .collect();
+    let (db, idx) = index(&files).await;
+    let store = PgStore::connect(&db.url).await.unwrap();
+    sqlx::query("ANALYZE").execute(store.pool()).await.unwrap();
+    for _ in 0..3 {
+        let hits = idx
+            .search_code_lexical(&ScopeView::new("demo", "main"), &terms(&words), 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            paths(&idx, &hits[..2]).await,
+            ["adapters/lambda/handler.py", "src/lambda/handler.py"],
+            "{hits:?}"
+        );
+        assert_eq!(hits[0].1, hits[1].1, "{hits:?}");
     }
 }
 

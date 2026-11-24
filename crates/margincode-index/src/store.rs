@@ -1314,12 +1314,14 @@ impl CodeIndex for PgIndex {
         }
         // Okapi BM25 (k1 = 1.2, b = 0.75): a term's count in the chunk is the number of its positions,
         // a chunk's length its number of distinct words (cheap, and the same measure for the average).
-        // Ties go by path, line, then id.
+        // Each chunk's terms are summed in one order: Postgres hands an aggregate its rows in no
+        // fixed order, and a float sum depends on it, so copies of one function would tie or not
+        // by the plan. Ties go by path, line, then id.
         let rows: Vec<(i64, f64)> = match &mask {
             None => {
                 sqlx::query_as(
                     "SELECT c.symbol_id,
-                            sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)))::float8 AS s
+                            sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $6)) ORDER BY w.t)::float8 AS s
                      FROM code_chunks c
                      JOIN symbols y ON y.id = c.symbol_id
                      JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)
@@ -1345,7 +1347,7 @@ impl CodeIndex for PgIndex {
             }
             Some(masked) => sqlx::query_as(
                 "SELECT c.symbol_id,
-                        sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $7)))::float8 AS s
+                        sum(w.idf * tf.n * 2.2 / (tf.n + 1.2 * (0.25 + 0.75 * length(c.tsv) / $7)) ORDER BY w.t)::float8 AS s
                  FROM code_chunks c
                  JOIN symbols y ON y.id = c.symbol_id
                  JOIN unnest($3::text[], $4::float8[]) AS w(t, idf)

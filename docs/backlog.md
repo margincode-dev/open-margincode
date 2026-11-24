@@ -7,6 +7,19 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: `swarm_loop_runs_backlog_to_merged` failed once in a full test run
+
+- **Where.** `crates/margincode-daemon/tests/swarm.rs`, `cargo test --workspace` in the local
+  Docker bar, on a branch that changes the index, the pack version and the benchmark only.
+- **Seen.** One failure in one full run: task `code-item-1` was still `in_review` where the test
+  expects `merged`, and the loop took 13 s. The test then passed three times on its own (about
+  5.5 s each), and the next full run passed.
+- **Ruled out.** The branch's own changes: none touches the swarm loop, the merge queue or a
+  task's states.
+- **Guess.** Timing under load: the full run has many test binaries on one Postgres, and the test
+  stops waiting before the landing is done.
+- **Status.** Open; seen once.
+
 ## 2026-11-23: the retrieval benchmark is not repeatable run to run
 
 - **Where.** `margincode-bench retrieval` (`crates/margincode-bench/src/retrieval.rs`).

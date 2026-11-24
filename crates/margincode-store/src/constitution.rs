@@ -335,8 +335,8 @@ async fn check_cap(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, repo: &str) -
             .map_err(serr)?;
         if shared + own >= max {
             return Err(AvError::IllegalState(format!(
-                "{repo} has {} articles in force ({shared} shared, {own} its own); the limit is \
-                 {max}: repeal one first",
+                "{repo} has {} articles in force ({shared} from the organisation, {own} its own); \
+                 the limit is {max}: repeal one first",
                 shared + own
             )));
         }
@@ -344,7 +344,7 @@ async fn check_cap(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, repo: &str) -
     }
     if shared >= max {
         return Err(AvError::IllegalState(format!(
-            "the shared level has {shared} articles in force; the limit is {max}: repeal one first"
+            "the organisation has {shared} articles in force; the limit is {max}: repeal one first"
         )));
     }
     let full: Vec<(String, i64)> = sqlx::query_as(
@@ -363,8 +363,8 @@ async fn check_cap(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, repo: &str) -
             .map(|(r, own)| format!("{r} ({own} of its own)"))
             .collect();
         return Err(AvError::IllegalState(format!(
-            "a shared article would put more than {max} articles on {}: with {shared} shared, \
-             each would pass the limit; repeal one there first",
+            "an organisation article would put more than {max} articles on {}: with {shared} from \
+             the organisation, each would pass the limit; repeal one there first",
             names.join(", ")
         )));
     }

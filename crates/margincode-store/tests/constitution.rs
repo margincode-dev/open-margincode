@@ -165,7 +165,11 @@ async fn ten_articles_is_the_cap_shared_ones_included() {
         .amend_constitution(DEMO, &add("one more", "x", None), "alice", "why")
         .await;
     match refused {
-        Err(AvError::IllegalState(m)) => assert!(m.contains("limit is 10"), "{m}"),
+        Err(AvError::IllegalState(m)) => assert_eq!(
+            m,
+            "demo has 10 articles in force (3 from the organisation, 7 its own); the limit is 10: \
+             repeal one first"
+        ),
         other => panic!("{other:?}"),
     }
     // another repository still has room for its own seven
@@ -179,9 +183,11 @@ async fn ten_articles_is_the_cap_shared_ones_included() {
         )
         .await;
     match refused {
-        Err(AvError::IllegalState(m)) => {
-            assert!(m.contains("demo") && !m.contains("other"), "{m}")
-        }
+        Err(AvError::IllegalState(m)) => assert_eq!(
+            m,
+            "an organisation article would put more than 10 articles on demo (7 of its own): \
+             with 3 from the organisation, each would pass the limit; repeal one there first"
+        ),
         other => panic!("{other:?}"),
     }
     amend(&s, DEMO, ArticleChange::Repeal { number: 7 }).await;
@@ -189,6 +195,34 @@ async fn ten_articles_is_the_cap_shared_ones_included() {
     let c = s.constitution(DEMO).await.unwrap();
     assert_eq!(c.articles.len(), 10);
     assert_eq!((c.version, c.shared_version), (8, 4));
+}
+
+#[tokio::test]
+async fn the_organisation_level_alone_is_capped_at_ten() {
+    let (_db, s) = store().await;
+    for i in 0..10 {
+        amend(
+            &s,
+            ConstitutionLevel::Shared,
+            add(&format!("org {i}"), "x", None),
+        )
+        .await;
+    }
+    match s
+        .amend_constitution(
+            ConstitutionLevel::Shared,
+            &add("org 10", "x", None),
+            "ee",
+            "why",
+        )
+        .await
+    {
+        Err(AvError::IllegalState(m)) => assert_eq!(
+            m,
+            "the organisation has 10 articles in force; the limit is 10: repeal one first"
+        ),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[tokio::test]

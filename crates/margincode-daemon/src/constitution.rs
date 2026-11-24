@@ -227,11 +227,13 @@ async fn write(
         dream: None,
     };
     if let Err(reason) = st.guard.check(action).await {
-        return Err(AvError::IllegalState(format!(
-            "cannot amend {}: {reason}",
-            article_handle(false, number)
-        ))
-        .into());
+        // an add's number is only the next free one: the article does not exist yet
+        let what = match &change {
+            ArticleChange::Add { .. } => "add an article".to_owned(),
+            ArticleChange::Amend { .. } => format!("amend {}", article_handle(false, number)),
+            ArticleChange::Repeal { .. } => format!("repeal {}", article_handle(false, number)),
+        };
+        return Err(AvError::IllegalState(format!("cannot {what}: {reason}")).into());
     }
     let amendment = st
         .store
@@ -261,7 +263,9 @@ pub(crate) async fn guard_required(
     };
     st.guard.check(action).await.map_err(|reason| {
         let what = match change {
-            RuleChange::Remove { convention, .. } => format!("remove {}", convention.handle()),
+            RuleChange::Remove { convention, .. } => {
+                format!("remove the required convention {}", convention.handle())
+            }
             _ => "add a required convention".to_owned(),
         };
         AvError::IllegalState(format!("cannot {what}: {reason}"))

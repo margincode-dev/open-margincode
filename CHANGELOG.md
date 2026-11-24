@@ -35,6 +35,9 @@
   `POST`/`PUT`/`DELETE …/constitution/articles[/{n}]`. Packs record packer version 12.
 - **Adding or removing a required convention asks the guard first**, and nothing is written
   when it refuses; Community's default guard allows everything.
+- A guard's refusal of a rule change names what was refused (`cannot add an article`, `cannot
+  amend art:N`, `cannot repeal art:N`, `cannot remove the required convention conv:N`) before the
+  guard's reason, and the ten-article limit's messages say "organisation" where they said "shared".
 - `av convention list` and `av constitution show` print notes on the rules: a glob that matches
   no file on main, two rules with the same text, an article and a convention with the same check
   (`GET /v1/repos/{name}/conventions?notes=1`; without `?notes=1` the route answers as before).

@@ -1288,16 +1288,24 @@ async fn put_settings(
     Ok(Json(s))
 }
 
-/// Every convention of the repo, oldest first (articles are not listed), and the free notes on
-/// the repo's rules (`constitution::rule_notes`).
+#[derive(Deserialize)]
+struct NotesQuery {
+    #[serde(default)]
+    notes: Option<u8>,
+}
+
+/// Every convention of the repo, oldest first (articles are not listed); with `?notes=1` also
+/// the free notes on the repo's rules (`constitution::rule_notes`, which lists main's files).
 async fn list_conventions(
     State(st): State<AppState>,
     Path(repo): Path<String>,
+    Query(q): Query<NotesQuery>,
 ) -> ApiResult<Value> {
-    Ok(Json(json!({
-        "conventions": st.store.conventions(&repo).await?,
-        "notes": crate::constitution::rule_notes(&st, &repo).await?,
-    })))
+    let mut out = json!({"conventions": st.store.conventions(&repo).await?});
+    if q.notes == Some(1) {
+        out["notes"] = json!(crate::constitution::rule_notes(&st, &repo).await?);
+    }
+    Ok(Json(out))
 }
 
 #[derive(Deserialize)]

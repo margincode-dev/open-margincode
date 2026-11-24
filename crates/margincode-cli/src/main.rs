@@ -2145,7 +2145,7 @@ fn run(cli: Cli) -> Result<()> {
             cmd: ConventionCmd::List { repo },
         } => {
             let repo = repo_for(&cli, &client, repo)?;
-            let r = client.get(&format!("/v1/repos/{repo}/conventions"), &[])?;
+            let r = client.get(&format!("/v1/repos/{repo}/conventions"), &[("notes", "1")])?;
             for c in r["conventions"].as_array().into_iter().flatten() {
                 let required = if c["required"] == true {
                     " (required)"

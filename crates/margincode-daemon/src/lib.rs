@@ -297,6 +297,23 @@ impl AppState {
             .await
     }
 
+    /// The articles in force at `level`, as `GET /v1/repos/{name}/constitution` answers them
+    /// (for `Shared`, the shared level alone, which needs no repository).
+    pub async fn constitution(
+        &self,
+        level: margincode_core::ConstitutionLevel<'_>,
+    ) -> margincode_core::Result<margincode_core::Constitution> {
+        self.store.constitution(level).await
+    }
+
+    /// Every amendment at `level`, oldest first (for a repository, the shared level's too).
+    pub async fn constitution_history(
+        &self,
+        level: margincode_core::ConstitutionLevel<'_>,
+    ) -> margincode_core::Result<Vec<margincode_core::Amendment>> {
+        self.store.amendments(level).await
+    }
+
     /// Adds a convention, required or not, as `POST /v1/repos/{name}/conventions` does, without
     /// asking the guard.
     pub async fn add_convention(

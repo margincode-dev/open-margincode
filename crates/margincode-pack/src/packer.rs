@@ -223,7 +223,11 @@ impl Packer {
                     c,
                     &foreign,
                     &alloc.omitted,
-                    if left_out { total - 1 } else { total },
+                    if left_out {
+                        total.saturating_sub(1)
+                    } else {
+                        total
+                    },
                     n,
                     req.budget_tokens,
                     req.map && task.pack_mode == PackMode::Full,

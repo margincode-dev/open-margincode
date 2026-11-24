@@ -41,6 +41,7 @@ async fn show(
     Path(repo): Path<String>,
     Query(q): Query<ShowQuery>,
 ) -> ApiResult<Value> {
+    known_repo(&st, &repo).await?;
     let c = st
         .store
         .constitution(ConstitutionLevel::Repo(&repo))
@@ -101,6 +102,14 @@ async fn repeal_article(
     write(&st, &repo, ArticleChange::Repeal { number: n }, &b).await
 }
 
+async fn known_repo(st: &AppState, repo: &str) -> Result<()> {
+    if st.store.list_repos().await?.iter().any(|r| r.name == repo) {
+        Ok(())
+    } else {
+        Err(AvError::NotFound(format!("repo {repo}")))
+    }
+}
+
 fn check_of(check: Option<&str>) -> Option<&str> {
     check.map(str::trim).filter(|c| !c.is_empty())
 }
@@ -113,9 +122,7 @@ async fn write(
     change: ArticleChange,
     b: &WriteBody,
 ) -> ApiResult<Value> {
-    if !st.store.list_repos().await?.iter().any(|r| r.name == repo) {
-        return Err(AvError::NotFound(format!("repo {repo}")).into());
-    }
+    known_repo(st, repo).await?;
     let by = b.by.trim();
     if by.is_empty() {
         return Err(AvError::Invalid("by must not be blank".into()).into());

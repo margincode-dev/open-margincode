@@ -1,7 +1,9 @@
 use std::sync::Mutex;
 
 use crate::common::*;
-use margincode_core::{ArticleChange, ConventionId, IntentStore as _, NewConvention};
+use margincode_core::{
+    ArticleChange, ConstitutionLevel, ConventionId, IntentStore as _, NewConvention,
+};
 use margincode_daemon::{Guarded, MemoryAction, RuleChange};
 
 async fn article(
@@ -511,7 +513,14 @@ async fn rules_get_free_notes_on_the_constitution_and_the_convention_list() {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
     }
-    let (_, list) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    let (_, plain) = call(&e.app, "GET", "/v1/repos/demo/conventions", None).await;
+    assert_eq!(
+        plain.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["conventions"],
+        "{plain}"
+    );
+    let (_, list) = call(&e.app, "GET", "/v1/repos/demo/conventions?notes=1", None).await;
+    assert_eq!(list["conventions"], plain["conventions"]);
     let notes: Vec<&str> = list["notes"]
         .as_array()
         .unwrap()
@@ -538,6 +547,67 @@ async fn rules_get_free_notes_on_the_constitution_and_the_convention_list() {
         "{notes:?}"
     );
     assert_eq!(show(&e, "").await["notes"], list["notes"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_constitution_of_an_unregistered_repo_is_not_found() {
+    let e = env().await;
+    for uri in [
+        "/v1/repos/nope/constitution",
+        "/v1/repos/nope/constitution?history=1",
+    ] {
+        let (status, body) = call(&e.app, "GET", uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {body}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_extension_reads_the_shared_level_with_no_repo_registered() {
+    let db = TestDb::new().await;
+    let (store_dir, ws) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let store = Arc::new(PgStore::connect(&db.url).await.unwrap());
+    let state = AppState::new(
+        Arc::new(JjVcs::new(
+            store_dir.path().to_path_buf(),
+            ws.path().to_path_buf(),
+        )),
+        store.clone(),
+        Arc::new(PgIndex::new(store.pool().clone())),
+        ws.path().to_path_buf(),
+        ws.path().to_path_buf(),
+    );
+    assert!(store.list_repos().await.unwrap().is_empty());
+    let shared = ConstitutionLevel::Shared;
+    assert!(
+        state
+            .constitution(shared)
+            .await
+            .unwrap()
+            .articles
+            .is_empty()
+    );
+    state
+        .amend_shared_constitution(
+            &ArticleChange::Add {
+                title: "Org rule".into(),
+                text: "For all.".into(),
+                check: None,
+            },
+            "owner",
+            "for every repo",
+        )
+        .await
+        .unwrap();
+    let c = state.constitution(shared).await.unwrap();
+    assert_eq!((c.repo.as_str(), c.version), ("", 1));
+    let handles: Vec<&str> = c.articles.iter().map(|a| a.handle.as_str()).collect();
+    assert_eq!(handles, ["org:1"]);
+    let history = state.constitution_history(shared).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        (history[0].by.as_str(), history[0].reason.as_str()),
+        ("owner", "for every repo")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

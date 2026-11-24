@@ -908,8 +908,9 @@ av constitution history    # every amendment of both levels, oldest first
   authentication: whoever holds the token can send any name. The guard (`MergeGuard`) is asked
   before every amendment (`Guarded::MemoryWrite` with `MemoryAction::Rule`, kind `Article`); a
   refusal is a `422` and nothing is written.
-- **Notes**, never errors, on `av constitution show`, `av convention list` and both routes'
-  `notes`: a convention whose glob matches no file on main, two rules with the same text
+- **Notes**, never errors, on `av constitution show`, `av convention list`, the `notes` of
+  `GET /v1/repos/{name}/constitution` and those of `GET /v1/repos/{name}/conventions?notes=1`
+  (without `?notes=1` that route answers only `{conventions}`): a convention whose glob matches no file on main, two rules with the same text
   (whitespace and letter case aside), and an article and a convention that run the same check.
 
 Routes (writes carry `by` and `reason`, and write the repository's own level only):
@@ -1389,8 +1390,8 @@ for the token once per browser tab. It reads `GET /v1/repos`, `GET /v1/repos/{na
 `?status=active|done|dropped`), `GET /v1/office` (every agent's desk; `?repo=` limits it to one
 repo's tasks), `GET /v1/agents/{name}/timeline` (`?repo=`, `?limit=` up to 500, default 100),
 `GET /v1/repos/{name}/diff`, `GET /v1/receipts/{id}`, `GET /v1/repos/{name}/log`,
-`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`
-(with `notes`), `GET /v1/repos/{name}/constitution`,
+`GET /v1/repos/{name}/outbox`, `GET /v1/repos/{name}/backup` (with `advance`), `GET /v1/repos/{name}/conventions`,
+`GET /v1/repos/{name}/constitution`,
 `GET /v1/repos/{name}/import`, `GET /v1/disk`, `GET /v1/attention` and `/healthz`.
 Targets are written with `POST /v1/targets`, `PUT /v1/targets/{id or slug}` (`{status, repo}`) and
 `PUT /v1/backlog/{id}/target` (`{target}`, null to unlink); a proposed backlog item is accepted

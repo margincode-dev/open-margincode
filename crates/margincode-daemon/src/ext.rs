@@ -3,8 +3,9 @@
 //! none of them (`AllowAll`, `NoCheckpointHook`, `NoUsage`, no extensions).
 //!
 //! Points: `router_with` (routes), `with_extension` (typed services), `subscribe_events`, `MergeGuard`,
-//! `with_mcp_tools`, `UsageSink`, `CheckpointHook`, `put_profile`, the unguarded rule writes (`amend_constitution`,
-//! `amend_shared_constitution`, `add_convention`, `remove_convention`), and `migrate_extension` then `pool` for the
+//! `with_mcp_tools`, `UsageSink`, `CheckpointHook`, `put_profile`, the constitution's reads (`constitution`,
+//! `constitution_history`) and the unguarded rule writes (`amend_constitution`, `amend_shared_constitution`,
+//! `add_convention`, `remove_convention`), and `migrate_extension` then `pool` for the
 //! extension's own tables. `AppState::shutdown` turns `true` when the daemon stops, for `customize`'s background tasks.
 
 use std::any::{Any, TypeId};

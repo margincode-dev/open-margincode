@@ -36,7 +36,8 @@
 - **Adding or removing a required convention asks the guard first**, and nothing is written
   when it refuses; Community's default guard allows everything.
 - `av convention list` and `av constitution show` print notes on the rules: a glob that matches
-  no file on main, two rules with the same text, an article and a convention with the same check.
+  no file on main, two rules with the same text, an article and a convention with the same check
+  (`GET /v1/repos/{name}/conventions?notes=1`; without `?notes=1` the route answers as before).
 - A repository with a blank name is refused.
 
 ## 0.0.5 (2026-11-22)

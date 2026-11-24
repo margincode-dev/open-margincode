@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Every pack of a sparse workspace says what it leaves out, and marks what is there.** The
+  Task line `Not on disk: …` was only in the Task item's longer tiers, so a first pack with a
+  long goal, which sends the Task at its shortest, never had it. It is now a required item of
+  its own in the Task section (`off-disk`), ranked after the task, so a budget too small for
+  both still sends the goal. A Map entry or Code item of a file under one of those paths ends
+  its first line with `` (not on disk: `av show`) ``; such files are still candidates as before.
+  A workspace that leaves nothing out prints what it printed. Packer version 15.
 - **A short commit id works.** `av diff --from 543b8b5f28d7`, `av show --at`, the tree, the
   patch route's `from`, a posted check's `change` and a dream verdict's code `commit` take a
   unique prefix of a commit id, such as the 12 digits av prints, in either case. An unknown or

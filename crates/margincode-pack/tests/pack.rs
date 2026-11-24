@@ -719,10 +719,55 @@ async fn the_task_section_names_what_the_workspace_leaves_off_disk() {
     }
 }
 
-/// Today's behaviour (`docs/backlog.md`, 2026-11-24): the index and the packer do not read the
-/// workspace's sparse list, so a file left off disk is a seed and a Map entry with no mark.
+/// A goal longer than `MAX_GOAL_CHARS` sends the Task at its handle tier; the line must be there too.
 #[tokio::test]
-async fn today_a_symbol_in_a_file_left_off_disk_is_seeded_and_mapped_with_no_mark() {
+async fn a_task_at_its_handle_tier_still_names_what_the_workspace_leaves_off_disk() {
+    let fx = fixture().await;
+    let goal = "Make hello louder for every greeting the app prints. ".repeat(60);
+    let t = cold_task(&fx, "Louder", goal.trim()).await;
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let pack = fx.packer.build(req(&t, 800, "long-goal")).await.unwrap();
+    let receipt = fx
+        .store
+        .get_receipt(pack.receipt.as_deref().expect("a receipt"))
+        .await
+        .unwrap();
+    let task_tier = receipt["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"].as_str().is_some_and(|id| id.starts_with("task:")))
+        .map(|i| i["tier"].clone());
+    assert_eq!(task_tier, Some(serde_json::json!("handle")), "{receipt}");
+    assert!(
+        pack.markdown.contains(
+            "Not on disk: bench/results/ (`av show PATH` reads a file there, `av widen PATH` writes it here)"
+        ),
+        "{}",
+        pack.markdown
+    );
+}
+
+/// The line costs about 25 tokens; a budget that holds the task's handle and not the line too
+/// still sends the goal.
+#[tokio::test]
+async fn a_budget_too_small_for_the_off_disk_line_still_sends_the_goal() {
+    let fx = fixture().await;
+    let goal = "Make hello louder for every greeting the app prints. ".repeat(20);
+    let t = cold_task(&fx, "Louder", goal.trim()).await;
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let pack = fx.packer.build(req(&t, 400, "tight")).await.unwrap();
+    assert!(
+        pack.markdown.contains("Goal: Make hello louder"),
+        "{}",
+        pack.markdown
+    );
+}
+
+/// A file left off disk is still a candidate (a ranking question, `docs/backlog.md`), so its
+/// Map entry and Code item say it is not on disk.
+#[tokio::test]
+async fn a_symbol_in_a_file_left_off_disk_is_marked_in_the_map_and_the_code() {
     let fx = fixture().await;
     let mut files: Vec<(&str, &str)> = BASE.to_vec();
     files.push(("bench/results/r1/analyze.py", "def main():\n    return 1\n"));
@@ -763,13 +808,20 @@ async fn today_a_symbol_in_a_file_left_off_disk_is_seeded_and_mapped_with_no_mar
         .markdown;
     assert!(md.contains("Not on disk: bench/results/"), "{md}");
     assert!(
-        md.contains("\n- bench/results/r1/analyze.py\n  L1: def main():\n"),
-        "the Map lists it like any file:\n{md}"
+        md.contains(
+            "\n- bench/results/r1/analyze.py (not on disk: `av show`)\n  L1: def main():\n"
+        ),
+        "the Map entry is marked:\n{md}"
     );
     let code = &md[md.find("## Code").expect("a Code section")..];
     assert!(
-        code.contains(" main (bench/results/r1/analyze.py:1-2)\n"),
-        "the seed, its line as any other's:\n{md}"
+        code.contains(" main (bench/results/r1/analyze.py:1-2) (not on disk: `av show`)\n"),
+        "the Code item is marked:\n{md}"
+    );
+    assert_eq!(
+        md.matches("(not on disk").count(),
+        2,
+        "only the left-out file is marked:\n{md}"
     );
 }
 

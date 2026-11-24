@@ -84,6 +84,9 @@ the suspected cause, marked as a guess; the status.
   - Not reproduced: the `load` of `bench/tasks-m0/`. No `load` reached the reproduced pack at 800
     tokens; the one `load` among the candidates at 30,000 tokens is of a result archive, at hop 1
     (0.425), below every seed.
+- **Fixed in part (packer version 15).** The `bench/results/` items such a pack shows now say
+  they are not on disk, and the Task line naming `bench/results/` is in every first pack (see
+  the entry on a left-out file in the Map). Which names and seeds the goal gives is unchanged.
 - **Status.** Open.
 
 ## 2026-11-24: `av record --anchor path:create_task` was taken, but did not cover `PgStore.create_task`
@@ -217,7 +220,17 @@ the suspected cause, marked as a guess; the status.
     with a short goal. Whether a left-out file may be a Map or Code candidate is written nowhere.
   - Not looked at: why the second pack named `mcp.rs` but not the CLI's `main.rs` or
     `tests/dream.rs`.
-- **Status.** Open.
+- **Fixed in part (packer version 15).** The `Not on disk: …` line is a required Task item
+  of its own (`off-disk`), scored below the task's, so a long goal at a small budget keeps it
+  and a budget that holds only the goal still sends the goal; a Map entry or Code item of a file
+  under a left-out path ends its first line with `` (not on disk: `av show`) ``
+  (`assemble::mark_off_disk`). The pack tests
+  `a_task_at_its_handle_tier_still_names_what_the_workspace_leaves_off_disk`,
+  `a_budget_too_small_for_the_off_disk_line_still_sends_the_goal` and
+  `a_symbol_in_a_file_left_off_disk_is_marked_in_the_map_and_the_code` check them. Later packs
+  of a session print the line as sent earlier, as they do the task.
+- **Status.** Open: left-out files are still candidates, ranked as before; whether they should be
+  is a ranking question that waits for a measured comparison.
 
 ## 2026-11-24: a first pack named a same-named struct of another crate and no migration
 

@@ -1821,7 +1821,10 @@ Nothing an agent writes is lost by it:
   commit.
 
 The first lines of a pack say what the workspace leaves out, read from the working copy itself
-(so nothing for a full workspace): `Not on disk: bench/results/ (...)`. To read a listed file,
+(so nothing for a full workspace): `Not on disk: bench/results/ (...)`, a required item of the
+Task section (`off-disk`) after the task itself. A file under one of those paths can still be in the Map or the Code section; its line then
+ends with `` (not on disk: `av show`) `` (a file widened there is marked too while the path is
+still listed). To read a listed file,
 `av show PATH` (from `main`, or `--at task:<slug>`). To work on one, widen the workspace:
 
 ```bash

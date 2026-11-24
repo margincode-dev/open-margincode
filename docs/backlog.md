@@ -7,6 +7,21 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: a first pack named a same-named struct of another crate and no migration
+
+- **Where.** `av task start` on a task whose goal named `VerdictRow`, `NewVerdict`,
+  `VERDICT_STATE`, `record_origins` and "migration 0035" (packer version 13, budget 800).
+- **Seen.** The Code section listed `VerdictRow` at `crates/margincode-core/src/types.rs`, the
+  task-review struct, not the `VerdictRow` of `crates/margincode-store/src/dreams.rs` the goal
+  meant (that file was in the Map through another symbol). Neither
+  `crates/margincode-store/migrations/` nor `tests/migrations_frozen.rs`, which a new migration
+  must touch, was named. The other files the task changed (`standing.rs`, `dreams.rs`, `pg.rs`)
+  were in the Map.
+- **Ruled out.** A stale index: the task started on a fresh `main`.
+- **Guess.** A bare name in the goal seeds every symbol of that name, and the first one found
+  wins the slot; a `.sql` file has no symbols for "migration" to match.
+- **Status.** Open; seen once.
+
 ## 2026-11-24: `swarm_loop_runs_backlog_to_merged` failed once in a full test run
 
 - **Where.** `crates/margincode-daemon/tests/swarm.rs`, `cargo test --workspace` in the local

@@ -532,6 +532,7 @@ async fn propose_one(
                 author_agent: &d.agent,
                 dream: Some(d.id),
                 convention: Some(convention),
+                against: None,
             })
             .await
             .map_err(refusal);
@@ -624,6 +625,7 @@ async fn propose_one(
             author_agent: &d.agent,
             dream: Some(d.id),
             convention: None,
+            against: None,
         })
         .await
         .map_err(refusal)
@@ -871,6 +873,7 @@ async fn retract_one(
             author_agent: by,
             dream,
             convention: None,
+            against: None,
         })
         .await?;
     feed(

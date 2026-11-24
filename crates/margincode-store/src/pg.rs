@@ -1848,13 +1848,24 @@ impl IntentStore for PgStore {
             "SELECT r.id, t.status,
                     (SELECT max(e.at) FROM events e
                      WHERE e.task_id = t.id AND e.kind = 'revert') AS reverted_at,
-                    ev.id AS verdict_id, ev.verdict, ev.reason, ev.anchor_hashes
+                    ev.id AS verdict_id, ev.verdict, ev.reason, ev.anchor_hashes, ov.overruled
              FROM records r JOIN tasks t ON t.id = r.task_id
              LEFT JOIN LATERAL (
                SELECT v.id, v.verdict, v.reason, v.anchor_hashes FROM record_verdicts v
-               WHERE v.record_id = r.id AND v.verdict <> 'promote' AND ({state}) = 'effective'
+               WHERE v.record_id = r.id AND v.verdict NOT IN ('promote', 'conflict')
+                 AND ({state}) = 'effective'
                ORDER BY v.created_at DESC, v.id LIMIT 1
              ) ev ON true
+             LEFT JOIN LATERAL (
+               SELECT jsonb_agg(jsonb_build_object(
+                        'id', v.id, 'reason', v.reason,
+                        'rule', CASE WHEN c.article IS NULL THEN 'conv:' || c.id
+                                     WHEN c.repo = '' THEN 'org:' || c.article
+                                     ELSE 'art:' || c.article END)
+                      ORDER BY c.article IS NULL, c.repo <> '', c.article, c.id) AS overruled
+               FROM record_verdicts v JOIN conventions c ON c.id = v.against
+               WHERE v.record_id = r.id AND v.verdict = 'conflict' AND ({state}) = 'effective'
+             ) ov ON true
              WHERE r.id = ANY($1)"
         ))
         .bind(&ids)
@@ -1880,12 +1891,20 @@ impl IntentStore for PgStore {
                     }
                     None => None,
                 };
+                let overruled: Option<serde_json::Value> = r.try_get("overruled").map_err(serr)?;
+                let overruled = match overruled {
+                    Some(list) => {
+                        serde_json::from_value(list).map_err(|e| AvError::Store(e.to_string()))?
+                    }
+                    None => vec![],
+                };
                 Ok((
                     RecordId(r.try_get("id").map_err(serr)?),
                     margincode_core::standing::OriginFacts {
                         status: status.parse()?,
                         reverted_at: r.try_get("reverted_at").map_err(serr)?,
                         verdict,
+                        overruled,
                     },
                 ))
             })

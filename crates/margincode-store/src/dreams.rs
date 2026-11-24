@@ -14,18 +14,27 @@ use crate::pg::{PgStore, RECORD_COLS, serr};
 
 /// A verdict's state, by its newest review and whether a `retracted` row names it:
 /// `proposed` (no review yet, no effect), `effective` (the newest review agrees), `rejected`
-/// (it disagrees), `retracted`. A `retracted` row itself is a `retraction`.
+/// (it disagrees), `retracted`. A `retracted` row itself is a `retraction`. A `conflict` whose
+/// rule's row is no longer in force (amended, repealed or removed) is `lapsed`, whatever its
+/// reviews say.
 pub(crate) const VERDICT_STATE: &str = "CASE
     WHEN v.verdict = 'retracted' THEN 'retraction'
     WHEN EXISTS (SELECT 1 FROM record_verdicts x WHERE x.retracts = v.id) THEN 'retracted'
+    WHEN v.against IS NOT NULL AND EXISTS (SELECT 1 FROM conventions c
+                                           WHERE c.id = v.against AND c.removed_at IS NOT NULL)
+      THEN 'lapsed'
     ELSE COALESCE((SELECT CASE WHEN w.agree THEN 'effective' ELSE 'rejected' END
                    FROM verdict_reviews w WHERE w.verdict_id = v.id
                    ORDER BY w.id DESC LIMIT 1), 'proposed')
   END";
 
+/// `against` is the handle of the rule a `conflict` names, read from its row.
 const VERDICT_COLS: &str = "v.id, v.record_id, v.verdict, v.reason, v.canonical, v.retracts,
     v.evidence, v.anchor_hashes, v.author_agent, v.dream_id, v.created_at, v.convention_text,
-    v.scope_glob";
+    v.scope_glob, (SELECT CASE WHEN c.article IS NULL THEN 'conv:' || c.id
+                               WHEN c.repo = '' THEN 'org:' || c.article
+                               ELSE 'art:' || c.article END
+                     FROM conventions c WHERE c.id = v.against) AS against";
 
 const DREAM_COLS: &str = "id, repo, mode, area, agent, instructions_sha, status, worklist, counts,
     started_at, finished_at, lease_expires";
@@ -63,7 +72,7 @@ pub struct NewDream<'a> {
 pub struct VerdictRow {
     pub id: Uuid,
     pub record_id: RecordId,
-    /// `confirmed`, `disputed`, `duplicate`, `outdated`, `promote` or `retracted`.
+    /// `confirmed`, `disputed`, `duplicate`, `outdated`, `promote`, `conflict` or `retracted`.
     pub verdict: String,
     pub reason: String,
     pub canonical: Option<RecordId>,
@@ -74,10 +83,15 @@ pub struct VerdictRow {
     pub author_agent: String,
     pub dream_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
-    /// `proposed`, `effective`, `rejected`, `retracted` or `retraction` (`VERDICT_STATE`).
+    /// `proposed`, `effective`, `rejected`, `retracted`, `retraction` or, for a `conflict`,
+    /// `lapsed` (`VERDICT_STATE`).
     pub state: String,
     /// For `promote`: the convention it proposes.
     pub convention: Option<Promoted>,
+    /// For `conflict`: the rule it names, by the handle of its row (`org:N`, `art:N`,
+    /// `conv:<id>`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub against: Option<String>,
 }
 
 /// The convention a `promote` verdict proposes; an accepting review writes it.
@@ -114,6 +128,8 @@ pub struct NewVerdict<'a> {
     pub dream: Option<Uuid>,
     /// For `promote`: the convention it proposes.
     pub convention: Option<Promoted>,
+    /// For `conflict`: the `conventions` row of the rule in force it names.
+    pub against: Option<ConventionId>,
 }
 
 pub struct DreamCandidate {
@@ -166,6 +182,7 @@ fn verdict_from(r: &PgRow) -> Result<VerdictRow> {
             (Some(text), Some(scope_glob)) => Some(Promoted { text, scope_glob }),
             _ => None,
         },
+        against: r.try_get("against").map_err(serr)?,
     })
 }
 
@@ -348,6 +365,35 @@ impl PgStore {
                     )));
                 }
             }
+            if let Some(rule) = v.against.filter(|_| v.verdict == "conflict") {
+                let standing = sqlx::query(&format!(
+                    "SELECT {VERDICT_COLS}, ({VERDICT_STATE}) AS state FROM record_verdicts v
+                      WHERE v.record_id = $1 AND v.verdict = 'conflict' AND v.against = $2
+                        AND ({VERDICT_STATE}) NOT IN ('retracted')
+                      LIMIT 1"
+                ))
+                .bind(v.record.0)
+                .bind(rule.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(serr)?;
+                if let Some(other) = standing {
+                    let other_id: Uuid = other.try_get("id").map_err(serr)?;
+                    let state: String = other.try_get("state").map_err(serr)?;
+                    let handle: String = other.try_get("against").map_err(serr)?;
+                    return Err(AvError::Conflict(format!(
+                        "{rec} already has a conflict with {handle} that is {} (vd:{}); one per \
+                         record and rule: it comes back only when the rule changes or that one \
+                         is retracted",
+                        match state.as_str() {
+                            "proposed" => "waiting",
+                            "effective" => "agreed",
+                            other => other,
+                        },
+                        &other_id.simple().to_string()[..8]
+                    )));
+                }
+            }
         }
         if let Some(taken_back) = v.retracts {
             // the lock a review takes too: a review waiting on it then sees this retraction
@@ -360,8 +406,8 @@ impl PgStore {
         sqlx::query(
             "INSERT INTO record_verdicts (id, record_id, verdict, reason, canonical, retracts,
                                           evidence, anchor_hashes, author_agent, dream_id,
-                                          convention_text, scope_glob)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                                          convention_text, scope_glob, against)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(id)
         .bind(v.record.0)
@@ -375,6 +421,7 @@ impl PgStore {
         .bind(v.dream)
         .bind(v.convention.as_ref().map(|c| &c.text))
         .bind(v.convention.as_ref().map(|c| &c.scope_glob))
+        .bind(v.against.map(|c| c.0))
         .execute(&mut *tx)
         .await
         .map_err(
@@ -473,14 +520,15 @@ impl PgStore {
     }
 
     /// The proposed verdicts of `repo` a verify run may be handed, newest first, at most
-    /// `limit`: every kind but `promote`, which is reviewed by name, never by a run.
+    /// `limit`: every kind but `promote` and `conflict`, which are reviewed by name, never by a
+    /// run.
     pub async fn proposed_for_verify(&self, repo: &str, limit: i64) -> Result<Vec<VerdictRow>> {
         let rows = sqlx::query(&format!(
             "SELECT * FROM (
                SELECT {VERDICT_COLS}, {VERDICT_STATE} AS state
                FROM record_verdicts v
                JOIN records r ON r.id = v.record_id JOIN tasks t ON t.id = r.task_id
-               WHERE t.repo = $1 AND v.verdict NOT IN ('promote', 'retracted')
+               WHERE t.repo = $1 AND v.verdict NOT IN ('promote', 'conflict', 'retracted')
              ) q WHERE q.state = 'proposed'
              ORDER BY q.created_at DESC, q.id LIMIT $2"
         ))

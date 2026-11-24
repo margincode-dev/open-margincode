@@ -49,6 +49,25 @@ pub struct OriginFacts {
     pub reverted_at: Option<DateTime<Utc>>,
     /// The newest verdict on the record that a second look confirmed and nothing retracted.
     pub verdict: Option<EffectiveVerdict>,
+    /// The agreed `conflict` verdicts whose rule is still in force, read beside `verdict` and
+    /// never in its place: organisation articles first, then the repository's, then conventions.
+    pub overruled: Vec<Overruling>,
+}
+
+/// An agreed `conflict` verdict: the record tells agents the opposite of the rule `rule`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Overruling {
+    pub id: uuid::Uuid,
+    /// `org:N`, `art:N` or `conv:<id>`.
+    pub rule: String,
+    pub reason: String,
+}
+
+impl Overruling {
+    /// `vd:<8 hex>`, as a record's line names it.
+    pub fn handle(&self) -> String {
+        format!("vd:{}", &self.id.simple().to_string()[..8])
+    }
 }
 
 /// A later look at a record (`av dream`) that a second run or a person agreed on; it never edits it.
@@ -162,6 +181,7 @@ pub fn without_origin(facts: &OriginFacts, kind: RecordKind, written: DateTime<U
         status: TaskStatus::Merged,
         reverted_at: None,
         verdict: facts.verdict.clone(),
+        overruled: facts.overruled.clone(),
     };
     standing(&merged, kind, written)
 }
@@ -195,6 +215,7 @@ mod tests {
             status,
             reverted_at: reverted_after.map(|s| written + Duration::seconds(s)),
             verdict: None,
+            overruled: vec![],
         };
         standing(&facts, kind, written)
     }
@@ -286,6 +307,7 @@ mod tests {
                 status,
                 reverted_at: None,
                 verdict: Some(verdict(kind)),
+                overruled: vec![],
             };
             standing(&facts, record, written).factor
         };
@@ -340,6 +362,7 @@ mod tests {
                         status,
                         reverted_at,
                         verdict: None,
+                        overruled: vec![],
                     };
                     let s = without_origin(&facts, kind, written);
                     assert_eq!((s.origin, s.factor), (Origin::Merged, 1.0), "{status:?}");

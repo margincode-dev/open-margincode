@@ -18,9 +18,10 @@ the suspected cause, marked as a guess; the status.
   at every budget.
 - **Ruled out.** Symbol ids (the same in both runs on a fresh database), the order the indexer
   stores files and symbols, the packer's own tie-breaks (`budget.rs`: total orders), the scorer
-  and the three baselines (their texts were the same in every run). The semantic layer was off,
-  so its share (embedder, Qdrant, timeouts marked `degraded`) is not checked.
-- **Cause (found, two).**
+  and the `bm25_files` and `bm25_symbols` baselines (their texts were the same in every run). The
+  semantic layer was off, so its share (embedder, Qdrant, timeouts marked `degraded`) is not
+  checked.
+- **Cause (found, three).**
   - *The harness.* Each run named its imports from the clock (`r<hex seconds>-<task>`). The name
     is in every pack, in the task's workspace path, so its token count took budget from the
     items: which item fit at the edge changed with the id, and so did the rows' `tokens` and
@@ -33,13 +34,17 @@ the suspected cause, marked as a guess; the status.
     depends on the table statistics, which a fresh database gathers at its own time. Seen in
     psql on the public repo by changing the term order and plan settings; real packs handed to
     agents had the same instability wherever identical code sits in two files.
+  - *The `repo_map` baseline.* Its PageRank summed each file's edge weights over a `HashMap`,
+    whose order differs from map to map, so files of two copies of one package swapped places in
+    its text. Seen on the full public set once the first two were fixed; its rows did not change.
 - **Status.** Fixed in this change. `retrieval --run-id ID` (default `e1`) replaces the clock;
   `bench/retrieval/README.md` ("Repeatable runs") names the conditions: same id, same workspace
   root, a fresh database. The lexical sum runs `ORDER BY` the term, so copies tie and go by path.
+  `repo_map` keeps its edges in a `BTreeMap`. The test
   `retrieval_gate::two_runs_on_fresh_daemons_give_the_same_rows_and_packs` fails when the two
-  runs' ids differ. The index test for the tie (`lexical::copies_of_one_function_tie_*`) passes
-  on the code before the fix too: on a fixture that small the planner keeps each chunk's terms
-  in order. `PACKER_VERSION` is unchanged although exact ties can now order differently from
+  runs' ids differ, and `retrieval::repo_map_is_the_same_every_time` failed before the change.
+  The index test for the tie (`lexical::copies_of_one_function_tie_*`) passes on the code before
+  the fix too: on a fixture that small the planner keeps each chunk's terms in order. `PACKER_VERSION` is unchanged although exact ties can now order differently from
   before; whether that needs a bump is open. Not checked: the semantic path.
 
 ## 2026-11-23: records found by full-text search tie on a random id

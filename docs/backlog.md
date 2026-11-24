@@ -40,6 +40,19 @@ the suspected cause, marked as a guess; the status.
   stored without a word to the agent.
 - **Status.** Open.
 
+## 2026-11-24: a first pack for a new bench subcommand named the files beside it, not its entry point
+
+- **Where.** `av task start` in this repository, on a task whose goal asked for a planted set
+  under `bench/` and a `margincode-bench` command to run `av dream` on it.
+- **Seen.** The pack named `crates/margincode-bench/src/dreamed.rs`, `isolate.rs`, the CLI's
+  `dream.rs` and a `check_set.py`; the change went into `crates/margincode-bench/src/main.rs`
+  (the subcommand), `lib.rs` (the module line) and `runner.rs` (one helper made visible), none of
+  which it named.
+- **Ruled out.** Nothing yet: whether the three files were in the index at start was not checked.
+- **Guess.** The goal's words match the dream code, not the clap enum or the module list, and
+  nothing ranks a crate's entry point for a "new command" goal.
+- **Status.** Open.
+
 ## 2026-11-24: four places print a record with no verdict mark at all
 
 - **Where.** `av why` (`derived::why` and its CLI print), `av search` (the CLI print of

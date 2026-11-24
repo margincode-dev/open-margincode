@@ -1,0 +1,234 @@
+# The store the conflict check is run on: the fixture repository in repo/, the rules a person
+# adds, and the records agents wrote. Which record is which is in key.toml, which the harness
+# reads only to score. Records are seeded in this order; `before_rules` ones before the rules.
+
+person = "dana"
+
+[[task]]
+agent = "claude-api"
+title = "Invoice API: errors, logging, tokens"
+goal = "Harden the invoice handlers and the token check."
+
+[[task]]
+agent = "codex-billing"
+title = "Billing arithmetic: discounts, tax, refunds"
+goal = "Make totals, discounts and refunds add up to the cent."
+
+[[task]]
+agent = "opencode-jobs"
+title = "Reminder and export jobs"
+goal = "Reminders go out on the right day and the nightly export is right."
+
+[[task]]
+agent = "claude-storage"
+title = "Storage queries"
+goal = "Customer search, bulk line inserts and the report queries."
+
+[[article]]
+name = "art-logs"
+title = "No customer data or secrets in logs"
+text = "A log line never contains an API token, a password, or a customer's name, email address or card number. Log the customer id instead."
+reason = "a support export of the logs held customer emails"
+
+[[article]]
+name = "art-cents"
+title = "Money is integer cents"
+text = "Every amount is stored, computed and passed between functions as an integer number of cents. A float or a Decimal appears only where an amount is formatted for a person to read."
+reason = "totals and the provider's statements kept differing by a cent"
+
+[[article]]
+name = "art-utc"
+title = "Times are UTC"
+text = "Every timestamp is stored, compared and computed in UTC (datetime.now(timezone.utc)). Local time appears only in text shown to a person."
+reason = "the export and the reminders disagreed about which day it was"
+
+[[convention]]
+name = "conv-errors"
+scope_glob = "api/**"
+text = "A handler answers an error with a JSON body {\"error\": code, \"message\": text} and a 4xx or 5xx status, built with error_response; never with an HTML page or a bare string."
+
+[[convention]]
+name = "conv-twice"
+scope_glob = "jobs/**"
+text = "A job is safe to run twice: run again on the same input, it sends nothing it already sent and writes nothing twice."
+
+[[convention]]
+name = "conv-params"
+scope_glob = "storage/**"
+text = "A query takes every value as a parameter (%s placeholders passed to execute); a value is never put into the SQL text with an f-string, % or +."
+
+[[record]]
+id = "r01"
+agent = "codex-billing"
+kind = "decision"
+before_rules = true
+summary = "apply_discount works on the float total and rounds once at the end with round(x, 2); keep it that way, rounding each line made discounted totals drift by a cent."
+body = "Found while fixing a customer's 10 % discount that came out a cent low. Discounting and rounding each line, then summing, loses up to half a cent per line. Summing the lines, dividing by 100 and applying the rate to that total before one round() gives the figure the provider shows."
+anchors = [{ path = "billing/discounts.py", symbol = "apply_discount" }]
+
+[[record]]
+id = "r02"
+agent = "claude-api"
+kind = "note"
+summary = "create_invoice_handler checks the currency against SUPPORTED_CURRENCIES before it touches storage; to accept a new currency, add it to that set in config.py first."
+body = "The provider rejects an unknown currency only at payment time, so the handler refuses it up front with a 400."
+anchors = [{ path = "api/handlers.py", symbol = "create_invoice_handler" }]
+
+[[record]]
+id = "r03"
+agent = "claude-storage"
+kind = "decision"
+summary = "invoices_sorted puts the sort column into ORDER BY only from the SORTABLE allow-list, since a placeholder cannot bind a column name; the customer id stays a parameter."
+body = "A sort the allow-list does not have raises ValueError before any SQL is built. Add a column to SORTABLE to make it sortable."
+anchors = [{ path = "storage/reports.py", symbol = "invoices_sorted" }]
+
+[[record]]
+id = "r04"
+agent = "opencode-jobs"
+kind = "decision"
+summary = "send_reminders keeps no record of which reminders went out: when the job is retried it sends the whole batch again. A second reminder costs less than a missed one."
+body = "Tracking each send needed a table and a transaction around the mailer, and the mailer times out often enough that the bookkeeping itself failed. Retrying the batch is simple, and customers rarely mind two emails."
+anchors = [{ path = "jobs/reminders.py", symbol = "send_reminders" }]
+
+[[record]]
+id = "r05"
+agent = "claude-api"
+kind = "note"
+summary = "PAGE_SIZE is 50 because the dashboard's invoice table shows 50 rows per page; change the two together."
+anchors = [{ path = "config.py" }]
+
+[[record]]
+id = "r06"
+agent = "codex-billing"
+kind = "attempt"
+summary = "Tried float() on the provider's refund amounts before comparing them with the invoice: 3 of 40 test refunds came out a cent short, so refund_covers compares Decimals."
+anchors = [{ path = "billing/refunds.py", symbol = "refund_covers" }]
+
+[[record]]
+id = "r07"
+agent = "claude-api"
+kind = "decision"
+summary = "log_failed_request writes the whole request body to the log, customer name and email included, so support can replay a failed request; keep logging the full body."
+body = "Support asked for it after a week of failed invoice creations nobody could reproduce. Bodies are a few hundred bytes, so the log volume is fine."
+anchors = [{ path = "api/handlers.py", symbol = "log_failed_request" }]
+
+[[record]]
+id = "r08"
+agent = "claude-storage"
+kind = "note"
+summary = "get_invoice still reads the old invoices_v1 table; point it at invoices once the 0007 migration has run on production."
+anchors = [{ path = "storage/db.py", symbol = "get_invoice" }]
+
+[[record]]
+id = "r09"
+agent = "codex-billing"
+kind = "decision"
+summary = "format_amount divides cents by 100 and prints two decimals and the currency; use it for any amount a person reads, never to compute with."
+anchors = [{ path = "billing/money.py", symbol = "format_amount" }]
+
+[[record]]
+id = "r10"
+agent = "opencode-jobs"
+kind = "decision"
+summary = "due_reminders compares due dates with the shop's local date from datetime.now(), so no reminder goes out before local midnight; do not switch it to UTC."
+body = "With UTC, customers in the evening got a reminder dated tomorrow. The shop and nearly all of its customers are in one time zone."
+anchors = [{ path = "jobs/reminders.py", symbol = "due_reminders" }]
+
+[[record]]
+id = "r11"
+agent = "claude-storage"
+kind = "decision"
+summary = "count_open_invoices builds its SQL with an f-string; that is safe here, because the customer id is an int and the state is a constant."
+anchors = [{ path = "storage/db.py", symbol = "count_open_invoices" }]
+
+[[record]]
+id = "r12"
+agent = "codex-billing"
+kind = "decision"
+summary = "invoice_total adds up the lines first and applies TAX_RATE once to the subtotal, never per line, so the tax matches the provider's."
+anchors = [{ path = "billing/invoices.py", symbol = "invoice_total" }]
+
+[[record]]
+id = "r13"
+agent = "claude-storage"
+kind = "decision"
+summary = "bulk_insert_lines joins all lines into one VALUES string itself instead of executemany with placeholders: executemany took 40 times as long on large invoices. Keep the joined string."
+anchors = [{ path = "storage/db.py", symbol = "bulk_insert_lines" }]
+
+[[record]]
+id = "r14"
+agent = "claude-api"
+kind = "attempt"
+summary = "Tried rendering API errors with the HTML error template so a browser shows a readable page; the dashboard's fetch() calls could not parse it, so error_response went back to JSON."
+anchors = [{ path = "api/handlers.py", symbol = "error_response" }]
+
+[[record]]
+id = "r15"
+agent = "codex-billing"
+kind = "decision"
+summary = "Invoice numbers count per year (2026-0001, 2026-0002, ...) and a number is never reused, even when its draft is deleted."
+anchors = [{ path = "billing/invoices.py", symbol = "next_invoice_number" }]
+
+[[record]]
+id = "r16"
+agent = "claude-storage"
+kind = "note"
+summary = "find_customer matches emails case-insensitively, lower() on both sides: customers sign up with mixed case and type their email differently later."
+anchors = [{ path = "storage/db.py", symbol = "find_customer" }]
+
+[[record]]
+id = "r17"
+agent = "claude-api"
+kind = "decision"
+summary = "not_found answers 404 with a plain-text body (\"invoice not found\"); keep it plain text, the old mobile client matches on that string."
+anchors = [{ path = "api/handlers.py", symbol = "not_found" }]
+
+[[record]]
+id = "r18"
+agent = "codex-billing"
+kind = "decision"
+summary = "due_date returns UTC midnight of the day the invoice falls due; only the invoice PDF turns it into the customer's local date."
+anchors = [{ path = "billing/invoices.py", symbol = "due_date" }]
+
+[[record]]
+id = "r19"
+agent = "claude-api"
+kind = "note"
+summary = "API tokens live for 24 hours (TOKEN_TTL_HOURS); the mobile app refreshes its token once a day, so do not shorten it."
+anchors = [{ path = "config.py" }]
+
+[[record]]
+id = "r20"
+agent = "opencode-jobs"
+kind = "note"
+summary = "export_invoices leaves drafts out of the nightly export: accounting only wants issued invoices."
+anchors = [{ path = "jobs/export.py", symbol = "export_invoices" }]
+
+[[record]]
+id = "r21"
+agent = "codex-billing"
+kind = "decision"
+summary = "refunds.py is an exception to the cents rule: it keeps the provider's refund amounts as Decimal dollars from end to end, because the provider reconciles in dollars."
+body = "Converting to cents and back made the reconciliation report differ from the provider's statement in the last digit. The amounts never leave refunds.py as anything but Decimal."
+anchors = [{ path = "billing/refunds.py", symbol = "refund_total" }]
+
+[[record]]
+id = "r22"
+agent = "claude-api"
+kind = "decision"
+summary = "When check_token rejects a token it logs why (unknown, revoked or expired) and the customer id, never the token itself; support finds the customer by id."
+anchors = [{ path = "api/auth.py", symbol = "check_token" }]
+
+[[record]]
+id = "r23"
+agent = "claude-storage"
+kind = "decision"
+summary = "search_customers writes the search term into the ILIKE pattern with an f-string: bound as a parameter, the % wildcards stopped matching. Keep the f-string."
+anchors = [{ path = "storage/search.py", symbol = "search_customers" }]
+
+[[record]]
+id = "r24"
+agent = "codex-billing"
+kind = "note"
+summary = "Run the tests with pytest -q from the repository root; they import billing as a top-level package, so there is no src/ layout."
+anchors = [{ path = "tests/test_invoices.py" }]

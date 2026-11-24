@@ -14,6 +14,14 @@
   pre-read hook's answer and `av expand`; record lists and search add `overruled`. A run without
   `--conflicts` is handed the same `DREAM.md` and bundle as before (migration `0035`, packer
   version 14).
+- **`margincode-bench conflict-check`: the check `--conflicts` passes before it is switched on.**
+  `bench/conflict-check` is a planted set (a fixture repository, three articles, three
+  conventions, 24 records: 8 that contradict a rule and 16 controls, with a key). The command
+  seeds it twice in a bench daemon, makes one `av dream` review run on each copy, one with
+  `--conflicts`, and scores the design's four conditions from the key. `--dry` runs the whole
+  path with a scripted agent and no model; without it the command prints the plan, and
+  `--confirm` runs the last freeze's dreamer on Sonnet 5.5, at most $0.45 a call, and starts no
+  run that could take the spend past $2 (`bench/conflict-check/README.md`).
 - **The retrieval benchmark repeats itself.** `margincode-bench retrieval --run-id ID` (default
   `e1`) names its imports instead of the clock, so two runs of one build on fresh daemons with the
   same workspace root write the same rows and packs (`bench/retrieval/README.md`, "Repeatable

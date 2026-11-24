@@ -194,7 +194,7 @@ fn write_json(path: &Path, v: &Value) -> Result<()> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn git_ok(dir: &Path, args: &[&str]) -> Result<()> {
+pub(crate) fn git_ok(dir: &Path, args: &[&str]) -> Result<()> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)

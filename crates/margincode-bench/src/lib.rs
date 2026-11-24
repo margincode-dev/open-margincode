@@ -3,6 +3,7 @@
 
 pub mod calibrate;
 pub mod chunklen;
+pub mod conflict;
 pub mod dreamed;
 pub mod isolate;
 pub mod metrics;

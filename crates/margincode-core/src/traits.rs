@@ -512,7 +512,8 @@ pub trait IntentStore: Send + Sync {
     /// Every convention of the repo, oldest first; articles are not conventions here.
     async fn conventions(&self, repo: &str) -> Result<Vec<Convention>>;
     /// What applies to `paths`: the articles (shared ones first, then the repo's own, each by
-    /// number; an article matches every path) and then the conventions whose glob matches one.
+    /// number; an article matches every path, so none when `paths` is empty) and then the
+    /// conventions whose glob matches one.
     async fn conventions_for(&self, repo: &str, paths: &[String]) -> Result<Vec<Convention>>;
     /// Stores a pack manifest; returns its id as shown to agents (`rcp:<8 hex>`).
     async fn add_receipt(&self, r: NewReceipt) -> Result<String>;

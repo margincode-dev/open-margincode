@@ -412,8 +412,8 @@ async fn an_articles_check_gates_approval_whatever_the_task_changed() {
         .amend_shared_constitution(
             &ArticleChange::Add {
                 title: "Org rule".into(),
-                text: "No check.".into(),
-                check: None,
+                text: "Checked too.".into(),
+                check: Some("make org".into()),
             },
             "owner",
             "for every repo",
@@ -427,11 +427,14 @@ async fn an_articles_check_gates_approval_whatever_the_task_changed() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, checks) = call(&e.app, "GET", &format!("/v1/tasks/{}/checks", id(&t)), None).await;
     let list = checks["checks"].as_array().unwrap();
-    assert_eq!(list.len(), 1, "{checks}");
-    assert_eq!(list[0]["article"], 1);
-    assert_eq!(list[0]["handle"], "art:1");
-    assert_eq!(list[0]["command"], "make lint");
-    let conv = list[0]["convention_id"].as_i64().unwrap();
+    assert_eq!(list.len(), 2, "{checks}");
+    assert_eq!(list[0]["handle"], "org:1");
+    assert_eq!(list[0]["command"], "make org");
+    assert_eq!(list[1]["article"], 1);
+    assert_eq!(list[1]["handle"], "art:1");
+    assert_eq!(list[1]["command"], "make lint");
+    let org = list[0]["convention_id"].as_i64().unwrap();
+    let conv = list[1]["convention_id"].as_i64().unwrap();
     let validate = |checks: Value| {
         let e = &e;
         let t = &t;
@@ -466,6 +469,20 @@ async fn an_articles_check_gates_approval_whatever_the_task_changed() {
         "{body}"
     );
     validate(json!([{"convention_id": conv, "exit_code": 0, "command": "make lint"}])).await;
+    let (status, body) = review().await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("org:1 check `make org` not run"),
+        "{body}"
+    );
+    validate(json!([
+        {"convention_id": org, "exit_code": 0, "command": "make org"},
+        {"convention_id": conv, "exit_code": 0, "command": "make lint"},
+    ]))
+    .await;
     let (status, body) = review().await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }

@@ -348,4 +348,21 @@ mod tests {
         assert_eq!(m.code_tokens, 0);
         assert_eq!(m.missed, vec!["app/a.py"]);
     }
+
+    #[test]
+    fn a_constitution_item_measures_as_if_absent() {
+        let items = vec![
+            code("sym:1", "app/util.py", Tier::Full, 60),
+            code("sym:2", "app/greeter.py", Tier::Summary, 30),
+        ];
+        let mut with = items.clone();
+        with.insert(0, other("const:v3", Tier::Full, 80));
+        with.push(other("const:v4.2", Tier::Summary, 20));
+        let changed = modified(&["app/util.py", "app/missing.py"]);
+        let opened = ["app/other.py".to_string()];
+        let without = measure(&[pack("s", items)], &changed, &opened);
+        let carrying = measure(&[pack("s", with)], &changed, &opened);
+        assert_eq!(carrying, without);
+        assert_eq!(carrying.code_tokens, 90);
+    }
 }

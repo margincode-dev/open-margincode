@@ -1803,3 +1803,406 @@ async fn a_decision_has_one_promote_at_a_time_and_a_superseded_one_is_not_accept
     );
     assert!(conventions(&e).await.is_empty());
 }
+
+const ARTICLE_TEXT: &str = "Every greeting ends with an exclamation mark.";
+
+async fn add_article(e: &Env) {
+    let (status, body) = post_json(
+        e,
+        "/v1/repos/demo/constitution/articles",
+        json!({"title": "Greet loudly", "text": ARTICLE_TEXT, "by": "user",
+               "reason": "we agreed"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+async fn add_convention(e: &Env, glob: &str, text: &str) -> String {
+    let (status, body) = post_json(
+        e,
+        "/v1/repos/demo/conventions",
+        json!({"scope_glob": glob, "text": text}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    format!("conv:{}", body["id"])
+}
+
+async fn start_asking(e: &Env) -> Value {
+    let (status, body) = post_json(
+        e,
+        "/v1/repos/demo/dreams",
+        json!({"agent": "dreamer", "rules": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+async fn end_run(e: &Env, d: &Value, how: &str) {
+    let (path, body) = match how {
+        "undo" => ("undo", json!({"by": "owner"})),
+        _ => ("finish", json!({})),
+    };
+    let (status, body) = post_json(e, &format!("/v1/dreams/{}/{path}", dream_id(d)), body).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+fn conflict_of(rec: &Value, against: &str, rule_quote: &str) -> Value {
+    json!({"record": handle(rec), "verdict": "conflict", "against": against,
+           "reason": "says hello never shouts",
+           "evidence": [{"record": handle(rec), "quote": "hello never shouts"},
+                        {"rule": against, "quote": rule_quote}]})
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_does_not_ask_for_rules_is_handed_the_bundle_it_gets_today() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let (status, loose) = post_json(
+        &e,
+        &format!("/v1/tasks/{}/records", id(&earlier)),
+        json!({"kind": "note", "summary": "greetings are short", "agent": "claude"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{loose}");
+    add_article(&e).await;
+    let covering = add_convention(&e, "app/**", "greetings in app/ are title case").await;
+    add_convention(&e, "docs/**", "docs are in English").await;
+
+    let plain = start_dream(&e, "review", "").await;
+    assert!(
+        plain["dream"]["worklist"].get("rules").is_none(),
+        "{}",
+        plain["dream"]["worklist"]
+    );
+    let items = plain["items"].as_array().unwrap().clone();
+    assert_eq!(items.len(), 2, "{plain}");
+    for item in &items {
+        let mut keys: Vec<&str> = item
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            ["code", "others", "record", "score", "task", "verdicts"],
+            "the keys an item had before rules existed"
+        );
+    }
+    end_run(&e, &plain, "undo").await;
+
+    let asked = start_asking(&e).await;
+    assert_eq!(asked["dream"]["worklist"]["rules"], true, "{asked}");
+    let mut with_rules = asked["items"].as_array().unwrap().clone();
+    let mut rules = vec![];
+    for item in &mut with_rules {
+        rules.push(item.as_object_mut().unwrap().remove("rules").unwrap());
+    }
+    assert_eq!(
+        with_rules, items,
+        "a run that asks is handed the same items, plus rules"
+    );
+    let at = |of: &Value| {
+        items
+            .iter()
+            .position(|i| i["record"]["id"] == handle(of))
+            .unwrap()
+    };
+    let handles = |of: &Value| -> Vec<Value> {
+        rules[at(of)]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["handle"].clone())
+            .collect()
+    };
+    assert_eq!(handles(&rec), [json!("art:1"), json!(covering)]);
+    assert_eq!(
+        handles(&loose),
+        [json!("art:1")],
+        "a record with no anchors is covered by the articles"
+    );
+    assert_eq!(
+        rules[at(&rec)][0],
+        json!({"handle": "art:1", "title": "Greet loudly", "text": ARTICLE_TEXT,
+               "scope_glob": "**"})
+    );
+    assert!(
+        rules[at(&rec)][1].get("title").is_none(),
+        "{}",
+        rules[at(&rec)][1]
+    );
+    end_run(&e, &asked, "undo").await;
+
+    let (status, body) = post_json(
+        &e,
+        "/v1/repos/demo/dreams",
+        json!({"agent": "dreamer", "mode": "verify", "rules": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conflict_needs_a_run_that_asked_a_covering_rule_in_force_and_a_quote_of_each() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let tried = record_on(
+        &e,
+        &earlier,
+        "attempt",
+        "tried a hello that never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    add_article(&e).await;
+    let elsewhere = add_convention(&e, "docs/**", "docs are in English").await;
+    let gone = add_convention(&e, "app/**", "greetings in app/ are title case").await;
+    let (status, body) = call(
+        &e.app,
+        "DELETE",
+        &format!("/v1/repos/demo/conventions/{}", &gone[5..]),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let plain = start_dream(&e, "review", "").await;
+    let r = propose(&e, &plain, conflict_of(&rec, "art:1", ARTICLE_TEXT)).await;
+    assert_eq!(r["accepted"], false, "{r}");
+    assert!(r["why"].as_str().unwrap().contains("--conflicts"), "{r}");
+    let r = propose(
+        &e,
+        &plain,
+        json!({"record": handle(&rec), "verdict": "disputed", "reason": "x",
+               "evidence": [{"rule": "art:1", "quote": ARTICLE_TEXT}]}),
+    )
+    .await;
+    assert_eq!(r["accepted"], false, "{r}");
+    let why = r["why"].as_str().unwrap();
+    assert!(
+        why.contains("{record, quote} or {event}") && !why.contains("rule"),
+        "{r}"
+    );
+    end_run(&e, &plain, "undo").await;
+
+    let d = start_asking(&e).await;
+    let with = |mut v: Value, key: &str, value: Value| {
+        v[key] = value;
+        v
+    };
+    let good = conflict_of(&rec, "art:1", ARTICLE_TEXT);
+    let gone_why = format!("{gone} is not a rule in force");
+    let elsewhere_why = format!("{elsewhere} does not cover");
+    let record_why = format!("a quote of {}", handle(&rec));
+    for (verdict, why) in [
+        (
+            json!({"record": handle(&tried), "verdict": "conflict", "against": "art:1",
+                   "reason": "x", "evidence": [
+                       {"record": handle(&tried), "quote": "tried a hello that never shouts"},
+                       {"rule": "art:1", "quote": ARTICLE_TEXT}]}),
+            "an attempt",
+        ),
+        (
+            conflict_of(&rec, "art:9", ARTICLE_TEXT),
+            "art:9 is not a rule in force",
+        ),
+        (
+            conflict_of(&rec, &gone, "greetings in app/ are title case"),
+            gone_why.as_str(),
+        ),
+        (
+            conflict_of(&rec, &elsewhere, "docs are in English"),
+            elsewhere_why.as_str(),
+        ),
+        (with(good.clone(), "against", json!(null)), "names the rule"),
+        (with(good.clone(), "reason", json!("")), "needs a reason"),
+        (
+            with(
+                good.clone(),
+                "evidence",
+                json!([{"record": handle(&rec), "quote": "hello never shouts"}]),
+            ),
+            "a quote of art:1",
+        ),
+        (
+            conflict_of(&rec, "art:1", "Every greeting ends with a smile."),
+            "not in art:1 word for word",
+        ),
+        (
+            with(
+                good.clone(),
+                "evidence",
+                json!([{"rule": "art:1", "quote": ARTICLE_TEXT}]),
+            ),
+            record_why.as_str(),
+        ),
+        (
+            json!({"record": handle(&rec), "verdict": "wrong", "evidence": [code_quote()]}),
+            "or conflict",
+        ),
+    ] {
+        let r = propose(&e, &d, verdict.clone()).await;
+        assert_eq!(r["accepted"], false, "{verdict}: {r}");
+        assert!(
+            r["why"].as_str().unwrap().contains(why),
+            "wanted {why:?}: {r}"
+        );
+    }
+    let ok = propose(&e, &d, good).await;
+    assert_eq!(ok["accepted"], true, "{ok}");
+    assert_eq!(ok["verdict"]["verdict"], "conflict", "{ok}");
+    assert_eq!(ok["verdict"]["against"], "art:1", "{ok}");
+    assert_eq!(ok["verdict"]["state"], "proposed", "{ok}");
+    let (_, listed) = call(&e.app, "GET", "/v1/repos/demo/verdicts", None).await;
+    assert_eq!(
+        listed["verdicts"].as_array().unwrap().len(),
+        1,
+        "a refused conflict writes nothing: {listed}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conflict_is_reviewed_by_a_person_by_name_and_a_lapsed_one_not_at_all() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let other = record_on(&e, &earlier, "note", "names are title case", "app/util.py").await;
+    add_article(&e).await;
+    let d = start_asking(&e).await;
+    let proposed = propose(&e, &d, conflict_of(&rec, "art:1", ARTICLE_TEXT)).await;
+    let vd = proposed["verdict"]["handle"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{proposed}"))
+        .to_owned();
+    let disputed = propose(
+        &e,
+        &d,
+        json!({"record": handle(&other), "verdict": "disputed", "reason": "util is gone",
+               "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(disputed["accepted"], true, "{disputed}");
+    end_run(&e, &d, "finish").await;
+
+    let verify = start_dream(&e, "verify", "").await;
+    let handed: Vec<&Value> = verify["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| &i["verdict"]["handle"])
+        .collect();
+    assert_eq!(
+        handed,
+        [&disputed["verdict"]["handle"]],
+        "no verify run is handed a conflict"
+    );
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "grok", "agree": true, "dream": dream_id(&verify),
+               "evidence": [code_quote()]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("by name"),
+        "{body}"
+    );
+    end_run(&e, &verify, "finish").await;
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/review"),
+        json!({"reviewer": "Dreamer", "agree": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("proposed it"),
+        "{body}"
+    );
+
+    let (status, body) = person_review(&e, &vd, false).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "rejected", "{body}");
+    let again = start_asking(&e).await;
+    let r = propose(&e, &again, conflict_of(&rec, "art:1", ARTICLE_TEXT)).await;
+    assert!(
+        r["why"]
+            .as_str()
+            .unwrap()
+            .contains("already has a conflict with art:1 that is rejected"),
+        "a rejected conflict does not come back every night: {r}"
+    );
+    post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "owner"}),
+    )
+    .await;
+    let r = propose(&e, &again, conflict_of(&rec, "art:1", ARTICLE_TEXT)).await;
+    assert_eq!(r["accepted"], true, "{r}");
+    let vd = r["verdict"]["handle"].as_str().unwrap().to_owned();
+    end_run(&e, &again, "finish").await;
+
+    let (status, body) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["against"], "art:1", "{body}");
+
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/repos/demo/constitution/articles/1",
+        Some(
+            json!({"text": "A greeting may end with an exclamation mark.", "by": "user",
+                    "reason": "softer"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = call(&e.app, "GET", &format!("/v1/verdicts/{vd}"), None).await;
+    assert_eq!(body["verdict"]["state"], "lapsed", "{body}");
+    for agree in [true, false] {
+        let (status, body) = person_review(&e, &vd, agree).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        let why = body["error"].as_str().unwrap();
+        assert!(
+            why.contains("lapsed") && why.contains("art:1") && why.contains("changed"),
+            "{body}"
+        );
+    }
+    let (status, body) = post_json(
+        &e,
+        &format!("/v1/verdicts/{vd}/retract"),
+        json!({"by": "owner"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["state"], "retracted", "{body}");
+}

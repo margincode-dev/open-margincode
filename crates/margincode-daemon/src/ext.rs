@@ -84,8 +84,9 @@ pub enum MemoryAction<'a> {
     /// record's author.
     Supersede { record: &'a Record },
     /// The one review of a proposed verdict (`verdict` is its id, `kind` what it says of
-    /// `record`: `confirmed`, `disputed`, `duplicate` or `outdated`). With `agree` it takes
-    /// effect in packs; without, it never does. `by` is the reviewer.
+    /// `record`: `confirmed`, `disputed`, `duplicate`, `outdated`, `promote` or `conflict`; the
+    /// last two are reviewed by name only, never with `dream`). With `agree` it takes effect in
+    /// packs; without, it never does. `by` is the reviewer.
     VerdictReview {
         verdict: Uuid,
         kind: &'a str,

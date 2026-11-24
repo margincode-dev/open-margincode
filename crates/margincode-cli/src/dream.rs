@@ -59,11 +59,61 @@ agent or a person decides whether it becomes one, never this run; promote only a
 checked holds.
 "#;
 
+/// Appended to `DREAM.md` only in a review run given `--conflicts`.
+const CONFLICTS: &str = r#"
+## `conflict`: a record against a rule
+
+This run may also say that a record contradicts a rule in force. In this section a rule is an
+article or a convention, never a record that states one. Each item has `rules`: the
+articles of the constitution (`org:N` for the organisation's, first, then `art:N` for this
+repository's) and the conventions (`conv:N`) whose paths cover the record, each with its
+`handle`, `text`, `scope_glob` and, for an article, `title`. A rule outranks a record. Once a
+person agrees, the record is still shown, but it ranks low and its line says which rule
+overrules it.
+
+A record conflicts with a rule when the record's own words and the rule's own words cannot both
+be followed: doing what the record says breaks the rule, or keeping the rule means not doing
+what the record says.
+
+- Code that breaks a rule while the record says nothing about it is not a conflict. Leave it
+  out.
+- A record that only touches the same subject as a rule, or says more than the rule does, is not
+  a conflict. It must tell agents to do what the rule forbids, or not to do what it requires.
+- A record older than the rule can conflict: the rule governs now.
+- A record that claims an exception to a rule (this module may do what the rule forbids) is put
+  forward as a conflict, with the exception said in `reason`. A person decides.
+- An `attempt` never conflicts with a rule: it reports what was tried and tells nobody what to
+  do.
+- A record gets one verdict. Give `outdated`, `duplicate` or `disputed` first where one applies,
+  and `conflict` only to a record that would otherwise stand.
+
+A `conflict` names the rule in `against` (its `handle` from `rules`). Its `reason` says what the
+record tells agents to do against the rule, in one line of at most 200 characters; agents read
+it beside the record. Its evidence quotes both sides, word for word: a `record` quote from the
+record, and a `rule` quote from the rule's title or text. It goes in `verdicts.json` with the
+others:
+
+```json
+{"record": "rec:1a2b3c4d", "verdict": "conflict", "against": "art:2",
+ "reason": "says to log request bodies",
+ "evidence": [{"record": "rec:1a2b3c4d", "quote": "log the full request body on error"},
+              {"rule": "art:2", "quote": "No request body is ever written to a log."}]}
+```
+
+Only a person decides whether a conflict holds, never a run. A record has one conflict per rule:
+if the item's `verdicts` already show one against the same rule, waiting, agreed or rejected,
+do not propose it again. One that has `lapsed` was against the rule before it changed: it does
+not count, so judge the record against the rule as it reads now.
+"#;
+
 /// What the agent reads as `DREAM.md`: `INSTRUCTIONS` as it is, unless the run asked for more.
-pub fn instructions(promote: bool, also_read: bool) -> String {
+pub fn instructions(promote: bool, conflicts: bool, also_read: bool) -> String {
     let mut text = INSTRUCTIONS.to_owned();
     if promote {
         text.push_str(PROMOTE);
+    }
+    if conflicts {
+        text.push_str(CONFLICTS);
     }
     if also_read {
         text.push_str(ALSO_READ);
@@ -234,6 +284,9 @@ pub struct Dream<'a> {
     pub budget_usd: Option<f64>,
     /// `--promote`: the agent is told it may propose conventions (review runs only).
     pub promote: bool,
+    /// `--conflicts`: the run is handed the rules that cover each record and told it may
+    /// propose `conflict` verdicts (review runs only).
+    pub conflicts: bool,
     /// Absolute directories the agent may read for context, from [`also_read_dirs`].
     pub also_read: &'a [PathBuf],
     pub slots_dir: PathBuf,
@@ -244,6 +297,17 @@ pub struct Dream<'a> {
 impl Dream<'_> {
     fn mode(&self) -> &'static str {
         if self.verify { "verify" } else { "review" }
+    }
+
+    /// What `POST /v1/repos/{repo}/dreams` is sent: `rules` only for a run given `--conflicts`,
+    /// so every other run asks for what it asked for before.
+    fn start_body(&self, told: &str) -> Value {
+        let mut body = json!({"agent": self.agent, "mode": self.mode(), "area": self.area,
+                              "limit": self.limit, "instructions_sha": sha_hex(told)});
+        if self.conflicts {
+            body["rules"] = json!(true);
+        }
+        body
     }
 
     fn output(&self) -> (&'static str, &'static str) {
@@ -511,7 +575,7 @@ fn key_of(item: &Value, verify: bool) -> Option<&str> {
 /// wrote in that round is posted.
 pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     check_command(d.cmd)?;
-    let told = instructions(d.promote, !d.also_read.is_empty());
+    let told = instructions(d.promote, d.conflicts, !d.also_read.is_empty());
     // the slot before the run: a run holds its area, and should not while it only waits
     let _slot = match d.max_agents {
         None => None,
@@ -524,8 +588,7 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
     };
     let started = client.post(
         &format!("/v1/repos/{}/dreams", d.repo),
-        &json!({"agent": d.agent, "mode": d.mode(), "area": d.area, "limit": d.limit,
-                "instructions_sha": sha_hex(&told)}),
+        &d.start_body(&told),
     )?;
     let Some(id) = started["dream"]["id"].as_str() else {
         println!(
@@ -631,13 +694,25 @@ pub fn run(client: &Client, d: &Dream) -> Result<bool> {
                  it: `av verdict accept vd:…`"
             );
         }
-        if proposed > 0 {
+        if done["dream"]["counts"]["conflict"].as_u64().unwrap_or(0) > 0 {
+            println!(
+                "a conflict takes effect only when a person accepts it, never a verify run: \
+                 `av verdict show vd:…`, then `av verdict accept vd:…` or `reject`"
+            );
+        }
+        let by_name = ["promote", "conflict"]
+            .iter()
+            .filter_map(|k| done["dream"]["counts"][k].as_u64())
+            .sum::<u64>();
+        if proposed > by_name {
             println!(
                 "nothing changes until a second look agrees: `av dream --verify --repo {} -- \
                  <agent command>`, or `av verdict accept vd:…`; `av dream undo {id}` takes \
                  the run back",
                 d.repo
             );
+        } else if proposed > 0 {
+            println!("`av dream undo {id}` takes the run back");
         }
     }
     Ok(true)
@@ -670,6 +745,16 @@ pub fn verdict_line(v: &Value) -> String {
             field("text")
         ));
     }
+    if let Some(rule) = v["against"].as_str() {
+        let decided = match s("state") {
+            "proposed" => "waits for a person",
+            "effective" => "accepted: the record is overruled",
+            "rejected" => "rejected",
+            "lapsed" => "lapsed: the rule changed since",
+            _ => "taken back",
+        };
+        line.push_str(&format!("  against {rule} ({decided})"));
+    }
     line
 }
 
@@ -699,6 +784,8 @@ pub fn verdict_text(r: &Value) -> String {
             out.push_str(&format!("evidence: {path}: {}\n", s(&e["quote"])));
         } else if let Some(rec) = e["record"].as_str() {
             out.push_str(&format!("evidence: {rec}: {}\n", s(&e["quote"])));
+        } else if let Some(rule) = e["rule"].as_str() {
+            out.push_str(&format!("evidence: {rule}: {}\n", s(&e["quote"])));
         } else if !e["event"].is_null() {
             out.push_str(&format!("evidence: event {}\n", e["event"]));
         }
@@ -761,26 +848,120 @@ mod tests {
     #[test]
     fn a_plain_run_is_handed_dream_md_as_it_was() {
         assert_eq!(
-            sha_hex(&instructions(false, false)),
+            sha_hex(&instructions(false, false, false)),
             "f66dc2ec655cf8747df585d35c4dc8d0e7205f14ebd3220da50fc220aa6973aa"
         );
-        let promote = instructions(true, false);
+        let promote = instructions(true, false, false);
         assert!(
             promote.starts_with(INSTRUCTIONS),
             "DREAM.md's own text is kept"
         );
         assert!(promote.contains("\"verdict\": \"promote\"") && promote.contains("at most 400"));
         assert!(!promote.contains("also-read.txt"));
-        let both = instructions(true, true);
+        let both = instructions(true, false, true);
         assert!(both.starts_with(&promote) && both.contains("also-read.txt"));
     }
 
     #[test]
     fn a_run_without_also_read_is_handed_dream_md_as_it_is() {
-        assert_eq!(instructions(false, false), INSTRUCTIONS);
-        let more = instructions(false, true);
+        assert_eq!(instructions(false, false, false), INSTRUCTIONS);
+        let more = instructions(false, false, true);
         assert!(more.starts_with(INSTRUCTIONS) && more.contains("also-read.txt"));
         assert!(more.contains("not evidence"));
+    }
+
+    /// `--conflicts` adds its section and nothing else: every run without it is handed what it
+    /// was handed before the flag existed, `--promote` and `--also-read` runs too.
+    #[test]
+    fn a_run_without_conflicts_is_handed_the_instructions_it_had_before() {
+        for promote in [false, true] {
+            for also_read in [false, true] {
+                let mut before = INSTRUCTIONS.to_owned();
+                if promote {
+                    before.push_str(PROMOTE);
+                }
+                if also_read {
+                    before.push_str(ALSO_READ);
+                }
+                assert_eq!(instructions(promote, false, also_read), before);
+                let asked = instructions(promote, true, also_read);
+                assert_ne!(sha_hex(&asked), sha_hex(&before));
+                assert_eq!(asked.replacen(CONFLICTS, "", 1), before);
+            }
+        }
+        let asked = instructions(false, true, false);
+        assert!(asked.starts_with(INSTRUCTIONS) && asked.ends_with(CONFLICTS));
+        for says in [
+            "\"verdict\": \"conflict\"",
+            "`against`",
+            "`rules`",
+            "{\"rule\": \"art:2\"",
+            "is not a conflict",
+            "the rule governs now",
+            "claims an exception",
+            "An `attempt` never conflicts",
+            "Give `outdated`, `duplicate` or `disputed` first",
+            "Only a person decides",
+        ] {
+            assert!(CONFLICTS.contains(says), "{says}");
+        }
+        assert!(!CONFLICTS.contains("margincode"));
+    }
+
+    fn a_run(conflicts: bool) -> Dream<'static> {
+        Dream {
+            agent: "claude",
+            url: "http://127.0.0.1:7420",
+            repo: "demo",
+            verify: false,
+            area: Some("app"),
+            limit: Some(5),
+            fix_rounds: 1,
+            timeout: Duration::from_secs(60),
+            max_agents: None,
+            budget_usd: None,
+            promote: true,
+            conflicts,
+            also_read: &[],
+            slots_dir: PathBuf::new(),
+            dreams_dir: PathBuf::new(),
+            cmd: &[],
+        }
+    }
+
+    #[test]
+    fn a_conflicts_line_names_its_rule_and_says_when_the_rule_changed() {
+        let v = |state: &str| {
+            json!({"handle": "vd:0a1b2c3d", "state": state, "verdict": "conflict",
+                   "record": "rec:1a2b3c4d", "author_agent": "claude",
+                   "reason": "says to log request bodies", "against": "art:2"})
+        };
+        assert_eq!(
+            verdict_line(&v("lapsed")),
+            "vd:0a1b2c3d  lapsed  conflict  rec:1a2b3c4d  by claude  says to log request bodies  \
+             against art:2 (lapsed: the rule changed since)"
+        );
+        assert!(verdict_line(&v("proposed")).ends_with("against art:2 (waits for a person)"));
+        let shown = verdict_text(&json!({"verdict": {"evidence": [
+            {"rule": "art:2", "quote": "No request body is ever written to a log."}]},
+            "record": {}}));
+        assert!(
+            shown.contains("evidence: art:2: No request body is ever written to a log."),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn only_a_conflicts_run_asks_the_daemon_for_rules() {
+        assert_eq!(
+            a_run(false).start_body("told"),
+            json!({"agent": "claude", "mode": "review", "area": "app", "limit": 5,
+                   "instructions_sha": sha_hex("told")}),
+            "the request every other run sent before --conflicts existed"
+        );
+        let asked = a_run(true).start_body("told");
+        assert_eq!(asked["rules"], true);
+        assert_eq!(asked.as_object().unwrap().len(), 6);
     }
 
     #[test]

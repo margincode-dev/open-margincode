@@ -416,3 +416,50 @@ async fn only_a_conflict_names_a_rule() {
         "a verdict that names no rule serialises as before"
     );
 }
+
+#[tokio::test]
+async fn a_rule_in_force_is_one_of_this_repository_or_the_organisation_by_its_own_handle() {
+    let (_db, s) = store().await;
+    let own = article(&s, DEMO, "Never log a request body").await;
+    let org = article(&s, ConstitutionLevel::Shared, "Log no personal data").await;
+    let theirs = article(&s, ConstitutionLevel::Repo("other"), "Tabs, not spaces").await;
+    let conv = s
+        .add_convention("demo", "app/**", "handlers log no bodies")
+        .await
+        .unwrap();
+    let foreign = s
+        .add_convention("other", "app/**", "handlers log everything")
+        .await
+        .unwrap();
+    let found = |h: String| {
+        let s = &s;
+        async move { s.rule_in_force("demo", &h).await.unwrap().map(|c| c.id) }
+    };
+    assert_eq!(found("art:1".into()).await, Some(own));
+    assert_eq!(found(" org:1 ".into()).await, Some(org));
+    assert_eq!(found(format!("conv:{}", conv.0)).await, Some(conv));
+    for no in [
+        format!("conv:{}", foreign.0),
+        format!("conv:{}", own.0),
+        format!("conv:{}", org.0),
+        format!("conv:{}", theirs.0),
+        "art:2".into(),
+        "org:2".into(),
+        "rule:1".into(),
+        "art:x".into(),
+    ] {
+        assert_eq!(found(no.clone()).await, None, "{no}");
+    }
+    let rules: Vec<String> = s
+        .rules_for("demo", &["docs/readme.md".into()])
+        .await
+        .unwrap()
+        .iter()
+        .map(|c| c.handle())
+        .collect();
+    assert_eq!(
+        rules,
+        ["org:1", "art:1"],
+        "a convention covers only its paths"
+    );
+}

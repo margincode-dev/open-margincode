@@ -7,6 +7,20 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: a first pack's Map listed a file the task workspace leaves out
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), twice on
+  2026-11-24, on tasks about dreams and verdicts.
+- **Seen.** Both Maps listed `bench/results/2026-10-27-haiku/tool-mass.py`, and the second one
+  had it among four entries. `bench/results/` is in `.av/sparse`, so the file is not in the task's
+  workspace; it can be read only with `av show`. The second pack also named `mcp.rs`, which the
+  goal mentioned, but not `crates/margincode-cli/src/main.rs`, where the new flag went, nor
+  `crates/margincode-daemon/tests/dream.rs`, which held the tests the goal asked for.
+- **Ruled out.** Nothing yet; why that file scored was not looked at.
+- **Guess.** The Map ranks the repository's files without knowing the workspace's sparse
+  patterns, and a large Python file wins on a word or two of text.
+- **Status.** Open.
+
 ## 2026-11-24: a first pack named a same-named struct of another crate and no migration
 
 - **Where.** `av task start` on a task whose goal named `VerdictRow`, `NewVerdict`,

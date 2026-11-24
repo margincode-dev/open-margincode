@@ -10,7 +10,7 @@ use sqlx::Row;
 use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
-use crate::pg::{PgStore, RECORD_COLS, serr};
+use crate::pg::{CONVENTION_COLS, PgStore, RECORD_COLS, convention_from_row, serr};
 
 /// A verdict's state, by its newest review and whether a `retracted` row names it:
 /// `proposed` (no review yet, no effect), `effective` (the newest review agrees), `rejected`
@@ -730,6 +730,66 @@ impl PgStore {
                 ))
             })
             .collect()
+    }
+
+    /// The rules in force that cover a record of `repo` anchored at `paths`: every article
+    /// (organisation first, then the repository's, each by number), then the repository's
+    /// conventions whose glob matches one of `paths`, by id. A record with no anchors is covered
+    /// by the articles only.
+    pub async fn rules_for(&self, repo: &str, paths: &[String]) -> Result<Vec<Convention>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {CONVENTION_COLS} FROM conventions
+             WHERE (repo = $1 OR (repo = '' AND article IS NOT NULL)) AND removed_at IS NULL
+             ORDER BY article IS NULL, repo <> '', article, id"
+        ))
+        .bind(repo)
+        .fetch_all(self.pool())
+        .await
+        .map_err(serr)?;
+        let mut out = vec![];
+        for row in &rows {
+            let c = convention_from_row(row)?;
+            let covers = c.article.is_some() || {
+                let glob = globset::Glob::new(&c.scope_glob)
+                    .map_err(|e| AvError::Store(e.to_string()))?
+                    .compile_matcher();
+                paths.iter().any(|p| glob.is_match(p))
+            };
+            if covers {
+                out.push(c);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The rule in force that `handle` names in `repo`: `art:N` (the repository's article),
+    /// `org:N` (an organisation article) or `conv:<id>` (one of the repository's conventions).
+    /// `None` when it names none in force, or is not such a handle.
+    pub async fn rule_in_force(&self, repo: &str, handle: &str) -> Result<Option<Convention>> {
+        let handle = handle.trim();
+        let number = |p: &str| handle.strip_prefix(p).and_then(|n| n.parse::<i64>().ok());
+        let (owner, article, id) = if let Some(n) = number("art:") {
+            (repo, Some(n), None)
+        } else if let Some(n) = number("org:") {
+            ("", Some(n), None)
+        } else if let Some(n) = number("conv:") {
+            (repo, None, Some(n))
+        } else {
+            return Ok(None);
+        };
+        let row = sqlx::query(&format!(
+            "SELECT {CONVENTION_COLS} FROM conventions
+             WHERE repo = $1 AND removed_at IS NULL
+               AND (($2::bigint IS NOT NULL AND article = $2)
+                    OR ($3::bigint IS NOT NULL AND id = $3 AND article IS NULL))"
+        ))
+        .bind(owner)
+        .bind(article)
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(serr)?;
+        row.as_ref().map(convention_from_row).transpose()
     }
 
     pub async fn event_in_repo(&self, repo: &str, id: i64) -> Result<bool> {

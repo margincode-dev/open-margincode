@@ -97,6 +97,25 @@ struct StartBody {
     limit: Option<usize>,
     /// Hash of the instructions the agent was given, so a result can be traced to them.
     instructions_sha: Option<String>,
+    /// A review run that may propose `conflict` verdicts (`av dream --conflicts`): each item
+    /// also carries the rules that cover its record.
+    #[serde(default)]
+    rules: bool,
+}
+
+/// The rules in force that cover `rec`, as a run that asked is handed them: the articles
+/// (organisation first), then the conventions whose glob matches one of its anchor paths.
+async fn rules_of(st: &AppState, repo: &str, rec: &Record) -> Result<Vec<Convention>> {
+    let paths: Vec<String> = rec.anchors.iter().map(|a| a.path.clone()).collect();
+    st.pg.rules_for(repo, &paths).await
+}
+
+fn rule_json(c: &Convention) -> Value {
+    let mut out = json!({"handle": c.handle(), "text": c.text, "scope_glob": c.scope_glob});
+    if let Some(title) = &c.title {
+        out["title"] = json!(title);
+    }
+    out
 }
 
 fn clean_area(area: Option<&str>) -> Result<String> {
@@ -270,6 +289,12 @@ async fn start(
     if b.agent.trim().is_empty() {
         return Err(AvError::Invalid("agent must not be empty".into()).into());
     }
+    if b.rules && mode != "review" {
+        return Err(AvError::Invalid(
+            "rules (`av dream --conflicts`) are for review runs only".into(),
+        )
+        .into());
+    }
     let (worklist_json, items) = match mode {
         "review" => {
             let ranked = worklist(&st, &repo, &area, &trunk, limit).await?;
@@ -277,6 +302,10 @@ async fn start(
             for (rec, score) in &ranked {
                 let mut item = bundle_item(&st, &repo, &trunk, rec).await?;
                 item["score"] = json!(score);
+                if b.rules {
+                    let rules = rules_of(&st, &repo, rec).await?;
+                    item["rules"] = rules.iter().map(rule_json).collect();
+                }
                 items.push(item);
             }
             let ids: Vec<RecordId> = ranked.iter().map(|(r, _)| r.id).collect();
@@ -284,10 +313,11 @@ async fn start(
                 .iter()
                 .map(|(r, score)| (r.id.0.to_string(), json!(score)))
                 .collect();
-            (
-                json!({"commit": trunk.0, "records": ids, "scores": scores}),
-                items,
-            )
+            let mut worklist = json!({"commit": trunk.0, "records": ids, "scores": scores});
+            if b.rules {
+                worklist["rules"] = json!(true);
+            }
+            (worklist, items)
         }
         "verify" => {
             // a promote is reviewed by name, never by a run: no run is handed it
@@ -351,6 +381,7 @@ async fn start(
 enum Cited {
     Code,
     Record(RecordId),
+    Rule(ConventionId),
     Event,
 }
 
@@ -361,13 +392,16 @@ fn quoted(text: &str, quote: &str) -> bool {
 
 /// Checks one evidence entry. `{code: path, commit?, quote}`: the quote is in that file at
 /// the commit (the run's own when none is given). `{record: id, quote}`: in that record's
-/// summary or body, a record of this repository. `{event: id}`: an event of this repository.
-/// The refusal says what was not found; nothing is corrected or matched loosely.
+/// summary or body, a record of this repository. `{rule: handle, quote}`: in the title or text
+/// of that rule as it is in force (`art:N`, `org:N`, `conv:<id>`). `{event: id}`: an event of
+/// this repository. The refusal says what was not found; nothing is corrected or matched
+/// loosely.
 async fn check_evidence(
     st: &AppState,
     repo: &str,
     commit: &ChangeId,
     e: &Value,
+    rules: bool,
 ) -> std::result::Result<Cited, String> {
     let quote = || -> std::result::Result<&str, String> {
         let q = e["quote"].as_str().unwrap_or("");
@@ -412,6 +446,23 @@ async fn check_evidence(
         }
         return Ok(Cited::Record(rec.id));
     }
+    if let Some(named) = e["rule"].as_str().filter(|_| rules) {
+        let quote = quote()?;
+        let rule = st
+            .pg
+            .rule_in_force(repo, named)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("{} is not a rule in force in repo {repo}", named.trim()))?;
+        let in_title = rule.title.as_deref().is_some_and(|t| quoted(t, quote));
+        if !in_title && !quoted(&rule.text, quote) {
+            return Err(format!(
+                "the quote is not in {} word for word",
+                rule.handle()
+            ));
+        }
+        return Ok(Cited::Rule(rule.id));
+    }
     if let Some(id) = e["event"].as_i64() {
         return match st.pg.event_in_repo(repo, id).await {
             Ok(true) => Ok(Cited::Event),
@@ -419,7 +470,12 @@ async fn check_evidence(
             Err(e) => Err(e.to_string()),
         };
     }
-    Err("an evidence entry is {code, quote}, {record, quote} or {event}".into())
+    Err(if rules {
+        "an evidence entry is {code, quote}, {record, quote}, {rule, quote} or {event}"
+    } else {
+        "an evidence entry is {code, quote}, {record, quote} or {event}"
+    }
+    .into())
 }
 
 async fn check_all(
@@ -427,11 +483,12 @@ async fn check_all(
     repo: &str,
     commit: &ChangeId,
     evidence: &[Value],
+    rules: bool,
 ) -> std::result::Result<Vec<Cited>, String> {
     let mut cited = Vec::with_capacity(evidence.len());
     for (i, e) in evidence.iter().enumerate() {
         cited.push(
-            check_evidence(st, repo, commit, e)
+            check_evidence(st, repo, commit, e, rules)
                 .await
                 .map_err(|why| format!("evidence[{i}]: {why}"))?,
         );
@@ -493,9 +550,18 @@ async fn propose_one(
     }
     let named_kind = item["verdict"].as_str().unwrap_or("");
     let kind = VerdictKind::parse(named_kind);
-    if kind.is_none() && named_kind != "promote" {
-        return Err("verdict must be confirmed, disputed, duplicate, outdated or promote".into());
+    if kind.is_none() && !matches!(named_kind, "promote" | "conflict") {
+        return Err(if asked_for_rules(d) {
+            "verdict must be confirmed, disputed, duplicate, outdated, promote or conflict"
+        } else {
+            "verdict must be confirmed, disputed, duplicate, outdated or promote"
+        }
+        .into());
     }
+    let against = match named_kind {
+        "conflict" => Some(conflict_rule(st, d, &rec, item).await?),
+        _ => None,
+    };
     let reason = item["reason"].as_str().unwrap_or("").trim();
     if reason.chars().count() > MAX_SUMMARY_CHARS {
         return Err(format!(
@@ -506,8 +572,15 @@ async fn propose_one(
     if kind == Some(VerdictKind::Disputed) && reason.is_empty() {
         return Err("a disputed verdict needs a reason: it is printed with the record".into());
     }
+    if against.is_some() && reason.is_empty() {
+        return Err(
+            "a conflict needs a reason (what the record says against the rule): it is printed \
+             with the record"
+                .into(),
+        );
+    }
     let evidence = item["evidence"].as_array().cloned().unwrap_or_default();
-    let cited = check_all(st, &d.repo, &dream_commit(d), &evidence).await?;
+    let cited = check_all(st, &d.repo, &dream_commit(d), &evidence, asked_for_rules(d)).await?;
     let has_code = cited.iter().any(|c| matches!(c, Cited::Code));
     let has_event = cited.iter().any(|c| matches!(c, Cited::Event));
     let cites = |id: RecordId| {
@@ -517,6 +590,40 @@ async fn propose_one(
     };
     let mut canonical = None;
     let mut hashes = json!([]);
+    if let Some(rule) = &against {
+        if !cites(rec.id) {
+            return Err(format!(
+                "a conflict needs a quote of {} itself (a `record` quote)",
+                rec_handle(rec.id)
+            ));
+        }
+        if !cited
+            .iter()
+            .any(|c| matches!(c, Cited::Rule(r) if *r == rule.id))
+        {
+            return Err(format!(
+                "a conflict needs a quote of {} (a `rule` quote of the rule it names)",
+                rule.handle()
+            ));
+        }
+        return st
+            .pg
+            .insert_verdict(NewVerdict {
+                record: rec.id,
+                verdict: "conflict",
+                reason,
+                canonical: None,
+                retracts: None,
+                evidence: json!(evidence),
+                anchor_hashes: json!([]),
+                author_agent: &d.agent,
+                dream: Some(d.id),
+                convention: None,
+                against: Some(rule.id),
+            })
+            .await
+            .map_err(refusal);
+    }
     let Some(kind) = kind else {
         let convention = promotion(&rec, item, cites(rec.id))?;
         return st
@@ -631,6 +738,63 @@ async fn propose_one(
         .map_err(refusal)
 }
 
+fn asked_for_rules(d: &Dream) -> bool {
+    d.worklist["rules"] == true
+}
+
+/// The rule a `conflict` names in `against`, checked here and not taken from the list the run
+/// was handed: the run asked for rules, the record is not an attempt (an attempt reports what
+/// was tried and tells nobody what to do), and `against` is a rule in force that covers it.
+async fn conflict_rule(
+    st: &AppState,
+    d: &Dream,
+    rec: &Record,
+    item: &Value,
+) -> std::result::Result<Convention, String> {
+    if !asked_for_rules(d) {
+        return Err(
+            "this run was not asked to check records against rules; a conflict needs a run \
+             started with `av dream --conflicts`"
+                .into(),
+        );
+    }
+    if rec.kind == RecordKind::Attempt {
+        return Err(format!(
+            "{} is an attempt: it reports what was tried and tells nobody what to do, so it \
+             does not conflict with a rule",
+            rec_handle(rec.id)
+        ));
+    }
+    let named = item["against"]
+        .as_str()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .ok_or("a conflict names the rule in `against` (art:N, org:N or conv:N)")?;
+    let rule = st
+        .pg
+        .rule_in_force(&d.repo, named)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            format!(
+                "{named} is not a rule in force in repo {}: name one from the item's `rules`",
+                d.repo
+            )
+        })?;
+    let covering = rules_of(st, &d.repo, rec)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !covering.iter().any(|c| c.id == rule.id) {
+        return Err(format!(
+            "{} does not cover {}: its paths ({}) match none of the record's anchors",
+            rule.handle(),
+            rec_handle(rec.id),
+            rule.scope_glob
+        ));
+    }
+    Ok(rule)
+}
+
 /// A store refusal of a proposal (`insert_verdict`'s locked rules) is the item's answer.
 fn refusal(e: AvError) -> String {
     match e {
@@ -735,16 +899,31 @@ async fn review(
     if b.reviewer.trim().is_empty() {
         return Err(AvError::Invalid("reviewer must not be empty".into()).into());
     }
-    if v.verdict == "promote" && b.dream.is_some() {
+    if v.state == "lapsed" {
+        return Err(AvError::Conflict(format!(
+            "{} has lapsed: the rule it names ({}) was amended, repealed or removed since, so \
+             it has nothing to review; the rule changed, and a later `av dream --conflicts` \
+             may propose it against the rule now in force",
+            vd_handle(v.id),
+            v.against.as_deref().unwrap_or("?")
+        ))
+        .into());
+    }
+    let by_name = match v.verdict.as_str() {
+        "promote" => Some("proposes a convention"),
+        "conflict" => Some("says a record conflicts with a rule"),
+        _ => None,
+    };
+    if let (Some(what), Some(_)) = (by_name, b.dream) {
         return Err(AvError::IllegalState(format!(
-            "{} proposes a convention, which no verify run reviews: accept or reject it by \
-             name, without `dream` (`av verdict accept` or `av verdict reject`)",
+            "{} {what}, which no verify run reviews: accept or reject it by name, without \
+             `dream` (`av verdict accept` or `av verdict reject`)",
             vd_handle(v.id)
         ))
         .into());
     }
-    if v.verdict == "promote" {
-        promote_review(&st, &v, &rec, b.reviewer.trim(), b.agree).await?;
+    if by_name.is_some() {
+        by_name_review(&st, &v, &rec, b.reviewer.trim(), b.agree).await?;
     }
     let commit = match b.dream {
         Some(run) => {
@@ -767,7 +946,7 @@ async fn review(
         }
         None => st.vcs.trunk(&repo).await?,
     };
-    check_all(&st, &repo, &commit, &b.evidence)
+    check_all(&st, &repo, &commit, &b.evidence, b.dream.is_none())
         .await
         .map_err(AvError::Invalid)?;
     if v.state != "proposed" {
@@ -815,12 +994,13 @@ async fn review(
     Ok(Json(json!({"verdict": verdict_json(&v)})))
 }
 
-/// The daemon's rules for a review of a `promote`, by another agent or a person. Community has
-/// one shared token and no identities, so these hold the names it is given, not who sent them:
-/// the reviewer is not, in any case, the verdict's author or the agent of the run that proposed
-/// it; and an acceptance needs the decision still live (not superseded). A deployment that must
-/// know who decided enforces it in its `MergeGuard`, which is asked next, as for any review.
-async fn promote_review(
+/// The daemon's rules for a review of a `promote` or a `conflict`, by another agent or a
+/// person. Community has one shared token and no identities, so these hold the names it is
+/// given, not who sent them: the reviewer is not, in any case, the verdict's author or the agent
+/// of the run that proposed it; and a promote's acceptance needs the decision still live (not
+/// superseded). A deployment that must know who decided enforces it in its `MergeGuard`, which
+/// is asked next, as for any review.
+async fn by_name_review(
     st: &AppState,
     v: &VerdictRow,
     rec: &Record,
@@ -835,11 +1015,12 @@ async fn promote_review(
     if same(&v.author_agent) || run_agent.as_deref().is_some_and(same) {
         return Err(AvError::IllegalState(format!(
             "{reviewer:?} is the name of the agent that proposed it; another agent or a person \
-             reviews a promote: review it under another name, with `av --agent NAME verdict \
-             accept` or AV_AGENT=NAME (with neither, `av verdict accept` reviews as `user`)"
+             reviews a {}: review it under another name, with `av --agent NAME verdict \
+             accept` or AV_AGENT=NAME (with neither, `av verdict accept` reviews as `user`)",
+            v.verdict
         )));
     }
-    if agree && rec.superseded_by.is_some() {
+    if agree && v.verdict == "promote" && rec.superseded_by.is_some() {
         return Err(AvError::IllegalState(format!(
             "{} is superseded: its promote cannot become a convention; reject or retract it",
             rec_handle(rec.id)
@@ -1018,7 +1199,7 @@ async fn show_verdict(State(st): State<AppState>, Path(id): Path<String>) -> Api
 
 #[derive(Deserialize)]
 struct ListQuery {
-    /// `proposed`, `effective`, `rejected` or `retracted`.
+    /// `proposed`, `effective`, `rejected`, `retracted` or `lapsed`.
     state: Option<String>,
     record: Option<String>,
     limit: Option<i64>,

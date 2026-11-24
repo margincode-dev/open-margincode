@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A dream can say a record contradicts a rule.** `av dream --conflicts` (review runs only) hands
+  each record the rules that cover it, the constitution's articles and the conventions on its
+  paths, and tells the agent it may propose a `conflict`: the record's own words against a
+  rule's own words, with a quote of each, which the daemon checks word for word against the rule
+  as it is in force. Only a person accepts one, by name (`av verdict accept`); no verify run is
+  handed it. A conflict lapses by itself when its rule is amended, repealed or removed
+  (`av verdict list --state lapsed`), and a rejected one is not proposed again against the same
+  rule. A run without `--conflicts` is handed the same `DREAM.md` and bundle as before
+  (migration `0035`).
 - **The retrieval benchmark repeats itself.** `margincode-bench retrieval --run-id ID` (default
   `e1`) names its imports instead of the clock, so two runs of one build on fresh daemons with the
   same workspace root write the same rows and packs (`bench/retrieval/README.md`, "Repeatable

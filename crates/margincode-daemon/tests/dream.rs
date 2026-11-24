@@ -302,6 +302,39 @@ async fn a_verdict_is_refused_unless_its_evidence_is_found_word_for_word() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn code_evidence_may_name_its_commit_by_the_12_digits_av_prints() {
+    let e = env().await;
+    let (earlier, _) = two_tasks(&e).await;
+    let rec = record_on(
+        &e,
+        &earlier,
+        "decision",
+        "hello never shouts",
+        "app/greeter.py",
+    )
+    .await;
+    let d = start_dream(&e, "review", "").await;
+    let (_, repos) = call(&e.app, "GET", "/v1/repos", None).await;
+    let main = repos
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "demo")
+        .and_then(|r| r["main_change"].as_str())
+        .unwrap_or_else(|| panic!("{repos}"))
+        .to_owned();
+    let r = propose(
+        &e,
+        &d,
+        json!({"record": handle(&rec), "verdict": "disputed",
+               "reason": "the greeter adds no mark at all",
+               "evidence": [{"code": "app/greeter.py", "commit": &main[..12], "quote": GREETER_LINE}]}),
+    )
+    .await;
+    assert_eq!(r["accepted"], true, "{r}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_verdict_changes_no_pack_until_a_second_look_agrees_and_undo_takes_it_back() {
     let e = env().await;
     let (earlier, reader) = two_tasks(&e).await;

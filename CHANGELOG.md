@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **A short commit id works.** `av diff --from 543b8b5f28d7`, `av show --at`, the tree, the
+  patch route's `from`, a posted check's `change` and a dream verdict's code `commit` take a
+  unique prefix of a commit id, such as the 12 digits av prints, in either case. An unknown or
+  ambiguous prefix, or text that is no commit id, is a `400` that says which; it was a `500`
+  ("Invalid hash length") before.
+- **`av status` says what a conflicted task still needs.** A task stays `conflicted` until
+  `av submit`, by design; `GET /v1/tasks/{id}` now carries a `next` line for it (sync first,
+  resolve the markers still in a named file, or just submit), which `av status` and the MCP
+  `status` tool show. `av status` labels its conflict list as the last merge's or sync's.
+- **`av submit` on a task in review says what to do.** The refusal said only that an in-review
+  task cannot take Submit; it now says the review judges the head as it is (naming it), so after
+  a change only `av validate` is needed.
 - **A dream can say a record contradicts a rule.** `av dream --conflicts` (review runs only) hands
   each record the rules that cover it, the constitution's articles and the conventions on its
   paths, and tells the agent it may propose a `conflict`: the record's own words against a

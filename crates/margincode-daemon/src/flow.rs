@@ -216,6 +216,15 @@ pub(crate) async fn submit(
         st.store.transition(task.id, Event::Resolve).await?;
         task = st.store.get_task(task.id).await?;
     }
+    if task.status == TaskStatus::InReview {
+        return Err(AvError::IllegalState(format!(
+            "task {} is already in review, so there is nothing to submit: a review judges its \
+             head as it is now ({}); after a change, run `av validate` so that head can be approved",
+            task.slug,
+            short(&task.head_change.0)
+        ))
+        .into());
+    }
     next(task.status, Event::Submit)?; // fail fast, before touching the workspace
     // Check every inline record before anything is written, so a bad one fails the whole submit.
     let inline = inline_records(&body.agent, body.records)?;
@@ -449,8 +458,25 @@ async fn refuse_conflict_markers(
     head: &ChangeId,
     changed: &[String],
 ) -> Result<()> {
+    let found = first_markers(st, repo, head, changed).await?;
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(AvError::IllegalState(format!(
+        "conflict markers are still in {}: resolve every conflict marker, then checkpoint and submit again",
+        found.join(", ")
+    )))
+}
+
+/// `path:line` of the first conflict marker in each of `paths` at `head` that has one.
+async fn first_markers(
+    st: &AppState,
+    repo: &str,
+    head: &ChangeId,
+    paths: &[String],
+) -> Result<Vec<String>> {
     let mut found = vec![];
-    for (path, bytes) in st.vcs.read_files(repo, head, changed).await? {
+    for (path, bytes) in st.vcs.read_files(repo, head, paths).await? {
         let Ok(bytes) = bytes else { continue };
         let Ok(text) = String::from_utf8(bytes) else {
             continue;
@@ -462,13 +488,51 @@ async fn refuse_conflict_markers(
             }
         }
     }
-    if found.is_empty() {
-        return Ok(());
+    Ok(found)
+}
+
+/// What is left for the owner of a conflicted task, in one line. The task stays conflicted
+/// until `av submit` (the only place `Resolve` fires), whatever its checkpoints fixed.
+pub(crate) async fn conflicted_next(
+    st: &AppState,
+    task: &Task,
+    changed: &[String],
+    conflicts: &[String],
+) -> Result<String> {
+    let (repo, head) = (&task.repo, &task.head_change);
+    let mut found = vec![];
+    if !head.0.is_empty() {
+        found = first_markers(st, repo, head, changed).await?;
+        // a conflict jj has not seen rewritten stays a conflict in the tree, with no file to read
+        if st.vcs.tree_id(repo, head).await?.contains('+') {
+            for (path, bytes) in st.vcs.read_files(repo, head, conflicts).await? {
+                if bytes.is_err() {
+                    found.push(path);
+                }
+            }
+        }
     }
-    Err(AvError::IllegalState(format!(
-        "conflict markers are still in {}: resolve every conflict marker, then checkpoint and submit again",
-        found.join(", ")
-    )))
+    if !found.is_empty() {
+        return Ok(format!(
+            "resolve the conflict markers in {}, `av checkpoint`, then `av submit`, which sends \
+             the task back to review; it stays conflicted until then",
+            found.join(", ")
+        ));
+    }
+    let behind = st
+        .vcs
+        .trunk(&task.repo)
+        .await
+        .is_ok_and(|trunk| trunk != task.base_change);
+    Ok(if behind {
+        "its merge conflicted: `av sync` brings main in; resolve any conflict markers it leaves, \
+         `av checkpoint`, then `av submit`, which sends the task back to review"
+            .to_owned()
+    } else {
+        "no conflict markers are left: `av submit` sends the task back to review; it stays \
+         conflicted until then"
+            .to_owned()
+    })
 }
 
 const CARRIER: &str = "av";

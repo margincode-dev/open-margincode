@@ -415,7 +415,11 @@ async fn check_evidence(
     if let Some(path) = e["code"].as_str() {
         let quote = quote()?;
         let at = match e["commit"].as_str() {
-            Some(c) => ChangeId(c.to_owned()),
+            Some(c) => st
+                .vcs
+                .resolve_commit(repo, c)
+                .await
+                .map_err(|e| e.to_string())?,
             None => commit.clone(),
         };
         let bytes = st

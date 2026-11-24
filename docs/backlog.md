@@ -7,6 +7,29 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: most merges of the day conflicted in this file, because every entry goes at its top
+
+- **Where.** `av merge` in this repository's dogfood, on tasks that each added an entry here.
+- **Seen.** By the owner's count, four of the day's six merges conflicted, each in
+  `docs/backlog.md`. The file says "newest first", so every task inserts its entries right under
+  the header; any two tasks open at once then change the same lines, and the second to merge
+  conflicts there and needs `av sync`, a hand resolution keeping both sides, a new bar run and
+  a resubmit.
+- **Ruled out.** Nothing checked: the conflicts were not looked at one by one, and whether other
+  files (`CHANGELOG.md`'s "Unreleased" list, which is also prepended to) conflicted the same way
+  was not counted.
+- **Guess.** Options, none decided: (a) new entries at the end of the file, which likely moves
+  the collision rather than ending it: two tasks would still insert at one point, after the same
+  last line, and a three-way merge conflicts on two insertions at one point; (b)
+  one file per entry (`docs/backlog/2026-11-24-<slug>.md`), which two tasks never both create,
+  and an index written by hand or not at all; (c) a union merge for files marked append-only
+  (git's `merge=union` in `.gitattributes`), which needs the daemon's merge, done by jj-lib and
+  not git, to honour it: whether jj-lib 0.46 reads merge attributes was not checked, and a union
+  can keep both halves of an edited entry; (d) a repository setting beside `carry_globs` (which
+  already lets an approval survive a resolution in such files) naming append-only files that
+  the daemon's merge resolves itself by keeping both sides, with the same risk as (c).
+- **Status.** Open.
+
 ## 2026-11-24: a title word that names a common symbol filled a first pack with `main` functions
 
 - **Where.** `av task start` in this repository (packer version 13, budget 800), on the task that

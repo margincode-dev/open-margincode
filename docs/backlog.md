@@ -7,6 +7,36 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: four places print a record with no verdict mark at all
+
+- **Where.** `av why` (`derived::why` and its CLI print), `av search` (the CLI print of
+  `GET /v1/repos/{repo}/search`), the MCP tool `search_history`, and `av expand task:<slug>`
+  (`Packer::expand` prints the task's records with an empty `Whence`).
+- **Seen.** Each prints a record's id, kind and summary and nothing of its verdicts: a disputed
+  record is not marked, and since the conflict verdict an overruled one is not either. Packs, the
+  pre-read hook's answer and `av expand rec:…` mark both, and search's JSON carries `verdict` and
+  `overruled`.
+- **Ruled out.** A conflict-only gap: the same holds for `disputed`, so these places were left as
+  they are to keep the two consistent.
+- **Guess.** These views predate verdicts and were never passed `Origins`.
+- **Status.** Open.
+
+## 2026-11-24: a first pack for a change to packs named no file of the packer
+
+- **Where.** `av task start` in this repository (packer version 13, budget 800), on a task whose
+  goal named the rank factor, the pack line, the packer version, `records_at`, `av expand`,
+  `av why` and the MCP record text.
+- **Seen.** The Map listed `crates/margincode-daemon/src/api.rs` and its tests, then
+  `bench/results/2026-11-14-m0/sonnet_spend.py` (left out of the workspace by `.av/sparse`, as in
+  the entry below), `bench/tallyho/src/tallyho/money.py` and `scripts/demo-replay.py`. Code named
+  `records_at` and the `CONFLICTS` text of the previous task. Nothing named
+  `crates/margincode-core/src/standing.rs`, `crates/margincode-pack/src/assemble.rs` or
+  `crates/margincode-pack/src/packer.rs`, where the change went.
+- **Ruled out.** Nothing yet.
+- **Guess.** Words such as "rank", "line" and "version" match many files weakly, and the goal's
+  names (`Whence`, `DISPUTED_FACTOR`) were not in it, so no symbol seeded the packer's files.
+- **Status.** Open.
+
 ## 2026-11-24: a first pack's Map listed a file the task workspace leaves out
 
 - **Where.** `av task start` in this repository (packer version 13, budget 800), twice on

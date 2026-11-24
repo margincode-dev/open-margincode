@@ -9,8 +9,11 @@
   as it is in force. Only a person accepts one, by name (`av verdict accept`); no verify run is
   handed it. A conflict lapses by itself when its rule is amended, repealed or removed
   (`av verdict list --state lapsed`), and a rejected one is not proposed again against the same
-  rule. A run without `--conflicts` is handed the same `DREAM.md` and bundle as before
-  (migration `0035`).
+  rule. Once accepted, the record is still shown, but it ranks at 0.3 like a disputed one (both
+  together are still 0.3) and its line ends `(overruled by art:2: <reason>, vd:…)` in packs, the
+  pre-read hook's answer and `av expand`; record lists and search add `overruled`. A run without
+  `--conflicts` is handed the same `DREAM.md` and bundle as before (migration `0035`, packer
+  version 14).
 - **The retrieval benchmark repeats itself.** `margincode-bench retrieval --run-id ID` (default
   `e1`) names its imports instead of the clock, so two runs of one build on fresh daemons with the
   same workspace root write the same rows and packs (`bench/retrieval/README.md`, "Repeatable

@@ -163,11 +163,13 @@ pub fn standing(facts: &OriginFacts, kind: RecordKind, written: DateTime<Utc>) -
         (Origin::Reverted, _) => REVERTED_FACTOR,
         (Origin::Abandoned, _) => ABANDONED_FACTOR,
     };
-    // a disputed record of any kind: an attempt someone showed to be wrong is not a dead end
-    if facts
-        .verdict
-        .as_ref()
-        .is_some_and(|v| v.kind == VerdictKind::Disputed)
+    // a disputed record of any kind: an attempt someone showed to be wrong is not a dead end;
+    // overruled by a rule ranks the same, and both together no lower
+    if !facts.overruled.is_empty()
+        || facts
+            .verdict
+            .as_ref()
+            .is_some_and(|v| v.kind == VerdictKind::Disputed)
     {
         factor *= DISPUTED_FACTOR;
     }
@@ -379,6 +381,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn an_overruled_record_ranks_as_a_disputed_one_and_both_together_no_lower() {
+        let written = Utc::now();
+        let overruled = vec![Overruling {
+            id: uuid::Uuid::nil(),
+            rule: "art:2".into(),
+            reason: "logs bodies".into(),
+        }];
+        let disputed = EffectiveVerdict {
+            id: uuid::Uuid::nil(),
+            kind: VerdictKind::Disputed,
+            reason: "no".into(),
+            anchor_hashes: vec![],
+        };
+        let facts = |verdict: Option<EffectiveVerdict>, overruled: Vec<Overruling>| OriginFacts {
+            status: TaskStatus::Merged,
+            reverted_at: None,
+            verdict,
+            overruled,
+        };
+        let factor = |f: &OriginFacts| standing(f, RecordKind::Decision, written).factor;
+        assert_eq!(factor(&facts(None, overruled.clone())), DISPUTED_FACTOR);
+        assert_eq!(
+            factor(&facts(Some(disputed.clone()), overruled.clone())),
+            DISPUTED_FACTOR
+        );
+        assert_eq!(
+            without_origin(&facts(None, overruled), RecordKind::Note, written).factor,
+            DISPUTED_FACTOR
+        );
+        assert_eq!(factor(&facts(None, vec![])), 1.0);
     }
 
     #[test]

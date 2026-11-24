@@ -310,6 +310,11 @@ enum Cmd {
         /// into the same daemon: measures a new packer without importing and embedding again.
         #[arg(long)]
         reuse_run: Option<String>,
+        /// Names this run's imports `r<ID>-<task>`. Two runs with one id, each on a fresh
+        /// daemon with the same workspace root, give the same rows; a daemon that already has
+        /// the id's repos refuses them (pass another id, or --reuse-run).
+        #[arg(long, default_value = "e1", conflicts_with = "reuse_run")]
+        run_id: String,
     },
     /// Scale and latency (Plan 6, E2): import one repo into a bench daemon, time packs,
     /// checkpoints and `why`, then run whole tasks with many agents at once. No agent, no money.
@@ -912,6 +917,7 @@ fn main() -> ExitCode {
             index_wait_secs,
             no_pack,
             reuse_run,
+            run_id,
         } => (|| {
             let tasks = retrieval::load_tasks(&tasks, repos.as_deref().map(expand).as_deref())?;
             let daemon = url.as_deref().map(|u| Daemon::new(u, token.as_deref()));
@@ -927,6 +933,7 @@ fn main() -> ExitCode {
                 index_wait_secs,
                 no_pack,
                 reuse_run,
+                run_id,
             };
             retrieval::run(&tasks, daemon.as_ref(), &args)?;
             println!("report: {}", args.out.join("report.md").display());

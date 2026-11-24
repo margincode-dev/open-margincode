@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The retrieval benchmark repeats itself.** `margincode-bench retrieval --run-id ID` (default
+  `e1`) names its imports instead of the clock, so two runs of one build on fresh daemons with the
+  same workspace root write the same rows and packs (`bench/retrieval/README.md`, "Repeatable
+  runs"); a daemon that already holds a run's repos refuses them. Copies of one function now tie
+  in full-text code search and go by path, where the plan Postgres chose used to order them
+  (packer version 13).
 - **`av init --for opencode` connects OpenCode 2.x.** It writes the `av` MCP server into
   OpenCode's global `opencode.json` (`mcp.servers.av`, under `$XDG_CONFIG_HOME/opencode`, default
   `~/.config/opencode` on every OS), keeping the rest of the file and the previous one as `*.bak`.

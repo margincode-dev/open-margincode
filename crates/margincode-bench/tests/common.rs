@@ -113,6 +113,19 @@ pub fn start_daemon(token: Option<&str>) -> TestDaemon {
 
 /// `plain_records`: as a daemon run with `AV_PLAIN_RECORDS=on`.
 pub fn start_daemon_with(token: Option<&str>, plain_records: bool) -> TestDaemon {
+    start(token, plain_records, None)
+}
+
+/// A daemon whose workspaces are under `ws_root` (which must exist and be empty), on a fresh database.
+pub fn start_daemon_in(ws_root: &Path) -> TestDaemon {
+    start(None, false, Some(ws_root.to_path_buf()))
+}
+
+fn start(
+    token: Option<&str>,
+    plain_records: bool,
+    ws_root: Option<std::path::PathBuf>,
+) -> TestDaemon {
     let token = token.map(str::to_owned);
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -125,26 +138,18 @@ pub fn start_daemon_with(token: Option<&str>, plain_records: bool) -> TestDaemon
             let db = TestDb::new().await;
             let store_dir = TempDir::new().unwrap();
             let ws = TempDir::new().unwrap();
+            let ws_root = ws_root.unwrap_or_else(|| ws.path().to_path_buf());
             let store = Arc::new(PgStore::connect(&db.url).await.unwrap());
             let index = Arc::new(PgIndex::new(store.pool().clone()));
-            let vcs = Arc::new(JjVcs::new(
-                store_dir.path().to_path_buf(),
-                ws.path().to_path_buf(),
-            ));
-            let state = AppState::new(
-                vcs,
-                store,
-                index,
-                ws.path().to_path_buf(),
-                ws.path().to_path_buf(),
-            )
-            .with_token(token)
-            .with_plain_records(plain_records);
+            let vcs = Arc::new(JjVcs::new(store_dir.path().to_path_buf(), ws_root.clone()));
+            let state = AppState::new(vcs, store, index, ws_root.clone(), ws_root.clone())
+                .with_token(token)
+                .with_plain_records(plain_records);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             ready_tx
                 .send((
                     format!("http://{}", listener.local_addr().unwrap()),
-                    ws.path().to_path_buf(),
+                    ws_root,
                 ))
                 .unwrap();
             axum::serve(listener, router(state))

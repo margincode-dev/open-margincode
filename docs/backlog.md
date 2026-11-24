@@ -7,14 +7,70 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: `swarm_loop_runs_backlog_to_merged` failed once in a full test run
+
+- **Where.** `crates/margincode-daemon/tests/swarm.rs`, `cargo test --workspace` in the local
+  Docker bar, on a branch that changes the index, the pack version and the benchmark only.
+- **Seen.** One failure in one full run: task `code-item-1` was still `in_review` where the test
+  expects `merged`, and the loop took 13 s. The test then passed three times on its own (about
+  5.5 s each), and the next full run passed.
+- **Ruled out.** The branch's own changes: none touches the swarm loop, the merge queue or a
+  task's states.
+- **Guess.** Timing under load: the full run has many test binaries on one Postgres, and the test
+  stops waiting before the landing is done.
+- **Status.** Open; seen once.
+
 ## 2026-11-23: the retrieval benchmark is not repeatable run to run
 
 - **Where.** `margincode-bench retrieval` (`crates/margincode-bench/src/retrieval.rs`).
 - **Seen.** Two runs of the same build over the same tasks give different rows. A small
   difference between two ranking configurations therefore cannot be read from one run of each.
-- **Ruled out.** Nothing yet.
-- **Guess.** None yet: the cause is not found.
-- **Status.** Open; being worked on.
+  Reproduced with a handful of the public tasks, each run on a fresh daemon database with the
+  same paths, no semantic layer: the packs differed in their `Workspace:` line in every task, and
+  on one repo (hono, which has the same class in two files) also in the order of two code items,
+  at every budget.
+- **Ruled out.** Symbol ids (the same in both runs on a fresh database), the order the indexer
+  stores files and symbols, the packer's own tie-breaks (`budget.rs`: total orders), the scorer
+  and the `bm25_files` and `bm25_symbols` baselines (their texts were the same in every run). The
+  semantic layer was off, so its share (embedder, Qdrant, timeouts marked `degraded`) is not
+  checked.
+- **Cause (found, three).**
+  - *The harness.* Each run named its imports from the clock (`r<hex seconds>-<task>`). The name
+    is in every pack, in the task's workspace path, so its token count took budget from the
+    items: which item fit at the edge changed with the id, and so did the rows' `tokens` and
+    `first_gold`. A different workspace root does the same.
+  - *The product.* `search_code_lexical` (`crates/margincode-index/src/store.rs`) summed a chunk's
+    BM25 terms in the order Postgres handed the rows to the aggregate. On a large repo the
+    planner sorts them by symbol before grouping, and that sort does not keep each chunk's terms
+    in order, so two copies of one function got sums that differ in the last bit. A lexical hit
+    weighs by its rank, so the copies swapped places and every item after them moved. The plan
+    depends on the table statistics, which a fresh database gathers at its own time. Seen in
+    psql on the public repo by changing the term order and plan settings; real packs handed to
+    agents had the same instability wherever identical code sits in two files.
+  - *The `repo_map` baseline.* Its PageRank summed each file's edge weights over a `HashMap`,
+    whose order differs from map to map, so files of two copies of one package swapped places in
+    its text. Seen on the full public set once the first two were fixed; its rows did not change.
+- **Status.** Fixed in this change. `retrieval --run-id ID` (default `e1`) replaces the clock;
+  `bench/retrieval/README.md` ("Repeatable runs") names the conditions: same id, same workspace
+  root, a fresh database. The lexical sum runs `ORDER BY` the term, so copies tie and go by path.
+  `repo_map` keeps its edges in a `BTreeMap`. The test
+  `retrieval_gate::two_runs_on_fresh_daemons_give_the_same_rows_and_packs` fails when the two
+  runs' ids differ, and `retrieval::repo_map_is_the_same_every_time` failed before the change.
+  The index test for the tie (`lexical::copies_of_one_function_tie_*`) passes on the code before
+  the fix too: on a fixture that small the planner keeps each chunk's terms in order. Exact ties
+  can now order differently from before, so `PACKER_VERSION` went to 13. Not checked: the
+  semantic path.
+
+## 2026-11-23: records found by full-text search tie on a random id
+
+- **Where.** `search_records_fts` in `crates/margincode-store/src/pg.rs` (`ORDER BY
+  ts_rank(...) DESC, r.id`).
+- **Seen (read, not reproduced).** Records with the same rank are ordered by `r.id`, a random
+  UUID, so two stores holding the same records can list equal-rank records in different orders.
+- **Ruled out.** Nothing; the retrieval benchmark has no records, so it does not reach this.
+- **Guess.** A tie-break on something both stores share (created time, then the summary) would
+  make it repeatable; a ranking change, not made here.
+- **Status.** Open.
 
 ## 2026-11-23: a pack rebuilt because main moved refers back to the pack it threw away
 

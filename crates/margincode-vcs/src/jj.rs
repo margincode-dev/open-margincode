@@ -37,7 +37,7 @@ use jj_lib::gitignore::GitIgnoreFile;
 use jj_lib::matchers::{EverythingMatcher, NothingMatcher};
 use jj_lib::merge::Merge;
 use jj_lib::merged_tree::MergedTree;
-use jj_lib::object_id::ObjectId as _;
+use jj_lib::object_id::{HexPrefix, ObjectId as _, PrefixResolution};
 use jj_lib::op_store::RefTarget;
 use jj_lib::ref_name::{RefName, WorkspaceNameBuf};
 use jj_lib::repo::{ReadonlyRepo, Repo as _, RepoLoader};
@@ -407,6 +407,28 @@ impl Inner {
 
     fn commit_in_repo(&self, ro: &Arc<ReadonlyRepo>, change: &ChangeId) -> Result<Commit> {
         self.commit(ro.store(), change)
+    }
+
+    fn resolve_commit(&self, repo: &str, id: &str) -> Result<ChangeId> {
+        let given = id.trim().to_ascii_lowercase();
+        let prefix = Some(&given)
+            .filter(|g| !g.is_empty())
+            .and_then(HexPrefix::try_from_hex)
+            .ok_or_else(|| {
+                AvError::Invalid(format!(
+                    "{id:?} is not a commit id: a commit id is hex digits"
+                ))
+            })?;
+        let ro = self.head(repo)?;
+        match block_on(ro.index().resolve_commit_id_prefix(&prefix)).map_err(verr)? {
+            PrefixResolution::SingleMatch(c) => Ok(ChangeId(c.hex())),
+            PrefixResolution::NoMatch => Err(AvError::Invalid(format!(
+                "no commit of repo {repo} starts with {given}"
+            ))),
+            PrefixResolution::AmbiguousMatch => Err(AvError::Invalid(format!(
+                "{given} is the start of more than one commit of repo {repo}; give more of its digits"
+            ))),
+        }
     }
 
     fn init_repo(&self, repo: &str, git_source: &Path) -> Result<ChangeId> {
@@ -1731,5 +1753,10 @@ impl Vcs for JjVcs {
     async fn tree_id(&self, repo: &str, change: &ChangeId) -> Result<String> {
         let (name, change) = (repo.to_owned(), change.clone());
         self.read(repo, move |i| i.tree_id(&name, &change)).await
+    }
+
+    async fn resolve_commit(&self, repo: &str, id: &str) -> Result<ChangeId> {
+        let (name, id) = (repo.to_owned(), id.to_owned());
+        self.read(repo, move |i| i.resolve_commit(&name, &id)).await
     }
 }

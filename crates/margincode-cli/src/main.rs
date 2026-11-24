@@ -2419,7 +2419,13 @@ fn run(cli: Cli) -> Result<()> {
                 .map(|a| a.iter().filter_map(Value::as_str).collect())
                 .unwrap_or_default();
             if !conflicts.is_empty() {
-                println!("conflicts: {}", conflicts.join(", "));
+                println!(
+                    "conflicts at the last merge or sync: {}",
+                    conflicts.join(", ")
+                );
+            }
+            if let Some(next) = r["next"].as_str() {
+                println!("next: {next}");
             }
         }
         Cmd::Submit { records } => {

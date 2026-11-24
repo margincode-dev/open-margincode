@@ -159,6 +159,7 @@ struct Structural {
     /// Embedding similarity of the records that were semantic hits, by item id.
     similarity: HashMap<String, f32>,
     origins: Origins,
+    off_disk: Vec<String>,
 }
 
 struct RecordFacts {
@@ -521,6 +522,7 @@ pub(crate) async fn gather(
         expand_best_hits(d, task, limit, &mut parts).await?;
     }
     lead_goal_matches(query.as_deref(), &mut parts);
+    mark_off_disk(&parts.off_disk, &mut parts.gathered.items);
     parts.gathered.foreign = parts
         .records
         .iter()
@@ -528,6 +530,29 @@ pub(crate) async fn gather(
         .map(|(id, _)| id.clone())
         .collect();
     Ok(parts.gathered)
+}
+
+const OFF_DISK_MARK: &str = " (not on disk: `av show`)";
+
+/// The index holds files a sparse workspace leaves out (`Vcs::off_disk`), so a Map entry or Code
+/// item can name one; its first line says so. Its score is left as it was.
+fn mark_off_disk(prefixes: &[String], items: &mut [Item]) {
+    if prefixes.is_empty() {
+        return;
+    }
+    for i in items.iter_mut() {
+        let path = match i.section {
+            Section::Code => i.source.as_ref().map(|(p, _, _)| p.as_str()),
+            Section::Map => i.id.strip_prefix("file:"),
+            _ => None,
+        };
+        if !path.is_some_and(|p| prefixes.iter().any(|pre| p.starts_with(pre.as_str()))) {
+            continue;
+        }
+        for t in i.tiers.iter_mut() {
+            t.insert_str(t.find('\n').unwrap_or(t.len()), OFF_DISK_MARK);
+        }
+    }
 }
 
 /// Change B of `bench/results/2026-11-first-pack/PREREG.md`: the `score::GOAL_LEADS` History
@@ -870,15 +895,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             vec![]
         }
     };
-    let off_line = if off_disk.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nNot on disk: {} (`av show PATH` reads a file there, `av widen PATH` writes it here)",
-            off_disk.join(", ")
-        )
-    };
-    let summary = format!("{handle}\nGoal: {}{off_line}", task.goal);
+    let summary = format!("{handle}\nGoal: {}", task.goal);
     let goal = task.goal.trim();
     let handle = if goal.is_empty() {
         handle
@@ -911,6 +928,23 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         .because("task")
         .required_if(true),
     );
+    // An item of its own, scored below the task's, so a budget that holds only the goal keeps it.
+    if !off_disk.is_empty() {
+        let line = format!(
+            "Not on disk: {} (`av show PATH` reads a file there, `av widen PATH` writes it here)",
+            off_disk.join(", ")
+        );
+        items.push(
+            item(
+                "off-disk".into(),
+                Section::Task,
+                0.99,
+                [line.clone(), line.clone(), line],
+            )
+            .because("task")
+            .required_if(true),
+        );
+    }
 
     for l in &located {
         let s = &l.sym;
@@ -1258,6 +1292,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         records: facts,
         origins,
         similarity: HashMap::new(),
+        off_disk,
     })
 }
 

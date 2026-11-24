@@ -187,6 +187,62 @@ async fn a_widen_does_not_hold_up_other_tasks_in_the_repo() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn resolve_commit_takes_a_unique_prefix_and_refuses_the_rest() {
+    let e = env().await;
+    let full = e.main.0.clone();
+    for given in [
+        &full[..12],
+        &full[..7],
+        &full,
+        &full[..12].to_ascii_uppercase(),
+    ] {
+        assert_eq!(
+            e.vcs.resolve_commit("demo", given).await.unwrap(),
+            e.main,
+            "{given}"
+        );
+    }
+    // snapshots until two known commits share a first digit: at most 17 ids for 16 digits
+    let w = e.vcs.create_workspace("demo", "t").await.unwrap();
+    let mut known = vec![e.main.0.clone()];
+    let mut i = 0;
+    let shared = loop {
+        let firsts: Vec<char> = known.iter().map(|c| c.chars().next().unwrap()).collect();
+        if let Some(c) = firsts
+            .iter()
+            .enumerate()
+            .find(|(n, c)| firsts[..*n].contains(c))
+            .map(|(_, c)| *c)
+        {
+            break c;
+        }
+        i += 1;
+        std::fs::write(w.path.join("a.py"), format!("def a():\n    return {i}\n")).unwrap();
+        let head = e.vcs.snapshot("demo", "t").await.unwrap();
+        if !known.contains(&head.0) {
+            known.push(head.0);
+        }
+    };
+    let last = full.chars().last().unwrap();
+    let unknown = format!("{}{}", &full[..39], if last == '0' { '1' } else { '0' });
+    for (given, why) in [
+        (shared.to_string(), "more than one commit"),
+        (unknown, "no commit"),
+        (format!("{full}0"), "no commit"),
+        (full.repeat(5), "no commit"),
+        ("HEAD~1".to_owned(), "not a commit id"),
+        (String::new(), "not a commit id"),
+    ] {
+        match e.vcs.resolve_commit("demo", &given).await {
+            Err(margincode_core::AvError::Invalid(msg)) => {
+                assert!(msg.contains(why), "{given:?}: {msg}")
+            }
+            other => panic!("{given:?}: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn init_repo_imports_git_source_and_lists_files() {
     let e = env().await;
     let mut files = e.vcs.list_files("demo", &e.main).await.unwrap();

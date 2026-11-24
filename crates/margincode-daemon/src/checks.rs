@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use margincode_core::{AvError, ChangeId, CheckRow, LogEntry, Result, TaskId};
+use margincode_core::{ChangeId, CheckRow, LogEntry, Result, TaskId};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -34,11 +34,8 @@ pub(crate) async fn post_check(
     Path(repo): Path<String>,
     Json(b): Json<CheckBody>,
 ) -> ApiResult<Value> {
-    if b.change.is_empty() || !b.change.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return Err(AvError::Invalid(format!("bad change id {:?}", b.change)).into());
-    }
     let row = CheckRow {
-        change: b.change.to_ascii_lowercase(),
+        change: st.vcs.resolve_commit(&repo, &b.change).await?.0,
         command: b.command,
         exit_code: b.exit_code,
         output_tail: b

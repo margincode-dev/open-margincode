@@ -1199,6 +1199,56 @@ fn merge_change(d: &Daemon, scratch: &Path, title: &str, path: &str, text: &str)
 }
 
 #[test]
+fn status_of_a_conflicted_task_says_what_is_left() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    let s = scratch.path();
+    ok(av(&d, s, &["repo", "add", "demo", d.src.to_str().unwrap()]));
+    let started = ok(av_as(
+        &d,
+        s,
+        "dev",
+        &[
+            "task", "start", "--repo", "demo", "--title", "Second", "--goal", "Second",
+        ],
+    ));
+    let ws = PathBuf::from(
+        started
+            .lines()
+            .next()
+            .unwrap()
+            .trim_start_matches("workspace: "),
+    );
+    merge_change(&d, s, "First", "app/util.py", "FIRST = 1\n");
+    std::fs::write(ws.join("app/util.py"), "SECOND = 2\n").unwrap();
+    ok(av_as(
+        &d,
+        &ws,
+        "dev",
+        &["record", "--kind", "note", "--summary", "second"],
+    ));
+    ok(av_as(&d, &ws, "dev", &["validate", "--", "true"]));
+    ok(av_as(&d, &ws, "dev", &["submit"]));
+    ok(av_as(&d, &ws, "rev", &["review", "--verdict", "approve"]));
+    let merged = av_as(&d, &ws, "dev", &["merge"]);
+    assert!(!merged.status.success(), "{}", out(&merged));
+
+    let st = ok(av_as(&d, &ws, "dev", &["status"]));
+    assert!(st.contains("conflicted"), "{st}");
+    assert!(st.contains("next: ") && st.contains("av sync"), "{st}");
+    ok(av_as(&d, &ws, "dev", &["sync"]));
+    let st = ok(av_as(&d, &ws, "dev", &["status"]));
+    assert!(
+        st.contains("conflicts at the last merge or sync: app/util.py"),
+        "{st}"
+    );
+    assert!(
+        st.contains("next: resolve the conflict markers in app/util.py"),
+        "{st}"
+    );
+}
+
+#[test]
 fn bisect_names_the_merge_that_broke_main_and_revert_fixes_it() {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();

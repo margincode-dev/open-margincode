@@ -645,11 +645,21 @@ async fn get_task(State(st): State<AppState>, Path(id): Path<Uuid>) -> ApiResult
     let merge = st.store.merge_state(task.id).await?;
     let verdict = st.store.latest_verdict(task.id, &task.head_change).await?;
     let backup = crate::backup::shown(st.pg.backup_state(&task.repo).await?);
-    Ok(Json(json!({
+    let next = match task.status {
+        TaskStatus::Conflicted => {
+            Some(crate::flow::conflicted_next(&st, &task, &changed, &merge.conflicts).await?)
+        }
+        _ => None,
+    };
+    let mut answer = json!({
         "task": task, "record_count": record_count, "changed": changed, "merge": merge,
         "backup": backup,
         "verdict": verdict.map(|(reviewer, v)| json!({"reviewer": reviewer, "verdict": v.as_str()})),
-    })))
+    });
+    if let Some(next) = next {
+        answer["next"] = json!(next);
+    }
+    Ok(Json(answer))
 }
 
 #[derive(Deserialize)]
@@ -1333,7 +1343,8 @@ struct AtQuery {
 }
 
 /// `at` as a commit: `main` (the default) is trunk, `task:<slug>` is that task's last checkpoint
-/// (its base before the first one), and anything else is taken as a full commit id.
+/// (its base before the first one), and anything else is taken as a commit id or a unique prefix
+/// of one.
 pub(crate) async fn resolve_at(st: &AppState, repo: &str, at: Option<&str>) -> Result<ChangeId> {
     match at.unwrap_or("main") {
         "main" => st.vcs.trunk(repo).await,
@@ -1347,10 +1358,10 @@ pub(crate) async fn resolve_at(st: &AppState, repo: &str, at: Option<&str>) -> R
                 })
             }
             None if !at.is_empty() && at.bytes().all(|b| b.is_ascii_hexdigit()) => {
-                Ok(ChangeId(at.to_ascii_lowercase()))
+                st.vcs.resolve_commit(repo, at).await
             }
             None => Err(AvError::Invalid(format!(
-                "bad at={at:?}; expected main, task:<slug> or a commit id"
+                "{at:?} is not main, task:<slug> or a commit id"
             ))),
         },
     }

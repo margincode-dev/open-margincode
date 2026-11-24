@@ -181,6 +181,17 @@ least one decision, attempt, note or handoff record. The refusal lists changed s
 record covers. An approve needs a passing validation at the head and is refused when the head is
 already approved in its current review round, since the latest submit (the answer names who
 approved it and when); after a resubmit the head is reviewed again.
+A task stays `conflicted` until `av submit`, the one step that resolves it: it rebases onto `main`
+again and, with no conflict markers left, sends the task back to review. Until then
+`GET /v1/tasks/{id}` (`av status`, the MCP `status` tool) carries a `next` line saying what is left.
+A task in review can still be checkpointed and validated: a review judges its head as it is when
+the verdict is given, so a change made during review needs no new submit (`av submit` on it is
+refused and says so), only a passing `av validate` at the new head. A reviewer's approval of a
+head that moved since the latest submit first passes what a submit checks on that head: it must
+change something, hold no conflict markers, and pass an extension's submit guard with its
+changed paths; a refusal names the head and why, and nothing is approved. The record gate needs
+no second look: records are append-only. An approval `av` carries asks no guard, since it keeps
+the approved set of changed files, but is not made while a changed file holds a conflict marker.
 A review finding the reviewer already stored at the same head is not stored twice. Every finding
 is checked before anything is written (a summary that is blank or longer than 200 characters is
 refused with `400`, naming it as `findings[i]`; `av review --finding` fits a longer one first, as
@@ -299,7 +310,7 @@ What we took from Anthropic's description of Scion and Antique, and where it lan
 | Idea from the article | In Margincode |
 |---|---|
 | A thin client; the server owns history, merges and rebases | The daemon owns all state; the CLI and MCP tools are thin HTTP clients |
-| An API complete enough that jobs need no checkout | `GET /v1/repos/{r}/files`, `/tree`, `/diff`, `/log` and the MCP tools `read_file`, `list_files`, `diff`, `log` (`margincode show`, `margincode diff`) |
+| An API complete enough that jobs need no checkout | `GET /v1/repos/{r}/files`, `/tree`, `/diff`, `/log` and the MCP tools `read_file`, `list_files`, `diff`, `log` (`margincode show`, `margincode diff`); a commit is `main`, `task:<slug>`, or its id or a unique prefix of it, such as the 12 digits av prints (an unknown or ambiguous one is a `400`) |
 | Derived data computed per change from its parent's value | `blame_v1`, cached by immutable commit id; `margincode why path:line` names the task, goal and decisions behind a line |
 | No global merge queue: merge, test after, and rely on bisect and revert | `margincode runner` checks every new main, `margincode health` names the merge that broke it, `margincode bisect` finds it, `margincode revert` takes any merge out |
 | Approvals with constraints, so a mechanical rebase does not need a fresh review | An approval carries over a rebase when the task's own patch is unchanged, or the only overlap is in files matching `carry_globs` (Markdown by default) |
@@ -1430,7 +1441,7 @@ The API, for other clients:
   the workspace or in `.jj`, `.git` or `.av-task`; nothing is written. `422`: a write under a
   lost claim (`X-Av-Generation`), as for every write. Without `base` the route is the usual
   local checkpoint and ignores its body.
-- `GET /v1/tasks/{id}/patch?from=<change>` (`main`, `task:<slug>` or a commit id; without `from`
+- `GET /v1/tasks/{id}/patch?from=<change>` (`main`, `task:<slug>` or a commit id or prefix; without `from`
   the empty tree, so a whole checkout): the task's head as a patch `git apply` accepts, conflicted
   files with their markers; headers `X-Av-Head` and `X-Av-Tree`. Reads the store only.
 
@@ -1810,7 +1821,10 @@ Nothing an agent writes is lost by it:
   commit.
 
 The first lines of a pack say what the workspace leaves out, read from the working copy itself
-(so nothing for a full workspace): `Not on disk: bench/results/ (...)`. To read a listed file,
+(so nothing for a full workspace): `Not on disk: bench/results/ (...)`, a required item of the
+Task section (`off-disk`) after the task itself. A file under one of those paths can still be in the Map or the Code section; its line then
+ends with `` (not on disk: `av show`) `` (a file widened there is marked too while the path is
+still listed). To read a listed file,
 `av show PATH` (from `main`, or `--at task:<slug>`). To work on one, widen the workspace:
 
 ```bash

@@ -7,6 +7,29 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-24: most merges of the day conflicted in this file, because every entry goes at its top
+
+- **Where.** `av merge` in this repository's dogfood, on tasks that each added an entry here.
+- **Seen.** By the owner's count, four of the day's six merges conflicted, each in
+  `docs/backlog.md`. The file says "newest first", so every task inserts its entries right under
+  the header; any two tasks open at once then change the same lines, and the second to merge
+  conflicts there and needs `av sync`, a hand resolution keeping both sides, a new bar run and
+  a resubmit.
+- **Ruled out.** Nothing checked: the conflicts were not looked at one by one, and whether other
+  files (`CHANGELOG.md`'s "Unreleased" list, which is also prepended to) conflicted the same way
+  was not counted.
+- **Guess.** Options, none decided: (a) new entries at the end of the file, which likely moves
+  the collision rather than ending it: two tasks would still insert at one point, after the same
+  last line, and a three-way merge conflicts on two insertions at one point; (b)
+  one file per entry (`docs/backlog/2026-11-24-<slug>.md`), which two tasks never both create,
+  and an index written by hand or not at all; (c) a union merge for files marked append-only
+  (git's `merge=union` in `.gitattributes`), which needs the daemon's merge, done by jj-lib and
+  not git, to honour it: whether jj-lib 0.46 reads merge attributes was not checked, and a union
+  can keep both halves of an edited entry; (d) a repository setting beside `carry_globs` (which
+  already lets an approval survive a resolution in such files) naming append-only files that
+  the daemon's merge resolves itself by keeping both sides, with the same risk as (c).
+- **Status.** Open.
+
 ## 2026-11-24: a title word that names a common symbol filled a first pack with `main` functions
 
 - **Where.** `av task start` in this repository (packer version 13, budget 800), on the task that
@@ -21,10 +44,49 @@ the suspected cause, marked as a guess; the status.
   omitted items, and the other four were not in the shown part of that list. A second pack with
   `--focus crates/margincode-store/src/pg.rs` carried `slugify` and `IntentStore.create_task`,
   but also a `slugify` of `bench/tallyho/` and another `main` of `bench/results/`.
-- **Ruled out.** Nothing yet; the scores were not looked at.
-- **Guess.** The same as the entry below on a Map that listed a left-out file, with the title's
-  words weighed above the goal's backticked names: a common word that is also a symbol name
-  matches many same-named symbols across the repository.
+- **Reproduced.** On dogfood at `5f8c193` (packer version 14, no semantic layer: the repo's
+  `outbox` route answers `semantic: false`), a new task with the same title and goal, budget 800:
+  the Map listed two files under `bench/results/`, and Code held three `main` functions of
+  `bench/results/` (score 0.6, reason `seed`) and the `slugify` of `bench/tallyho/` (0.6). A pack
+  of the same task at 30,000 tokens had `PgStore.create_task`, `slugify` and `task_slug` of
+  `pg.rs` among its seeds, all at 0.6 as well. The same goal under another title gave the same
+  candidates and scores (they differed only in records' recency, in the fifth decimal).
+- **Ruled out.** The title. The packer's query is the goal, or the focus when one is given
+  (`assemble::semantic_query`, `lexical::named_identifiers(&task.goal)`); the title is only
+  printed in the Task line.
+- **Cause (found, three rules together).**
+  - *The names the goal gives.* `lexical::named_identifiers` takes every backticked word of four
+    characters or more as an identifier and keeps the first eight (`MAX_NAMED`). This goal's
+    first backticks are `main` and `default` ("gives the slug `main` or `default`"), and a
+    backticked name with a `-` gives each of its words (`margincode-store` gives `margincode` and
+    `store`, `main-task` gives `task`). The eight were `main`, `default`, `margincode`, `store`,
+    `create_task`, `task_slug`, `slugify` and `task`; `valid_component` and `task_workspace`,
+    named last, were cut.
+  - *Which symbols a name finds.* `PgIndex::search_symbols` (`margincode-index` `store.rs`)
+    matches a substring of the qname or the path, puts exact qnames first, then orders by path
+    byte by byte, and stops at 10 rows (`FOCUS_LIMIT`) before `names_symbol_at` filters them and
+    `NAMED_PER_IDENT` keeps four. The repository has more than ten functions named `main`, and the
+    first ten by path are all under `bench/results/` (a pack with `focus=main` seeds exactly
+    those ten), so the four `main` seeds were the four first by path. Names compare without case,
+    so `store` found `Store` and `task` found `Task`.
+  - *Which seeds fit.* A seed scores `score::code_score(0, 0.0)`, 0.6, unless a lexical hit adds
+    to it; none did here (the eight lexical hits at this budget were other symbols, at most 0.56).
+    Equal scores go by `Item::tie_key`, the source path, so `bench/` seeds took the Code section's
+    room before any `crates/` seed. The fill (`budget::fill`) also passes over an item whose handle
+    does not fit what is left and takes a shorter one after it: the fourth `main` was left out and
+    the `slugify` of `bench/tallyho/` taken. Neighbours are cut the same way by age: the packer
+    keeps 40 (`MAX_NEIGHBORS`) ordered by hops, then symbol id, and a file untouched since the
+    import (the result archives) holds the lowest ids, since a re-indexed file's symbols get new
+    ones; at 30,000 tokens every hop-1 neighbour of this goal was under `bench/`. `expand_best_hits`
+    cuts its neighbours by id too: this backlog task's own first pack had `JobQueue.push` and
+    `JobQueue.len` of `bench/retrieval/ci/` beside its one hit, `PgStore.task_packs`, whose body
+    uses `push` and `len`.
+  - Not reproduced: the `load` of `bench/tasks-m0/`. No `load` reached the reproduced pack at 800
+    tokens; the one `load` among the candidates at 30,000 tokens is of a result archive, at hop 1
+    (0.425), below every seed.
+- **Fixed in part (packer version 15).** The `bench/results/` items such a pack shows now say
+  they are not on disk, and the Task line naming `bench/results/` is in every first pack (see
+  the entry on a left-out file in the Map). Which names and seeds the goal gives is unchanged.
 - **Status.** Open.
 
 ## 2026-11-24: `av record --anchor path:create_task` was taken, but did not cover `PgStore.create_task`
@@ -48,9 +110,42 @@ the suspected cause, marked as a guess; the status.
   `dream.rs` and a `check_set.py`; the change went into `crates/margincode-bench/src/main.rs`
   (the subcommand), `lib.rs` (the module line) and `runner.rs` (one helper made visible), none of
   which it named.
-- **Ruled out.** Nothing yet: whether the three files were in the index at start was not checked.
-- **Guess.** The goal's words match the dream code, not the clap enum or the module list, and
-  nothing ranks a crate's entry point for a "new command" goal.
+- **Reproduced.** On dogfood at `5f8c193` (packer version 14, no semantic layer), a new task with
+  the same title and goal, budget 800: the Map listed three `check_set.py` under `bench/`,
+  `crates/margincode-bench/src/conflict.rs` (merged since), `dreamed.rs` and the CLI's
+  `dream.rs`; Code held `CONFLICTS`, three `check` functions and a `BENCH` of the `check_set.py`
+  files, and the `check` of `conflict.rs`, all seeds.
+- **Ruled out.** A gap in the index for `main.rs`: its clap enum `Cmd` is a symbol (a pack with
+  `focus=Cmd` names `Cmd (crates/margincode-bench/src/main.rs:129-439)`), and `main.rs` at the
+  task's base already held `enum Cmd` with `DreamFreeze`.
+- **Cause (found).** `Cmd` had no score: it was never a candidate. The entry point was one hop
+  from a seed and was cut for its age.
+  - *Not named.* The goal's eight names (`named_identifiers`) were `bench`, `conflict`, `check`,
+    `margincode`, `dream`, `freeze`, `crates` and `conflicts`: the words of its backticked paths
+    and commands (`bench/conflict-check/`, `margincode-bench`, `dream-freeze`,
+    `crates/margincode-bench/src/dreamed.rs`), while a name ending in `.rs` is dropped as a file.
+    These seeded the `check` functions of `bench/tasks-*/check_set.py` (first by path, as in the
+    entry on `main` functions above), `BENCH` (names compare without case), `freeze` of
+    `dreamed.rs`, two `Dream` structs, `CRATES` and `CONFLICTS`. Nothing in the goal names `Cmd`
+    or one of its variants.
+  - *Not searched.* Full-text search takes the goal's first 16 words (`lexical::MAX_TERMS`),
+    which end at "records"; "harness", "command", "dreamed" and "main" come later in the goal, so
+    none of them was searched. `Cmd` was not among the 8 lexical hits a pack of 800 tokens takes,
+    nor among the 40 of a pack of 30,000 tokens on today's main.
+  - *Cut from the neighbours.* `fn main` of `crates/margincode-bench/src/main.rs` calls
+    `dreamed::freeze`, at the task's base as today, so it is one hop from the seed `freeze`, and
+    `Cmd` two. The packer keeps 40 neighbours ordered by hops, then symbol id (`MAX_NEIGHBORS`,
+    `gather_structural`). At 30,000 tokens the 40 kept were all at hop 1, with ids up to 474, all
+    under `bench/`; a file that is often changed is re-indexed with new ids (`Cmd` is `sym:79785`
+    today), so `main.rs` lost the cut to symbols that only had older ids. That is what outranked
+    it.
+  - *`runner.rs`* had no item in the pack at 30,000 tokens either; why was not looked at.
+  - *The module list is no symbol.* `extract::rs_block` walks a `mod` only when it has a body, so
+    `pub mod x;` lines make nothing: the crate's `lib.rs` has one symbol, `pub type Result` (a
+    pack with its path as focus finds only that). Its module list can reach a pack only as a
+    changed file or through that `Result`.
+  - Not checked: a pack against the task's own base. Today's index has `conflict.rs`, which the
+    first pack could not have had; it named `isolate.rs` instead.
 - **Status.** Open.
 
 ## 2026-11-24: four places print a record with no verdict mark at all
@@ -92,10 +187,50 @@ the suspected cause, marked as a guess; the status.
   workspace; it can be read only with `av show`. The second pack also named `mcp.rs`, which the
   goal mentioned, but not `crates/margincode-cli/src/main.rs`, where the new flag went, nor
   `crates/margincode-daemon/tests/dream.rs`, which held the tests the goal asked for.
-- **Ruled out.** Nothing yet; why that file scored was not looked at.
-- **Guess.** The Map ranks the repository's files without knowing the workspace's sparse
-  patterns, and a large Python file wins on a word or two of text.
-- **Status.** Open.
+- **Reproduced.** On dogfood at `5f8c193` (packer version 14, no semantic layer), new tasks with
+  each goal, budget 800. The second task's Map listed the file as its fourth entry, score 0.425
+  (reason `map`, the score of hop 1); in the first task's pack it was a candidate at the same
+  score and the first of the omitted items.
+- **Ruled out.** That the file won on its text, and that the Map ranks the repository's files.
+  The Map takes only the files of seeds and of their neighbours (`gather_structural`:
+  `map_paths` is `seed_paths` with `neighbor_paths`); a lexical or semantic hit adds a Code item,
+  never a Map entry.
+- **Cause (found).**
+  - *How it came in.* The second goal names `propose_one`, whose body uses the identifier `kind`,
+    and a ref links by bare name to every symbol of that name (`rebuild_edges`). The Python
+    function `kind` at lines 3 to 10 of `tool-mass.py` is one hop from it. The packer keeps 40
+    neighbours ordered by hops, then symbol id, and this one has one of the lowest ids in the
+    index (`sym:4`), so it is always kept. Its file scores as hop 1; equal Map scores go by the
+    item id `file:<path>`, so `bench/` comes before `crates/`. In the first task the seed is
+    `PgStore.record_origins`, which has a local `kind` too.
+  - *Left-out files are in the index.* Nothing reads `.av/sparse` but the Task line. The index
+    skips only `node_modules`, `.venv`, `target` and `.git` (`margincode-index` `is_ignored`); a
+    task's scope reads main's rows for every path its overlay does not hold, and a snapshot of a
+    sparse workspace keeps the left-out files in the tree, so they have symbols, refs and BM25
+    chunks in every task's view. `sym:4` is the first lexical hit of a focus made of its own
+    words, and a pack with `focus=main` seeds ten `main` functions of `bench/results/`.
+    `Vcs::off_disk` is read in one place, `gather_structural`, for the Task line.
+  - *What the pack says about such a file.* Nothing on its Map line or Code item. The line
+    `Not on disk: …` is in the Task item's summary and full tiers, not its handle; with a long
+    goal at 800 tokens the Task goes at its handle, and none of the four packs reproduced for
+    these entries (both tasks here, and those of the entries on `main` functions and on a new
+    bench subcommand) had the line. `docs/reference.md` says the first lines of a pack say what
+    the workspace leaves out, and the `CHANGELOG.md` entry for `av widen` says the pack's Task
+    section says it; `the_task_section_names_what_the_workspace_leaves_off_disk` checks it only
+    with a short goal. Whether a left-out file may be a Map or Code candidate is written nowhere.
+  - Not looked at: why the second pack named `mcp.rs` but not the CLI's `main.rs` or
+    `tests/dream.rs`.
+- **Fixed in part (packer version 15).** The `Not on disk: …` line is a required Task item
+  of its own (`off-disk`), scored below the task's, so a long goal at a small budget keeps it
+  and a budget that holds only the goal still sends the goal; a Map entry or Code item of a file
+  under a left-out path ends its first line with `` (not on disk: `av show`) ``
+  (`assemble::mark_off_disk`). The pack tests
+  `a_task_at_its_handle_tier_still_names_what_the_workspace_leaves_off_disk`,
+  `a_budget_too_small_for_the_off_disk_line_still_sends_the_goal` and
+  `a_symbol_in_a_file_left_off_disk_is_marked_in_the_map_and_the_code` check them. Later packs
+  of a session print the line as sent earlier, as they do the task.
+- **Status.** Open: left-out files are still candidates, ranked as before; whether they should be
+  is a ranking question that waits for a measured comparison.
 
 ## 2026-11-24: a first pack named a same-named struct of another crate and no migration
 

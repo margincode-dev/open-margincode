@@ -280,6 +280,30 @@ mod tests {
         assert_eq!(symbol_queries("format_name"), vec!["format_name"]);
     }
 
+    /// Today's behaviour, seen in a first pack filled with `main` functions (`docs/backlog.md`,
+    /// 2026-11-24): any backticked word is a name, a hyphenated one gives each of its words, and
+    /// the names given last are cut.
+    #[test]
+    fn today_backticked_common_words_and_hyphenated_name_parts_take_the_eight_name_slots() {
+        let goal = "A title 'Main' gives the slug `main` or `default`. Fix it in \
+                    `margincode-store` `pg.rs`: `create_task` takes a new `task_slug` that wraps \
+                    `slugify` and turns `main` into `main-task`. Rules: `valid_component` and \
+                    `task_workspace`.";
+        assert_eq!(
+            named_identifiers(goal),
+            vec![
+                "main",
+                "default",
+                "margincode",
+                "store",
+                "create_task",
+                "task_slug",
+                "slugify",
+                "task"
+            ]
+        );
+    }
+
     #[test]
     fn names_symbol_matches_whole_or_trailing_segments() {
         assert!(names_symbol(

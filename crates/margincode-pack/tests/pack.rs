@@ -719,6 +719,112 @@ async fn the_task_section_names_what_the_workspace_leaves_off_disk() {
     }
 }
 
+/// A goal longer than `MAX_GOAL_CHARS` sends the Task at its handle tier; the line must be there too.
+#[tokio::test]
+async fn a_task_at_its_handle_tier_still_names_what_the_workspace_leaves_off_disk() {
+    let fx = fixture().await;
+    let goal = "Make hello louder for every greeting the app prints. ".repeat(60);
+    let t = cold_task(&fx, "Louder", goal.trim()).await;
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let pack = fx.packer.build(req(&t, 800, "long-goal")).await.unwrap();
+    let receipt = fx
+        .store
+        .get_receipt(pack.receipt.as_deref().expect("a receipt"))
+        .await
+        .unwrap();
+    let task_tier = receipt["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"].as_str().is_some_and(|id| id.starts_with("task:")))
+        .map(|i| i["tier"].clone());
+    assert_eq!(task_tier, Some(serde_json::json!("handle")), "{receipt}");
+    assert!(
+        pack.markdown.contains(
+            "Not on disk: bench/results/ (`av show PATH` reads a file there, `av widen PATH` writes it here)"
+        ),
+        "{}",
+        pack.markdown
+    );
+}
+
+/// The line costs about 25 tokens; a budget that holds the task's handle and not the line too
+/// still sends the goal.
+#[tokio::test]
+async fn a_budget_too_small_for_the_off_disk_line_still_sends_the_goal() {
+    let fx = fixture().await;
+    let goal = "Make hello louder for every greeting the app prints. ".repeat(20);
+    let t = cold_task(&fx, "Louder", goal.trim()).await;
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let pack = fx.packer.build(req(&t, 400, "tight")).await.unwrap();
+    assert!(
+        pack.markdown.contains("Goal: Make hello louder"),
+        "{}",
+        pack.markdown
+    );
+}
+
+/// A file left off disk is still a candidate (a ranking question, `docs/backlog.md`), so its
+/// Map entry and Code item say it is not on disk.
+#[tokio::test]
+async fn a_symbol_in_a_file_left_off_disk_is_marked_in_the_map_and_the_code() {
+    let fx = fixture().await;
+    let mut files: Vec<(&str, &str)> = BASE.to_vec();
+    files.push(("bench/results/r1/analyze.py", "def main():\n    return 1\n"));
+    fx.vcs.set("sparse", &files);
+    fx.vcs.set_off_disk(&["bench/results/"]);
+    let t = fx
+        .store
+        .create_task(NewTask {
+            goal: "Make `main` print its total".into(),
+            ..new_task("Totals")
+        })
+        .await
+        .unwrap();
+    let base = ChangeId("sparse".into());
+    fx.store
+        .set_workspace(t.id, std::path::Path::new("/ws/demo/totals"), &base)
+        .await
+        .unwrap();
+    fx.store.set_head(t.id, &base, &[]).await.unwrap();
+    fx.index
+        .index_paths(
+            "demo",
+            &t.slug,
+            files
+                .iter()
+                .filter(|(p, _)| p.ends_with(".py"))
+                .map(|(p, c)| (p.to_string(), c.as_bytes().to_vec()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    let t = fx.store.get_task(t.id).await.unwrap();
+    let md = fx
+        .packer
+        .build(req(&t, 2000, "off-disk"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(md.contains("Not on disk: bench/results/"), "{md}");
+    assert!(
+        md.contains(
+            "\n- bench/results/r1/analyze.py (not on disk: `av show`)\n  L1: def main():\n"
+        ),
+        "the Map entry is marked:\n{md}"
+    );
+    let code = &md[md.find("## Code").expect("a Code section")..];
+    assert!(
+        code.contains(" main (bench/results/r1/analyze.py:1-2) (not on disk: `av show`)\n"),
+        "the Code item is marked:\n{md}"
+    );
+    assert_eq!(
+        md.matches("(not on disk").count(),
+        2,
+        "only the left-out file is marked:\n{md}"
+    );
+}
+
 #[tokio::test]
 async fn semantic_hit_on_unanchored_other_task_record_is_included() {
     let fx = fixture().await;

@@ -208,6 +208,18 @@ pub trait Vcs: Send + Sync {
     async fn tree_id(&self, _repo: &str, _change: &ChangeId) -> Result<String> {
         Err(AvError::Vcs("tree_id is not supported by this Vcs".into()))
     }
+    /// The commit a caller named by its id or a unique prefix of it (any case). Text that is
+    /// not hex, or a prefix that matches no commit or more than one, is `Invalid`. The default
+    /// takes only a full 40-digit id, as given.
+    async fn resolve_commit(&self, _repo: &str, id: &str) -> Result<ChangeId> {
+        let id = id.trim().to_ascii_lowercase();
+        if id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Ok(ChangeId(id));
+        }
+        Err(AvError::Invalid(format!(
+            "{id:?} is not a full commit id, and this Vcs resolves no shorter one"
+        )))
+    }
 }
 
 async fn file_or_none<V: Vcs + ?Sized>(
@@ -412,6 +424,11 @@ pub trait IntentStore: Send + Sync {
         _repo: Option<&str>,
     ) -> Result<Vec<(Task, chrono::DateTime<chrono::Utc>)>> {
         Ok(vec![])
+    }
+    /// The task's head as its latest submit saw it (that `submit` event's change); `None` when it
+    /// was never submitted, or the store keeps no events.
+    async fn submitted_head(&self, _task: TaskId) -> Result<Option<ChangeId>> {
+        Ok(None)
     }
     /// Appends a feed event (`GET /v1/events`) that is not a status change, such as
     /// `workspace:reclaimed`. Does nothing unless the store keeps events.

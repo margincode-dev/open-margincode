@@ -709,6 +709,18 @@ impl IntentStore for PgStore {
         row.map(|r| verdict_row(&r)).transpose()
     }
 
+    async fn submitted_head(&self, task: TaskId) -> Result<Option<ChangeId>> {
+        let change: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT change FROM events WHERE task_id = $1 AND kind = 'submit'
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(task.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        Ok(change.flatten().map(ChangeId))
+    }
+
     async fn human_verdict_at(&self, task: TaskId, head: &ChangeId) -> Result<Option<VerdictRow>> {
         let row = sqlx::query(
             "SELECT reviewer, verdict, head_change, base_change, carried_from, created_at

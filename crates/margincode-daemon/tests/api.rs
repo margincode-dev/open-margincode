@@ -1264,6 +1264,267 @@ async fn conflict_then_sync_fix_resubmit_and_merge() {
     assert_eq!(main_file(&e, "app/util.py").await, fixed);
 }
 
+async fn task_next(e: &Env, t: &Value) -> (String, Value) {
+    let (status, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(t)), None).await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    (
+        task["task"]["status"].as_str().unwrap().to_owned(),
+        task["next"].clone(),
+    )
+}
+
+/// Dogfood 2026-11-24: the owner fixed the markers and checkpointed; `av status` still said
+/// conflicted and named the file. The status stays until `av submit` by design; the answer says
+/// what is left.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conflicted_task_says_what_is_left_until_it_is_submitted() {
+    let e = env().await;
+    let first = ready_to_merge(&e, "Upper names", UPPER).await;
+    let second = ready_to_merge(&e, "Lower names", LOWER).await;
+    let (status, body) = post(&e, &first, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, body) = post(&e, &second, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(body["status"], "conflicted", "{body}");
+    let (status, next) = task_next(&e, &second).await;
+    assert_eq!(status, "conflicted");
+    assert!(next.as_str().unwrap().contains("av sync"), "{next}");
+
+    let (_, body) = post(&e, &second, "sync", json!({"agent": "claude"})).await;
+    assert_eq!(body["conflicts"], json!(["app/util.py"]), "{body}");
+    let (_, next) = task_next(&e, &second).await;
+    assert!(
+        next.as_str()
+            .unwrap()
+            .contains("resolve the conflict markers in app/util.py"),
+        "{next}"
+    );
+
+    let fixed = "def format_name(n):\n    return n.upper().strip()\n";
+    write_file(&e, &second, "app/util.py", fixed);
+    let (status, body) = post(&e, &second, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, next) = task_next(&e, &second).await;
+    assert_eq!(status, "conflicted", "it stays conflicted until av submit");
+    let next = next.as_str().unwrap();
+    assert!(
+        next.contains("no conflict markers are left") && next.contains("av submit"),
+        "{next}"
+    );
+
+    let (status, body) = submit(&e, &second).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, next) = task_next(&e, &second).await;
+    assert_eq!(status, "in_review");
+    assert_eq!(next, Value::Null);
+}
+
+/// Dogfood 2026-11-24: the owner changed a task in review, checkpointed, validated and ran
+/// `av submit`, which answered only that an in-review task cannot take Submit.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_submit_in_review_says_the_reviewer_judges_the_head_as_it_is() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    write_file(&e, &t, "app/util.py", LOWER);
+    let (status, cp) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    let head = cp["head_change"].as_str().unwrap().to_owned();
+    validate(&e, &t, 0).await;
+
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let error = body["error"].as_str().unwrap();
+    assert!(
+        error.contains("already in review") && error.contains(&head[..12]),
+        "{error}"
+    );
+    assert!(error.contains("av validate"), "{error}");
+
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["head"], head);
+    let (status, body) = post(&e, &t, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(main_file(&e, "app/util.py").await, LOWER);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_head_moved_in_review_with_conflict_markers_is_not_approved() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let submitted = body["head"].as_str().unwrap().to_owned();
+    write_file(
+        &e,
+        &t,
+        "app/util.py",
+        &format!("<<<<<<< Conflict 1 of 1\n{UPPER}>>>>>>> Conflict 1 of 1 ends\n"),
+    );
+    let (status, cp) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    let head = cp["head_change"].as_str().unwrap().to_owned();
+    validate(&e, &t, 0).await;
+
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let error = body["error"].as_str().unwrap();
+    assert!(
+        error.contains(&format!(
+            "head {} moved since the submit at {}",
+            &head[..12],
+            &submitted[..12]
+        )),
+        "{error}"
+    );
+    assert!(
+        error.contains("conflict markers are still in app/util.py:1"),
+        "{error}"
+    );
+    assert!(verdict_of(&e, &t).await.is_null(), "nothing approved");
+    let (_, task) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(task["task"]["status"], "in_review", "{task}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_approval_of_a_head_moved_in_review_asks_the_guard_as_a_submit() {
+    let guard = std::sync::Arc::new(Scope {
+        forbidden: "secret/",
+        asked: Default::default(),
+    });
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    decide(&e, &t).await;
+    let (status, body) = submit(&e, &t).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    std::fs::create_dir_all(ws_dir(&e, &t).join("secret")).unwrap();
+    write_file(&e, &t, "secret/key.txt", "k\n");
+    let (status, cp) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    validate(&e, &t, 0).await;
+
+    let (status, body) = review(&e, &t, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let error = body["error"].as_str().unwrap();
+    assert!(error.contains("cannot approve: head "), "{error}");
+    assert!(error.contains("moved since the submit at"), "{error}");
+    assert!(
+        error.contains("secret/key.txt is outside this persona's paths"),
+        "{error}"
+    );
+    assert!(verdict_of(&e, &t).await.is_null(), "nothing approved");
+    assert_eq!(
+        *guard.asked.lock().unwrap(),
+        [
+            vec!["app/util.py".to_owned()],
+            vec!["app/util.py".to_owned(), "secret/key.txt".to_owned()]
+        ]
+    );
+
+    let u = start_task(&e, "Notes").await;
+    std::fs::create_dir_all(ws_dir(&e, &u).join("docs")).unwrap();
+    write_file(&e, &u, "docs/note.md", "hello\n");
+    decide(&e, &u).await;
+    let (status, body) = submit(&e, &u).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    validate(&e, &u, 0).await;
+    let (status, body) = review(&e, &u, "reviewer", "approve").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        guard.asked.lock().unwrap().len(),
+        3,
+        "an unmoved head is not asked again: {:?}",
+        guard.asked.lock().unwrap()
+    );
+}
+
+/// Dogfood 2026-11-24: `av diff --from 543b8b5f28d7` (the 12 digits av prints) was a 500.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_unique_commit_prefix_names_its_commit_and_a_bad_one_is_a_400() {
+    let e = env().await;
+    let t = start_task(&e, "Upper names").await;
+    write_file(&e, &t, "app/util.py", UPPER);
+    let (status, cp) = post(&e, &t, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{cp}");
+    let head = cp["head_change"].as_str().unwrap().to_owned();
+    let base = t["task"]["base_change"].as_str().unwrap().to_owned();
+    let slug = t["task"]["slug"].as_str().unwrap().to_owned();
+    let get = |path: String| {
+        let app = e.app.clone();
+        async move { call(&app, "GET", &path, None).await }
+    };
+
+    let (status, full) = get(format!("/v1/repos/demo/diff?from={base}&to=task:{slug}")).await;
+    assert_eq!(status, StatusCode::OK, "{full}");
+    assert_eq!(full["files"].as_array().unwrap().len(), 1, "{full}");
+    let (status, short) = get(format!(
+        "/v1/repos/demo/diff?from={}&to={}",
+        &base[..12],
+        head[..12].to_ascii_uppercase()
+    ))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{short}");
+    assert_eq!(short, full);
+    let (status, file) = get(format!(
+        "/v1/repos/demo/files/app/util.py?at={}",
+        &head[..12]
+    ))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{file}");
+    assert_eq!(file["content"], UPPER);
+    assert_eq!(file["at"], head);
+    let (status, tree) = get(format!("/v1/repos/demo/tree?at={}", &base[..12])).await;
+    assert_eq!(status, StatusCode::OK, "{tree}");
+    let (status, patch) = get(format!("/v1/tasks/{}/patch?from={}", id(&t), &base[..12])).await;
+    assert_eq!(status, StatusCode::OK, "{patch}");
+    let (status, check) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/checks",
+        Some(json!({"change": &base[..12], "command": "pytest", "exit_code": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{check}");
+    assert_eq!(check["change"], base, "stored under the whole id");
+
+    let last = base.chars().last().unwrap();
+    let unknown = format!("{}{}", &base[..39], if last == '0' { '1' } else { '0' });
+    for (given, why) in [
+        (unknown.as_str(), "no commit"),
+        ("HEAD~1", "not main, task:<slug> or a commit id"),
+    ] {
+        for path in [
+            format!("/v1/repos/demo/diff?from={given}"),
+            format!("/v1/repos/demo/diff?from=main&to={given}"),
+            format!("/v1/repos/demo/files/app/util.py?at={given}"),
+            format!("/v1/repos/demo/tree?at={given}"),
+            format!("/v1/tasks/{}/patch?from={given}", id(&t)),
+        ] {
+            let (status, body) = get(path.clone()).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{path}: {body}");
+            assert!(
+                body["error"].as_str().unwrap().contains(why),
+                "{path}: {body}"
+            );
+        }
+    }
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/checks",
+        Some(json!({"change": unknown, "command": "pytest", "exit_code": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn sync_brings_main_into_an_open_task() {
     let e = env().await;
@@ -2819,6 +3080,49 @@ async fn approval_carries_over_a_reworded_markdown_resolution() {
     .await;
     let v = verdict_of(&e, &a).await;
     assert_eq!(v["reviewer"], "av", "NOTES.md is in carry_globs: {v}");
+    let (_, body) = post(&e, &a, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(body["status"], "merged", "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_carry_refuses_conflict_markers_in_a_carry_globs_file_main_also_changed() {
+    let e = env().await;
+    let extra = Some(("NOTES.md", "from a\n", "from b\n"));
+    let a = conflicted_after_approval(&e, "A = 1\n", "", extra).await;
+    write_file(&e, &a, "app/util.py", &format!("{BASE_UTIL}A = 1\n"));
+    write_file(&e, &a, "NOTES.md", "from b\nand from a\n");
+    let (status, body) = post(&e, &a, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = submit(&e, &a).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(verdict_of(&e, &a).await.is_null(), "no validation yet");
+
+    write_file(
+        &e,
+        &a,
+        "NOTES.md",
+        "<<<<<<< Conflict 1 of 1\nfrom b\nand from a\n>>>>>>> Conflict 1 of 1 ends\n",
+    );
+    let (status, body) = post(&e, &a, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    validate(&e, &a, 0).await;
+    assert!(
+        verdict_of(&e, &a).await.is_null(),
+        "a carry is an approval: the markers refuse it"
+    );
+    let (status, body) = post(&e, &a, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("no approval"),
+        "{body}"
+    );
+
+    write_file(&e, &a, "NOTES.md", "from b\nand from a, reworded\n");
+    let (status, body) = post(&e, &a, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    validate(&e, &a, 0).await;
+    let v = verdict_of(&e, &a).await;
+    assert_eq!(v["reviewer"], "av", "{v}");
     let (_, body) = post(&e, &a, "merge", json!({"agent": "merger"})).await;
     assert_eq!(body["status"], "merged", "{body}");
 }
@@ -4953,6 +5257,88 @@ impl margincode_daemon::MergeGuard for Scope {
             None => Ok(()),
         }
     }
+}
+
+/// Refuses every `Submit` while `held`, as a budget hold does; records the paths of each one asked.
+#[derive(Default)]
+struct Hold {
+    held: std::sync::atomic::AtomicBool,
+    asked: std::sync::Mutex<Vec<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl margincode_daemon::MergeGuard for Hold {
+    async fn check(&self, action: margincode_daemon::Guarded<'_>) -> Result<(), String> {
+        let margincode_daemon::Guarded::Submit { changed_paths, .. } = action else {
+            return Ok(());
+        };
+        self.asked.lock().unwrap().push(changed_paths.to_vec());
+        if self.held.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("claude is on a budget hold".into());
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hold_after_the_submit_blocks_no_merge_and_no_carry() {
+    let guard = std::sync::Arc::new(Hold::default());
+    let g = guard.clone();
+    let e = env_with(move |s| s.with_merge_guard(g)).await;
+    let hold = |on: bool| guard.held.store(on, std::sync::atomic::Ordering::SeqCst);
+
+    let x = start_task(&e, "Guide").await;
+    std::fs::create_dir_all(ws_dir(&e, &x).join("docs")).unwrap();
+    write_file(&e, &x, "docs/guide.md", "read me\n");
+    decide(&e, &x).await;
+    assert_eq!(submit(&e, &x).await.0, StatusCode::OK);
+    validate(&e, &x, 0).await;
+    assert_eq!(
+        review(&e, &x, "reviewer", "approve").await.0,
+        StatusCode::OK
+    );
+    let y = start_task(&e, "Notes").await;
+    std::fs::create_dir_all(ws_dir(&e, &y).join("docs")).unwrap();
+    write_file(&e, &y, "docs/note.md", "hello\n");
+    decide(&e, &y).await;
+    assert_eq!(submit(&e, &y).await.0, StatusCode::OK);
+    validate(&e, &y, 0).await;
+    assert_eq!(
+        review(&e, &y, "reviewer", "approve").await.0,
+        StatusCode::OK
+    );
+    let (_, body) = post(&e, &y, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(body["status"], "merged", "{body}");
+    hold(true);
+    let (_, body) = post(&e, &x, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(
+        body["status"], "merged",
+        "main moved, approved head: {body}"
+    );
+    hold(false);
+
+    let extra = Some(("NOTES.md", "from a\n", "from b\n"));
+    let a = conflicted_after_approval(&e, "A = 2\n", "", extra).await;
+    write_file(&e, &a, "app/util.py", &format!("{BASE_UTIL}A = 2\n"));
+    write_file(&e, &a, "NOTES.md", "from b\nand from a\n");
+    let (status, body) = post(&e, &a, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(submit(&e, &a).await.0, StatusCode::OK);
+    hold(true);
+    write_file(&e, &a, "NOTES.md", "from b\nand from a, reworded\n");
+    let (status, body) = post(&e, &a, "checkpoint", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    validate(&e, &a, 0).await;
+    let v = verdict_of(&e, &a).await;
+    assert_eq!(v["reviewer"], "av", "a carry asks no submit guard: {v}");
+    let (_, body) = post(&e, &a, "merge", json!({"agent": "merger"})).await;
+    assert_eq!(body["status"], "merged", "{body}");
+    assert_eq!(
+        guard.asked.lock().unwrap().len(),
+        5,
+        "asked at the five submits only: {:?}",
+        guard.asked.lock().unwrap()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

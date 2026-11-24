@@ -137,6 +137,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0033_constitution.sql",
         "db351b643a823c4fe2c29b907f451d2dc8879d2075dff1737a190a5222755008",
     ),
+    (
+        "0034_pack_outcomes.sql",
+        "5c517d24f93479fe157ed8568ae2ebfd486c865aac1e4da9c9f7e4bac68c8c96",
+    ),
 ];
 
 #[test]

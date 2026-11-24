@@ -179,6 +179,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::remote::routes())
         .merge(crate::dream::routes())
         .merge(crate::constitution::routes())
+        .merge(crate::outcomes::routes())
 }
 
 const PRUNE_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
@@ -734,9 +735,12 @@ async fn records_at(
 ) -> ApiResult<margincode_pack::RecordsAt> {
     let session = q.session.as_deref().filter(|s| !s.trim().is_empty());
     let path = q.path.trim().trim_start_matches("./");
-    Ok(Json(
-        st.packer.records_at(task_id(id), path, session).await?,
-    ))
+    let answer = st.packer.records_at(task_id(id), path, session).await?;
+    // without a session it is not an agent opening the file (`av notes` asks for each changed one)
+    if session.is_some() {
+        crate::outcomes::note_read(&st, task_id(id), path, false);
+    }
+    Ok(Json(answer))
 }
 
 #[derive(Deserialize)]
@@ -1478,6 +1482,7 @@ async fn expand(
                 .packer
                 .expand_charged(task_id(id), &item_id, &session, st.expand_cap)
                 .await?;
+            crate::outcomes::note_expand(&st, task_id(id), &item_id);
             Ok(Json(json!({
                 "full": e.full,
                 "tokens": e.tokens,
@@ -1486,6 +1491,7 @@ async fn expand(
         }
         None => {
             let full = st.packer.expand(task_id(id), &item_id).await?;
+            crate::outcomes::note_expand(&st, task_id(id), &item_id);
             Ok(Json(json!({ "full": full })))
         }
     }

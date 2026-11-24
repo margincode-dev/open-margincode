@@ -7,6 +7,43 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-23: a pack rebuilt because main moved refers back to the pack it threw away
+
+- **Where.** `pack_for_task` (`crates/margincode-daemon/src/api.rs`) and `Packer::build`
+  (`crates/margincode-pack/src/packer.rs`), read while building the measures of packs.
+- **Seen (read, not reproduced).** When main moves during a build, `pack_for_task` builds the
+  same request again and answers the second pack. The first build already wrote its items to the
+  session's ledger (`ledger_put`), so the second sends those items as `↩ … (sent earlier)`
+  although the agent never received the first pack. Both receipts are stored.
+- **Ruled out.** Nothing: no test builds a pack while main moves.
+- **Guess.** The first build's ledger write should not happen (or be undone) when its pack is
+  discarded. A change to the packer or the daemon's pack path, not made here.
+- **Status.** Open.
+
+## 2026-11-23: two test-path rules, the packer's and the benchmark's
+
+- **Where.** `margincode_pack::score::is_test_path` (ranks test code at 0.6) and
+  `margincode_core::outcome::is_test_path` (the benchmark's gold files and the live measure of
+  packs).
+- **Seen.** They differ: the benchmark's also treats `spec`, `specs` and `testing` directories,
+  `conftest.py` and `*_tests.py` as tests, and ignores case; the packer's does not.
+- **Ruled out.** Nothing.
+- **Guess.** One rule for both would change ranking, so it needs a `PACKER_VERSION` bump and new
+  golden files.
+- **Status.** Open.
+
+## 2026-11-23: the CLI test binary crashed with SIGSEGV once
+
+- **Where.** `cargo test --workspace` at `7e3bfea` (unchanged `main`), in a `rust:1.97.1`
+  container as root, Postgres from `AV_TEST_DATABASE_URL`, another build running on the host.
+- **Seen.** `tests/cli.rs` stopped with `signal: 11, SIGSEGV: invalid memory reference` after
+  about 50 of its tests had passed; no test was named as failing. The same binary run alone right
+  after passed: 171 passed, 0 failed.
+- **Ruled out.** A change of ours: the tree was `main` as merged.
+- **Guess.** A crash in a dependency under load, or a stack overflow in one test thread. Not
+  reproduced.
+- **Status.** Open.
+
 ## 2026-11-22: OpenCode sessions do not get `AV_SCRATCH` or `AV_DOCKER_LABELS`
 
 - **Where.** The OpenCode plugin (`integrations/opencode/av.js`), live with OpenCode 2.3.2.

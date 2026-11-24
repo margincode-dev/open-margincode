@@ -933,6 +933,74 @@ an amendment). Ordinary conventions are not asked about, and the rule on agent n
 apply to conventions. Community's default guard allows everything; an edition that hosts the
 daemon may restrict who adds or removes a required convention.
 
+### How good the packs were (`av context stats`)
+
+When a task merges, the daemon measures its context packs against what the merge changed and
+what the task's agent opened, and keeps one row per task (`pack_outcomes`). No model is involved
+and no pack changes because of it.
+
+```bash
+av context stats                     # this task's repo; --repo NAME, --tasks for one line per task, --json
+av context backfill --repo NAME      # measure merged tasks that have no row yet
+```
+
+What counts:
+
+- **Changed files** are the files of the merge's diff (main before the merge to the merge commit)
+  that existed before and still exist, are in a language the index parses (`.py`, `.ts`, `.tsx`,
+  `.rs`) and are not tests: the rule of the benchmark's gold files (`margincode_core::outcome`,
+  whose `indexable` and `is_test_path` `margincode-bench retrieval` uses; the benchmark takes the
+  modified ones from `git diff --name-status`). Added and deleted files, test files, docs, SQL and
+  other files are left out.
+- **Code tokens** are the tokens of the code items (`sym:…`) in every stored receipt of the task.
+  An item an earlier pack of the same session already sent at that tier or higher counts nothing
+  (it was a back-reference). Map skeletons, records, conventions and live work are not code.
+- **Changed share**: of the code tokens, the share on changed files. **Used share**: the share on
+  files changed or opened (see below).
+- **Carried as code**: a code item of the file at summary or full tier in any pack of the task.
+  **Named only**: a changed file a pack named (a code item at handle tier, or its map skeleton)
+  but never carried as code; neither a hit nor a miss. **Missed**: a changed file no pack carried
+  or named. Changed = carried + named only + missed.
+- **Opened**: a file the agent opened through the daemon: the pre-read hook's
+  `GET /v1/tasks/{id}/records/at` (only with a session; `av notes` asks without one), `expand` of a
+  `sym:` item (`av expand`, MCP `expand` and `read_symbol`; the row is marked `expanded`), and MCP
+  `read_file` for the session's task. Each is written after the answer, on a task of its own, and
+  a failure is only logged. An `expand` of a record notes nothing (a record is not a file).
+  **Opened, not sent**: opened files (same file rule, files the task added left out) that no pack
+  carried as code: reads the agent had to make by itself.
+
+`GET /v1/repos/{name}/context/outcomes` answers `measured` (rows in the totals), `reverted`,
+`no_reads` (measured tasks with no read that reached the daemon) and `by_packer`: per packer
+version, the task count, the medians of the two shares (over the tasks whose packs sent code;
+`no_code` counts the others), of code tokens and of the file counts. `?tasks=1` adds `rows`, one
+per task with its counts and the missed and opened-not-sent paths.
+`POST /v1/repos/{name}/context/backfill` (`?limit=`, default 200, at most 1000) measures merged
+tasks without a row, oldest first, and answers `{computed, failed, more}`. A task that fails
+keeps no row, so it stays first in line on the next call.
+
+- The outcome is computed once the merge is recorded, outside the merge's locks; a failure is
+  logged and the merge answers as it would without it (`av context backfill` fills the gap).
+- A task merged again after a revert is measured again (its row is replaced). A row whose task is
+  no longer merged with that merge commit (reverted or undone) is kept, shown as `reverted`, and
+  left out of the totals.
+- Where the VCS can no longer give the merge's diff (the merge commits are not recorded), the
+  task's last touched paths are used and the row says `changed_source: touched`.
+
+What the numbers cannot see:
+
+- A file the agent read with its own tool, without the pre-read hook (or another client that
+  does not go through the daemon), is not opened as far as the measure knows; `no_reads` says
+  for how many tasks nothing reached the daemon. A file it needed and neither changed nor opened
+  through the daemon counts as unused.
+- A pack built twice because main moved while it was built stores two receipts that look like
+  two packs of one session; both count. With a session the second refers back to the first, so
+  the pair costs the first's tokens plus whatever the second added; without one both count in
+  full.
+- Back-references are found from the receipts, which keep each item's tier and tokens but not its
+  text: an item a later pack sent again at a higher tier whose text did not change, or one sent
+  after the session's ledger was pruned, may be counted as new (a few tokens either way).
+- Records are not measured: there is no signal yet for "this record helped".
+
 ### A second look at records: dreams and verdicts
 
 Records pile up, and a wrong one is trusted by the agent that reads it. A **dream** is an offline

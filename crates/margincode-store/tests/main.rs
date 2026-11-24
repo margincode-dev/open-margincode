@@ -6,6 +6,7 @@ mod constitution;
 mod extension;
 mod migrations_frozen;
 mod outbox;
+mod outcomes;
 mod repos;
 mod routing;
 mod store;

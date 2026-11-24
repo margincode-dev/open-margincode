@@ -20,6 +20,7 @@ mod history;
 mod indexing;
 mod mcp;
 mod office;
+mod outcomes;
 mod reindex;
 mod remote;
 mod routing_api;

@@ -12,6 +12,7 @@ mod history;
 mod hosts;
 mod mcp;
 mod office;
+mod outcomes;
 mod remote;
 mod routing;
 mod serve;

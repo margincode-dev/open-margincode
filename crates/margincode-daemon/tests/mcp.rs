@@ -1907,3 +1907,58 @@ async fn a_claims_file_is_named_in_the_write_that_hands_out_its_generation() {
     assert!(seen > 0, "the watcher never read generation 2");
     assert!(unnamed.is_empty(), "generation 2 named nobody: {unnamed:?}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_file_and_read_symbol_note_what_the_sessions_task_opened() {
+    let e = env().await;
+    let s = connect(&e, "claude-code").await;
+    let reviewer = connect(&e, "reviewer").await;
+    text(
+        &tool(
+            &e,
+            &reviewer,
+            "read_file",
+            json!({"repo": "demo", "path": "app/greeter.py"}),
+        )
+        .await,
+    );
+    text(
+        &tool(
+            &e,
+            &s,
+            "start_task",
+            json!({"repo": "demo", "title": "Improve greeting", "goal": "Make hello louder"}),
+        )
+        .await,
+    );
+    text(&tool(&e, &s, "read_file", json!({"path": "app/util.py"})).await);
+    let pack = text(&tool(&e, &s, "get_context", json!({"budget": 3000})).await);
+    let n: i64 = pack[pack.find("sym:").expect("a code item") + 4..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .unwrap();
+    text(&tool(&e, &s, "read_symbol", json!({"id": n})).await);
+    let (path,): (String,) = sqlx::query_as("SELECT path FROM symbols WHERE id = $1")
+        .bind(n)
+        .fetch_one(e.store.pool())
+        .await
+        .unwrap();
+    let want = if path == "app/util.py" {
+        vec![("app/util.py".to_owned(), 2, true)]
+    } else {
+        let mut w = vec![("app/util.py".to_owned(), 1, false), (path, 1, true)];
+        w.sort();
+        w
+    };
+    eventually("the reads to be noted", async || {
+        let rows: Vec<(String, i32, bool)> =
+            sqlx::query_as("SELECT r.path, r.reads, r.expanded FROM task_reads r ORDER BY r.path")
+                .fetch_all(e.store.pool())
+                .await
+                .unwrap();
+        rows == want
+    })
+    .await;
+}

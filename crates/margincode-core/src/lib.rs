@@ -1,6 +1,7 @@
 mod error;
 pub mod history;
 pub mod lifecycle;
+pub mod outcome;
 pub mod routing;
 pub mod standing;
 pub mod taskfile;

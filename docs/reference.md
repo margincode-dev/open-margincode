@@ -907,7 +907,9 @@ av constitution history    # every amendment of both levels, oldest first
   record". Community has one shared token and no identities, so this is a rule about names, not
   authentication: whoever holds the token can send any name. The guard (`MergeGuard`) is asked
   before every amendment (`Guarded::MemoryWrite` with `MemoryAction::Rule`, kind `Article`); a
-  refusal is a `422` and nothing is written.
+  refusal is a `422` that names what was refused, then gives the guard's own reason
+  (`cannot add an article: …`, `cannot amend art:N: …`, `cannot repeal art:N: …`), and nothing
+  is written.
 - **Notes**, never errors, on `av constitution show`, `av convention list`, the `notes` of
   `GET /v1/repos/{name}/constitution` and those of `GET /v1/repos/{name}/conventions?notes=1`
   (without `?notes=1` that route answers only `{conventions}`): a convention whose glob matches no file on main, two rules with the same text
@@ -929,9 +931,11 @@ An article is stored as a required convention row with a number, so
 (`av convention add --required`) and removing a required one (`av convention rm`) ask the guard
 before anything is written, as `MemoryAction::Rule` with kind `RequiredConvention` and the `by`
 the request gave (`by` in the body, `?by=` on the `DELETE`; the CLI sends the same name as for
-an amendment). Ordinary conventions are not asked about, and the rule on agent names does not
-apply to conventions. Community's default guard allows everything; an edition that hosts the
-daemon may restrict who adds or removes a required convention.
+an amendment). A refusal is a `422`: `cannot add a required convention: …` or `cannot remove
+the required convention conv:N: …`, then the guard's reason. Ordinary conventions are not asked
+about, and the rule on agent names does not apply to conventions. Community's default guard
+allows everything; an edition that hosts the daemon may restrict who adds or removes a required
+convention.
 
 ### How good the packs were (`av context stats`)
 

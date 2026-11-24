@@ -215,12 +215,9 @@ async fn the_guard_is_asked_before_an_amendment_and_its_refusal_writes_nothing()
     let e = with_board().await;
     let (status, body) = article(&e, "Rule", "text", Some("make lint"), "user").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(
-        body["error"]
-            .as_str()
-            .unwrap()
-            .contains("rules are written on the board"),
-        "{body}"
+    assert_eq!(
+        body["error"],
+        "not allowed now: cannot add an article: rules are written on the board"
     );
     assert_eq!(
         board(&e),
@@ -257,11 +254,15 @@ async fn the_guard_is_asked_before_an_amendment_and_its_refusal_writes_nothing()
     );
     assert_eq!(c["history"].as_array().unwrap().len(), 2);
 
-    for (method, body) in [
-        ("PUT", json!({"text": "new", "by": "user", "reason": "why"})),
-        ("DELETE", json!({"by": "user", "reason": "why"})),
+    for (method, body, verb) in [
+        (
+            "PUT",
+            json!({"text": "new", "by": "user", "reason": "why"}),
+            "amend",
+        ),
+        ("DELETE", json!({"by": "user", "reason": "why"}), "repeal"),
     ] {
-        let (status, _) = call(
+        let (status, body) = call(
             &e.app,
             method,
             "/v1/repos/demo/constitution/articles/1",
@@ -269,6 +270,10 @@ async fn the_guard_is_asked_before_an_amendment_and_its_refusal_writes_nothing()
         )
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            body["error"],
+            format!("not allowed now: cannot {verb} art:1: rules are written on the board")
+        );
     }
     let asked = board(&e);
     assert_eq!(asked.len(), 2, "{asked:?}");
@@ -302,6 +307,10 @@ async fn a_required_convention_is_guarded_and_an_ordinary_one_is_not() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        body["error"],
+        "not allowed now: cannot add a required convention: rules are written on the board"
+    );
     assert_eq!(
         board(&e),
         [r#"RequiredConvention add None None app/** Some("ruff") by user"#]
@@ -347,6 +356,14 @@ async fn a_required_convention_is_guarded_and_an_ordinary_one_is_not() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        body["error"],
+        format!(
+            "not allowed now: cannot remove the required convention conv:{}: rules are written \
+             on the board",
+            required.0
+        )
+    );
     assert_eq!(
         board(&e),
         [format!(

@@ -7,6 +7,15 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-23: the retrieval benchmark is not repeatable run to run
+
+- **Where.** `margincode-bench retrieval` (`crates/margincode-bench/src/retrieval.rs`).
+- **Seen.** Two runs of the same build over the same tasks give different rows. A small
+  difference between two ranking configurations therefore cannot be read from one run of each.
+- **Ruled out.** Nothing yet.
+- **Guess.** None yet: the cause is not found.
+- **Status.** Open; being worked on.
+
 ## 2026-11-23: a pack rebuilt because main moved refers back to the pack it threw away
 
 - **Where.** `pack_for_task` (`crates/margincode-daemon/src/api.rs`) and `Packer::build`

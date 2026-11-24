@@ -194,6 +194,43 @@ fn repo_map_puts_the_goal_file_first() {
     );
 }
 
+/// Two copies of one package rank alike only if every float sum runs in one order; a hash map's
+/// order differs between maps, so repeated maps of one repo would differ where the copies tie.
+#[test]
+fn repo_map_is_the_same_every_time() {
+    let d = TempDir::new().unwrap();
+    git(d.path(), &["init", "-q", "-b", "main"]);
+    let calls = |names: &[(&str, usize)]| -> String {
+        names
+            .iter()
+            .map(|(n, k)| format!("    {}\n", vec![format!("{n}()"); *k].join(" + ")))
+            .collect()
+    };
+    for pkg in ["adapters/lambda", "src/lambda", "src/edge"] {
+        std::fs::create_dir_all(d.path().join(pkg)).unwrap();
+        let read = format!(
+            "def parse_event():\n{}\n\ndef read_cookies():\n{}",
+            calls(&[("read_headers", 3), ("encode_query", 2), ("helper", 5)]),
+            calls(&[("parse_event", 1), ("encode_query", 7)])
+        );
+        let write = format!(
+            "def read_headers():\n{}\n\ndef encode_query():\n{}",
+            calls(&[("parse_event", 2), ("read_cookies", 3)]),
+            calls(&[("read_headers", 1), ("helper", 3)])
+        );
+        std::fs::write(d.path().join(pkg).join("read.py"), read).unwrap();
+        std::fs::write(d.path().join(pkg).join("write.py"), write).unwrap();
+    }
+    std::fs::write(d.path().join("helper.py"), "def helper():\n    return 1\n").unwrap();
+    git(d.path(), &["add", "-A"]);
+    git(d.path(), &["commit", "-q", "-m", "base"]);
+    let r = Repo::load(d.path()).unwrap();
+    let first = repo_map(&r, "parse the event cookies", 2000);
+    for _ in 0..30 {
+        assert_eq!(repo_map(&r, "parse the event cookies", 2000), first);
+    }
+}
+
 #[test]
 fn commit_messages_become_goals_without_trailers_or_links() {
     let g = goal_from_message(

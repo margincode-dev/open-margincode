@@ -581,9 +581,9 @@ pub fn repo_map(repo: &Repo, goal: &str, budget: u32) -> String {
     }
     let matches = |name: &str| words(name).iter().filter(|w| terms.contains(*w)).count();
 
-    // weighted edges referencer -> definer
+    // weighted edges referencer -> definer, in a BTreeMap so each rank sums in one order
     let n = paths.len();
-    let mut edges: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
+    let mut edges: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); n];
     for s in &syms {
         let from = idx[s.path.as_str()];
         for r in &s.refs {

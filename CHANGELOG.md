@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
+  stop flag it started the `kill` program, which got the caller's whole environment (a runner's
+  token among it) and could be seen in `/proc` by the processes it was killing. It now calls
+  `kill(2)` itself; what is killed, and when, is unchanged.
 - **An extension's guard is asked before a backup changes or trunk advances from a remote.**
   `POST /v1/repos/{name}/backup` (set or clear), `POST /v1/repos/{name}/backup/push` and
   `POST /v1/repos/{name}/trunk/advance` needed only `AV_TOKEN`; the last fast-forwards trunk to

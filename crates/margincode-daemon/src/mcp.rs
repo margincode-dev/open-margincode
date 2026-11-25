@@ -453,6 +453,11 @@ async fn repo_arg(st: &AppState, s: &McpSession, args: &Value) -> Result<String,
     if let Some(r) = str_arg(args, "repo") {
         return Ok(r.to_owned());
     }
+    if str_arg(args, "task_id").is_none() && s.tasks.is_empty() {
+        return Err(invalid(
+            "no repository: pass `repo`, or `task_id` to read a task's repository",
+        ));
+    }
     let (task, _) = target(st, s, args).await?;
     let (_, t) = inner(st, "GET", &format!("/v1/tasks/{}", enc(&task)), None, None).await;
     Ok(t["task"]["repo"].as_str().unwrap_or_default().to_owned())

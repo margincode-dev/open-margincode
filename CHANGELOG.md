@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
+  stop flag it started the `kill` program, which got the caller's whole environment (a runner's
+  token among it) and could be seen in `/proc` by the processes it was killing. It now calls
+  `kill(2)` itself; what is killed, and when, is unchanged.
+- **An extension's guard is asked before a backup changes or trunk advances from a remote.**
+  `POST /v1/repos/{name}/backup` (set or clear), `POST /v1/repos/{name}/backup/push` and
+  `POST /v1/repos/{name}/trunk/advance` needed only `AV_TOKEN`; the last fast-forwards trunk to
+  whatever the remote holds, unreviewed. The `MergeGuard` is now asked first
+  (`Guarded::Backup { repo, action }`, `BackupAction::SetTarget`, `Push` or `Advance`), and a
+  refusal is a `422` that changes nothing. Without an extension, nothing changes. A guard that
+  matches `Guarded` without a wildcard needs a `Guarded::Backup` arm.
+- **The daemon's git runs no hooks and gets none of the daemon's secrets.** A backup push to a
+  path on the daemon's machine (`av repo backup NAME --remote /path/b.git`) ran that repository's
+  `pre-receive`, `post-receive` and other hooks as the daemon, with the daemon's whole
+  environment, and an advance fetch ran the store's own `reference-transaction` hook: anyone
+  with `AV_TOKEN` who could write a repository the daemon reads could run code as the daemon.
+  Every git the daemon starts (clone, push, fetch) now has hooks off on both sides, the remote
+  repository's `core.alternateRefsCommand` and `updateInstead` off, only `file`, `git`, `http`,
+  `https` and `ssh` transports, and an environment of `PATH`, `HOME`, the ssh, proxy and CA
+  variables only (the list is in the reference, Security). A remote that runs a program
+  (`ext::`, `fd::`, any other `helper::address`, a scheme other than http, https, ssh, git and
+  file) is refused with `400` by `av repo backup` and `av repo advance`. A git setting given only
+  through `GIT_CONFIG_COUNT` in the daemon's environment no longer reaches it.
+- **A read tool called without `repo` and without a task says to pass `repo`.** The MCP read
+  tools (`read_file`, `list_files`, `log`, `diff` and the others that take `repo`) fell back to
+  the session's task and, with none, answered "call start_task or claim_task first": tools a
+  reviewer or a dream may not have. The message is now ``no repository: pass `repo`, or
+  `task_id` to read a task's repository``.
 - **Every pack of a sparse workspace says what it leaves out, and marks what is there.** The
   Task line `Not on disk: …` was only in the Task item's longer tiers, so a first pack with a
   long goal, which sends the Task at its shortest, never had it. It is now a required item of

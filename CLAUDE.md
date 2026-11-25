@@ -101,5 +101,9 @@ The full rules, with the functions that enforce them, are in `docs/architecture.
   disk); it wins over this file.
 - `main` is the base. Start each change on a branch off `main` and land it through a pull request; prefer one PR per change over stacked PRs (a PR stacked on another merges into that branch, not `main`).
 - Work is TDD: failing test first, then implementation, then fmt + clippy + tests. See `CONTRIBUTING.md`.
+- Models (the owner's rule, 2026-11-25): a Fable session orchestrates and plans, always. It reads,
+  decides, writes each brief, checks what comes back and runs the bar. Implementation (code,
+  tests, the docs that go with them) is handed to Opus agents (`model: opus`), one
+  `CARGO_TARGET_DIR` each; the Fable session does not write it itself.
 - Agent-facing text (pack output, MCP tool descriptions, hook messages) says `av`, not `margincode`: it is shorter for agents to type and both names are always installed.
 - An `av` task workspace leaves out `bench/results/` and `bench/retrieval/results/` (`.av/sparse`): read a file there with `av show PATH`, or `av widen PATH` to work on it; a new results directory can be written.

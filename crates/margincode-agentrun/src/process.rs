@@ -35,9 +35,7 @@ pub fn run_until(mut cmd: Command, timeout: Duration, stop: &AtomicBool) -> Resu
         }
         let stopped = stop.load(Ordering::SeqCst);
         if stopped || start.elapsed() >= timeout {
-            let _ = Command::new("kill")
-                .args(["-KILL", "--", &format!("-{}", child.id())])
-                .status();
+            kill_group(child.id());
             let _ = child.kill();
             let _ = child.wait();
             return Ok(Waited {
@@ -47,6 +45,20 @@ pub fn run_until(mut cmd: Command, timeout: Duration, stop: &AtomicBool) -> Resu
             });
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// SIGKILLs process group `pgid` with the system call: a `kill` program would get the caller's
+/// environment and be visible to the processes it kills. A group already gone is no error.
+fn kill_group(pgid: u32) {
+    const SIGKILL: i32 = 9;
+    if let Ok(pgid) = i32::try_from(pgid) {
+        // SAFETY: kill(2) takes plain integers and touches no memory of ours
+        unsafe { kill(-pgid, SIGKILL) };
     }
 }
 

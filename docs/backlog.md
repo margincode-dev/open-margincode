@@ -7,6 +7,39 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-25: the daemon's git ran a remote's hooks with the daemon's environment
+
+- **Where.** A security review of an embedding product, which runs the daemon with secrets in its
+  environment next to agents that hold `AV_TOKEN`. `Vcs::push_backup`, `Vcs::advance_trunk` and
+  `init_repo` (`margincode-vcs`, `jj.rs`), `POST /v1/repos/{name}/backup`, `.../backup/push` and
+  `.../trunk/advance` (`backup.rs`), and `margincode-agentrun`'s `process::run_until`.
+- **Seen.** A push to a path remote ran its `pre-receive`, `update`, `reference-transaction`,
+  `post-receive` and `post-update` hooks and its `core.alternateRefsCommand`, as the daemon, with
+  its whole environment (checked by hand with git 2.43, then by
+  `merge::a_backup_push_to_a_path_runs_none_of_the_remotes_hooks`); a `-c core.hooksPath` of the
+  local git does not reach the remote side, since git clears `GIT_CONFIG_PARAMETERS` for it. An
+  advance fetch ran the store git dir's `reference-transaction` hook. A git child's environment
+  held every variable of the daemon's (`merge::git_gets_none_of_the_daemons_environment_...`
+  read `CARGO_MANIFEST_DIR` in it). `EXT::sh`, `fd::`, other `helper::` and unknown schemes were
+  passed to git. The three routes moved the backup and trunk with no guard. `run_until` started
+  the `kill` program with the caller's environment.
+- **Ruled out.** `uploadpack.packObjectsHook` in a remote's own config does not fire (git reads it
+  from protected config only; the fetch test sets it). `core.sshCommand` is read from the store's
+  own git dir and the global config only, never from a remote, and is kept: it is how an operator
+  picks an ssh key.
+- **Fixed.** Commits on branch `sec-open`: `git_command` (cut-down environment, hooks and
+  fsmonitor off, `GIT_ALLOW_PROTOCOL`, the same settings for a path remote's receive-pack and
+  upload-pack), `check_backup_remote`, `Guarded::Backup`, `kill(2)` in `margincode-agentrun`.
+- **Not covered.** (a) `embed_choice.rs` starts `ollama` with the daemon's whole environment;
+  not changed. (b) The CLI's own `git` and `kill` children (`local.rs`, `remote.rs`) run on the
+  user's machine and were left as they were. (c) `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n` settings
+  in the daemon's environment no longer reach its git; an install that relied on them (an
+  `insteadOf`, say) must move them to the global config. (d) Whether jj-lib 0.46 starts a git
+  child in any path the daemon uses was not checked line by line (it imports and exports through
+  gix). (e) On Windows, `core.hooksPath=/dev/null` was not tried. (f) `Guarded::Backup` carries
+  no actor: the routes have none.
+- **Status.** Fixed on `sec-open`, not yet merged.
+
 ## 2026-11-24: most merges of the day conflicted in this file, because every entry goes at its top
 
 - **Where.** `av merge` in this repository's dogfood, on tasks that each added an entry here.

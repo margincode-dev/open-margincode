@@ -80,3 +80,50 @@ fn run_until_kills_at_once_when_the_flag_is_already_raised() {
     .unwrap();
     assert_eq!((w.exit, w.killed, w.stopped), (None, false, true));
 }
+
+/// Run by `the_group_is_killed_without_starting_a_kill_program` in a child test process whose
+/// `PATH` starts with a `kill` that leaves a marker.
+#[test]
+#[ignore = "run by the_group_is_killed_without_starting_a_kill_program"]
+fn kill_helper_a_child_past_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let cmd = shell("sleep 60", dir.path(), &dir.path().join("log")).unwrap();
+    let w = run_with_timeout(cmd, Duration::from_millis(200)).unwrap();
+    assert_eq!((w.exit, w.killed), (None, true));
+}
+
+#[test]
+fn the_group_is_killed_without_starting_a_kill_program() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("marker");
+    let fake = dir.path().join("kill");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nexec /bin/kill \"$@\"\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "process::kill_helper_a_child_past_its_deadline",
+        ])
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("1 passed"), "{text}");
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(ran.is_empty(), "started kill {ran}");
+}

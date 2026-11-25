@@ -78,6 +78,37 @@ pub enum Guarded<'a> {
         by: &'a str,
         dream: Option<Uuid>,
     },
+    /// A caller would change `repo`'s backup or move its trunk from a remote (`BackupAction`).
+    /// The routes carry no actor, so a guard that wants one refuses them and offers its own. Asked
+    /// after the daemon's own checks (a remote that runs a program, a bad branch) and before
+    /// anything is written or any git runs, so a refusal leaves the backup and trunk as they were.
+    /// Not asked for the daemon's own pushes (after a merge, an undo, a revert or an advance; a
+    /// retry; `AV_BACKUP_REMOTES` at start-up) nor for the advance a target with `advance` set
+    /// makes before each of those.
+    Backup {
+        repo: &'a str,
+        action: BackupAction<'a>,
+    },
+}
+
+/// What `Guarded::Backup` would do. A `remote` is shown without the user and password a URL may
+/// carry.
+#[derive(Debug, Clone, Copy)]
+pub enum BackupAction<'a> {
+    /// `POST /v1/repos/{name}/backup`: the target set, then pushed to; `remote` `None` removes
+    /// the backup. `branch` `None` is the trunk's own name; with `advance`, every push first
+    /// advances trunk from the remote's `main`.
+    SetTarget {
+        remote: Option<&'a str>,
+        branch: Option<&'a str>,
+        advance: bool,
+    },
+    /// `POST /v1/repos/{name}/backup/push`: a push now, after an advance when the target has
+    /// `advance` set.
+    Push,
+    /// `POST /v1/repos/{name}/trunk/advance`: trunk fast-forwarded to `branch` of `remote` when
+    /// that descends from it.
+    Advance { remote: &'a str, branch: &'a str },
 }
 
 /// A write to a repository's shared memory, as `Guarded::MemoryWrite` names it.
@@ -146,8 +177,9 @@ pub enum RuleChange<'a> {
 }
 
 /// Asked before a submit, a review verdict, an approval, a merge, the acceptance of a proposed
-/// backlog item and a write to shared memory (a supersede, a verdict's review, a change to an
-/// article or a required convention). `Err(reason)`
+/// backlog item, a write to shared memory (a supersede, a verdict's review, a change to an
+/// article or a required convention) and a caller's change to the backup or advance of trunk
+/// (`Guarded::Backup`). `Err(reason)`
 /// refuses the request with HTTP 422 and the reason; the task (or item, record or verdict) stays
 /// as it was. A review verdict asks `Review` first and, for an approval, `Approve`
 /// after it.

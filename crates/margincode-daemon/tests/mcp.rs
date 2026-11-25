@@ -247,6 +247,14 @@ async fn read_tools_need_no_workspace() {
     )
     .await;
     assert_eq!(missing["result"]["isError"], true, "{missing}");
+    // a caller with no task (a dream, a reviewer) is told to name the repository, not to start
+    // a task: those tools may not be in its catalogue
+    let no_repo = tool(&e, &s, "read_file", json!({"path": "app/util.py"})).await;
+    let msg = no_repo["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("pass `repo`") && !msg.contains("start_task"),
+        "{no_repo}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

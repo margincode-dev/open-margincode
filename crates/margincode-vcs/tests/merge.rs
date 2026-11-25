@@ -453,3 +453,188 @@ async fn push_backup_rejects_branch_names_git_would_not_accept() {
         assert!(matches!(err, AvError::Invalid(_)), "{bad:?}: {err:?}");
     }
 }
+
+/// Writes an executable `hooks/NAME` in `git_dir` for each name; each appends its name to `marker`.
+fn hooks_that_mark(git_dir: &Path, names: &[&str], marker: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let hooks = git_dir.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    for name in names {
+        let path = hooks.join(name);
+        let script = format!("#!/bin/sh\necho {name} >> '{}'\n", marker.display());
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// Config in `git_dir` that names commands git would run on the remote side of a fetch or push.
+fn config_that_marks(git_dir: &Path, marker: &Path) {
+    let alt = TempDir::new().unwrap();
+    git(alt.path(), &["init", "-q", "--bare"]);
+    std::fs::write(
+        git_dir.join("objects/info/alternates"),
+        format!("{}\n", alt.path().join("objects").display()),
+    )
+    .unwrap();
+    std::mem::forget(alt);
+    let mark = |what: &str| {
+        format!(
+            "sh -c 'echo {what} >> \"{}\"; exec \"$@\"' --",
+            marker.display()
+        )
+    };
+    git(
+        git_dir,
+        &[
+            "config",
+            "core.alternateRefsCommand",
+            &mark("alternate-refs"),
+        ],
+    );
+    git(
+        git_dir,
+        &[
+            "config",
+            "uploadpack.packObjectsHook",
+            &mark("pack-objects-hook"),
+        ],
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_backup_push_to_a_path_runs_none_of_the_remotes_hooks() {
+    let e = env().await;
+    let remote = bare_remote();
+    let marks = TempDir::new().unwrap();
+    let marker = marks.path().join("marker");
+    hooks_that_mark(
+        remote.path(),
+        &[
+            "pre-receive",
+            "update",
+            "post-receive",
+            "post-update",
+            "reference-transaction",
+            "push-to-checkout",
+            "proc-receive",
+        ],
+        &marker,
+    );
+    config_that_marks(remote.path(), &marker);
+    let path = remote.path().to_str().unwrap().to_owned();
+    let file_url = format!("file://{path}");
+    assert_eq!(
+        e.vcs.push_backup("demo", &path, None).await.unwrap(),
+        e.main
+    );
+    assert_eq!(
+        e.vcs
+            .push_backup("demo", &file_url, Some("av-main"))
+            .await
+            .unwrap(),
+        e.main
+    );
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/main"]),
+        e.main.0
+    );
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/av-main"]),
+        e.main.0
+    );
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(ran.is_empty(), "the remote ran: {ran}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fetch_for_advance_runs_no_hook_and_no_remote_command() {
+    let e = env().await;
+    let remote = bare_remote();
+    let path = remote.path().to_str().unwrap().to_owned();
+    e.vcs.push_backup("demo", &path, None).await.unwrap();
+    let marks = TempDir::new().unwrap();
+    let marker = marks.path().join("marker");
+    // the fetch writes refs/av/advance/main in the store's own git dir
+    hooks_that_mark(
+        &e.store.path().join("demo/git"),
+        &["reference-transaction", "post-index-change"],
+        &marker,
+    );
+    hooks_that_mark(remote.path(), &["pre-receive", "post-update"], &marker);
+    config_that_marks(remote.path(), &marker);
+    for url in [path.clone(), format!("file://{path}")] {
+        let out = e.vcs.advance_trunk("demo", &url, "main").await.unwrap();
+        assert_eq!(
+            out,
+            margincode_core::Advance::UpToDate {
+                head: e.main.clone()
+            }
+        );
+    }
+    let ran = std::fs::read_to_string(&marker).unwrap_or_default();
+    assert!(ran.is_empty(), "ran: {ran}");
+}
+
+/// The store's git config names an ssh command that records its arguments and environment,
+/// then fails, as an unreachable host would.
+fn recording_ssh(e: &Env, out: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let script = out.join("ssh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{0}/args'\nenv > '{0}/env'\nexit 1\n",
+            out.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(
+        &e.store.path().join("demo/git"),
+        &["config", "core.sshCommand", script.to_str().unwrap()],
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_gets_none_of_the_daemons_environment_and_ssh_asks_for_the_plain_programs() {
+    assert!(
+        std::env::var_os("CARGO_MANIFEST_DIR").is_some(),
+        "cargo sets it for the test: it stands for a secret in the daemon's environment"
+    );
+    let e = env().await;
+    let out = TempDir::new().unwrap();
+    recording_ssh(&e, out.path());
+    let url = "ssh://git@example.invalid/r.git";
+    assert!(e.vcs.push_backup("demo", url, None).await.is_err());
+    let env = std::fs::read_to_string(out.path().join("env")).unwrap();
+    assert!(env.contains("PATH="), "{env}");
+    assert!(!env.contains("CARGO_MANIFEST_DIR="), "{env}");
+    assert!(!env.contains("GIT_CONFIG_PARAMETERS="), "{env}");
+    assert!(e.vcs.advance_trunk("demo", url, "main").await.is_err());
+    let args = std::fs::read_to_string(out.path().join("args")).unwrap();
+    let lines: Vec<&str> = args.lines().collect();
+    assert_eq!(lines.len(), 2, "{args}");
+    assert!(lines[0].ends_with("git-receive-pack '/r.git'"), "{args}");
+    assert!(lines[1].ends_with("git-upload-pack '/r.git'"), "{args}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transports_that_run_a_command_are_refused_for_push_and_fetch() {
+    let e = env().await;
+    for bad in [
+        "ext::sh -c touch% /tmp/x",
+        "EXT::sh",
+        "fd::17",
+        "foo::bar",
+        "::x",
+        "ftp://h/r.git",
+        "foo://h/r.git",
+        "-oProxyCommand=x",
+        "a\nb",
+    ] {
+        let push = e.vcs.push_backup("demo", bad, None).await.unwrap_err();
+        assert!(matches!(push, AvError::Invalid(_)), "{bad:?}: {push:?}");
+        let fetch = e.vcs.advance_trunk("demo", bad, "main").await.unwrap_err();
+        assert!(matches!(fetch, AvError::Invalid(_)), "{bad:?}: {fetch:?}");
+    }
+}

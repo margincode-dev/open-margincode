@@ -543,6 +543,53 @@ pub fn without_credentials(text: &str) -> String {
     out
 }
 
+/// Where a backup remote is, as git reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteKind {
+    /// A path or a `file://` URL: git starts the remote's receive-pack or upload-pack on this
+    /// machine, in that repository.
+    Path,
+    /// `http(s)://`, `ssh://`, `git://` or `[user@]host:path`.
+    Network,
+}
+
+/// Checks a backup remote. Refused: what git could read as an option (a leading `-`), a control
+/// character, and every transport that runs a program the URL picks: `<helper>::address` (`ext::`,
+/// `fd::`, any other) and a scheme git hands to a `git-remote-<scheme>` other than http and https.
+pub fn check_backup_remote(url: &str) -> Result<RemoteKind> {
+    let bad = || {
+        Err(AvError::Invalid(without_credentials(&format!(
+            "remote {url:?} is not a path or an http, https, ssh, git or file URL git may push to"
+        ))))
+    };
+    if url.is_empty() || url.starts_with('-') || url.chars().any(char::is_control) {
+        return bad();
+    }
+    // git's own test for a remote helper: unreserved characters, then `::`
+    let unreserved = |c: char| c.is_ascii_alphanumeric() || "-._~".contains(c);
+    let lead = url.find(|c| !unreserved(c)).unwrap_or(url.len());
+    if url[lead..].starts_with("::") {
+        return bad();
+    }
+    if let Some((scheme, _)) = url.split_once("://")
+        && !scheme.is_empty()
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+    {
+        return match scheme.to_ascii_lowercase().as_str() {
+            "file" => Ok(RemoteKind::Path),
+            "http" | "https" | "ssh" | "git" | "git+ssh" | "ssh+git" => Ok(RemoteKind::Network),
+            _ => bad(),
+        };
+    }
+    // as git tells `host:path` (ssh) from a path: a colon before any slash
+    match (url.find(':'), url.find('/')) {
+        (Some(colon), slash) if slash.is_none_or(|s| colon < s) => Ok(RemoteKind::Network),
+        _ => Ok(RemoteKind::Path),
+    }
+}
+
 /// Checks a backup branch name: what git accepts as a branch (see `git check-ref-format`), and
 /// nothing that could be read as an option or a refspec (`:`, a leading `-` or `+`).
 pub fn check_backup_branch(name: &str) -> Result<()> {
@@ -751,6 +798,45 @@ mod tests {
             author_agent: "test".into(),
             anchors: vec![],
         }
+    }
+
+    #[test]
+    fn a_backup_remote_is_a_path_or_a_url_that_runs_no_program() {
+        use RemoteKind::{Network, Path};
+        for (url, kind) in [
+            ("/srv/b.git", Path),
+            ("b.git", Path),
+            ("./a:b/c", Path),
+            ("/srv/a::b", Path),
+            ("file:///srv/b.git", Path),
+            ("https://h/r.git", Network),
+            ("HTTP://h/r.git", Network),
+            ("ssh://git@h/r.git", Network),
+            ("git://h/r.git", Network),
+            ("git@github.com:o/r.git", Network),
+            ("h:r.git", Network),
+        ] {
+            assert_eq!(check_backup_remote(url).unwrap(), kind, "{url}");
+        }
+        for url in [
+            "",
+            "-x",
+            "ext::sh",
+            "EXT::sh",
+            "fd::3",
+            "::x",
+            "a.b-c::d",
+            "ftp://h/r",
+            "evil://h",
+            "a\nb",
+        ] {
+            assert!(
+                matches!(check_backup_remote(url), Err(AvError::Invalid(_))),
+                "{url:?}"
+            );
+        }
+        let err = check_backup_remote("evil://u:s3cr3t@h/r").unwrap_err();
+        assert!(!err.to_string().contains("s3cr3t"), "{err}");
     }
 
     #[test]

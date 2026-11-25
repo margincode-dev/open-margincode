@@ -138,13 +138,8 @@ pub(crate) async fn set_backup(
     Json(b): Json<BackupBody>,
 ) -> ApiResult<BackupState> {
     let remote = b.remote.as_deref().map(str::trim).filter(|r| !r.is_empty());
-    if let Some(r) = remote
-        && (r.starts_with('-') || r.starts_with("ext::"))
-    {
-        return Err(AvError::Invalid(without_credentials(&format!(
-            "{r:?} is not a remote git may push to"
-        )))
-        .into());
+    if let Some(r) = remote {
+        margincode_core::check_backup_remote(r)?;
     }
     if let Some(b) = &b.branch {
         margincode_core::check_backup_branch(b)?;

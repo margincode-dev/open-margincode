@@ -2155,6 +2155,41 @@ async fn option_like_backup_remote_is_rejected() {
     assert_eq!(backup(&e).await["remote"], Value::Null);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_backup_remote_that_runs_a_command_is_rejected_and_the_usual_ones_are_kept() {
+    let e = env().await;
+    for bad in [
+        "ext::sh -c id",
+        "Ext::sh",
+        "fd::3",
+        "evil::x",
+        "ftp://h/r.git",
+        "evil://h/r.git",
+    ] {
+        let (status, body) = call(
+            &e.app,
+            "POST",
+            "/v1/repos/demo/backup",
+            Some(json!({"remote": bad})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad:?}: {body}");
+        assert_eq!(backup(&e).await["remote"], Value::Null, "{bad:?}");
+    }
+    for good in [
+        "/srv/b.git",
+        "relative/b.git",
+        "file:///srv/b.git",
+        "https://127.0.0.1:1/r.git",
+        "ssh://git@127.0.0.1:1/r.git",
+        "git@127.0.0.1:o/r.git",
+    ] {
+        set_remote(&e, good).await;
+        let stored = e.store.backup_state("demo").await.unwrap();
+        assert_eq!(stored.remote.as_deref(), Some(good));
+    }
+}
+
 /// A bare remote at `dir/origin.git` whose `main` is the imported trunk (GitHub's `main`).
 fn origin_at_trunk(e: &Env, dir: &Path) -> PathBuf {
     let remote = dir.join("origin.git");

@@ -48,8 +48,8 @@ use jj_lib::store::Store;
 use jj_lib::working_copy::{LockedWorkingCopy, SnapshotOptions};
 use jj_lib::workspace::Workspace;
 use margincode_core::{
-    Advance, AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, Result, Vcs, WorkspaceInfo,
-    without_credentials,
+    Advance, AvError, ChangeId, LogEntry, MergeOutcome, RebaseOutcome, RemoteKind, Result, Vcs,
+    WorkspaceInfo, without_credentials,
 };
 use pollster::block_on;
 
@@ -254,12 +254,66 @@ fn settings(exec_bit: ExecBit, author: Option<&(String, String)>) -> Result<User
     UserSettings::from_config_and_home_dir(config, None).map_err(verr)
 }
 
+/// What a git child keeps of the daemon's environment: what git, ssh, a credential helper and
+/// a proxy need. The rest (an embedding product's secrets among it) never reaches git or a
+/// program it starts.
+const GIT_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "XDG_CONFIG_HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_NOSYSTEM",
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "GIT_SSH_VARIANT",
+    "SSH_AUTH_SOCK",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+];
+
+/// Settings that keep git from running a program a repository's hooks or config names. Given to
+/// the local git and, for a path remote, to the receive-pack or upload-pack git starts in the
+/// remote repository: a `-c` of the local git does not reach that one.
+const NO_PROGRAMS: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false \
+                           -c core.alternateRefsCommand=true -c receive.denyCurrentBranch=refuse";
+
+/// `git` in `dir` with `GIT_ENV` only, no prompts, no hooks, and only the protocols a backup
+/// remote may use.
+fn git_command(dir: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir).env_clear();
+    for key in GIT_ENV {
+        if let Some(value) = std::env::var_os(key) {
+            cmd.env(key, value);
+        }
+    }
+    cmd.env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh")
+        .args(NO_PROGRAMS.split_whitespace());
+    cmd
+}
+
+/// `--receive-pack=...` or `--upload-pack=...` (`program`) for a path remote; nothing for a
+/// network one, whose server picks its own program.
+fn remote_program(kind: RemoteKind, program: &str) -> Option<String> {
+    (kind == RemoteKind::Path).then(|| format!("--{program}=git {NO_PROGRAMS} {program}"))
+}
+
 fn git_cmd(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .map_err(verr)?;
+    let out = git_command(dir).args(args).output().map_err(verr)?;
     if !out.status.success() {
         return Err(AvError::Vcs(without_credentials(&format!(
             "git {args:?}: {}",
@@ -274,15 +328,9 @@ const PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// Longest the fetch of `advance_trunk` may take before its git process is killed.
 const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Rejects a remote git could read as an option or a command (`ext::`).
-fn remote_arg<'a>(remote_url: &'a str, verb: &str) -> Result<&'a str> {
+fn remote_arg(remote_url: &str) -> Result<(&str, RemoteKind)> {
     let url = remote_url.trim();
-    if url.is_empty() || url.starts_with('-') || url.starts_with("ext::") {
-        return Err(AvError::Invalid(without_credentials(&format!(
-            "remote {remote_url:?} is not a URL or path git may {verb}"
-        ))));
-    }
-    Ok(url)
+    Ok((url, margincode_core::check_backup_remote(url)?))
 }
 
 fn branch_ref(git_dir: &Path, branch: &str) -> Result<String> {
@@ -294,11 +342,9 @@ fn branch_ref(git_dir: &Path, branch: &str) -> Result<String> {
     Ok(full)
 }
 
-/// `git_cmd` for network operations: no credential prompts, killed after `timeout`.
+/// `git_cmd` for network operations, killed after `timeout`.
 fn git_cmd_timeout(dir: &Path, args: &[&str], timeout: std::time::Duration) -> Result<String> {
-    let mut child = Command::new("git")
-        .current_dir(dir)
-        .env("GIT_TERMINAL_PROMPT", "0")
+    let mut child = git_command(dir)
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -463,12 +509,14 @@ impl Inner {
     fn init_repo_in(&self, dir: &Path, repo: &str, source: &Path) -> Result<ChangeId> {
         std::fs::create_dir_all(dir.join("main")).map_err(verr)?;
         let git_dir = dir.join("git");
+        let upload_pack = format!("--upload-pack=git {NO_PROGRAMS} upload-pack");
         git_cmd(
             dir,
             &[
                 "clone",
                 "--bare",
                 "--quiet",
+                &upload_pack,
                 "--",
                 &source.to_string_lossy(),
                 &git_dir.to_string_lossy(),
@@ -1189,7 +1237,7 @@ impl Inner {
     }
 
     fn push_backup(&self, repo: &str, remote_url: &str, branch: Option<&str>) -> Result<ChangeId> {
-        let url = remote_arg(remote_url, "push to")?;
+        let (url, kind) = remote_arg(remote_url)?;
         let name = self.trunk_name(repo)?;
         let git_dir = self.repo_dir(repo).join("git");
         let refname = format!("refs/heads/{name}");
@@ -1199,17 +1247,12 @@ impl Inner {
         };
         let pushed = git_cmd(&git_dir, &["rev-parse", "--verify", &refname])?;
         // no `+` and no --force: a remote that moved elsewhere rejects the push
-        git_cmd_timeout(
-            &git_dir,
-            &[
-                "push",
-                "--porcelain",
-                "--",
-                url,
-                &format!("{refname}:{target}"),
-            ],
-            PUSH_TIMEOUT,
-        )?;
+        let program = remote_program(kind, "receive-pack");
+        let refspec = format!("{refname}:{target}");
+        let mut args = vec!["push", "--porcelain"];
+        args.extend(program.as_deref());
+        args.extend(["--", url, &refspec]);
+        git_cmd_timeout(&git_dir, &args, PUSH_TIMEOUT)?;
         Ok(ChangeId(pushed))
     }
 
@@ -1217,26 +1260,19 @@ impl Inner {
     /// returns the commit fetched. Touches no jj state (only that private ref), so it runs
     /// without the per-repo lock: a slow remote never holds up snapshots.
     fn fetch_advance(&self, repo: &str, remote_url: &str, branch: &str) -> Result<ChangeId> {
-        let url = remote_arg(remote_url, "fetch from")?;
+        let (url, kind) = remote_arg(remote_url)?;
         // an unknown repo is NotFound before any git runs
         self.loader(repo)?;
         let git_dir = self.repo_dir(repo).join("git");
         let source = branch_ref(&git_dir, branch)?;
         let local = format!("refs/av/advance/{branch}");
         // a private ref (forced: it only ever mirrors the remote), never a local branch
-        git_cmd_timeout(
-            &git_dir,
-            &[
-                "fetch",
-                "--quiet",
-                "--no-tags",
-                "--no-write-fetch-head",
-                "--",
-                url,
-                &format!("+{source}:{local}"),
-            ],
-            FETCH_TIMEOUT,
-        )?;
+        let program = remote_program(kind, "upload-pack");
+        let refspec = format!("+{source}:{local}");
+        let mut args = vec!["fetch", "--quiet", "--no-tags", "--no-write-fetch-head"];
+        args.extend(program.as_deref());
+        args.extend(["--", url, &refspec]);
+        git_cmd_timeout(&git_dir, &args, FETCH_TIMEOUT)?;
         let fetched = git_cmd(
             &git_dir,
             &["rev-parse", "--verify", &format!("{local}^{{commit}}")],

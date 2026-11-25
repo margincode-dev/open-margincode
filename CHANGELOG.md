@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **The daemon's git runs no hooks and gets none of the daemon's secrets.** A backup push to a
+  path on the daemon's machine (`av repo backup NAME --remote /path/b.git`) ran that repository's
+  `pre-receive`, `post-receive` and other hooks as the daemon, with the daemon's whole
+  environment, and an advance fetch ran the store's own `reference-transaction` hook: anyone
+  with `AV_TOKEN` who could write a repository the daemon reads could run code as the daemon.
+  Every git the daemon starts (clone, push, fetch) now has hooks off on both sides, the remote
+  repository's `core.alternateRefsCommand` and `updateInstead` off, only `file`, `git`, `http`,
+  `https` and `ssh` transports, and an environment of `PATH`, `HOME`, the ssh, proxy and CA
+  variables only (the list is in the reference, Security). A remote that runs a program
+  (`ext::`, `fd::`, any other `helper::address`, a scheme other than http, https, ssh, git and
+  file) is refused with `400` by `av repo backup` and `av repo advance`. A git setting given only
+  through `GIT_CONFIG_COUNT` in the daemon's environment no longer reaches it.
 - **A read tool called without `repo` and without a task says to pass `repo`.** The MCP read
   tools (`read_file`, `list_files`, `log`, `diff` and the others that take `repo`) fell back to
   the session's task and, with none, answered "call start_task or claim_task first": tools a

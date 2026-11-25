@@ -1865,7 +1865,7 @@ loopback, not in `AV_ALLOWED_HOSTS` and not the request's own `Host` (`null` inc
 With `AV_TOKEN` set neither is checked. Agent names (`--agent`, `AV_AGENT`)
 are self-asserted: "the reviewer is not the owner", "only the owner hands off" and claim fencing prevent accidents
 between cooperating agents, not impersonation. Repository names are restricted to a single path component,
-`margincode repo add` only accepts an existing local directory, and backup remotes that look like git options are refused.
+`margincode repo add` only accepts an existing local directory. A backup remote (set with `av repo backup` or named to `av repo advance`) is a path, a `file://`, `http(s)://`, `ssh://` or `git://` URL, or `[user@]host:path`; one that looks like a git option, or that runs a program (`ext::`, any other `helper::address`, any other scheme), is refused with `400`. The git the daemon runs for a clone, a backup push or an advance fetch gets only `PATH`, `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_SSH_VARIANT`, `SSH_AUTH_SOCK`, the CA variables (`GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`, `SSL_CERT_FILE`, `SSL_CERT_DIR`) and the proxy variables of the daemon's environment, and runs no hooks: neither the store's nor, for a remote that is a path on the daemon's machine, the remote repository's (its `core.alternateRefsCommand` and a checked-out branch's `updateInstead` are off too). A git setting given only through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n` in the daemon's environment no longer reaches it; put it in the global config instead.
 Postgres credentials in the compose file are development-only.
 
 ## Post-merge checks

@@ -430,6 +430,11 @@ Several agents work against one daemon at once:
   the user and token are taken out of every URL in the daemon's log lines, the stored last error,
   the backup state that `GET /v1/repos/{name}/backup`, `GET /v1/tasks/{id}` and the MCP `status`
   tool answer (the `remote` field too) and the feed, also for an error an older daemon stored.
+  An extension's `MergeGuard` is asked (`Guarded::Backup`) before a caller sets or clears the
+  backup (`POST /v1/repos/{name}/backup`), forces a push (`POST /v1/repos/{name}/backup/push`) or
+  advances trunk (`POST /v1/repos/{name}/trunk/advance`); a refusal is a `422` that changes
+  nothing. The daemon's own pushes after a merge, an undo, a revert or an advance, and their
+  retries, are not asked about. Without an extension nothing is asked.
   By default main is pushed to a branch of the same name; `margincode repo backup NAME --remote URL
   --branch av-main` pushes it to `refs/heads/av-main` instead (still never forced), for example to
   open a pull request from it. Setting only `--remote` goes back to the trunk's name.

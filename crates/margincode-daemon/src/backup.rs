@@ -16,8 +16,8 @@ use margincode_core::{Advance, AvError, BackupState, Result, without_credentials
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::AppState;
 use crate::error::{ApiError, ApiResult};
+use crate::{AppState, BackupAction, Guarded};
 
 const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// How often the retry loop looks for due repos.
@@ -144,6 +144,13 @@ pub(crate) async fn set_backup(
     if let Some(b) = &b.branch {
         margincode_core::check_backup_branch(b)?;
     }
+    let shown_remote = remote.map(without_credentials);
+    let action = BackupAction::SetTarget {
+        remote: shown_remote.as_deref(),
+        branch: b.branch.as_deref().filter(|_| remote.is_some()),
+        advance: b.advance && remote.is_some(),
+    };
+    guard(&st, &repo, action).await?;
     let state = st
         .pg
         .set_backup_target(&repo, remote, b.branch.as_deref(), b.advance)
@@ -158,7 +165,16 @@ pub(crate) async fn push_backup(
     State(st): State<AppState>,
     Path(repo): Path<String>,
 ) -> ApiResult<BackupState> {
+    guard(&st, &repo, BackupAction::Push).await?;
     Ok(Json(shown(run_backup(&st, &repo).await?)))
+}
+
+/// Asks the `MergeGuard` about a caller's change to `repo`'s backup (`Guarded::Backup`).
+async fn guard(st: &AppState, repo: &str, action: BackupAction<'_>) -> Result<()> {
+    st.guard
+        .check(Guarded::Backup { repo, action })
+        .await
+        .map_err(|reason| AvError::IllegalState(format!("cannot change the backup: {reason}")))
 }
 
 /// The remote branch trunk advances from when none is named.
@@ -219,6 +235,12 @@ pub(crate) async fn post_advance(
         })?,
     };
     let branch = b.branch.as_deref().unwrap_or(ADVANCE_BRANCH);
+    let shown_remote = without_credentials(&remote);
+    let action = BackupAction::Advance {
+        remote: &shown_remote,
+        branch,
+    };
+    guard(&st, &repo, action).await?;
     let outcome = advance_trunk(&st, &repo, &remote, branch).await?;
     if let Advance::Diverged {
         trunk,

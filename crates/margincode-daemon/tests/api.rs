@@ -2364,6 +2364,150 @@ async fn advance_refuses_a_diverged_remote_and_leaves_trunk_alone() {
     }
 }
 
+struct BackupGuard {
+    allow: bool,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl margincode_daemon::MergeGuard for BackupGuard {
+    async fn check(&self, action: margincode_daemon::Guarded<'_>) -> Result<(), String> {
+        use margincode_daemon::{BackupAction, Guarded};
+        let Guarded::Backup { repo, action } = action else {
+            return Ok(());
+        };
+        let what = match action {
+            BackupAction::SetTarget {
+                remote,
+                branch,
+                advance,
+            } => format!("{repo}: set {remote:?} {branch:?} {advance}"),
+            BackupAction::Push => format!("{repo}: push"),
+            BackupAction::Advance { remote, branch } => {
+                format!("{repo}: advance from {remote} {branch}")
+            }
+        };
+        self.asked.lock().unwrap().push(what);
+        if self.allow {
+            Ok(())
+        } else {
+            Err("an admin's to do".into())
+        }
+    }
+}
+
+async fn backup_guarded(allow: bool) -> (Env, Arc<BackupGuard>) {
+    let guard = Arc::new(BackupGuard {
+        allow,
+        asked: Default::default(),
+    });
+    let g = guard.clone();
+    (env_with(move |s| s.with_merge_guard(g)).await, guard)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_can_refuse_setting_pushing_and_advancing_from_a_backup() {
+    let (e, guard) = backup_guarded(false).await;
+    let dir = TempDir::new().unwrap();
+    let origin = origin_at_trunk(&e, dir.path());
+    let before = trunk_head(&e).await;
+    land_on_remote(&e, &origin, "app/farewell.py", FAREWELL);
+    let url = origin.to_str().unwrap();
+    let refused = |status: StatusCode, body: &Value| {
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("an admin's to do"),
+            "{body}"
+        );
+    };
+
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": "https://u:s3cr3t@127.0.0.1:1/r.git", "branch": "av-main", "advance": true})),
+    )
+    .await;
+    refused(status, &body);
+    assert_eq!(backup(&e).await["remote"], Value::Null);
+
+    let (status, body) = advance(&e, Some(json!({"remote": url}))).await;
+    refused(status, &body);
+    assert_eq!(trunk_head(&e).await, before, "trunk did not move");
+
+    // a target set without the routes, as an operator's AV_BACKUP_REMOTES sets one
+    let target = dir.path().join("backup.git");
+    bare_repo(&target);
+    let target_url = target.to_str().unwrap();
+    e.store
+        .set_backup_remote("demo", Some(target_url), None)
+        .await
+        .unwrap();
+    let (status, body) = call(&e.app, "POST", "/v1/repos/demo/backup/push", None).await;
+    refused(status, &body);
+    assert!(
+        git_out(&target, &["for-each-ref"]).is_empty(),
+        "nothing was pushed"
+    );
+    let (status, body) = advance(&e, None).await;
+    refused(status, &body);
+    assert_eq!(trunk_head(&e).await, before);
+
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/repos/demo/backup",
+        Some(json!({"remote": null})),
+    )
+    .await;
+    refused(status, &body);
+    assert_eq!(backup(&e).await["remote"], target_url, "not cleared");
+
+    assert_eq!(
+        *guard.asked.lock().unwrap(),
+        [
+            "demo: set Some(\"https://127.0.0.1:1/r.git\") Some(\"av-main\") true".to_owned(),
+            format!("demo: advance from {url} main"),
+            "demo: push".to_owned(),
+            format!("demo: advance from {target_url} main"),
+            "demo: set None None false".to_owned(),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_that_allows_backup_changes_leaves_them_as_they_were() {
+    let (e, guard) = backup_guarded(true).await;
+    let dir = TempDir::new().unwrap();
+    let origin = origin_at_trunk(&e, dir.path());
+    let landed = land_on_remote(&e, &origin, "app/farewell.py", FAREWELL);
+    let url = origin.to_str().unwrap();
+    let (status, body) = advance(&e, Some(json!({"remote": url, "branch": "main"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "fast_forwarded", "{body}");
+    assert_eq!(trunk_head(&e).await, landed);
+
+    let target = dir.path().join("backup.git");
+    bare_repo(&target);
+    let target_url = target.to_str().unwrap();
+    set_remote(&e, target_url).await;
+    let done = settled(&e).await;
+    assert_eq!(done["failures"], 0, "{done}");
+    let (status, state) = call(&e.app, "POST", "/v1/repos/demo/backup/push", None).await;
+    assert_eq!(status, StatusCode::OK, "{state}");
+    assert_eq!(state["last_pushed"], landed.as_str(), "{state}");
+    assert_eq!(git_out(&target, &["rev-parse", "refs/heads/main"]), landed);
+    // the daemon's own pushes (after the advance, after setting the target) are not asked about
+    assert_eq!(
+        *guard.asked.lock().unwrap(),
+        [
+            format!("demo: advance from {url} main"),
+            format!("demo: set Some({target_url:?}) None false"),
+            "demo: push".to_owned(),
+        ]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn backup_tick_advances_before_it_pushes_when_asked() {
     let e = env().await;
@@ -4943,7 +5087,8 @@ impl margincode_daemon::MergeGuard for Refuse {
             margincode_daemon::Guarded::Submit { .. }
             | margincode_daemon::Guarded::Review { .. }
             | margincode_daemon::Guarded::AcceptBacklog { .. }
-            | margincode_daemon::Guarded::MemoryWrite { .. } => {
+            | margincode_daemon::Guarded::MemoryWrite { .. }
+            | margincode_daemon::Guarded::Backup { .. } => {
                 return Ok(());
             }
         };

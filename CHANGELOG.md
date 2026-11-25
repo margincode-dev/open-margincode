@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **An extension's guard is asked before a backup changes or trunk advances from a remote.**
+  `POST /v1/repos/{name}/backup` (set or clear), `POST /v1/repos/{name}/backup/push` and
+  `POST /v1/repos/{name}/trunk/advance` needed only `AV_TOKEN`; the last fast-forwards trunk to
+  whatever the remote holds, unreviewed. The `MergeGuard` is now asked first
+  (`Guarded::Backup { repo, action }`, `BackupAction::SetTarget`, `Push` or `Advance`), and a
+  refusal is a `422` that changes nothing. Without an extension, nothing changes. A guard that
+  matches `Guarded` without a wildcard needs a `Guarded::Backup` arm.
 - **The daemon's git runs no hooks and gets none of the daemon's secrets.** A backup push to a
   path on the daemon's machine (`av repo backup NAME --remote /path/b.git`) ran that repository's
   `pre-receive`, `post-receive` and other hooks as the daemon, with the daemon's whole

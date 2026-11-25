@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A read tool called without `repo` and without a task says to pass `repo`.** The MCP read
+  tools (`read_file`, `list_files`, `log`, `diff` and the others that take `repo`) fell back to
+  the session's task and, with none, answered "call start_task or claim_task first": tools a
+  reviewer or a dream may not have. The message is now ``no repository: pass `repo`, or
+  `task_id` to read a task's repository``.
 - **Every pack of a sparse workspace says what it leaves out, and marks what is there.** The
   Task line `Not on disk: …` was only in the Task item's longer tiers, so a first pack with a
   long goal, which sends the Task at its shortest, never had it. It is now a required item of

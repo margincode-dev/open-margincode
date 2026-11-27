@@ -1005,7 +1005,7 @@ impl margincode_daemon::MergeGuard for MemoryPolicy {
             return Ok(());
         };
         let (what, refused) = match action {
-            MemoryAction::Supersede { record } => {
+            MemoryAction::Supersede { record, .. } => {
                 (format!("supersede {:?}", record.summary), by == "grok")
             }
             MemoryAction::VerdictReview {

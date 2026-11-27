@@ -3289,8 +3289,15 @@ async fn the_questions_section_lists_open_and_answered_ones_once() {
     assert_eq!(md.matches("→ SQLite").count(), 1, "{md}");
 }
 
+fn questions_section(md: &str) -> &str {
+    md.split("## Questions\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or("")
+}
+
 #[tokio::test]
-async fn a_corrected_answer_is_no_longer_shown_as_the_answer() {
+async fn a_corrected_answer_is_shown_in_place_of_the_first() {
     let fx = fixture().await;
     let asked = ask(
         &fx,
@@ -3301,16 +3308,9 @@ async fn a_corrected_answer_is_no_longer_shown_as_the_answer() {
     .await;
     let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
     let (summary, body) = question::answer_record(&q.question, "SQLite", "");
-    let answer = close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
-    close(
-        &fx,
-        &answer,
-        RecordKind::Decision,
-        "the cache stays in Postgres after all",
-        "",
-        "alice",
-    )
-    .await;
+    let first = close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    let (summary, body) = question::answer_record(&q.question, "Postgres", "one server");
+    close(&fx, &first, RecordKind::Decision, &summary, &body, "bob").await;
     let md = fx
         .packer
         .build(req(&fx.task, 2500, "corrected"))
@@ -3318,7 +3318,54 @@ async fn a_corrected_answer_is_no_longer_shown_as_the_answer() {
         .unwrap()
         .markdown;
     assert!(!md.contains("→ SQLite"), "{md}");
-    assert!(md.contains("the cache stays in Postgres after all"), "{md}");
+    assert!(
+        questions_section(&md)
+            .contains("answered by bob: Which database should the cache use? → Postgres"),
+        "{md}"
+    );
+    assert_eq!(md.matches("→ Postgres").count(), 1, "{md}");
+}
+
+#[tokio::test]
+async fn the_three_newest_answers_are_kept_and_older_ones_are_decisions_like_any() {
+    let fx = fixture().await;
+    for n in 1..=4 {
+        let asked = ask(
+            &fx,
+            fx.task.id,
+            &format!("Question number {n} about the cache, put at some length so it costs tokens?"),
+            question::Undo::Workspace,
+        )
+        .await;
+        let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
+        let (summary, body) = question::answer_record(&q.question, "SQLite", "");
+        close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    }
+    let small = fx
+        .packer
+        .build(req(&fx.task, 300, "small"))
+        .await
+        .unwrap()
+        .markdown;
+    let shown = questions_section(&small);
+    for n in [4, 3, 2] {
+        assert!(shown.contains(&format!("Question number {n} ")), "{small}");
+    }
+    assert!(!shown.contains("Question number 1 "), "{small}");
+    assert!(
+        shown.find("number 4").unwrap() < shown.find("number 2").unwrap(),
+        "newest first: {small}"
+    );
+    let full = fx
+        .packer
+        .build(req(&fx.task, 4000, "full"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        line_of(&full, "Question number 1 ").contains(" decision: "),
+        "{full}"
+    );
 }
 
 #[tokio::test]

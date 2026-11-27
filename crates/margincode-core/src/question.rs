@@ -139,7 +139,7 @@ impl Question {
             .option(&self.recommended)
             .ok_or_else(|| {
                 AvError::Invalid(format!(
-                    "recommended must be one of the options ({}), not {:?}",
+                    "recommended must be one of the options ({}) or its number, not {:?}",
                     checked.options.join(", "),
                     self.recommended.trim()
                 ))
@@ -151,18 +151,40 @@ impl Question {
         })
     }
 
-    /// The option `given` names: its text, in any case, or its number counted from 1.
+    /// The option `given` names: its text, in any case, else its number counted from 1 (so of
+    /// the options `2` and `5`, `2` is the first).
     pub fn option(&self, given: &str) -> Option<&str> {
         let given = given.trim();
-        let by_number = given
-            .parse::<usize>()
-            .ok()
-            .and_then(|n| n.checked_sub(1))
-            .and_then(|i| self.options.get(i));
-        by_number
-            .or_else(|| self.options.iter().find(|o| o.eq_ignore_ascii_case(given)))
+        let by_number = || {
+            given
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|i| self.options.get(i))
+        };
+        self.options
+            .iter()
+            .find(|o| o.eq_ignore_ascii_case(given))
+            .or_else(by_number)
             .map(String::as_str)
     }
+}
+
+/// Whether `a` and `b` name one agent: one name in any case, or names (any case) of one profile,
+/// its name or an alias.
+pub fn same_agent(profiles: &[crate::routing::Profile], a: &str, b: &str) -> bool {
+    let canonical = |n: &str| {
+        let n = n.trim();
+        profiles
+            .iter()
+            .find(|p| {
+                p.name.eq_ignore_ascii_case(n)
+                    || p.aliases.iter().any(|x| x.eq_ignore_ascii_case(n))
+            })
+            .map_or(n, |p| p.name.as_str())
+            .to_lowercase()
+    };
+    canonical(a) == canonical(b)
 }
 
 /// The body of a `question` record: what was asked, and what the daemon told the agent.
@@ -269,6 +291,42 @@ mod tests {
         assert_eq!(c.option("sqlite"), Some("SQLite"));
         assert_eq!(c.option("0"), None);
         assert_eq!(c.option("3"), None);
+    }
+
+    #[test]
+    fn an_options_text_wins_over_its_number() {
+        let mut retries = q();
+        retries.options = vec!["2".into(), "5".into()];
+        retries.recommended = "2".into();
+        assert_eq!(retries.clone().checked().unwrap().recommended, "2");
+        retries.recommended = "1".into();
+        let c = retries.clone().checked().unwrap();
+        assert_eq!(c.recommended, "2");
+        assert_eq!(c.option("2"), Some("2"));
+        assert_eq!(c.option("5"), Some("5"));
+        assert_eq!(c.option("1"), Some("2"));
+        assert_eq!(c.option("3"), None);
+        retries.recommended = "3".into();
+        assert!(retries.checked().is_err());
+    }
+
+    #[test]
+    fn one_agent_is_one_agent_under_any_case_or_alias() {
+        let careful = crate::routing::Profile {
+            name: "careful".into(),
+            best: vec![],
+            can: vec![],
+            cost_rank: 1,
+            aliases: vec!["Claude".into()],
+            max_open: None,
+            managed_by: None,
+        };
+        let profiles = [careful];
+        assert!(same_agent(&profiles, "claude", "Claude"));
+        assert!(same_agent(&profiles, "claude", "CAREFUL"));
+        assert!(same_agent(&profiles, "grok", " Grok "));
+        assert!(!same_agent(&profiles, "claude", "alice"));
+        assert!(!same_agent(&[], "claude", "careful"));
     }
 
     #[test]

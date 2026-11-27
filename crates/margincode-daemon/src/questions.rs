@@ -7,6 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use margincode_core::question::{
     Asked, MAX_COMMENT_CHARS, MAX_OPEN_QUESTIONS, Question, QuestionState, Undo, answer_record,
+    same_agent,
 };
 use margincode_core::*;
 use serde::Deserialize;
@@ -159,10 +160,31 @@ async fn open(State(st): State<AppState>, Query(q): Query<OpenQuery>) -> ApiResu
     Ok(Json(json!({ "questions": out })))
 }
 
+/// The question a person's answer `rec` answers (through any corrections), when it is one.
+pub(crate) async fn answered_question(st: &AppState, rec: &Record) -> Result<Option<Record>> {
+    let mut at = rec.clone();
+    for _ in 0..64 {
+        if at.kind != RecordKind::Decision {
+            return Ok(None);
+        }
+        let Some(earlier) = at.supersedes else {
+            return Ok(None);
+        };
+        at = st.store.get_record(earlier).await?;
+        if at.kind == RecordKind::Question {
+            return Ok(Some(at));
+        }
+    }
+    Ok(None)
+}
+
 #[derive(Deserialize)]
 struct AnswerBody {
     #[serde(default)]
     option: String,
+    /// Replace the answer a question already has.
+    #[serde(default)]
+    correct: bool,
     #[serde(default)]
     comment: String,
     #[serde(default)]
@@ -201,26 +223,48 @@ async fn answer(
     }
     let _guard = st.lock_task(found.task_id).await;
     let q = st.store.get_record(found.id).await?;
-    if let Some(next) = q.superseded_by {
-        let next = st.store.get_record(next).await?;
-        return Err(AvError::Conflict(match next.kind {
-            RecordKind::Decision => format!(
-                "{shown} is already answered: {} ({}, by {})",
-                next.summary,
-                rec_handle(next.id),
-                next.author_agent
-            ),
-            _ => format!(
-                "{shown} was withdrawn: {} ({})",
-                next.summary,
-                rec_handle(next.id)
-            ),
-        })
+    let task = st.store.get_task(q.task_id).await?;
+    if matches!(task.status, TaskStatus::Merged | TaskStatus::Abandoned) {
+        return Err(AvError::IllegalState(format!(
+            "task {} is {}: it is finished, so {shown} is no longer answered there; record the \
+             decision on a new task",
+            task.slug,
+            task.status.as_str()
+        ))
         .into());
+    }
+    let mut earlier = None;
+    if let Some(next) = q.superseded_by {
+        let mut live = st.store.get_record(next).await?;
+        if live.kind != RecordKind::Decision {
+            return Err(AvError::Conflict(format!(
+                "{shown} was withdrawn: {} ({})",
+                live.summary,
+                rec_handle(live.id)
+            ))
+            .into());
+        }
+        for _ in 0..64 {
+            match live.superseded_by {
+                Some(n) => live = st.store.get_record(n).await?,
+                None => break,
+            }
+        }
+        if !b.correct {
+            return Err(AvError::Conflict(format!(
+                "{shown} is already answered: {} ({}, by {}); to change the answer, answer again \
+                 with `av answer {shown} <option> --correct`",
+                live.summary,
+                rec_handle(live.id),
+                live.author_agent
+            ))
+            .into());
+        }
+        earlier = Some(live);
     }
     let asked: Asked = serde_json::from_str(&q.body)
         .map_err(|e| AvError::Store(format!("{shown}'s body is not a question: {e}")))?;
-    if by == q.author_agent {
+    if same_agent(&st.store.list_profiles().await?, &by, &q.author_agent) {
         return Err(AvError::IllegalState(format!(
             "{by} asked {shown}: an agent does not answer its own question. A person answers it, \
              or the agent withdraws it with a note that supersedes it"
@@ -245,8 +289,8 @@ async fn answer(
             ))
         })?
         .to_owned();
-    let task = st.store.get_task(q.task_id).await?;
-    guard_supersede(&st, &task, &q, &by).await?;
+    let replaced = earlier.as_ref().unwrap_or(&q);
+    guard_supersede(&st, &task, replaced, &by, true).await?;
     let (summary, body) = answer_record(&asked.question, &option, comment);
     let decision = st
         .store
@@ -257,7 +301,7 @@ async fn answer(
                 summary,
                 body,
                 change_id: None,
-                supersedes: Some(q.id),
+                supersedes: Some(replaced.id),
                 author_agent: by.clone(),
                 anchors: q.anchors.clone(),
             },
@@ -269,12 +313,12 @@ async fn answer(
     for (kind, payload) in [
         (
             "record:superseded",
-            json!({"old": q.id, "new": decision.id, "by": by}),
+            json!({"old": replaced.id, "new": decision.id, "by": by}),
         ),
         (
             "question:answered",
             json!({"question": q.id, "decision": decision.id, "option": option, "by": by,
-                   "recommended": recommended}),
+                   "recommended": recommended, "corrects": earlier.as_ref().map(|r| r.id)}),
         ),
     ] {
         if let Err(e) = st

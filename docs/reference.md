@@ -908,25 +908,43 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   "Carry on with <recommended>. Record what you build on it."; parking reads "Finish what does not
   depend on this, checkpoint, then stop this task." The task's state does not change.
 - At most three questions are open on a task at once; a fourth is refused (`422`) until one is
-  answered or withdrawn. An open question is one nothing supersedes.
-- A person answers: `av answer` lists the open questions (`GET /v1/questions`, `?repo=`), each with
-  its numbered options; `av answer rec:ID OPTION [--comment TEXT] [--by NAME]` (`POST
-  /v1/questions/{id}/answer`, `{option, comment, by}`) names the option by its number or its text.
+  answered or withdrawn. An open question is one nothing supersedes. The store counts them under a
+  lock on the task's row, so daemons sharing one database cannot pass the limit together.
+- A person answers: `av answer` lists the open questions of tasks neither merged nor abandoned
+  (`GET /v1/questions`, `?repo=`), each with its task's status and its numbered options;
+  `av answer rec:ID OPTION [--comment TEXT] [--by NAME]` (`POST /v1/questions/{id}/answer`,
+  `{option, comment, by, correct}`) names the option by its text or, when no option has that
+  text, its number (of the options `2` and `5`, `2` is `2`). `recommended` is matched the same way.
   `--by` defaults to `--agent` when one is named, else `user`. Any member may answer, except the
-  agent that asked (`422`). The answer is a `decision` that supersedes the question, anchored like
-  it: its summary is `<question> → <option>`, its body says whether that was the recommended option
-  and keeps the comment. A question already answered or withdrawn is refused (`409`).
-- The asking agent withdraws a question with a note that supersedes it
-  (`av record --kind note --summary WHY --supersedes rec:ID`, or the MCP `record` tool). A
-  `question` is written only through `ask`, and a `decision` superseding one only through
-  `answer` (`422` otherwise).
-- The task's pack lists its questions in a *Questions* section under *Task*: each open one with
-  what the agent was told (reserved before ranked items, as the task line is) and each answered one as
-  `answered by <name>: <question> → <option>`. A withdrawn one is left out. Other tasks' packs and
-  the pre-read hook never show an open question (`av search` and the task's review bundle do); they
-  show the answer like any decision, and `av why` names it too.
+  agent that asked (`422`; names are compared in any case, a profile's name and aliases as one).
+  The daemon has no identities: anyone with the token can answer under any name, and an
+  extension's guard can tell an answer apart (below). The answer is a `decision` that supersedes
+  the question, anchored like it: its summary is `<question> → <option>`, its body says whether
+  that was the recommended option and keeps the comment. A question withdrawn, or already answered
+  without `--correct`, is refused (`409`); a question of a merged or abandoned task is refused
+  (`422`: the task is finished, record the decision on a new task).
+- A person changes an answer with `av answer rec:ID OPTION --correct` (`"correct": true`): the new
+  decision supersedes the live answer. Nothing else supersedes an answer (`422`, naming the
+  route), so an agent's `record` cannot replace what a person chose.
+- Only the agent that asked withdraws an open question, with a note that supersedes it
+  (`av record --kind note --summary WHY --supersedes rec:ID`, or the MCP `record` tool; names
+  compared as above, whatever task the request names). A `question` is written only through `ask`
+  (the record routes refuse it before they snapshot anything), and a `decision` superseding one
+  only through `answer` (`422` otherwise).
+- An extension's `MergeGuard` is asked before an answer, a correction and a withdrawal, as
+  `Guarded::MemoryWrite` with `MemoryAction::Supersede { record, answer }` and `by` the name
+  given: `answer` is true for an answer or a correction (`record` is the question or the earlier
+  answer), false for a withdrawal.
+- The task's pack lists its questions in a *Questions* section under *Task*, all reserved before
+  ranked items, as the task line is: each open one, oldest first, with what the agent was told,
+  then the three newest answered ones, newest first, as
+  `answered by <name>: <question> → <option>` (the live answer, after any correction). Older
+  answers compete under *Decisions & dead ends* like any decision. A withdrawn one is left out.
+  Other tasks' packs and the pre-read hook never show an open question (`av search` and the
+  task's review bundle do); they show the answer like any decision, and `av why` names it too.
 - Events: `question:asked` (`{record, level, instruction, by}`) and `question:answered`
-  (`{question, decision, option, by, recommended}`), with `record:superseded`.
+  (`{question, decision, option, by, recommended, corrects}`, `corrects` the replaced answer or
+  null), with `record:superseded`.
 
 ### The constitution
 
@@ -1267,7 +1285,8 @@ accepted; `av convention list` ends a promoted one with `(from vd:…)`.
   a task's records still list a hidden record, with `verdict: {kind, reason, handle}`. The feed
   gets `dream:started`, `dream:finished` and `verdict` (with its state).
 - An extension's `MergeGuard` is asked before a review is written (`Guarded::MemoryWrite` with
-  `MemoryAction::VerdictReview`, and with `Supersede` before a record supersedes another); its
+  `MemoryAction::VerdictReview`, and with `Supersede` before a record supersedes another,
+  `answer: true` when it is a person's answer to a question); its
   refusal is `422` and the verdict stays proposed. Community's own guard allows both.
 - Verdicts apply to what other tasks' agents read. The reading task's own records and records
   mined from git are shown as before.

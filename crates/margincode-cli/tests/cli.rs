@@ -8726,7 +8726,7 @@ fn ask_prints_the_instruction_and_a_person_answers_by_number() {
     assert!(asked.contains("1 of 3 open on this task"), "{asked}");
     let open = ok(av(&d, scratch.path(), &["answer"]));
     assert!(open.contains("May the cache outlive a restart?"), "{open}");
-    assert!(open.contains("demo/improve-greeting"), "{open}");
+    assert!(open.contains("demo/improve-greeting (open)"), "{open}");
     assert!(
         open.contains("1 Postgres (recommended: the daemon already runs one)"),
         "{open}"

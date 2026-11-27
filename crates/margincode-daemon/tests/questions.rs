@@ -377,3 +377,255 @@ async fn why_names_the_answer_like_any_decision_of_the_merged_task() {
     );
     assert!(records.iter().all(|r| r["kind"] != "question"), "{why}");
 }
+
+async fn record(e: &crate::common::Env, t: &Value, body: Value) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/records", id(t)),
+        Some(body),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_does_not_answer_its_own_question_under_another_case_or_an_alias() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/careful",
+        Some(json!({"aliases": ["claude"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    for by in ["Claude", "careful", "CAREFUL"] {
+        let (status, own) = answer(&e, q, json!({"option": "SQLite", "by": by})).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{by}: {own}");
+        assert!(own.to_string().contains("its own question"), "{by}: {own}");
+    }
+    let (status, body) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_persons_answer_is_corrected_only_by_answering_again() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    let (_, answered) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
+    let first = answered["decision"]["id"].as_str().unwrap().to_owned();
+
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "decision", "summary": "Use Postgres", "agent": "claude",
+                "supersedes": first}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("av answer"), "{body}");
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "never mind", "agent": "alice", "supersedes": first}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, again) = answer(&e, q, json!({"option": "Postgres", "by": "bob"})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{again}");
+    assert!(again.to_string().contains("--correct"), "{again}");
+    let (status, corrected) = answer(
+        &e,
+        q,
+        json!({"option": "Postgres", "by": "bob", "correct": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{corrected}");
+    assert_eq!(
+        corrected["decision"]["supersedes"],
+        first.as_str(),
+        "{corrected}"
+    );
+    let second = corrected["decision"]["id"].as_str().unwrap();
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "decision", "summary": "SQLite after all", "agent": "claude",
+                "supersedes": second}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (status, own) = answer(
+        &e,
+        q,
+        json!({"option": "SQLite", "by": "claude", "correct": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{own}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_asking_agent_withdraws_a_question() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "grok", "supersedes": q}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("claude"), "{body}");
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "CLAUDE", "supersedes": q}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_tasks_questions_are_neither_open_nor_answered() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        &format!("/v1/tasks/{}/abandon", id(&t)),
+        Some(json!({"agent": "claude"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, open) = call(&e.app, "GET", "/v1/questions", None).await;
+    assert_eq!(open["questions"], json!([]), "{open}");
+    let (status, refused) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    let said = refused.to_string();
+    assert!(
+        said.contains("finished") && said.contains("new task"),
+        "{said}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_on_the_record_route_is_refused_before_any_snapshot() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    crate::common::edit_greeter(&e, &t);
+    let (_, before) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "question", "summary": "Postgres?", "agent": "claude"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (_, after) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(
+        before["task"]["head_change"], after["task"]["head_change"],
+        "{after}"
+    );
+}
+
+/// Says how each supersede it is asked about was meant: an answer or not.
+#[derive(Default)]
+struct Answers(std::sync::Mutex<Vec<String>>);
+
+#[async_trait::async_trait]
+impl margincode_daemon::MergeGuard for Answers {
+    async fn check(&self, action: margincode_daemon::Guarded<'_>) -> Result<(), String> {
+        if let margincode_daemon::Guarded::MemoryWrite {
+            action: margincode_daemon::MemoryAction::Supersede { record, answer },
+            by,
+            ..
+        } = action
+        {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("{} {} answer={answer}", by, record.kind.as_str()));
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_tells_an_answer_from_a_withdrawal() {
+    let guard = std::sync::Arc::new(Answers::default());
+    let g = guard.clone();
+    let e = crate::common::env_with(move |s| s.with_merge_guard(g)).await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, first) = ask(&e, &t, question("workspace")).await;
+    let (_, second) = ask(&e, &t, question("workspace")).await;
+    let (status, body) = answer(
+        &e,
+        first["id"].as_str().unwrap(),
+        json!({"option": "SQLite", "by": "alice"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = answer(
+        &e,
+        first["id"].as_str().unwrap(),
+        json!({"option": "Postgres", "by": "bob", "correct": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "claude",
+                "supersedes": second["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        *guard.0.lock().unwrap(),
+        [
+            "alice question answer=true",
+            "bob decision answer=true",
+            "claude question answer=false"
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_names_an_option_by_its_text_before_its_number() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let mut retries = question("workspace");
+    retries["question"] = json!("How many retries?");
+    retries["options"] = json!(["2", "5"]);
+    retries["recommended"] = json!("2");
+    let (status, asked) = ask(&e, &t, retries.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{asked}");
+    assert_eq!(
+        asked["told"], "Carry on with 2. Record what you build on it.",
+        "{asked}"
+    );
+    let (status, answered) = answer(
+        &e,
+        asked["id"].as_str().unwrap(),
+        json!({"option": "2", "by": "alice"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answered}");
+    assert_eq!(
+        answered["decision"]["summary"], "How many retries? → 2",
+        "{answered}"
+    );
+    retries["recommended"] = json!("3");
+    let (status, refused) = ask(&e, &t, retries).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+}

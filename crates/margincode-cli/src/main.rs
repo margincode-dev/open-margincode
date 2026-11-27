@@ -180,6 +180,9 @@ enum Cmd {
         /// List only this repo's open questions.
         #[arg(long)]
         repo: Option<String>,
+        /// Replace the answer the question already has.
+        #[arg(long)]
+        correct: bool,
     },
     /// Print a token-budgeted context pack for the task; `stats` and `backfill` measure how good
     /// merged tasks' packs were.
@@ -1632,10 +1635,11 @@ fn open_question_lines(q: &Value) -> String {
         _ => "parked until answered".to_owned(),
     };
     let mut text = format!(
-        "{}  {}/{}  asked by {}, {told}\n  {}",
+        "{}  {}/{} ({})  asked by {}, {told}\n  {}",
         s(&q["handle"]),
         s(&q["task"]["repo"]),
         s(&q["task"]["slug"]),
+        s(&q["task"]["status"]),
         s(&q["asked_by"]),
         s(&asked["question"])
     );
@@ -2231,13 +2235,14 @@ fn run(cli: Cli) -> Result<()> {
             option,
             comment,
             by,
+            correct,
             ..
         } => {
             let by = by.clone().unwrap_or_else(|| person(&cli).to_owned());
             let r = client.post(
                 &format!("/v1/questions/{}/answer", urlencode(id)),
                 &json!({"option": option, "comment": comment.clone().unwrap_or_default(),
-                        "by": by}),
+                        "by": by, "correct": correct}),
             )?;
             let fit = match r["recommended"].as_bool() {
                 Some(true) => "the recommended option",

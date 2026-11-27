@@ -234,22 +234,32 @@ fn item(id: String, section: Section, score: f32, texts: [String; 3]) -> Item {
 /// Required, right under the task.
 const OPEN_QUESTION_SCORE: f32 = 0.98;
 const ANSWERED_SCORE: f32 = 0.85;
+/// The answers a task's own pack always carries, the newest; at most three questions are open
+/// at once, so the last round of answers fits.
+const ANSWERS_KEPT: usize = 3;
 
-/// The task's Questions (reason `question` or `answer`, Section::Task), oldest first: each open
-/// question with what its agent was told, each answered one with the option chosen (the item is
-/// the answer's, so `av expand` shows its comment); a withdrawn one is left out. Also the answers'
-/// ids, so they are not shown again under History.
+/// The task's Questions (reason `question` or `answer`, Section::Task), both required: each open
+/// question, oldest first, with what its agent was told, and the `ANSWERS_KEPT` newest answered
+/// ones, newest first, with the option chosen (the item is the live answer's, so `av expand`
+/// shows its comment). A withdrawn one is left out, and older answers are left to History like
+/// any decision. Also the ids of the answers shown, so History does not show them again.
 fn question_items(own: &[Record]) -> (Vec<Item>, HashSet<RecordId>) {
     use margincode_core::question::{Asked, Instruction, chosen};
     let by_id: HashMap<RecordId, &Record> = own.iter().map(|r| (r.id, r)).collect();
-    let (mut items, mut answers) = (vec![], HashSet::new());
+    let (mut items, mut answered) = (vec![], vec![]);
     for q in own.iter().filter(|r| r.kind == RecordKind::Question) {
         let Ok(asked) = serde_json::from_str::<Asked>(&q.body) else {
             continue;
         };
         let oldest_first = format!("q\0{:020}", q.created_at.timestamp_micros());
-        let item = match q.superseded_by.map(|n| by_id.get(&n)) {
-            None => {
+        let mut live = q.superseded_by.and_then(|n| by_id.get(&n).copied());
+        if live.is_some_and(|a| a.kind == RecordKind::Decision) {
+            while let Some(next) = live.and_then(|a| a.superseded_by) {
+                live = by_id.get(&next).copied();
+            }
+        }
+        let item = match (q.superseded_by, live) {
+            (None, _) => {
                 let told = match asked.instruction {
                     Instruction::Park => "park".to_owned(),
                     Instruction::Proceed => format!("carry on with {}", asked.question.recommended),
@@ -269,8 +279,7 @@ fn question_items(own: &[Record]) -> (Vec<Item>, HashSet<RecordId>) {
                 .because("question")
                 .required_if(true)
             }
-            Some(Some(a)) if a.kind == RecordKind::Decision && a.superseded_by.is_none() => {
-                answers.insert(a.id);
+            (Some(_), Some(a)) if a.kind == RecordKind::Decision && a.superseded_by.is_none() => {
                 let id = short_id("rec", &a.id.0);
                 let option = chosen(&a.body).unwrap_or(&a.summary);
                 let handle = format!(
@@ -283,18 +292,29 @@ fn question_items(own: &[Record]) -> (Vec<Item>, HashSet<RecordId>) {
                         full.push_str(&format!("\n  {line}"));
                     }
                 }
-                item(
-                    id,
-                    Section::Task,
-                    ANSWERED_SCORE,
-                    [handle.clone(), handle, full],
-                )
-                .because("answer")
+                let newest_first = i64::MAX - a.created_at.timestamp_micros();
+                answered.push((
+                    a.id,
+                    item(
+                        id,
+                        Section::Task,
+                        ANSWERED_SCORE,
+                        [handle.clone(), handle, full],
+                    )
+                    .because("answer")
+                    .required_if(true)
+                    .ordered(format!("a\0{newest_first:020}")),
+                ));
+                continue;
             }
-            Some(_) => continue,
+            _ => continue,
         };
         items.push(item.ordered(oldest_first));
     }
+    answered.sort_by(|a, b| a.1.order.cmp(&b.1.order));
+    answered.truncate(ANSWERS_KEPT);
+    let answers = answered.iter().map(|(id, _)| *id).collect();
+    items.extend(answered.into_iter().map(|(_, item)| item));
     (items, answers)
 }
 

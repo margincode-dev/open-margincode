@@ -115,8 +115,11 @@ pub enum BackupAction<'a> {
 #[derive(Debug, Clone, Copy)]
 pub enum MemoryAction<'a> {
     /// A new record would supersede `record`, which packs then no longer show. `by` is the new
-    /// record's author.
-    Supersede { record: &'a Record },
+    /// record's author. `answer`: the new record is a person's answer, written by
+    /// `POST /v1/questions/{id}/answer`, to the question `record` or, correcting it, in place of
+    /// the earlier answer `record`. An agent withdrawing its own question is `answer: false`
+    /// with `record` the question.
+    Supersede { record: &'a Record, answer: bool },
     /// The one review of a proposed verdict (`verdict` is its id, `kind` what it says of
     /// `record`: `confirmed`, `disputed`, `duplicate`, `outdated`, `promote` or `conflict`; the
     /// last two are reviewed by name only, never with `dream`). With `agree` it takes effect in

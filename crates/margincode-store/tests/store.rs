@@ -1176,3 +1176,48 @@ async fn prune_removes_idle_sessions_only() {
     assert_eq!(s.expand_tokens("s-new").await.unwrap(), 10);
     assert_eq!(s.prune_sessions(month).await.unwrap(), 0);
 }
+
+#[tokio::test]
+async fn the_store_refuses_a_fourth_open_question_of_a_task() {
+    let (_db, s) = store().await;
+    let t = s.create_task(new_task("Cache greetings")).await.unwrap();
+    let mut asked = vec![];
+    for _ in 0..3 {
+        asked.push(
+            s.add_record(rec(t.id, RecordKind::Question, "Which database?", vec![]))
+                .await
+                .unwrap(),
+        );
+    }
+    let fourth = s
+        .add_record(rec(t.id, RecordKind::Question, "Which database?", vec![]))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(fourth.contains("answer or withdraw one first"), "{fourth}");
+    let mut withdrawn = rec(t.id, RecordKind::Note, "not needed", vec![]);
+    withdrawn.supersedes = Some(asked[0].id);
+    s.add_record(withdrawn).await.unwrap();
+    s.add_record(rec(t.id, RecordKind::Question, "Which database?", vec![]))
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn questions_asked_at_once_never_pass_the_limit_together() {
+    let (_db, s) = store().await;
+    let t = s.create_task(new_task("Cache greetings")).await.unwrap();
+    let asks = (0..8).map(|_| {
+        let s = s.clone();
+        tokio::spawn(async move {
+            s.add_record(rec(t.id, RecordKind::Question, "Which database?", vec![]))
+                .await
+                .is_ok()
+        })
+    });
+    let mut written = 0;
+    for ask in asks.collect::<Vec<_>>() {
+        written += usize::from(ask.await.unwrap());
+    }
+    assert_eq!(written, 3);
+}

@@ -231,6 +231,90 @@ fn item(id: String, section: Section, score: f32, texts: [String; 3]) -> Item {
     }
 }
 
+/// Required, right under the task.
+const OPEN_QUESTION_SCORE: f32 = 0.98;
+const ANSWERED_SCORE: f32 = 0.85;
+
+/// The task's Questions (reason `question` or `answer`, Section::Task), oldest first: each open
+/// question with what its agent was told, each answered one with the option chosen (the item is
+/// the answer's, so `av expand` shows its comment); a withdrawn one is left out. Also the answers'
+/// ids, so they are not shown again under History.
+fn question_items(own: &[Record]) -> (Vec<Item>, HashSet<RecordId>) {
+    use margincode_core::question::{Asked, Instruction, chosen};
+    let by_id: HashMap<RecordId, &Record> = own.iter().map(|r| (r.id, r)).collect();
+    let (mut items, mut answers) = (vec![], HashSet::new());
+    for q in own.iter().filter(|r| r.kind == RecordKind::Question) {
+        let Ok(asked) = serde_json::from_str::<Asked>(&q.body) else {
+            continue;
+        };
+        let oldest_first = format!("q\0{:020}", q.created_at.timestamp_micros());
+        let item = match q.superseded_by.map(|n| by_id.get(&n)) {
+            None => {
+                let told = match asked.instruction {
+                    Instruction::Park => "park".to_owned(),
+                    Instruction::Proceed => format!("carry on with {}", asked.question.recommended),
+                };
+                let id = short_id("rec", &q.id.0);
+                let handle = format!("- {id} open, told to {told}: {}", q.summary);
+                let mut summary = handle.clone();
+                for line in question_lines(&asked) {
+                    summary.push_str(&format!("\n  {line}"));
+                }
+                item(
+                    id,
+                    Section::Task,
+                    OPEN_QUESTION_SCORE,
+                    [handle, summary.clone(), summary],
+                )
+                .because("question")
+                .required_if(true)
+            }
+            Some(Some(a)) if a.kind == RecordKind::Decision && a.superseded_by.is_none() => {
+                answers.insert(a.id);
+                let id = short_id("rec", &a.id.0);
+                let option = chosen(&a.body).unwrap_or(&a.summary);
+                let handle = format!(
+                    "- {id} answered by {}: {} → {option}",
+                    a.author_agent, q.summary
+                );
+                let mut full = handle.clone();
+                for line in a.body.lines().skip(1) {
+                    if !line.starts_with("Asked: ") {
+                        full.push_str(&format!("\n  {line}"));
+                    }
+                }
+                item(
+                    id,
+                    Section::Task,
+                    ANSWERED_SCORE,
+                    [handle.clone(), handle, full],
+                )
+                .because("answer")
+            }
+            Some(_) => continue,
+        };
+        items.push(item.ordered(oldest_first));
+    }
+    (items, answers)
+}
+
+/// A question's options, the recommended one marked with why, and what depends on it.
+fn question_lines(asked: &margincode_core::question::Asked) -> Vec<String> {
+    let q = &asked.question;
+    let options: Vec<String> = q
+        .options
+        .iter()
+        .map(|o| match o == &q.recommended {
+            true => format!("{o} (recommended: {})", q.why),
+            false => o.clone(),
+        })
+        .collect();
+    vec![
+        format!("options: {}", options.join(" | ")),
+        format!("depends: {}", q.depends),
+    ]
+}
+
 /// A record item: equal scores put the newer record first (ids are random).
 fn rec_item(rec: &Record, id: String, section: Section, score: f32, texts: [String; 3]) -> Item {
     let newer_first = i64::MAX - rec.created_at.timestamp_micros();
@@ -354,10 +438,15 @@ pub(crate) fn record_texts(
         summary.push_str(&format!("\n  anchors: {}", anchors.join(", ")));
     }
     let mut full = summary.clone();
-    if !rec.body.trim().is_empty() {
-        for line in rec.body.trim().lines() {
-            full.push_str(&format!("\n  {line}"));
-        }
+    let asked = (rec.kind == RecordKind::Question)
+        .then(|| serde_json::from_str::<margincode_core::question::Asked>(&rec.body).ok())
+        .flatten();
+    let lines: Vec<String> = match asked {
+        Some(asked) => question_lines(&asked),
+        None => rec.body.trim().lines().map(str::to_owned).collect(),
+    };
+    for line in lines {
+        full.push_str(&format!("\n  {line}"));
     }
     (id, [handle, summary, full])
 }
@@ -999,13 +1088,16 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
         .map(|l| l.sym.symbol.qname.clone())
         .collect();
     let own = d.store.task_records(task.id).await?;
+    let (asked, answers) = question_items(&own);
+    items.extend(asked);
     let anchored = d
         .store
         .records_anchored_to(repo, &our_paths, &qnames)
         .await?;
     let mut records: BTreeMap<String, Record> = BTreeMap::new();
     for r in own.into_iter().chain(anchored) {
-        if r.superseded_by.is_none() {
+        // the task's own questions and their answers are shown under Questions
+        if r.superseded_by.is_none() && r.kind != RecordKind::Question && !answers.contains(&r.id) {
             records.entry(r.id.to_string()).or_insert(r);
         }
     }
@@ -1125,6 +1217,7 @@ async fn gather_structural(d: &Deps<'_>, task: &Task, focus: Option<&str>) -> Re
             .await?;
         for rec in theirs {
             if rec.task_id == task.id
+                || rec.kind == RecordKind::Question
                 || records.contains_key(&rec.id.to_string())
                 || origins.hidden(&rec, task.id)
             {
@@ -1448,7 +1541,7 @@ async fn merge_hits(
                 };
                 // A vector is marked superseded a moment after the store is (the outbox), so a hit can still say
                 // `superseded: false`; dropped here, it does not count toward the cap first.
-                if rec.superseded_by.is_some() {
+                if rec.superseded_by.is_some() || rec.kind == RecordKind::Question {
                     continue;
                 }
                 if !(rec.kind == RecordKind::Intent && rec.task_id == task.id) {
@@ -1538,7 +1631,7 @@ async fn include_record(
     semantic: f32,
     reason: &'static str,
 ) -> Result<()> {
-    if rec.superseded_by.is_some() {
+    if rec.superseded_by.is_some() || rec.kind == RecordKind::Question {
         return Ok(());
     }
     if rec.kind == RecordKind::Intent && rec.task_id == task.id && repeats_goal(rec, task) {
@@ -1550,6 +1643,9 @@ async fn include_record(
     let id = short_id("rec", &rec.id.0);
     let origin = parts.origins.of(rec, task.id);
     if let Some(item) = parts.gathered.items.iter_mut().find(|i| i.id == id) {
+        if item.reason == "answer" {
+            return Ok(());
+        }
         item.score +=
             score::W_SEM * score::clamp_sim(semantic) * record_factor(rec, task, false, origin);
         return Ok(());

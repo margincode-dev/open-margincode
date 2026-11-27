@@ -86,7 +86,7 @@ const RECORDS_AT_HINT: &str =
 const RECORDS_AT_HINT_ID: &str = "hint:supersedes";
 
 /// Bumped by any change to ranking or rendering; recorded in every receipt.
-pub const PACKER_VERSION: u32 = 15;
+pub const PACKER_VERSION: u32 = 16;
 
 pub struct Packer {
     vcs: Arc<dyn Vcs>,
@@ -463,7 +463,9 @@ impl Packer {
             r.task_id != task.id
                 && !matches!(
                     r.kind,
-                    margincode_core::RecordKind::Intent | margincode_core::RecordKind::Validation
+                    margincode_core::RecordKind::Intent
+                        | margincode_core::RecordKind::Validation
+                        | margincode_core::RecordKind::Question
                 )
         });
         let origins =

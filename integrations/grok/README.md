@@ -58,7 +58,7 @@ live in the project (`.grok/hooks` or `.claude/settings.json` inside the repo) s
 folder trusted. `av init` installs the user-level file, not a project hook.
 
 The config format was checked against Grok Build 1.0.70 on 2026-10-31 (`grok mcp doctor av`:
-handshake `2025-06-18`, 24 tools). A static `headers` table is sent on every request, and
+handshake `2025-06-18`, 26 tools). A static `headers` table is sent on every request, and
 `${AV_TOKEN}` is expanded at start. `av init --for grok` writes `X-Av-Agent = "grok"` (and
 `Authorization` when the daemon has a token). Without that header the daemon sees the MCP
 `clientInfo.name` `grok-shell-av` (user agent `grok-cli/1.0.70`); a profile can list it as an alias

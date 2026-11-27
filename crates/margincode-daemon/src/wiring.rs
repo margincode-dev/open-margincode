@@ -318,6 +318,15 @@ fn parse_build_budget(value: Option<&str>) -> Result<u64> {
 
 /// An on/off setting: unset or blank is on; `off`, `0`, `false`, `no` are off; `on`, `1`, `true`,
 /// `yes` are on; anything else is `Invalid`.
+/// `AV_ASK_LEVEL`: `balanced` when unset or blank; any other value than the three is refused.
+pub(crate) fn ask_level_from(value: Option<&str>) -> Result<margincode_core::question::AskLevel> {
+    match value.map(str::trim) {
+        None | Some("") => Ok(margincode_core::question::AskLevel::Balanced),
+        Some(v) => margincode_core::question::AskLevel::named(v)
+            .map_err(|e| AvError::Invalid(format!("AV_ASK_LEVEL: {e}"))),
+    }
+}
+
 fn parse_switch(name: &str, value: Option<&str>) -> Result<bool> {
     match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
         None | Some("") | Some("on" | "1" | "true" | "yes") => Ok(true),
@@ -451,6 +460,10 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
     .with_build_idle(cfg.build_idle_secs)
     .with_build_cache(cfg.build_cache)
     .with_plain_records(cfg.plain_records)
+    // read here, not into `Config`, for the reason `AV_ALLOWED_HOSTS` is
+    .with_ask_level(ask_level_from(
+        std::env::var("AV_ASK_LEVEL").ok().as_deref(),
+    )?)
     .with_disk_paths(
         Some(cfg.store_root.clone()),
         cfg.database_url.is_none().then(|| cfg.pg_dir.clone()),
@@ -488,6 +501,23 @@ pub async fn build_state(cfg: &Config, database_url: &str) -> Result<AppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ask_level_is_balanced_unless_set_and_refused_unless_one_of_three() {
+        use margincode_core::question::AskLevel;
+        assert_eq!(ask_level_from(None).unwrap(), AskLevel::Balanced);
+        assert_eq!(ask_level_from(Some(" ")).unwrap(), AskLevel::Balanced);
+        assert_eq!(
+            ask_level_from(Some("ask_first")).unwrap(),
+            AskLevel::AskFirst
+        );
+        assert_eq!(ask_level_from(Some("carry_on")).unwrap(), AskLevel::CarryOn);
+        let err = ask_level_from(Some("yolo")).unwrap_err().to_string();
+        assert!(
+            err.contains("AV_ASK_LEVEL") && err.contains("carry_on"),
+            "{err}"
+        );
+    }
 
     #[test]
     fn an_open_listen_address_needs_a_token_or_an_explicit_yes() {

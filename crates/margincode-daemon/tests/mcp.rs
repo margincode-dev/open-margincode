@@ -111,6 +111,7 @@ async fn tools_list_contains_every_tool_name() {
         names,
         [
             "abandon",
+            "ask",
             "checkpoint",
             "claim_task",
             "diff",
@@ -1230,6 +1231,73 @@ fn echo_tool() -> margincode_daemon::ExtTool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_ask_tool_answers_with_one_instruction_and_says_when_to_ask() {
+    let e = env().await;
+    let s = connect_named(&e, "claude").await;
+    let list = send(
+        &e,
+        Some(&s),
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+    )
+    .await;
+    let ask = list.body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "ask")
+        .cloned()
+        .expect("an ask tool");
+    let said = ask["description"].as_str().unwrap();
+    assert!(
+        said.contains(
+            "when you would otherwise guess about something a person would want a say in"
+        ),
+        "{said}"
+    );
+    assert!(said.contains("follow"), "{said}");
+    assert_eq!(
+        ask["inputSchema"]["properties"]["undo"]["enum"],
+        json!(["workspace", "outside"]),
+        "{ask}"
+    );
+
+    tool(
+        &e,
+        &s,
+        "start_task",
+        json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder"}),
+    )
+    .await;
+    let question = |undo: &str| {
+        json!({"question": "Which database should the cache use?",
+               "options": ["Postgres", "SQLite"], "recommended": "Postgres",
+               "why": "the daemon already runs one", "depends": "the cache's schema",
+               "undo": undo, "remaining": "its storage", "done": null, "anchors": null})
+    };
+    let proceed = text(&tool(&e, &s, "ask", question("workspace")).await);
+    assert!(
+        proceed.starts_with("Carry on with Postgres. Record what you build on it."),
+        "{proceed}"
+    );
+    let park = text(&tool(&e, &s, "ask", question("outside")).await);
+    assert!(
+        park.starts_with("Finish what does not depend on this, checkpoint, then stop this task."),
+        "{park}"
+    );
+    assert!(park.contains("rec:"), "names the question: {park}");
+    tool(&e, &s, "ask", question("outside")).await;
+    let refused = tool(&e, &s, "ask", question("outside")).await;
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert!(
+        refused["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("answer or withdraw one first"),
+        "{refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_tool_list_stays_small() {
     // the guard counts Community tools only: an extension's tools are its own to pay for
     let e = env_with(|s| s.with_mcp_tools(vec![echo_tool()])).await;
@@ -1256,9 +1324,12 @@ async fn the_tool_list_stays_small() {
     // `required` list and `submit`'s inline records the receipt description `record` already has.
     // The inline records' own `supersedes` (31 bytes, so they list every field `record` takes)
     // was paid for by `records` losing a description that repeated the tool's (52 bytes).
+    // `ask` (questions for a person, the owner's go-ahead of 2026-11-26) added 1,106 bytes to the
+    // 10,779 before it, which raised the limit from 10,800 to 11,900: without it an agent that is
+    // unsure can only guess or stop, and no answer reaches it.
     assert!(
-        bytes <= 10_800,
-        "tools/list is {bytes} bytes; it was 10,800 after `supersedes`"
+        bytes <= 11_900,
+        "tools/list is {bytes} bytes; it was 11,900 after `ask`"
     );
 }
 

@@ -180,6 +180,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::dream::routes())
         .merge(crate::constitution::routes())
         .merge(crate::outcomes::routes())
+        .merge(crate::questions::routes())
 }
 
 const PRUNE_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
@@ -844,6 +845,7 @@ pub(crate) async fn check_record(
     task: &Task,
     b: &RecordBody,
 ) -> Result<Option<RecordId>> {
+    refuse_question(b.kind)?;
     let n = b.summary.chars().count();
     if n > MAX_SUMMARY_CHARS {
         return Err(AvError::SummaryTooLong(n));
@@ -861,9 +863,25 @@ pub(crate) async fn check_record(
     }
 }
 
+/// A question is written by `ask`, which checks it, keeps at most three open and tells the agent
+/// what to do; the plain record route would skip all three.
+fn refuse_question(kind: RecordKind) -> Result<()> {
+    if kind == RecordKind::Question {
+        return Err(AvError::IllegalState(
+            "a question is asked with the MCP tool `ask` or `av ask`, not as a plain record".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Asks the `MergeGuard` whether `agent`'s new record may supersede `old`
 /// (`Guarded::MemoryWrite`), once the daemon's own rules allow it.
-async fn guard_supersede(st: &AppState, task: &Task, old: &Record, agent: &str) -> Result<()> {
+pub(crate) async fn guard_supersede(
+    st: &AppState,
+    task: &Task,
+    old: &Record,
+    agent: &str,
+) -> Result<()> {
     let action = crate::Guarded::MemoryWrite {
         repo: &task.repo,
         action: crate::MemoryAction::Supersede { record: old },
@@ -912,6 +930,11 @@ async fn superseded_by_task(
             "{shown} is another task's record: this daemon serves plain records (AV_PLAIN_RECORDS), where a task supersedes only its own"
         )));
     }
+    if old.kind == RecordKind::Question && by == RecordKind::Decision {
+        return Err(AvError::IllegalState(format!(
+            "{shown} is a question: a person answers it with `av answer {shown} <option>`;              withdraw it with a note that supersedes it"
+        )));
+    }
     if let Some(why) = supersede_refusal(old.kind, by, old.task_id == task.id) {
         return Err(AvError::IllegalState(format!(
             "{shown} ({}) cannot be superseded by a record of kind {}: {why}",
@@ -944,6 +967,7 @@ async fn superseded_by_task(
 /// the old one's, so the correction is shown wherever the record it corrects was. The caller
 /// holds `AppState::lock_task` and has run `fence`.
 pub(crate) async fn write_record(st: &AppState, task: &Task, b: RecordBody) -> Result<Record> {
+    refuse_question(b.kind)?;
     let old = match b.supersedes.as_deref() {
         Some(named) => Some(superseded_by_task(st, task, named, b.kind).await?),
         None => None,

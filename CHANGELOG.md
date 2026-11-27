@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Questions for a person.** An agent that would otherwise guess about something a person would
+  want a say in asks, with the new MCP tool `ask` or `av ask`: two to four options, the one it
+  recommends and why, what depends on it, and whether a wrong option costs only this task's work
+  (`undo: workspace`) or more (`outside`). The daemon answers at once with one instruction, from
+  the agent's level (`av agent set NAME --ask-level ask_first|balanced|carry_on`, else the new
+  `AV_ASK_LEVEL`, default `balanced`): carry on with the recommended option, or finish what does
+  not depend on it, checkpoint and stop. A person lists open questions with `av answer` and
+  answers with `av answer rec:ID OPTION [--comment …]` (`GET /v1/questions`,
+  `POST /v1/questions/{id}/answer`); the answer is a `decision` that supersedes the question. At
+  most three are open per task. The task's pack gains a *Questions* section (packer version 16).
+  Migration `0036_question.sql` adds the record kind `question` and `agent_profiles.ask_level`.
 - **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
   stop flag it started the `kill` program, which got the caller's whole environment (a runner's
   token among it) and could be seen in `/proc` by the processes it was killing. It now calls

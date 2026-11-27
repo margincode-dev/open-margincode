@@ -1226,6 +1226,47 @@ impl IntentStore for PgStore {
             .collect()
     }
 
+    async fn ask_level(&self, agent: &str) -> Result<Option<question::AskLevel>> {
+        let level: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT ask_level FROM agent_profiles WHERE name = $1 OR $1 = ANY(aliases)
+             ORDER BY name = $1 DESC, name LIMIT 1",
+        )
+        .bind(agent.trim())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        level.flatten().map(|l| l.parse()).transpose()
+    }
+
+    async fn set_ask_level(&self, name: &str, level: Option<question::AskLevel>) -> Result<()> {
+        let name = non_blank("an agent name", name)?;
+        let n = sqlx::query("UPDATE agent_profiles SET ask_level = $2 WHERE name = $1")
+            .bind(&name)
+            .bind(level.map(|l| l.as_str()))
+            .execute(&self.pool)
+            .await
+            .map_err(serr)?
+            .rows_affected();
+        if n == 0 {
+            return Err(AvError::NotFound(format!("agent {name}")));
+        }
+        Ok(())
+    }
+
+    async fn open_questions(&self, repo: Option<&str>) -> Result<Vec<Record>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {RECORD_COLS} FROM records r JOIN tasks t ON t.id = r.task_id
+             WHERE r.kind = 'question' AND ($1::text IS NULL OR t.repo = $1)
+               AND NOT EXISTS (SELECT 1 FROM records n WHERE n.supersedes = r.id)
+             ORDER BY r.created_at, r.id"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        self.hydrate_records(rows).await
+    }
+
     async fn delete_profile(&self, name: &str, force: bool) -> Result<()> {
         let name = non_blank("an agent name", name)?;
         let mut tx = self.pool.begin().await.map_err(serr)?;

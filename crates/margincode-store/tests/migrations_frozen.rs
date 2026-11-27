@@ -145,6 +145,10 @@ const FROZEN: &[(&str, &str)] = &[
         "0035_conflict.sql",
         "c45d47783df36c854995b2d6cc3b4afb7c5b9e929595b48d760cbe6c6a70b6c2",
     ),
+    (
+        "0036_question.sql",
+        "48394650af1da73b2ddf24c9498cb153584980b69c7254763c6df7b99e31c685",
+    ),
 ];
 
 #[test]

@@ -135,6 +135,52 @@ enum Cmd {
         #[arg(long)]
         receipt: Option<String>,
     },
+    /// Ask a person about something they would want a say in, instead of guessing; prints what
+    /// to do until it is answered (an agent usually uses the MCP tool `ask`). Withdraw an open
+    /// question with `av record --kind note --summary WHY --supersedes rec:ID`.
+    Ask {
+        question: String,
+        /// One option (give two to four).
+        #[arg(long = "option", required = true)]
+        options: Vec<String>,
+        /// The option you would take.
+        #[arg(long)]
+        recommended: String,
+        /// One line: why that option.
+        #[arg(long)]
+        why: String,
+        /// The work that rests on the answer.
+        #[arg(long)]
+        depends: String,
+        /// `workspace`: a wrong option costs only redoing this task's work; `outside`: more.
+        #[arg(long, value_parser = ["workspace", "outside"])]
+        undo: String,
+        /// What is done so far.
+        #[arg(long)]
+        done: Option<String>,
+        /// What is left.
+        #[arg(long)]
+        remaining: Option<String>,
+        /// path or path:symbol (repeatable)
+        #[arg(long = "anchor")]
+        anchors: Vec<String>,
+    },
+    /// Answer a question an agent asked, with an option's number or text; without arguments,
+    /// list the open questions.
+    Answer {
+        /// The question's `rec:…` id.
+        #[arg(requires = "option")]
+        id: Option<String>,
+        option: Option<String>,
+        #[arg(long)]
+        comment: Option<String>,
+        /// Who answers (default: --agent when named, else `user`).
+        #[arg(long)]
+        by: Option<String>,
+        /// List only this repo's open questions.
+        #[arg(long)]
+        repo: Option<String>,
+    },
     /// Print a token-budgeted context pack for the task; `stats` and `backfill` measure how good
     /// merged tasks' packs were.
     #[command(args_conflicts_with_subcommands = true)]
@@ -681,6 +727,10 @@ enum AgentCmd {
         /// parallel). Default: no limit.
         #[arg(long)]
         max_open: Option<i32>,
+        /// What `ask` tells it: `ask_first` (always wait), `balanced` (carry on unless a wrong
+        /// option costs more than this task's work) or `carry_on`. Default: AV_ASK_LEVEL.
+        #[arg(long)]
+        ask_level: Option<String>,
     },
     /// Remove a profile. Refused while the agent owns open, handed-off, in-review or conflicted tasks,
     /// unless `--force`.
@@ -1567,7 +1617,37 @@ fn agent_line(a: &Value) -> String {
     if let Some(m) = a["max_open"].as_i64() {
         line.push_str(&format!("  max_open {m}"));
     }
+    if let Some(l) = a["ask_level"].as_str() {
+        line.push_str(&format!("  ask_level {l}"));
+    }
     line
+}
+
+/// An open question for the person who answers it: id, task, who asked and what it was told,
+/// then the question and its numbered options.
+fn open_question_lines(q: &Value) -> String {
+    let asked = &q["question"];
+    let told = match s(&asked["instruction"]) {
+        "proceed" => format!("carrying on with {}", s(&asked["recommended"])),
+        _ => "parked until answered".to_owned(),
+    };
+    let mut text = format!(
+        "{}  {}/{}  asked by {}, {told}\n  {}",
+        s(&q["handle"]),
+        s(&q["task"]["repo"]),
+        s(&q["task"]["slug"]),
+        s(&q["asked_by"]),
+        s(&asked["question"])
+    );
+    let options = asked["options"].as_array().cloned().unwrap_or_default();
+    for (i, o) in options.iter().enumerate() {
+        text.push_str(&format!("\n  {} {}", i + 1, s(o)));
+        if s(o) == s(&asked["recommended"]) {
+            text.push_str(&format!(" (recommended: {})", s(&asked["why"])));
+        }
+    }
+    text.push_str(&format!("\n  depends: {}", s(&asked["depends"])));
+    text
 }
 
 /// ` · needs image,ui`, or nothing for an untagged item.
@@ -2103,6 +2183,72 @@ fn run(cli: Cli) -> Result<()> {
                 )?;
                 println!("{}", recorded_line(&r));
             }
+        }
+        Cmd::Ask {
+            question,
+            options,
+            recommended,
+            why,
+            depends,
+            undo,
+            done,
+            remaining,
+            anchors,
+        } => {
+            let (task, _) = resolve_task(&cli)?;
+            // anchors are hashed against the daemon's workspace: send a remote checkout's edits
+            remote::push_if_remote(&client, &task, generation_for(&cli, &task)?, &cwd()?)?;
+            let anchors: Vec<Value> = anchors.iter().map(|a| parse_anchor(a)).collect();
+            let r = client.post_as(
+                &format!("/v1/tasks/{task}/questions"),
+                &json!({"question": question, "options": options, "recommended": recommended,
+                        "why": why, "depends": depends, "undo": undo, "anchors": anchors,
+                        "state": {"done": done.clone().unwrap_or_default(),
+                                  "remaining": remaining.clone().unwrap_or_default()},
+                        "agent": cli.agent}),
+                generation_for(&cli, &task)?,
+            )?;
+            println!(
+                "{}\n(question {}; {} of 3 open on this task)",
+                s(&r["told"]),
+                s(&r["handle"]),
+                r["open"]
+            );
+        }
+        Cmd::Answer { id: None, repo, .. } => {
+            let query: Vec<(&str, &str)> = repo.iter().map(|r| ("repo", r.as_str())).collect();
+            let r = client.get("/v1/questions", &query)?;
+            let open = r["questions"].as_array().cloned().unwrap_or_default();
+            if open.is_empty() {
+                println!("no open questions");
+            }
+            for q in &open {
+                println!("{}", open_question_lines(q));
+            }
+        }
+        Cmd::Answer {
+            id: Some(id),
+            option,
+            comment,
+            by,
+            ..
+        } => {
+            let by = by.clone().unwrap_or_else(|| person(&cli).to_owned());
+            let r = client.post(
+                &format!("/v1/questions/{}/answer", urlencode(id)),
+                &json!({"option": option, "comment": comment.clone().unwrap_or_default(),
+                        "by": by}),
+            )?;
+            let fit = match r["recommended"].as_bool() {
+                Some(true) => "the recommended option",
+                _ => "not the recommended option",
+            };
+            println!(
+                "answered {} with {} ({fit}): decision rec:{}",
+                id,
+                s(&r["option"]),
+                short(s(&r["decision"]["id"]))
+            );
         }
         Cmd::Context {
             sub: Some(ContextCmd::Stats { repo, tasks, json }),
@@ -3045,12 +3191,13 @@ fn run(cli: Cli) -> Result<()> {
                     cost,
                     aliases,
                     max_open,
+                    ask_level,
                 },
         } => {
             let r = client.put(
                 &format!("/v1/agents/{name}"),
                 &json!({"best": best, "can": can, "cost_rank": cost, "aliases": aliases,
-                        "max_open": max_open}),
+                        "max_open": max_open, "ask_level": ask_level}),
             )?;
             println!("{}", agent_line(&r["agent"]));
         }

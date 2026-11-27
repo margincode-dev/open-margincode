@@ -269,7 +269,7 @@ embeddings, Qdrant, outbox worker), `submit` with its record gate, validation re
 verdicts, merge with conflicts (a Conflicts pack section, crash-safe retry), sync and undo,
 handoff and claim with leases and fencing, review bundles and pinned review findings, git backup
 push, Claude Code hooks and a generic wrapper, the `AV_TOKEN` auth token, scope and session
-cleanup, an MCP server with twenty-four agent tools, and a lifecycle event feed
+cleanup, an MCP server with twenty-six agent tools, and a lifecycle event feed
 (`GET /v1/events`). Plan 4 added the `margincode-bench` benchmark harness (`bench/README.md`); the
 task set it was built for comes from a private repository and is not included. Plan 5 added the
 Scion-inspired features below: a workspace-free read API, carried approvals, enforced conventions,
@@ -546,6 +546,7 @@ Defaults (override with environment variables before `up`):
 | `AV_MAX_CONCURRENT_STARTS` | a quarter of the pool | task starts that copy the index at once; the others wait their turn instead of failing. |
 | `AV_LEASE_SECS` | `1800` | how long an agent holds an open task without writing to it; after that another agent may `margincode claim` it. |
 | `AV_TOKEN` | (none) | shared bearer token for every route but `/healthz` and `/ui`; the CLI sends `$AV_TOKEN`. Unset = no auth, and `/v1` and `/mcp` refuse a request from another site (see [Security](#security)). |
+| `AV_ASK_LEVEL` | `balanced` | what `ask` tells an agent whose profile sets no level: `ask_first`, `balanced` or `carry_on` ([Questions for a person](#questions-for-a-person)). Any other value stops the daemon at start. |
 | `AV_ALLOWED_HOSTS` | (none) | without `AV_TOKEN`: comma-separated host names (port ignored) the daemon also answers as `Host` and `Origin`, for a client that reaches it by a dotted DNS name (`daemon-host.lan`). |
 | `AV_LISTEN` | `127.0.0.1:7420` | the daemon's address. A non-loopback host needs `AV_TOKEN` or `AV_LISTEN_OPEN=1`, else the daemon refuses to start. |
 | `AV_LISTEN_OPEN` | off | `1`: allow a non-loopback `AV_LISTEN` without a token, when something else (a port published on `127.0.0.1`) limits who reaches it. |
@@ -807,6 +808,8 @@ cd ~/ws/pantry/atomic-save                   # printed as `workspace:`
 margincode checkpoint                                # snapshot + refresh the index
 margincode record --kind attempt --summary "tried os.rename; fails on Windows if the file exists" --anchor pantry/store.py
 margincode record --kind note --summary "os.replace overwrites on Windows too" --supersedes rec:1a2b3c4d   # correct a stored record
+margincode ask "May the cache outlive a restart?" --option yes --option no --recommended no --why "a restart is the only reset" --depends "the cache's file layout" --undo outside
+margincode answer                                    # a person: the open questions; then `margincode answer rec:… 2`
 margincode context                                   # 800 tokens of what an agent needs; --budget N for more
 margincode context --fresh                           # resend everything (e.g. after context compaction)
 margincode submit                                    # to review (needs a decision, attempt or note)
@@ -878,6 +881,52 @@ attempt or note starts that section with one line, inside the token budget: ``Cl
 agents: check against the code; correct wrong ones with `av record --supersedes rec:…` ``. It is
 left out when the section holds only the task's own records, or only back-references to an earlier
 pack of the session. The pre-read hook's answer ends with the same advice once per session.
+
+### Questions for a person
+
+An agent that would otherwise guess about something a person would want a say in asks instead,
+with the MCP tool `ask` or `av ask`, and goes on as the answer says. The question is a `question`
+record of the task, anchored like any record:
+
+```bash
+av ask "Which database should the cache use?" --option Postgres --option SQLite \
+  --recommended Postgres --why "the daemon already runs one" --depends "the cache's schema" \
+  --undo workspace --done "the cache API" --remaining "its store" --anchor app/cache.py
+# Carry on with Postgres. Record what you build on it.
+# (question rec:3ace2ef6; 1 of 3 open on this task)
+```
+
+- Two to four short options (60 characters each, no two the same), the recommended one among
+  them with a one-line `why`, what `depends` on the answer, and `undo`: `workspace` when a wrong
+  option costs only redoing this task's work, `outside` when it costs more (data, an interface
+  others use, money). `done` and `remaining` say where the task stands. A malformed question is
+  refused (`400`, saying what is wrong) and nothing is written. Only an open task asks.
+- The answer is one instruction, decided by the daemon from the asking agent's level: its
+  profile's (`av agent set NAME --ask-level LEVEL`, found by name or alias), else `AV_ASK_LEVEL`
+  (default `balanced`). `ask_first` always parks; `balanced` carries on when `undo` is
+  `workspace` and parks when it is `outside`; `carry_on` always carries on. Carrying on reads
+  "Carry on with <recommended>. Record what you build on it."; parking reads "Finish what does not
+  depend on this, checkpoint, then stop this task." The task's state does not change.
+- At most three questions are open on a task at once; a fourth is refused (`422`) until one is
+  answered or withdrawn. An open question is one nothing supersedes.
+- A person answers: `av answer` lists the open questions (`GET /v1/questions`, `?repo=`), each with
+  its numbered options; `av answer rec:ID OPTION [--comment TEXT] [--by NAME]` (`POST
+  /v1/questions/{id}/answer`, `{option, comment, by}`) names the option by its number or its text.
+  `--by` defaults to `--agent` when one is named, else `user`. Any member may answer, except the
+  agent that asked (`422`). The answer is a `decision` that supersedes the question, anchored like
+  it: its summary is `<question> → <option>`, its body says whether that was the recommended option
+  and keeps the comment. A question already answered or withdrawn is refused (`409`).
+- The asking agent withdraws a question with a note that supersedes it
+  (`av record --kind note --summary WHY --supersedes rec:ID`, or the MCP `record` tool). A
+  `question` is written only through `ask`, and a `decision` superseding one only through
+  `answer` (`422` otherwise).
+- The task's pack lists its questions in a *Questions* section under *Task*: each open one with
+  what the agent was told (reserved before ranked items, as the task line is) and each answered one as
+  `answered by <name>: <question> → <option>`. A withdrawn one is left out. Other tasks' packs and
+  the pre-read hook never show an open question (`av search` and the task's review bundle do); they
+  show the answer like any decision, and `av why` names it too.
+- Events: `question:asked` (`{record, level, instruction, by}`) and `question:answered`
+  (`{question, decision, option, by, recommended}`), with `record:superseded`.
 
 ### The constitution
 
@@ -1318,6 +1367,7 @@ av agent set claude --best code,tests --can docs --cost 4     # 1 is the cheapes
 av agent set muse --can code,docs --cost 1
 av agent set grok --best image --can ui --cost 2 --alias grok-shell-av
 av agent set cursor --best code --can tests,ui,docs --cost 3 --max-open 2   # at most 2 open tasks
+av agent set grok --best image --can ui --cost 2 --ask-level ask_first   # every question waits for a person
 av post --repo pantry --title "Redraw the logo" --goal "..." --needs image   # to the backlog
 av post --repo pantry --title "Use the new logo" --goal "..." --after redraw-the-logo   # not offered until that item merges; `av backlog` says "waiting on"
 av target add --repo pantry --title "Ship v1" --due 2026-12-01   # something the team works toward
@@ -1930,8 +1980,8 @@ opens with a warning naming the culprit merge.
 ## Agent integrations
 
 - **MCP** (any MCP client): `claude mcp add --transport http av http://localhost:7420/mcp` (add
-  `--header "Authorization: Bearer $AV_TOKEN"` when a token is set). Twenty-four tools: `start_task`, `checkpoint`,
-  `record`, `get_context`, `expand`, `read_symbol`, `search_history`, `handoff`, `claim_task`, `submit`,
+  `--header "Authorization: Bearer $AV_TOKEN"` when a token is set). Twenty-six tools: `start_task`, `checkpoint`,
+  `record`, `ask` (a question for a person, [Questions for a person](#questions-for-a-person)), `post_backlog`, `get_context`, `expand`, `read_symbol`, `search_history`, `handoff`, `claim_task`, `submit`,
   `review_task`, `post_review`, `merge`, `undo`, `status`, `validate` (an attestation: the agent runs the
   command, the daemon records its exit code), `sync`, `abandon`, `list_conventions`, `why` (the task, goal and decisions behind a line of
   main), and the workspace-free reads `read_file`, `list_files`, `diff` and `log` (any commit: `main`, `task:<slug>` or a

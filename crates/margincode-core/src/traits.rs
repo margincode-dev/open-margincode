@@ -323,6 +323,18 @@ pub trait IntentStore: Send + Sync {
     async fn put_profile(&self, p: &crate::routing::Profile) -> Result<()>;
     /// Cheapest first, then by name.
     async fn list_profiles(&self) -> Result<Vec<crate::routing::Profile>>;
+    /// The ask level of the profile named `agent`, else of one that has it as an alias; `None`
+    /// when that profile has none (the daemon's default applies) or there is no such profile.
+    async fn ask_level(&self, agent: &str) -> Result<Option<crate::question::AskLevel>>;
+    /// Sets the ask level of the existing profile `name` (`None` clears it); `NotFound` when there
+    /// is no such profile. `put_profile` leaves it as it is.
+    async fn set_ask_level(
+        &self,
+        name: &str,
+        level: Option<crate::question::AskLevel>,
+    ) -> Result<()>;
+    /// Questions nothing supersedes, of `repo`'s tasks (every repo's for `None`), oldest first.
+    async fn open_questions(&self, repo: Option<&str>) -> Result<Vec<Record>>;
     /// Removes the profile `name` in one statement. `NotFound` when there is none. Unless `force`,
     /// `Conflict` while its agent owns a task in `open`, `handed_off`, `in_review` or `conflicted`
     /// (a conflicted task goes back to its owner); the check and the delete cannot be split by a

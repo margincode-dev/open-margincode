@@ -174,21 +174,38 @@ impl Question {
     }
 }
 
-/// Whether `a` and `b` name one agent: one name in any case, or names (any case) of one profile,
-/// its name or an alias.
+/// How agent names compare: trimmed, in any (Unicode) case.
+pub fn fold_name(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// The profile `name` names, in any case: one whose own name it is, else the first in
+/// `profiles`' order that has it as an alias. None for a blank name.
+pub fn profile_of<'a>(
+    profiles: &'a [crate::routing::Profile],
+    name: &str,
+) -> Option<&'a crate::routing::Profile> {
+    let name = fold_name(name);
+    if name.is_empty() {
+        return None;
+    }
+    profiles
+        .iter()
+        .find(|p| fold_name(&p.name) == name)
+        .or_else(|| {
+            profiles
+                .iter()
+                .find(|p| p.aliases.iter().any(|a| fold_name(a) == name))
+        })
+}
+
+/// Whether `a` and `b` name one agent: one name in any case, or names of one profile
+/// (`profile_of`). A blank name is no agent.
 pub fn same_agent(profiles: &[crate::routing::Profile], a: &str, b: &str) -> bool {
-    let canonical = |n: &str| {
-        let n = n.trim();
-        profiles
-            .iter()
-            .find(|p| {
-                p.name.eq_ignore_ascii_case(n)
-                    || p.aliases.iter().any(|x| x.eq_ignore_ascii_case(n))
-            })
-            .map_or(n, |p| p.name.as_str())
-            .to_lowercase()
-    };
-    canonical(a) == canonical(b)
+    let canonical =
+        |n: &str| profile_of(profiles, n).map_or_else(|| fold_name(n), |p| fold_name(&p.name));
+    let (a, b) = (canonical(a), canonical(b));
+    !a.is_empty() && a == b
 }
 
 /// The body of a `question` record: what was asked, and what the daemon told the agent.
@@ -342,6 +359,51 @@ mod tests {
         assert!(same_agent(&profiles, "grok", " Grok "));
         assert!(!same_agent(&profiles, "claude", "alice"));
         assert!(!same_agent(&[], "claude", "careful"));
+    }
+
+    #[test]
+    fn a_profiles_own_name_wins_over_another_profiles_alias() {
+        let profile = |name: &str, aliases: &[&str]| crate::routing::Profile {
+            name: name.into(),
+            best: vec![],
+            can: vec![],
+            cost_rank: 1,
+            aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            max_open: None,
+            managed_by: None,
+        };
+        let profiles = [profile("cheap", &["claude"]), profile("claude", &[])];
+        assert!(!same_agent(&profiles, "claude", "cheap"));
+        assert!(!same_agent(&profiles, "Claude", "CHEAP"));
+        assert!(same_agent(&profiles, "claude", "CLAUDE"));
+    }
+
+    #[test]
+    fn names_fold_by_unicode_case_and_an_alias_tie_goes_to_the_earlier_profile() {
+        let profile = |name: &str, aliases: &[&str]| crate::routing::Profile {
+            name: name.into(),
+            best: vec![],
+            can: vec![],
+            cost_rank: 1,
+            aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            max_open: None,
+            managed_by: None,
+        };
+        let listed = [profile("beta", &["claude"]), profile("alpha", &["CLAUDE"])];
+        assert!(same_agent(&listed, "Claude", "beta"));
+        assert!(!same_agent(&listed, "claude", "alpha"));
+
+        let careful = [profile("careful", &["café"])];
+        assert!(same_agent(&careful, "café", "CAFÉ"));
+        assert!(same_agent(&careful, "CAFÉ", "café"));
+        assert!(same_agent(&careful, "CAFÉ", "careful"));
+        assert!(same_agent(&[], "café", "CAFÉ"));
+    }
+
+    #[test]
+    fn a_blank_name_is_no_agent() {
+        assert!(!same_agent(&[], "", " "));
+        assert!(!same_agent(&[], " ", "grok"));
     }
 
     #[test]

@@ -2052,3 +2052,64 @@ async fn read_file_and_read_symbol_note_what_the_sessions_task_opened() {
     })
     .await;
 }
+
+async fn put_level(e: &Env, name: &str, level: &str) {
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        &format!("/v1/agents/{name}"),
+        Some(json!({"ask_level": level})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+fn cache_question(undo: &str, task: &Value) -> Value {
+    json!({"question": "Which database should the cache use?",
+           "options": ["Postgres", "SQLite"], "recommended": "Postgres",
+           "why": "the daemon already runs one", "depends": "the cache's schema",
+           "undo": undo, "task_id": task})
+}
+
+const PARKS: &str = "Finish what does not depend on this, checkpoint, then stop this task.";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ask_takes_the_level_of_the_tasks_owner_not_of_the_session() {
+    let e = env().await;
+    put_level(&e, "claude", "ask_first").await;
+    put_level(&e, "grok", "carry_on").await;
+    let owner = connect_named(&e, "claude").await;
+    let said = text(
+        &tool(
+            &e,
+            &owner,
+            "start_task",
+            json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder"}),
+        )
+        .await,
+    );
+    let task = started_task(&said)["task"]["id"].clone();
+    let other = connect_named(&e, "grok").await;
+    let parked = text(&tool(&e, &other, "ask", cache_question("workspace", &task)).await);
+    assert!(parked.starts_with(PARKS), "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ask_from_a_client_named_session_on_an_unnamed_task_takes_the_owners_level() {
+    let e = env().await;
+    put_level(&e, "claude-code", "carry_on").await;
+    let (status, t) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder",
+                    "agent": "agent", "session": "s-1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    let s = connect(&e, "claude-code").await;
+    let parked = text(&tool(&e, &s, "ask", cache_question("outside", &t["task"]["id"])).await);
+    assert!(parked.starts_with(PARKS), "{parked}");
+}

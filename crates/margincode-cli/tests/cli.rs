@@ -8753,6 +8753,77 @@ fn ask_prints_the_instruction_and_a_person_answers_by_number() {
 }
 
 #[test]
+fn an_unnamed_ask_takes_the_owners_level_and_an_unnamed_note_withdraws_it() {
+    let d = start_daemon();
+    let scratch = TempDir::new().unwrap();
+    ok(av(
+        &d,
+        scratch.path(),
+        &["repo", "add", "demo", d.src.to_str().unwrap()],
+    ));
+    ok(av_as(
+        &d,
+        scratch.path(),
+        "claude-code",
+        &[
+            "task",
+            "start",
+            "--repo",
+            "demo",
+            "--title",
+            "Improve greeting",
+            "--goal",
+            "Make hello louder",
+        ],
+    ));
+    let ws = d.ws.join("demo/improve-greeting");
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "claude-code", "--ask-level", "ask_first"],
+    ));
+    ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "grok", "--ask-level", "carry_on"],
+    ));
+    const PARKS: &str = "Finish what does not depend on this, checkpoint, then stop this task.";
+    let asked = ok(av(
+        &d,
+        &ws,
+        &ask_args("May the cache outlive a restart?", "workspace"),
+    ));
+    assert!(asked.starts_with(PARKS), "{asked}");
+    let handle = asked
+        .split("(question ")
+        .nth(1)
+        .and_then(|rest| rest.split(';').next())
+        .unwrap()
+        .to_owned();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            "found it in the docs",
+            "--supersedes",
+            &handle,
+        ],
+    ));
+
+    let tf: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
+    let task = tf["task"].as_str().unwrap();
+    let mut other = vec!["--task", task];
+    other.extend(ask_args("May the cache outlive a restart?", "workspace"));
+    let asked = ok(av_as(&d, scratch.path(), "grok", &other));
+    assert!(asked.starts_with(PARKS), "{asked}");
+}
+
+#[test]
 fn an_agents_ask_level_is_set_on_its_profile_and_decides_the_answer() {
     let (d, ws, scratch) = started();
     let bad = av(

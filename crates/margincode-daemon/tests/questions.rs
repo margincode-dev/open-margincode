@@ -708,3 +708,172 @@ async fn the_owner_a_task_was_handed_to_withdraws_its_open_question() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+async fn set_level(e: &crate::common::Env, name: &str, body: Value) {
+    let (status, body) = call(&e.app, "PUT", &format!("/v1/agents/{name}"), Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+async fn start_as(e: &crate::common::Env, title: &str, agent: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "agent": agent, "session": "s-1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_level_decides_whatever_name_the_body_gives() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    set_level(&e, "claude", json!({"ask_level": "ask_first"})).await;
+    set_level(&e, "grok", json!({"ask_level": "carry_on"})).await;
+    let mut other = question("workspace");
+    other["agent"] = json!("grok");
+    let (status, parked) = ask(&e, &t, other).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+    let asked: Vec<Value> = records(&e, &t)
+        .await
+        .into_iter()
+        .filter(|r| r["kind"] == "question")
+        .collect();
+    assert_eq!(asked[0]["author_agent"], "grok", "{asked:?}");
+
+    let mut unnamed = question("workspace");
+    unnamed["agent"] = json!(" ");
+    let (status, refused) = ask(&e, &t, unnamed).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owners_level_is_found_by_name_or_alias_in_any_case() {
+    let e = env().await;
+    set_level(&e, "claude", json!({"ask_level": "ask_first"})).await;
+    set_level(
+        &e,
+        "careful",
+        json!({"aliases": ["REV"], "ask_level": "ask_first"}),
+    )
+    .await;
+    for (title, owner) in [("Cache greetings", "Claude"), ("Cache farewells", "rev")] {
+        let t = start_as(&e, title, owner).await;
+        let mut body = question("workspace");
+        body["agent"] = json!(owner);
+        let (status, parked) = ask(&e, &t, body).await;
+        assert_eq!(status, StatusCode::OK, "{owner}: {parked}");
+        assert_eq!(parked["level"], "ask_first", "{owner}: {parked}");
+        assert_eq!(parked["instruction"], "park", "{owner}: {parked}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_with_a_blank_owner_takes_the_daemons_default_level() {
+    let e = env().await;
+    set_level(&e, "grok", json!({"ask_level": "carry_on"})).await;
+    let t = start_as(&e, "Cache greetings", " ").await;
+    let mut body = question("outside");
+    body["agent"] = json!("grok");
+    let (status, parked) = ask(&e, &t, body).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "balanced", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_profile_of_the_owner_sets_its_level() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    set_level(
+        &e,
+        "careful",
+        json!({"aliases": ["claude"], "ask_level": "ask_first"}),
+    )
+    .await;
+    let mut alias = question("workspace");
+    alias["agent"] = json!("careful");
+    let (status, parked) = ask(&e, &t, alias).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tasks_owner_answers_a_question_another_agent_asked() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let mut other = question("workspace");
+    other["agent"] = json!("grok");
+    let (_, asked) = ask(&e, &t, other).await;
+    let (status, body) = answer(
+        &e,
+        asked["id"].as_str().unwrap(),
+        json!({"option": "SQLite", "by": "claude"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_shared_by_two_profiles_takes_the_earlier_listed_ones_level() {
+    let e = env().await;
+    set_level(
+        &e,
+        "alpha",
+        json!({"cost_rank": 10, "aliases": ["CLAUDE"], "ask_level": "carry_on"}),
+    )
+    .await;
+    set_level(
+        &e,
+        "beta",
+        json!({"cost_rank": 1, "aliases": ["claude"], "ask_level": "ask_first"}),
+    )
+    .await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (status, parked) = ask(&e, &t, question("outside")).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_agent_does_not_withdraw_a_question_on_a_task_with_a_blank_owner() {
+    let e = env().await;
+    let t = start_as(&e, "Cache greetings", " ").await;
+    let mut body = question("workspace");
+    body["agent"] = json!("grok");
+    let (_, asked) = ask(&e, &t, body).await;
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "never mind", "agent": "",
+                "supersedes": asked["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_named_like_another_ones_alias_is_its_own_agent() {
+    let e = env().await;
+    set_level(&e, "cheap", json!({"aliases": ["claude"], "cost_rank": 1})).await;
+    set_level(&e, "claude", json!({"cost_rank": 5})).await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "cheap",
+                "supersedes": asked["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}

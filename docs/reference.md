@@ -901,9 +901,14 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   option costs only redoing this task's work, `outside` when it costs more (data, an interface
   others use, money). `done` and `remaining` say where the task stands. A malformed question is
   refused (`400`, saying what is wrong) and nothing is written. Only an open task asks.
-- The answer is one instruction, decided by the daemon from the asking agent's level: its
-  profile's (`av agent set NAME --ask-level LEVEL`, found by name or alias), else `AV_ASK_LEVEL`
-  (default `balanced`). `ask_first` always parks; `balanced` carries on when `undo` is
+- The answer is one instruction, decided by the daemon from the level of the task's owner, not
+  of the name that asks: the owner's profile's (`av agent set NAME --ask-level LEVEL`), else
+  `AV_ASK_LEVEL`
+  (default `balanced`, also for a task with no owner). The question is recorded under the name
+  that asked (`--agent`, `AV_AGENT`, the MCP session's name). Wherever questions compare agent
+  names (the owner's profile, who answers, who withdraws), a name is trimmed and compared in any
+  case; it names the profile with that name, else the first profile (by cost rank, then name)
+  with it as an alias. A blank name names no agent. `ask_first` always parks; `balanced` carries on when `undo` is
   `workspace` and parks when it is `outside`; `carry_on` always carries on. Carrying on reads
   "Carry on with <recommended>. Record what you build on it."; parking reads "Finish what does not
   depend on this, checkpoint, then stop this task." The task's state does not change.

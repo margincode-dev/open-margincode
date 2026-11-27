@@ -175,15 +175,18 @@ impl Question {
 }
 
 /// Whether `a` and `b` name one agent: one name in any case, or names (any case) of one profile,
-/// its name or an alias.
+/// its name or an alias. A profile's own name wins over another profile's alias, as in
+/// `routing::resolve`.
 pub fn same_agent(profiles: &[crate::routing::Profile], a: &str, b: &str) -> bool {
     let canonical = |n: &str| {
         let n = n.trim();
         profiles
             .iter()
-            .find(|p| {
-                p.name.eq_ignore_ascii_case(n)
-                    || p.aliases.iter().any(|x| x.eq_ignore_ascii_case(n))
+            .find(|p| p.name.eq_ignore_ascii_case(n))
+            .or_else(|| {
+                profiles
+                    .iter()
+                    .find(|p| p.aliases.iter().any(|x| x.eq_ignore_ascii_case(n)))
             })
             .map_or(n, |p| p.name.as_str())
             .to_lowercase()
@@ -342,6 +345,23 @@ mod tests {
         assert!(same_agent(&profiles, "grok", " Grok "));
         assert!(!same_agent(&profiles, "claude", "alice"));
         assert!(!same_agent(&[], "claude", "careful"));
+    }
+
+    #[test]
+    fn a_profiles_own_name_wins_over_another_profiles_alias() {
+        let profile = |name: &str, aliases: &[&str]| crate::routing::Profile {
+            name: name.into(),
+            best: vec![],
+            can: vec![],
+            cost_rank: 1,
+            aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            max_open: None,
+            managed_by: None,
+        };
+        let profiles = [profile("cheap", &["claude"]), profile("claude", &[])];
+        assert!(!same_agent(&profiles, "claude", "cheap"));
+        assert!(!same_agent(&profiles, "Claude", "CHEAP"));
+        assert!(same_agent(&profiles, "claude", "CLAUDE"));
     }
 
     #[test]

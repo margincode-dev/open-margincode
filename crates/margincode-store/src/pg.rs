@@ -1228,8 +1228,10 @@ impl IntentStore for PgStore {
 
     async fn ask_level(&self, agent: &str) -> Result<Option<question::AskLevel>> {
         let level: Option<Option<String>> = sqlx::query_scalar(
-            "SELECT ask_level FROM agent_profiles WHERE name = $1 OR $1 = ANY(aliases)
-             ORDER BY name = $1 DESC, name LIMIT 1",
+            "SELECT ask_level FROM agent_profiles
+             WHERE lower(name) = lower($1)
+                OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE lower(a) = lower($1))
+             ORDER BY name = $1 DESC, lower(name) = lower($1) DESC, name LIMIT 1",
         )
         .bind(agent.trim())
         .fetch_optional(&self.pool)

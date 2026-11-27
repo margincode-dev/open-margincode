@@ -2209,7 +2209,7 @@ fn run(cli: Cli) -> Result<()> {
                         "why": why, "depends": depends, "undo": undo, "anchors": anchors,
                         "state": {"done": done.clone().unwrap_or_default(),
                                   "remaining": remaining.clone().unwrap_or_default()},
-                        "agent": named_agent(&cli)}),
+                        "agent": cli.agent}),
                 generation_for(&cli, &task)?,
             )?;
             println!(

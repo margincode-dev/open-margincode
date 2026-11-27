@@ -58,7 +58,10 @@ async fn ask(
     }
     .checked()?;
     let anchors = b.anchors.unwrap_or_default();
-    let named = b.agent.unwrap_or_default().trim().to_owned();
+    let agent = b.agent.unwrap_or_default().trim().to_owned();
+    if agent.is_empty() {
+        return Err(AvError::Invalid("agent must name who asks".into()).into());
+    }
     let _guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     fence(&st, &task, &headers).await?;
@@ -70,22 +73,6 @@ async fn ask(
         ))
         .into());
     }
-    if task.owner_agent.trim().is_empty() {
-        return Err(AvError::IllegalState(format!(
-            "task {} has no owner: claim it, then ask",
-            task.slug
-        ))
-        .into());
-    }
-    if !named.is_empty() && !same_agent(&st.store.list_profiles().await?, &named, &task.owner_agent)
-    {
-        return Err(AvError::IllegalState(format!(
-            "{named} does not own task {}: its owner, {}, asks its questions",
-            task.slug, task.owner_agent
-        ))
-        .into());
-    }
-    let agent = task.owner_agent.clone();
     let open: Vec<String> = st
         .store
         .task_records(task.id)
@@ -106,7 +93,11 @@ async fn ask(
     }
     // the anchored code is hashed as it is now, as `record` does
     snapshot_and_index(&st, &task).await?;
-    let level = st.store.ask_level(&agent).await?.unwrap_or(st.ask_level);
+    let level = st
+        .store
+        .ask_level(&task.owner_agent)
+        .await?
+        .unwrap_or(st.ask_level);
     let asked = Asked {
         instruction: level.instruction(question.undo),
         question,
@@ -285,10 +276,19 @@ async fn answer(
     }
     let asked: Asked = serde_json::from_str(&q.body)
         .map_err(|e| AvError::Store(format!("{shown}'s body is not a question: {e}")))?;
-    if same_agent(&st.store.list_profiles().await?, &by, &q.author_agent) {
+    let profiles = st.store.list_profiles().await?;
+    if same_agent(&profiles, &by, &q.author_agent) {
         return Err(AvError::IllegalState(format!(
             "{by} asked {shown}: an agent does not answer its own question. A person answers it, \
              or the agent withdraws it with a note that supersedes it"
+        ))
+        .into());
+    }
+    if same_agent(&profiles, &by, &task.owner_agent) {
+        return Err(AvError::IllegalState(format!(
+            "{by} owns task {}: the owner does not answer a question on its own task. A person \
+             answers {shown}, or the owner withdraws it with a note that supersedes it",
+            task.slug
         ))
         .into());
     }

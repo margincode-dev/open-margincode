@@ -8753,7 +8753,7 @@ fn ask_prints_the_instruction_and_a_person_answers_by_number() {
 }
 
 #[test]
-fn an_unnamed_ask_in_the_owners_workspace_asks_as_the_owner() {
+fn an_unnamed_ask_takes_the_owners_level_and_an_unnamed_note_withdraws_it() {
     let d = start_daemon();
     let scratch = TempDir::new().unwrap();
     ok(av(
@@ -8787,24 +8787,40 @@ fn an_unnamed_ask_in_the_owners_workspace_asks_as_the_owner() {
         scratch.path(),
         &["agent", "set", "grok", "--ask-level", "carry_on"],
     ));
+    const PARKS: &str = "Finish what does not depend on this, checkpoint, then stop this task.";
     let asked = ok(av(
         &d,
         &ws,
         &ask_args("May the cache outlive a restart?", "workspace"),
     ));
-    assert!(
-        asked.starts_with("Finish what does not depend on this, checkpoint, then stop this task."),
-        "{asked}"
-    );
+    assert!(asked.starts_with(PARKS), "{asked}");
+    let handle = asked
+        .split("(question ")
+        .nth(1)
+        .and_then(|rest| rest.split(';').next())
+        .unwrap()
+        .to_owned();
+    ok(av(
+        &d,
+        &ws,
+        &[
+            "record",
+            "--kind",
+            "note",
+            "--summary",
+            "found it in the docs",
+            "--supersedes",
+            &handle,
+        ],
+    ));
 
     let tf: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(ws.join(".av-task")).unwrap()).unwrap();
     let task = tf["task"].as_str().unwrap();
-    let mut forged = vec!["--task", task];
-    forged.extend(ask_args("May the cache outlive a restart?", "workspace"));
-    let refused = av_as(&d, scratch.path(), "grok", &forged);
-    assert!(!refused.status.success(), "{}", out(&refused));
-    assert!(err(&refused).contains("claude-code"), "{}", err(&refused));
+    let mut other = vec!["--task", task];
+    other.extend(ask_args("May the cache outlive a restart?", "workspace"));
+    let asked = ok(av_as(&d, scratch.path(), "grok", &other));
+    assert!(asked.starts_with(PARKS), "{asked}");
 }
 
 #[test]

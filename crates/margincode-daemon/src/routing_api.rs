@@ -85,16 +85,22 @@ async fn put_agent(
         .as_deref()
         .map(margincode_core::question::AskLevel::named)
         .transpose()?;
-    // a profile an extension manages is changed there, never by a put that knows nothing of it
-    let stored = st
-        .store
-        .list_profiles()
-        .await?
-        .into_iter()
-        .find(|p| p.name == name);
-    if let Some(manager) = stored.and_then(|p| p.managed_by) {
+    // a profile an extension manages is changed there, never by a put that knows nothing of it;
+    // nor is it shadowed by a profile under one of its names in another case, or by an alias
+    let given: Vec<&str> = std::iter::once(name.as_str())
+        .chain(b.aliases.iter().map(|a| a.trim()))
+        .collect();
+    let managed = st.store.list_profiles().await?.into_iter().find(|p| {
+        p.managed_by.is_some()
+            && std::iter::once(&p.name)
+                .chain(&p.aliases)
+                .any(|n| given.iter().any(|g| n.eq_ignore_ascii_case(g)))
+    });
+    if let Some(p) = managed {
         return Err(AvError::Conflict(format!(
-            "agent {name} is managed by {manager}; change it there"
+            "agent {} is managed by {}; change it there",
+            p.name,
+            p.managed_by.unwrap_or_default()
         ))
         .into());
     }

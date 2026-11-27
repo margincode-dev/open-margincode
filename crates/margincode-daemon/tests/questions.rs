@@ -714,56 +714,82 @@ async fn set_level(e: &crate::common::Env, name: &str, body: Value) {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+async fn start_as(e: &crate::common::Env, title: &str, agent: &str) -> Value {
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": title, "goal": "Make hello louder",
+                    "agent": agent, "session": "s-1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn a_question_is_asked_by_the_tasks_owner_and_takes_the_owners_level() {
+async fn the_owners_level_decides_whatever_name_the_body_gives() {
     let e = env().await;
     let t = start_task(&e, "Cache greetings").await;
     set_level(&e, "claude", json!({"ask_level": "ask_first"})).await;
     set_level(&e, "grok", json!({"ask_level": "carry_on"})).await;
-
-    let mut forged = question("outside");
-    forged["agent"] = json!("grok");
-    let (status, refused) = ask(&e, &t, forged).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
-    let said = refused.to_string();
-    assert!(said.contains("claude") && said.contains("owner"), "{said}");
-    assert!(
-        records(&e, &t)
-            .await
-            .iter()
-            .all(|r| r["kind"] != "question"),
-        "a refused question was written"
-    );
-
-    // the owner's name in another case is the owner, and its level is the owner's
-    let mut cased = question("workspace");
-    cased["agent"] = json!("CLAUDE");
-    let (status, parked) = ask(&e, &t, cased).await;
+    let mut other = question("workspace");
+    other["agent"] = json!("grok");
+    let (status, parked) = ask(&e, &t, other).await;
     assert_eq!(status, StatusCode::OK, "{parked}");
     assert_eq!(parked["level"], "ask_first", "{parked}");
     assert_eq!(parked["instruction"], "park", "{parked}");
-
-    // no name asks as the owner
-    let mut unnamed = question("workspace");
-    unnamed.as_object_mut().unwrap().remove("agent");
-    let (status, parked) = ask(&e, &t, unnamed).await;
-    assert_eq!(status, StatusCode::OK, "{parked}");
-    assert_eq!(parked["instruction"], "park", "{parked}");
-
     let asked: Vec<Value> = records(&e, &t)
         .await
         .into_iter()
         .filter(|r| r["kind"] == "question")
         .collect();
-    assert_eq!(asked.len(), 2, "{asked:?}");
-    assert!(
-        asked.iter().all(|r| r["author_agent"] == "claude"),
-        "{asked:?}"
-    );
+    assert_eq!(asked[0]["author_agent"], "grok", "{asked:?}");
+
+    let mut unnamed = question("workspace");
+    unnamed["agent"] = json!(" ");
+    let (status, refused) = ask(&e, &t, unnamed).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_alias_of_the_owner_asks_as_the_owner() {
+async fn the_owners_level_is_found_by_name_or_alias_in_any_case() {
+    let e = env().await;
+    set_level(&e, "claude", json!({"ask_level": "ask_first"})).await;
+    set_level(
+        &e,
+        "careful",
+        json!({"aliases": ["REV"], "ask_level": "ask_first"}),
+    )
+    .await;
+    for (title, owner) in [("Cache greetings", "Claude"), ("Cache farewells", "rev")] {
+        let t = start_as(&e, title, owner).await;
+        let mut body = question("workspace");
+        body["agent"] = json!(owner);
+        let (status, parked) = ask(&e, &t, body).await;
+        assert_eq!(status, StatusCode::OK, "{owner}: {parked}");
+        assert_eq!(parked["level"], "ask_first", "{owner}: {parked}");
+        assert_eq!(parked["instruction"], "park", "{owner}: {parked}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_with_a_blank_owner_takes_the_daemons_default_level() {
+    let e = env().await;
+    set_level(&e, "grok", json!({"ask_level": "carry_on"})).await;
+    let t = start_as(&e, "Cache greetings", " ").await;
+    let mut body = question("outside");
+    body["agent"] = json!("grok");
+    let (status, parked) = ask(&e, &t, body).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "balanced", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_profile_of_the_owner_sets_its_level() {
     let e = env().await;
     let t = start_task(&e, "Cache greetings").await;
     set_level(
@@ -781,20 +807,37 @@ async fn an_alias_of_the_owner_asks_as_the_owner() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_task_with_no_owner_asks_nothing() {
+async fn the_owner_a_task_was_handed_to_does_not_answer_its_question() {
     let e = env().await;
-    let (status, t) = call(
-        &e.app,
-        "POST",
-        "/v1/tasks",
-        Some(
-            json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder",
-                    "agent": " ", "session": "s-1"}),
-        ),
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    crate::common::edit_greeter(&e, &t);
+    crate::common::record_decision(&e, &t).await;
+    let (status, body) = crate::common::handoff(&e, &t, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = crate::common::claim(&e, &t, "codex").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, own) = answer(&e, q, json!({"option": "SQLite", "by": "Codex"})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{own}");
+    assert!(own.to_string().contains("owns"), "{own}");
+    let (status, body) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_named_like_another_ones_alias_is_its_own_agent() {
+    let e = env().await;
+    set_level(&e, "cheap", json!({"aliases": ["claude"], "cost_rank": 1})).await;
+    set_level(&e, "claude", json!({"cost_rank": 5})).await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "cheap",
+                "supersedes": asked["id"]}),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{t}");
-    let (status, refused) = ask(&e, &t, question("workspace")).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
-    assert!(refused.to_string().contains("no owner"), "{refused}");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 }

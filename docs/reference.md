@@ -901,14 +901,11 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   option costs only redoing this task's work, `outside` when it costs more (data, an interface
   others use, money). `done` and `remaining` say where the task stands. A malformed question is
   refused (`400`, saying what is wrong) and nothing is written. Only an open task asks.
-- A question is asked by the task's owner. The request's `agent` (`--agent`, `AV_AGENT`, the MCP
-  session's name) is the owner, the owner in another case, or a name or alias of the owner's
-  profile; any other name is refused (`422`) and nothing is written. With no name (`av ask` without
-  `--agent` or `AV_AGENT`) it asks as the owner. A task with no owner asks nothing (`422`: claim
-  it first). The record is written under the owner's name.
-- The answer is one instruction, decided by the daemon from the owner's level: its
-  profile's (`av agent set NAME --ask-level LEVEL`, found by name or alias), else `AV_ASK_LEVEL`
-  (default `balanced`). `ask_first` always parks; `balanced` carries on when `undo` is
+- The answer is one instruction, decided by the daemon from the level of the task's owner, not
+  of the name that asks: the owner's profile's (`av agent set NAME --ask-level LEVEL`, found by
+  name or alias in any case, a profile's own name before another's alias), else `AV_ASK_LEVEL`
+  (default `balanced`, also for a task with no owner). The question is recorded under the name
+  that asked (`--agent`, `AV_AGENT`, the MCP session's name). `ask_first` always parks; `balanced` carries on when `undo` is
   `workspace` and parks when it is `outside`; `carry_on` always carries on. Carrying on reads
   "Carry on with <recommended>. Record what you build on it."; parking reads "Finish what does not
   depend on this, checkpoint, then stop this task." The task's state does not change.
@@ -921,7 +918,8 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   `{option, comment, by, correct}`) names the option by its text or, when no option has that
   text, its number (of the options `2` and `5`, `2` is `2`). `recommended` is matched the same way.
   `--by` defaults to `--agent` when one is named, else `user`. Any member may answer, except the
-  agent that asked (`422`; names are compared in any case, a profile's name and aliases as one).
+  agent that asked and the task's owner (`422`; names are compared in any case, a profile's name
+  and aliases as one).
   The daemon has no identities: anyone with the token can answer under any name, and an
   extension's guard can tell an answer apart (below). The answer is a `decision` that supersedes
   the question, anchored like it: its summary is `<question> → <option>`, its body says whether

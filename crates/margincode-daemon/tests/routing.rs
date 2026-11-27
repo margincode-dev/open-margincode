@@ -1610,6 +1610,28 @@ async fn a_managed_profile_refuses_the_api_put_and_names_its_manager() {
 }
 
 #[tokio::test]
+async fn a_put_under_another_case_or_an_alias_of_a_managed_profile_is_refused() {
+    let (e, st) = env_and_state().await;
+    let mut reviewer = managed("reviewer", Some("ee"));
+    reviewer.aliases = vec!["rev".into()];
+    st.put_profile(&reviewer).await.unwrap();
+    for (name, body) in [
+        ("Reviewer", json!({"ask_level": "carry_on"})),
+        ("REV", json!({"ask_level": "carry_on"})),
+        ("aaa", json!({"aliases": ["Rev"], "ask_level": "carry_on"})),
+    ] {
+        let (status, body) = call(&e.app, "PUT", &format!("/v1/agents/{name}"), Some(body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{name}: {body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("managed by ee"),
+            "{name}: {body}"
+        );
+    }
+    let (_, listed) = call(&e.app, "GET", "/v1/agents", None).await;
+    assert_eq!(listed["agents"].as_array().unwrap().len(), 1, "{listed}");
+}
+
+#[tokio::test]
 async fn a_profile_put_through_the_api_is_not_managed_and_can_be_overwritten() {
     let e = env().await;
     put_agent(&e, "claude", &["code"], &[], 4).await;

@@ -629,3 +629,31 @@ async fn an_answer_names_an_option_by_its_text_before_its_number() {
     let (status, refused) = ask(&e, &t, retries).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_a_task_was_handed_to_withdraws_its_open_question() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    crate::common::edit_greeter(&e, &t);
+    crate::common::record_decision(&e, &t).await;
+    let (status, body) = crate::common::handoff(&e, &t, "claude").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = crate::common::claim(&e, &t, "codex").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "grok", "supersedes": q}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "not needed", "agent": "Codex", "supersedes": q}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}

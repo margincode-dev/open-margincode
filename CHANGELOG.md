@@ -11,7 +11,7 @@
   not depend on it, checkpoint and stop. A person lists open questions with `av answer` and
   answers with `av answer rec:ID OPTION [--comment …]` (`GET /v1/questions`,
   `POST /v1/questions/{id}/answer`); the answer is a `decision` that supersedes the question, and
-  only `av answer --correct` replaces it. Only the agent that asked withdraws a question. At
+  only `av answer --correct` replaces it. Only the agent that asked, or the task's owner, withdraws a question. At
   most three are open per task. Questions of merged or abandoned tasks are no longer open. An
   extension's guard sees `MemoryAction::Supersede { answer: true, .. }` for an answer (the new
   field: a pattern `Supersede { record }` needs `..`). The task's

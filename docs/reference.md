@@ -926,7 +926,8 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
 - A person changes an answer with `av answer rec:ID OPTION --correct` (`"correct": true`): the new
   decision supersedes the live answer. Nothing else supersedes an answer (`422`, naming the
   route), so an agent's `record` cannot replace what a person chose.
-- Only the agent that asked withdraws an open question, with a note that supersedes it
+- Only the agent that asked, or the task's current owner (after a handoff), withdraws an open
+  question, with a note that supersedes it
   (`av record --kind note --summary WHY --supersedes rec:ID`, or the MCP `record` tool; names
   compared as above, whatever task the request names). A `question` is written only through `ask`
   (the record routes refuse it before they snapshot anything), and a `decision` superseding one

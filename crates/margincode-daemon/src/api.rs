@@ -911,8 +911,8 @@ const MAX_SUPERSEDE_CHAIN: usize = 64;
 /// is limited here, and again by the store inside the insert (`PgStore`'s `insert_record`), where two
 /// tasks superseding one record at once are told apart.
 ///
-/// Refused: a record of another repo (422); a question, but by a note of the agent that asked
-/// (422); a person's answer to a question, which only `answer` corrects (422); what
+/// Refused: a record of another repo (422); a question, but by a note of the agent that asked or
+/// of its task's owner (422); a person's answer to a question, which only `answer` corrects (422); what
 /// `supersede_refusal` refuses (422); a record that is already superseded (409, naming the live
 /// record at the end of the chain when it is short enough to follow).
 async fn superseded_by_task(
@@ -928,7 +928,8 @@ async fn superseded_by_task(
         .find_record(named.strip_prefix("rec:").unwrap_or(named))
         .await?;
     let shown = rec_handle(old.id);
-    if st.store.get_task(old.task_id).await?.repo != task.repo {
+    let home = st.store.get_task(old.task_id).await?;
+    if home.repo != task.repo {
         return Err(AvError::IllegalState(format!(
             "{shown} is not a record of repo {}",
             task.repo
@@ -947,10 +948,11 @@ async fn superseded_by_task(
             )));
         }
         let profiles = st.store.list_profiles().await?;
-        if !margincode_core::question::same_agent(&profiles, agent, &old.author_agent) {
+        let may = |name: &str| margincode_core::question::same_agent(&profiles, agent, name);
+        if !may(&old.author_agent) && !may(&home.owner_agent) {
             return Err(AvError::IllegalState(format!(
-                "{shown} was asked by {}: only the agent that asked withdraws it",
-                old.author_agent
+                "{shown} was asked by {} on a task {} owns: only one of them withdraws it",
+                old.author_agent, home.owner_agent
             )));
         }
     }

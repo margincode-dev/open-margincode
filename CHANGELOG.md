@@ -24,6 +24,14 @@
   corrected at most 64 times (`422` after that), and every one of those corrections is still a
   person's answer that only `av answer --correct` replaces; the 64th could be superseded by any
   record before.
+- **Questions are asked by the task's owner.** `ask` took the level from the name in the
+  request, so a session on a task whose owner is `ask_first` could name another agent (or first
+  give a fresh name a `carry_on` profile) and be told to carry on, and the question was recorded
+  under that name. The level is now the owner's, and the question is recorded under the owner's
+  name. A name that is not the owner (in any case, or a name or alias of its profile) is refused
+  (`422`), as is a question on a task with no owner. A request with no name asks as the owner:
+  `av ask` sends `--agent` or `AV_AGENT` only when one is set, so an unnamed `av ask` in the
+  owner's workspace still works.
 - **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
   stop flag it started the `kill` program, which got the caller's whole environment (a runner's
   token among it) and could be seen in `/proc` by the processes it was killing. It now calls

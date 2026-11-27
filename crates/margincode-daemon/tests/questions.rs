@@ -708,3 +708,93 @@ async fn the_owner_a_task_was_handed_to_withdraws_its_open_question() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+async fn set_level(e: &crate::common::Env, name: &str, body: Value) {
+    let (status, body) = call(&e.app, "PUT", &format!("/v1/agents/{name}"), Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_is_asked_by_the_tasks_owner_and_takes_the_owners_level() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    set_level(&e, "claude", json!({"ask_level": "ask_first"})).await;
+    set_level(&e, "grok", json!({"ask_level": "carry_on"})).await;
+
+    let mut forged = question("outside");
+    forged["agent"] = json!("grok");
+    let (status, refused) = ask(&e, &t, forged).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    let said = refused.to_string();
+    assert!(said.contains("claude") && said.contains("owner"), "{said}");
+    assert!(
+        records(&e, &t)
+            .await
+            .iter()
+            .all(|r| r["kind"] != "question"),
+        "a refused question was written"
+    );
+
+    // the owner's name in another case is the owner, and its level is the owner's
+    let mut cased = question("workspace");
+    cased["agent"] = json!("CLAUDE");
+    let (status, parked) = ask(&e, &t, cased).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+
+    // no name asks as the owner
+    let mut unnamed = question("workspace");
+    unnamed.as_object_mut().unwrap().remove("agent");
+    let (status, parked) = ask(&e, &t, unnamed).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+
+    let asked: Vec<Value> = records(&e, &t)
+        .await
+        .into_iter()
+        .filter(|r| r["kind"] == "question")
+        .collect();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(
+        asked.iter().all(|r| r["author_agent"] == "claude"),
+        "{asked:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_of_the_owner_asks_as_the_owner() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    set_level(
+        &e,
+        "careful",
+        json!({"aliases": ["claude"], "ask_level": "ask_first"}),
+    )
+    .await;
+    let mut alias = question("workspace");
+    alias["agent"] = json!("careful");
+    let (status, parked) = ask(&e, &t, alias).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_with_no_owner_asks_nothing() {
+    let e = env().await;
+    let (status, t) = call(
+        &e.app,
+        "POST",
+        "/v1/tasks",
+        Some(
+            json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder",
+                    "agent": " ", "session": "s-1"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    let (status, refused) = ask(&e, &t, question("workspace")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert!(refused.to_string().contains("no owner"), "{refused}");
+}

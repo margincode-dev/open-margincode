@@ -901,7 +901,12 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   option costs only redoing this task's work, `outside` when it costs more (data, an interface
   others use, money). `done` and `remaining` say where the task stands. A malformed question is
   refused (`400`, saying what is wrong) and nothing is written. Only an open task asks.
-- The answer is one instruction, decided by the daemon from the asking agent's level: its
+- A question is asked by the task's owner. The request's `agent` (`--agent`, `AV_AGENT`, the MCP
+  session's name) is the owner, the owner in another case, or a name or alias of the owner's
+  profile; any other name is refused (`422`) and nothing is written. With no name (`av ask` without
+  `--agent` or `AV_AGENT`) it asks as the owner. A task with no owner asks nothing (`422`: claim
+  it first). The record is written under the owner's name.
+- The answer is one instruction, decided by the daemon from the owner's level: its
   profile's (`av agent set NAME --ask-level LEVEL`, found by name or alias), else `AV_ASK_LEVEL`
   (default `balanced`). `ask_first` always parks; `balanced` carries on when `undo` is
   `workspace` and parks when it is `outside`; `carry_on` always carries on. Carrying on reads

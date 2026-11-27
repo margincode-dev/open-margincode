@@ -2052,3 +2052,45 @@ async fn read_file_and_read_symbol_note_what_the_sessions_task_opened() {
     })
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ask_on_another_agents_task_is_refused_and_the_owners_level_decides() {
+    let e = env().await;
+    for (name, level) in [("claude", "ask_first"), ("grok", "carry_on")] {
+        let (status, body) = call(
+            &e.app,
+            "PUT",
+            &format!("/v1/agents/{name}"),
+            Some(json!({"ask_level": level})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let owner = connect_named(&e, "claude").await;
+    let said = text(
+        &tool(
+            &e,
+            &owner,
+            "start_task",
+            json!({"repo": "demo", "title": "Cache greetings", "goal": "Make hello louder"}),
+        )
+        .await,
+    );
+    let task = started_task(&said)["task"]["id"].clone();
+    let question = json!({"question": "Which database should the cache use?",
+                          "options": ["Postgres", "SQLite"], "recommended": "Postgres",
+                          "why": "the daemon already runs one", "depends": "the cache's schema",
+                          "undo": "workspace", "task_id": task});
+
+    let other = connect_named(&e, "grok").await;
+    let refused = tool(&e, &other, "ask", question.clone()).await;
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    let msg = refused["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(msg.contains("claude") && !msg.contains("Carry on"), "{msg}");
+
+    let parked = text(&tool(&e, &owner, "ask", question).await);
+    assert!(
+        parked.starts_with("Finish what does not depend on this, checkpoint, then stop this task."),
+        "{parked}"
+    );
+}

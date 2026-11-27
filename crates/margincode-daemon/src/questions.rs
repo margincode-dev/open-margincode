@@ -58,10 +58,7 @@ async fn ask(
     }
     .checked()?;
     let anchors = b.anchors.unwrap_or_default();
-    let agent = b.agent.unwrap_or_default().trim().to_owned();
-    if agent.is_empty() {
-        return Err(AvError::Invalid("agent must name who asks".into()).into());
-    }
+    let named = b.agent.unwrap_or_default().trim().to_owned();
     let _guard = st.lock_task(TaskId(id)).await;
     let task = st.store.get_task(TaskId(id)).await?;
     fence(&st, &task, &headers).await?;
@@ -73,6 +70,22 @@ async fn ask(
         ))
         .into());
     }
+    if task.owner_agent.trim().is_empty() {
+        return Err(AvError::IllegalState(format!(
+            "task {} has no owner: claim it, then ask",
+            task.slug
+        ))
+        .into());
+    }
+    if !named.is_empty() && !same_agent(&st.store.list_profiles().await?, &named, &task.owner_agent)
+    {
+        return Err(AvError::IllegalState(format!(
+            "{named} does not own task {}: its owner, {}, asks its questions",
+            task.slug, task.owner_agent
+        ))
+        .into());
+    }
+    let agent = task.owner_agent.clone();
     let open: Vec<String> = st
         .store
         .task_records(task.id)

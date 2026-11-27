@@ -166,6 +166,16 @@ async fn a_question_is_checked_before_anything_is_written() {
             json!({"options": ["Postgres", "x".repeat(61)]}),
             "60",
         ),
+        (
+            "an option of two lines",
+            json!({"options": ["Postgres", "SQLite\nwith WAL"]}),
+            "one line",
+        ),
+        (
+            "an option with a carriage return",
+            json!({"options": ["Postgres", "SQLite\rin memory"]}),
+            "one line",
+        ),
     ];
     for (what, change, says) in cases {
         let mut body = question("workspace");
@@ -468,6 +478,47 @@ async fn a_persons_answer_is_corrected_only_by_answering_again() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{own}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_is_corrected_at_most_64_times_and_each_correction_stays_a_persons_answer() {
+    let e = env().await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (_, asked) = ask(&e, &t, question("workspace")).await;
+    let q = asked["id"].as_str().unwrap();
+    let (status, body) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut live = body["decision"]["id"].as_str().unwrap().to_owned();
+    for n in 1..=64 {
+        let option = if n % 2 == 0 { "SQLite" } else { "Postgres" };
+        let (status, body) = answer(
+            &e,
+            q,
+            json!({"option": option, "by": "alice", "correct": true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "correction {n}: {body}");
+        assert_eq!(body["decision"]["supersedes"], live.as_str(), "{body}");
+        live = body["decision"]["id"].as_str().unwrap().to_owned();
+    }
+
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "never mind", "agent": "claude", "supersedes": live}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("a person's answer"), "{body}");
+
+    let (status, body) = answer(
+        &e,
+        q,
+        json!({"option": "Postgres", "by": "alice", "correct": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("64 times"), "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

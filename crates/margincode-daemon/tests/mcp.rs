@@ -1274,6 +1274,17 @@ async fn the_ask_tool_answers_with_one_instruction_and_says_when_to_ask() {
                "why": "the daemon already runs one", "depends": "the cache's schema",
                "undo": undo, "remaining": "its storage", "done": null, "anchors": null})
     };
+    let mut two_lines = question("workspace");
+    two_lines["options"] = json!(["Postgres", "SQLite\nwith WAL"]);
+    let refused = tool(&e, &s, "ask", two_lines).await;
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("one line"),
+        "{refused}"
+    );
     let proceed = text(&tool(&e, &s, "ask", question("workspace")).await);
     assert!(
         proceed.starts_with("Carry on with Postgres. Record what you build on it."),

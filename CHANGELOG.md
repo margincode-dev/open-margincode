@@ -17,6 +17,13 @@
   field: a pattern `Supersede { record }` needs `..`). The task's
   pack gains a *Questions* section (packer version 16).
   Migration `0036_question.sql` adds the record kind `question` and `agent_profiles.ask_level`.
+- **Questions: three fixes.** A pack too tight for an answered question's full text in the Task
+  share now spends what later sections leave on it, so the person's comment and whether the
+  option was the recommended one are shown (packer version 17). `ask` refuses an option with a
+  line break (`400`): an answer's body names the option on its first line. An answer is
+  corrected at most 64 times (`422` after that), and every one of those corrections is still a
+  person's answer that only `av answer --correct` replaces; the 64th could be superseded by any
+  record before.
 - **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
   stop flag it started the `kill` program, which got the caller's whole environment (a runner's
   token among it) and could be seen in `/proc` by the processes it was killing. It now calls

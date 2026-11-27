@@ -903,7 +903,7 @@ pub(crate) fn rec_handle(id: RecordId) -> String {
     format!("rec:{}", &id.0.simple().to_string()[..8])
 }
 
-const MAX_SUPERSEDE_CHAIN: usize = 64;
+pub(crate) const MAX_SUPERSEDE_CHAIN: usize = 64;
 
 /// The record a new record of `task`, of kind `by` and by `agent`, names in `supersedes`, when it
 /// may supersede it.

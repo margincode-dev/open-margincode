@@ -8689,3 +8689,93 @@ fn context_stats_and_backfill_read_the_tasks_repo() {
             .success()
     );
 }
+
+fn ask_args<'a>(question: &'a str, undo: &'a str) -> Vec<&'a str> {
+    vec![
+        "ask",
+        question,
+        "--option",
+        "Postgres",
+        "--option",
+        "SQLite",
+        "--recommended",
+        "Postgres",
+        "--why",
+        "the daemon already runs one",
+        "--depends",
+        "the cache's schema",
+        "--undo",
+        undo,
+        "--anchor",
+        "app/greeter.py:Greeter.hello",
+    ]
+}
+
+#[test]
+fn ask_prints_the_instruction_and_a_person_answers_by_number() {
+    let (d, ws, scratch) = started();
+    let asked = ok(av(
+        &d,
+        &ws,
+        &ask_args("May the cache outlive a restart?", "outside"),
+    ));
+    assert!(
+        asked.starts_with("Finish what does not depend on this, checkpoint, then stop this task."),
+        "{asked}"
+    );
+    assert!(asked.contains("1 of 3 open on this task"), "{asked}");
+    let open = ok(av(&d, scratch.path(), &["answer"]));
+    assert!(open.contains("May the cache outlive a restart?"), "{open}");
+    assert!(open.contains("demo/improve-greeting (open)"), "{open}");
+    assert!(
+        open.contains("1 Postgres (recommended: the daemon already runs one)"),
+        "{open}"
+    );
+    assert!(open.contains("2 SQLite"), "{open}");
+    let id = open.split_whitespace().next().unwrap().to_owned();
+    assert!(id.starts_with("rec:"), "{open}");
+    let answered = ok(av(
+        &d,
+        scratch.path(),
+        &["answer", &id, "2", "--comment", "keep it on one disk"],
+    ));
+    assert!(answered.contains("SQLite"), "{answered}");
+    assert!(answered.contains("not the recommended"), "{answered}");
+    let again = av(&d, scratch.path(), &["answer", &id, "1"]);
+    assert!(!again.status.success());
+    assert!(err(&again).contains("already answered"), "{}", err(&again));
+    assert!(ok(av(&d, scratch.path(), &["answer"])).contains("no open questions"));
+    let md = ok(av(&d, &ws, &["context", "--budget", "3000"]));
+    assert!(
+        md.contains("answered by user: May the cache outlive a restart? → SQLite"),
+        "{md}"
+    );
+}
+
+#[test]
+fn an_agents_ask_level_is_set_on_its_profile_and_decides_the_answer() {
+    let (d, ws, scratch) = started();
+    let bad = av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "agent", "--ask-level", "sometimes"],
+    );
+    assert!(!bad.status.success());
+    assert!(err(&bad).contains("carry_on"), "{}", err(&bad));
+    let set = ok(av(
+        &d,
+        scratch.path(),
+        &["agent", "set", "agent", "--ask-level", "carry_on"],
+    ));
+    assert!(set.contains("ask_level carry_on"), "{set}");
+    assert!(ok(av(&d, scratch.path(), &["agent", "list"])).contains("ask_level carry_on"));
+    let asked = ok(av(
+        &d,
+        &ws,
+        &ask_args("May the cache outlive a restart?", "outside"),
+    ));
+    assert!(
+        asked.starts_with("Carry on with Postgres. Record what you build on it."),
+        "{asked}"
+    );
+}

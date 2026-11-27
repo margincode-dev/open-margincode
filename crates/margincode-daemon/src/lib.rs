@@ -21,6 +21,7 @@ mod indexing;
 mod mcp;
 mod office;
 mod outcomes;
+mod questions;
 mod reindex;
 mod remote;
 mod routing_api;
@@ -103,6 +104,8 @@ pub struct AppState {
     /// `AV_PLAIN_RECORDS`: packs and record lists without the correction lines and the origin
     /// standing (`Packer::with_plain_records`), and no superseding another task's record.
     pub(crate) plain_records: bool,
+    /// `AV_ASK_LEVEL`: how far an agent whose profile names no level goes without an answer.
+    pub(crate) ask_level: margincode_core::question::AskLevel,
     /// What sessions reported adding outside any task workspace (`POST /v1/footprint`), newest
     /// first, one per session, in memory only.
     pub(crate) footprints: disk::Footprints,
@@ -167,6 +170,7 @@ impl AppState {
             pg_dir: None,
             build_cache: true,
             plain_records: false,
+            ask_level: margincode_core::question::AskLevel::Balanced,
             footprints: Arc::default(),
             mcp: Arc::default(),
             task_locks: Arc::default(),
@@ -239,6 +243,23 @@ impl AppState {
         }
         self.mcp_tools = Arc::new(all);
         self
+    }
+
+    /// The level of an agent whose profile names none (`AV_ASK_LEVEL`, default `balanced`).
+    pub fn with_ask_level(mut self, level: margincode_core::question::AskLevel) -> Self {
+        self.ask_level = level;
+        self
+    }
+
+    /// Sets the ask level of the existing profile `name`, as `PUT /v1/agents/{name}` does with
+    /// `ask_level`; `None` gives it the daemon's default again. A managed profile may be set here:
+    /// `put_profile` leaves the level as it is.
+    pub async fn set_ask_level(
+        &self,
+        name: &str,
+        level: Option<margincode_core::question::AskLevel>,
+    ) -> margincode_core::Result<()> {
+        self.store.set_ask_level(name, level).await
     }
 
     pub fn with_usage_sink(mut self, sink: Arc<dyn ext::UsageSink>) -> Self {

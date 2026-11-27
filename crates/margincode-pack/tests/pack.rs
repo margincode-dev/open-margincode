@@ -3155,3 +3155,288 @@ async fn plain_records_rank_and_print_a_record_without_its_tasks_outcome() {
         "{text}"
     );
 }
+
+fn asked(question: &str, undo: question::Undo, told: question::Instruction) -> String {
+    serde_json::to_string(&question::Asked {
+        question: question::Question {
+            question: question.into(),
+            options: vec!["Postgres".into(), "SQLite".into()],
+            recommended: "Postgres".into(),
+            why: "the daemon already runs one".into(),
+            depends: "the cache's schema".into(),
+            undo,
+            state: question::QuestionState::default(),
+        },
+        level: question::AskLevel::Balanced,
+        instruction: told,
+    })
+    .unwrap()
+}
+
+async fn ask(fx: &Fx, task: TaskId, question: &str, undo: question::Undo) -> Record {
+    let told = question::AskLevel::Balanced.instruction(undo);
+    fx.store
+        .add_record(record(
+            task,
+            RecordKind::Question,
+            question,
+            &asked(question, undo, told),
+            vec![anchor("app/greeter.py", Some("Greeter.hello"))],
+        ))
+        .await
+        .unwrap()
+}
+
+async fn close(
+    fx: &Fx,
+    q: &Record,
+    kind: RecordKind,
+    summary: &str,
+    body: &str,
+    by: &str,
+) -> Record {
+    let mut r = record(q.task_id, kind, summary, body, q.anchors.clone());
+    r.supersedes = Some(q.id);
+    r.author_agent = by.into();
+    fx.store.add_record(r).await.unwrap()
+}
+
+/// One question waits (told to park), one is answered, one withdrawn.
+async fn with_questions(fx: &Fx) {
+    use question::Undo;
+    let asked = ask(
+        fx,
+        fx.task.id,
+        "Which database should the cache use?",
+        Undo::Workspace,
+    )
+    .await;
+    let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
+    let (summary, body) = question::answer_record(&q.question, "SQLite", "keep it on one disk");
+    close(fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    ask(
+        fx,
+        fx.task.id,
+        "May the cache outlive a restart?",
+        Undo::Outside,
+    )
+    .await;
+    let gone = ask(
+        fx,
+        fx.task.id,
+        "Should hello cache at all?",
+        Undo::Workspace,
+    )
+    .await;
+    close(
+        fx,
+        &gone,
+        RecordKind::Note,
+        "the goal says it must",
+        "",
+        "claude",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn golden_pack_with_open_and_answered_questions() {
+    let fx = fixture().await;
+    with_questions(&fx).await;
+    let pack = fx
+        .packer
+        .build(req(&fx.task, 2500, "golden"))
+        .await
+        .unwrap();
+    let got = normalize(&pack.markdown);
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/questions.md");
+    if std::env::var("UPDATE_GOLDEN").is_ok() {
+        std::fs::write(path, &got).unwrap();
+    }
+    let want = std::fs::read_to_string(path)
+        .expect("golden file missing: run with UPDATE_GOLDEN=1 and review it");
+    assert_eq!(got, want);
+}
+
+#[tokio::test]
+async fn the_questions_section_lists_open_and_answered_ones_once() {
+    let fx = fixture().await;
+    with_questions(&fx).await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 2500, "q"))
+        .await
+        .unwrap()
+        .markdown;
+    let section = md
+        .split("## Questions\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or_else(|| panic!("no Questions section:\n{md}"));
+    assert!(
+        section.contains("open, told to park: May the cache outlive a restart?"),
+        "{section}"
+    );
+    assert!(
+        section.contains("answered by alice: Which database should the cache use? → SQLite"),
+        "{section}"
+    );
+    assert!(
+        !md.contains("Should hello cache at all?"),
+        "withdrawn:\n{md}"
+    );
+    // the answer is shown once, under Questions, not again among the decisions
+    assert_eq!(md.matches("→ SQLite").count(), 1, "{md}");
+}
+
+fn questions_section(md: &str) -> &str {
+    md.split("## Questions\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or("")
+}
+
+#[tokio::test]
+async fn a_corrected_answer_is_shown_in_place_of_the_first() {
+    let fx = fixture().await;
+    let asked = ask(
+        &fx,
+        fx.task.id,
+        "Which database should the cache use?",
+        question::Undo::Workspace,
+    )
+    .await;
+    let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
+    let (summary, body) = question::answer_record(&q.question, "SQLite", "");
+    let first = close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    let (summary, body) = question::answer_record(&q.question, "Postgres", "one server");
+    close(&fx, &first, RecordKind::Decision, &summary, &body, "bob").await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 2500, "corrected"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(!md.contains("→ SQLite"), "{md}");
+    assert!(
+        questions_section(&md)
+            .contains("answered by bob: Which database should the cache use? → Postgres"),
+        "{md}"
+    );
+    assert_eq!(md.matches("→ Postgres").count(), 1, "{md}");
+}
+
+#[tokio::test]
+async fn the_three_newest_answers_are_kept_and_older_ones_are_decisions_like_any() {
+    let fx = fixture().await;
+    for n in 1..=4 {
+        let asked = ask(
+            &fx,
+            fx.task.id,
+            &format!("Question number {n} about the cache, put at some length so it costs tokens?"),
+            question::Undo::Workspace,
+        )
+        .await;
+        let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
+        let (summary, body) = question::answer_record(&q.question, "SQLite", "");
+        close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    }
+    let small = fx
+        .packer
+        .build(req(&fx.task, 300, "small"))
+        .await
+        .unwrap()
+        .markdown;
+    let shown = questions_section(&small);
+    for n in [4, 3, 2] {
+        assert!(shown.contains(&format!("Question number {n} ")), "{small}");
+    }
+    assert!(!shown.contains("Question number 1 "), "{small}");
+    assert!(
+        shown.find("number 4").unwrap() < shown.find("number 2").unwrap(),
+        "newest first: {small}"
+    );
+    let full = fx
+        .packer
+        .build(req(&fx.task, 4000, "full"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        line_of(&full, "Question number 1 ").contains(" decision: "),
+        "{full}"
+    );
+}
+
+#[tokio::test]
+async fn an_open_question_stays_in_a_small_pack() {
+    let fx = fixture().await;
+    with_questions(&fx).await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 120, "small"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(
+        md.contains("open, told to park: May the cache outlive a restart?"),
+        "{md}"
+    );
+}
+
+#[tokio::test]
+async fn another_task_sees_the_answer_as_a_decision_and_never_the_open_question() {
+    let fx = fixture().await;
+    let other = fx
+        .store
+        .create_task(new_task("Earlier cache work"))
+        .await
+        .unwrap();
+    let answered = ask(
+        &fx,
+        other.id,
+        "Which database should the cache use?",
+        question::Undo::Workspace,
+    )
+    .await;
+    let q: question::Asked = serde_json::from_str(&answered.body).unwrap();
+    let (summary, body) = question::answer_record(&q.question, "SQLite", "");
+    close(
+        &fx,
+        &answered,
+        RecordKind::Decision,
+        &summary,
+        &body,
+        "alice",
+    )
+    .await;
+    ask(
+        &fx,
+        other.id,
+        "May the cache outlive a restart?",
+        question::Undo::Outside,
+    )
+    .await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 2500, "other"))
+        .await
+        .unwrap()
+        .markdown;
+    assert!(!md.contains("## Questions"), "{md}");
+    assert!(!md.contains("May the cache outlive a restart?"), "{md}");
+    assert!(
+        line_of(&md, "Which database should the cache use? → SQLite").contains(" decision"),
+        "{md}"
+    );
+    let at = fx
+        .packer
+        .records_at(fx.task.id, "app/greeter.py", None)
+        .await
+        .unwrap();
+    assert!(
+        !at.markdown.contains("outlive a restart"),
+        "{}",
+        at.markdown
+    );
+}

@@ -65,6 +65,8 @@ pub fn kind_priority(kind: RecordKind) -> f32 {
         RecordKind::Intent => 0.7,
         RecordKind::Handoff => 0.6,
         RecordKind::Note => 0.4,
+        // packs show a question in its task's Questions, never ranked among records
+        RecordKind::Question => 0.4,
     }
 }
 

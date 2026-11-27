@@ -153,6 +153,15 @@ fn tools() -> Value {
             "done": {"type": "string"}, "remaining": {"type": "string"},
             "broken": {"type": "string"}, "questions": {"type": "string"}, "task_id": task_id,
             "needs": {"type": "array", "items": {"type": "string"}, "description": "Tags the next agent must have, e.g. [\"image\"]."}}}},
+        {"name": "ask", "description": "Ask a person when you would otherwise guess about something a person would want a say in, then follow what it answers. A person's own answer comes later, in the pack. At most 3 open per task; to withdraw one, `record` a note superseding it.",
+         "inputSchema": {"type": "object", "required": ["question", "options", "recommended", "why", "depends", "undo"], "properties": {
+            "question": {"type": "string"},
+            "options": {"type": "array", "items": {"type": "string"}, "description": "2 to 4."},
+            "recommended": {"type": "string", "description": "The one you would take."},
+            "why": {"type": "string"}, "depends": {"type": "string", "description": "Work resting on it."},
+            "undo": {"type": "string", "enum": ["workspace", "outside"], "description": "workspace: a wrong option costs only redoing this task's work; outside: more."},
+            "done": {"type": "string"}, "remaining": {"type": "string"},
+            "anchors": {"type": "array", "items": anchors["items"]}, "task_id": task_id}}},
         {"name": "post_backlog", "description": "Add follow-up work to the backlog for any agent. Optional or unsure? propose with why: a human accepts it first.",
          "inputSchema": {"type": "object", "required": ["title", "goal"], "properties": {
             "title": {"type": "string"}, "goal": {"type": "string"}, "repo": repo.clone(),
@@ -998,6 +1007,27 @@ async fn run_tool(
                             "{}\n\n{}",
                             r["status"].as_str().unwrap_or_default(),
                             r["bundle"]["markdown"].as_str().unwrap_or_default()
+                        )
+                    },
+                ),
+                "ask" => (
+                    "POST",
+                    format!("/v1/tasks/{t}/questions"),
+                    Some(json!({"agent": agent, "question": args["question"],
+                                "options": args["options"], "recommended": args["recommended"],
+                                "why": args["why"], "depends": args["depends"],
+                                "undo": args["undo"], "anchors": args["anchors"],
+                                "state": {"done": args.get("done").filter(|v| !v.is_null())
+                                              .cloned().unwrap_or(json!("")),
+                                          "remaining": args.get("remaining").filter(|v| !v.is_null())
+                                              .cloned().unwrap_or(json!(""))}})),
+                    generation,
+                    |r| {
+                        format!(
+                            "{}\n(question {}; {} of 3 open on this task)",
+                            r["told"].as_str().unwrap_or_default(),
+                            r["handle"].as_str().unwrap_or_default(),
+                            r["open"]
                         )
                     },
                 ),

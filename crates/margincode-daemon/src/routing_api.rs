@@ -39,7 +39,18 @@ pub(crate) fn routes() -> Router<AppState> {
 }
 
 async fn list_agents(State(st): State<AppState>) -> ApiResult<Value> {
-    Ok(Json(json!({ "agents": st.store.list_profiles().await? })))
+    let mut agents = vec![];
+    for p in st.store.list_profiles().await? {
+        agents.push(with_ask_level(&st, &p).await?);
+    }
+    Ok(Json(json!({ "agents": agents })))
+}
+
+/// A profile as the routes show it: with its ask level (`null`: the daemon's default).
+async fn with_ask_level(st: &AppState, p: &Profile) -> margincode_core::Result<Value> {
+    let mut v = serde_json::to_value(p).map_err(|e| AvError::Store(e.to_string()))?;
+    v["ask_level"] = json!(st.store.ask_level(&p.name).await?.map(|l| l.as_str()));
+    Ok(v)
 }
 
 #[derive(Deserialize)]
@@ -54,6 +65,9 @@ struct AgentBody {
     aliases: Vec<String>,
     #[serde(default)]
     max_open: Option<i32>,
+    /// `ask_first`, `balanced` or `carry_on`; left out, the daemon's default (`AV_ASK_LEVEL`).
+    #[serde(default)]
+    ask_level: Option<String>,
 }
 
 fn default_cost_rank() -> i32 {
@@ -66,6 +80,11 @@ async fn put_agent(
     Json(b): Json<AgentBody>,
 ) -> ApiResult<Value> {
     let name = name.trim().to_owned();
+    let ask_level = b
+        .ask_level
+        .as_deref()
+        .map(margincode_core::question::AskLevel::named)
+        .transpose()?;
     // a profile an extension manages is changed there, never by a put that knows nothing of it
     let stored = st
         .store
@@ -90,13 +109,18 @@ async fn put_agent(
         managed_by: None,
     })
     .await?;
+    st.store.set_ask_level(&name, ask_level).await?;
     let stored = st
         .store
         .list_profiles()
         .await?
         .into_iter()
         .find(|p| p.name == name);
-    Ok(Json(json!({ "agent": stored })))
+    let agent = match &stored {
+        Some(p) => with_ask_level(&st, p).await?,
+        None => Value::Null,
+    };
+    Ok(Json(json!({ "agent": agent })))
 }
 
 #[derive(Deserialize)]

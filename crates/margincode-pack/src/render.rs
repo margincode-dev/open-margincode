@@ -78,11 +78,18 @@ pub(crate) fn render(
         chosen.iter().filter(|(i, _)| pred(i)).collect()
     };
     let mut out = String::new();
+    let asked = |i: &Item| matches!(i.reason, "question" | "answer");
     push_section(
         &mut out,
         "Task",
-        &pick(&|i| i.section == Section::Task),
+        &pick(&|i| i.section == Section::Task && !asked(i)),
         true,
+    );
+    push_section(
+        &mut out,
+        "Questions",
+        &pick(&|i| i.section == Section::Task && asked(i)),
+        false,
     );
     let constitution = pick(&|i| i.section == Section::Constitution);
     if let Some((first, _)) = constitution.first() {

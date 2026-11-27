@@ -23,7 +23,7 @@ the token; without a token that line is left out. `X-Av-Agent` names it `cursor`
 (`av agent set cursor --best … --can … --cost N`).
 
 Checked against `cursor-agent` 2026.10.22 on 2026-10-31:
-- `cursor-agent mcp list` shows `av: ready`; `cursor-agent mcp list-tools av` lists the 24 tools.
+- `cursor-agent mcp list` shows `av: ready`; `cursor-agent mcp list-tools av` lists the 26 tools.
 - The server's instructions reach the model verbatim (as the `av` namespace's instructions), so it
   knows how to work a task, take its next job (`start_task` with no title or goal) and review,
   with no setup.

@@ -1226,6 +1226,48 @@ impl IntentStore for PgStore {
             .collect()
     }
 
+    async fn ask_level(&self, agent: &str) -> Result<Option<question::AskLevel>> {
+        let level: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT ask_level FROM agent_profiles WHERE name = $1 OR $1 = ANY(aliases)
+             ORDER BY name = $1 DESC, name LIMIT 1",
+        )
+        .bind(agent.trim())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(serr)?;
+        level.flatten().map(|l| l.parse()).transpose()
+    }
+
+    async fn set_ask_level(&self, name: &str, level: Option<question::AskLevel>) -> Result<()> {
+        let name = non_blank("an agent name", name)?;
+        let n = sqlx::query("UPDATE agent_profiles SET ask_level = $2 WHERE name = $1")
+            .bind(&name)
+            .bind(level.map(|l| l.as_str()))
+            .execute(&self.pool)
+            .await
+            .map_err(serr)?
+            .rows_affected();
+        if n == 0 {
+            return Err(AvError::NotFound(format!("agent {name}")));
+        }
+        Ok(())
+    }
+
+    async fn open_questions(&self, repo: Option<&str>) -> Result<Vec<Record>> {
+        let rows = sqlx::query(&format!(
+            "SELECT {RECORD_COLS} FROM records r JOIN tasks t ON t.id = r.task_id
+             WHERE r.kind = 'question' AND ($1::text IS NULL OR t.repo = $1)
+               AND t.status NOT IN ('merged', 'abandoned')
+               AND NOT EXISTS (SELECT 1 FROM records n WHERE n.supersedes = r.id)
+             ORDER BY r.created_at, r.id"
+        ))
+        .bind(repo)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(serr)?;
+        self.hydrate_records(rows).await
+    }
+
     async fn delete_profile(&self, name: &str, force: bool) -> Result<()> {
         let name = non_blank("an agent name", name)?;
         let mut tx = self.pool.begin().await.map_err(serr)?;
@@ -2470,6 +2512,28 @@ async fn insert_record(
         .await
         .map_err(serr)?
         .ok_or_else(|| AvError::NotFound(format!("task {}", r.task_id)))?;
+    if r.kind == RecordKind::Question {
+        // the task's row is locked, so of two inserts at once the second counts the first's
+        sqlx::query("SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE")
+            .bind(r.task_id.0)
+            .execute(&mut **tx)
+            .await
+            .map_err(serr)?;
+        let open: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM records q WHERE q.task_id = $1 AND q.kind = 'question'
+               AND NOT EXISTS (SELECT 1 FROM records n WHERE n.supersedes = q.id)",
+        )
+        .bind(r.task_id.0)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(serr)?;
+        if open >= question::MAX_OPEN_QUESTIONS as i64 {
+            return Err(AvError::IllegalState(format!(
+                "task {} already has {open} open questions: answer or withdraw one first",
+                r.task_id
+            )));
+        }
+    }
     // Superseding hides the old record from every pack and search of its repo, so what may
     // supersede what is enforced here, whoever the caller is: only a record of the same repo,
     // only what `supersede_refusal` allows, and one successor per record. The old record's row is

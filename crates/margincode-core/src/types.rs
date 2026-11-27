@@ -98,6 +98,7 @@ macro_rules! str_enum {
         }
     };
 }
+pub(crate) use str_enum;
 
 str_enum!(TaskStatus {
     Open => "open",
@@ -116,6 +117,7 @@ str_enum!(RecordKind {
     Handoff => "handoff",
     Review => "review",
     Validation => "validation",
+    Question => "question",
 });
 
 /// Why a record of kind `by`, of another task (`own_task` false) or of the same one, must not
@@ -128,7 +130,8 @@ str_enum!(RecordKind {
 /// leave the task without the intent a pack leads with, or without the state a claim reads).
 /// What corrects a decision, an attempt or a note is one of those three: packs and the pre-read
 /// hook show them where the old record was, and would not show an intent, a handoff or a
-/// validation there, so the claim would vanish instead of being corrected.
+/// validation there, so the claim would vanish instead of being corrected. A `question` is closed
+/// only in its own task: a decision is its answer, a note withdraws it.
 pub fn supersede_refusal(old: RecordKind, by: RecordKind, own_task: bool) -> Option<&'static str> {
     use RecordKind::*;
     match (old, by) {
@@ -142,6 +145,11 @@ pub fn supersede_refusal(old: RecordKind, by: RecordKind, own_task: bool) -> Opt
         (Decision | Attempt | Note, Decision | Attempt | Note) => None,
         (Decision | Attempt | Note, _) => {
             Some("only a decision, attempt or note corrects a decision, attempt or note")
+        }
+        (Question, _) if !own_task => Some("only its own task answers or withdraws a question"),
+        (Question, Decision | Note) => None,
+        (Question, _) => {
+            Some("a question is answered with a decision or withdrawn with a note, nothing else")
         }
     }
 }
@@ -971,6 +979,7 @@ mod tests {
             RecordKind::Handoff,
             RecordKind::Review,
             RecordKind::Validation,
+            RecordKind::Question,
         ] {
             assert_eq!(k.as_str().parse::<RecordKind>().unwrap(), k);
         }
@@ -1025,14 +1034,16 @@ mod tests {
     fn what_may_be_superseded() {
         use RecordKind::*;
         let corrects = [Decision, Attempt, Note];
-        let all = [Intent, Decision, Attempt, Note, Handoff, Review, Validation];
+        let all = [
+            Intent, Decision, Attempt, Note, Handoff, Review, Validation, Question,
+        ];
         for old in corrects {
             for by in corrects {
                 assert_eq!(supersede_refusal(old, by, false), None, "{old:?} by {by:?}");
                 assert_eq!(supersede_refusal(old, by, true), None, "{old:?} by {by:?}");
             }
             // a correction that packs and the pre-read hook would not show in the old one's place
-            for by in [Intent, Handoff, Review, Validation] {
+            for by in [Intent, Handoff, Review, Validation, Question] {
                 for own in [false, true] {
                     let why = supersede_refusal(old, by, own);
                     assert!(
@@ -1062,6 +1073,18 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn only_its_own_task_answers_or_withdraws_a_question() {
+        use RecordKind::*;
+        for by in [Decision, Note] {
+            assert_eq!(supersede_refusal(Question, by, true), None, "{by:?}");
+            assert!(supersede_refusal(Question, by, false).is_some(), "{by:?}");
+        }
+        for by in [Intent, Attempt, Handoff, Review, Validation, Question] {
+            assert!(supersede_refusal(Question, by, true).is_some(), "{by:?}");
         }
     }
 

@@ -180,6 +180,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(crate::dream::routes())
         .merge(crate::constitution::routes())
         .merge(crate::outcomes::routes())
+        .merge(crate::questions::routes())
 }
 
 const PRUNE_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 86_400);
@@ -844,6 +845,7 @@ pub(crate) async fn check_record(
     task: &Task,
     b: &RecordBody,
 ) -> Result<Option<RecordId>> {
+    refuse_question(b.kind)?;
     let n = b.summary.chars().count();
     if n > MAX_SUMMARY_CHARS {
         return Err(AvError::SummaryTooLong(n));
@@ -853,20 +855,41 @@ pub(crate) async fn check_record(
     }
     match &b.supersedes {
         Some(s) => {
-            let old = superseded_by_task(st, task, s, b.kind).await?;
-            guard_supersede(st, task, &old, &b.agent).await?;
+            let old = superseded_by_task(st, task, s, b.kind, &b.agent).await?;
+            guard_supersede(st, task, &old, &b.agent, false).await?;
             Ok(Some(old.id))
         }
         None => Ok(None),
     }
 }
 
+/// A question is written by `ask`, which checks it, keeps at most three open and tells the agent
+/// what to do; the plain record route would skip all three.
+fn refuse_question(kind: RecordKind) -> Result<()> {
+    if kind == RecordKind::Question {
+        return Err(AvError::IllegalState(
+            "a question is asked with the MCP tool `ask` or `av ask`, not as a plain record".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Asks the `MergeGuard` whether `agent`'s new record may supersede `old`
-/// (`Guarded::MemoryWrite`), once the daemon's own rules allow it.
-async fn guard_supersede(st: &AppState, task: &Task, old: &Record, agent: &str) -> Result<()> {
+/// (`Guarded::MemoryWrite`), once the daemon's own rules allow it. `answer`: it is a person's
+/// answer to a question.
+pub(crate) async fn guard_supersede(
+    st: &AppState,
+    task: &Task,
+    old: &Record,
+    agent: &str,
+    answer: bool,
+) -> Result<()> {
     let action = crate::Guarded::MemoryWrite {
         repo: &task.repo,
-        action: crate::MemoryAction::Supersede { record: old },
+        action: crate::MemoryAction::Supersede {
+            record: old,
+            answer,
+        },
         by: agent,
         dream: None,
     };
@@ -882,18 +905,22 @@ pub(crate) fn rec_handle(id: RecordId) -> String {
 
 const MAX_SUPERSEDE_CHAIN: usize = 64;
 
-/// The record a new record of `task`, of kind `by`, names in `supersedes`, when it may supersede it.
+/// The record a new record of `task`, of kind `by` and by `agent`, names in `supersedes`, when it
+/// may supersede it.
 /// Superseding hides the old record from packs, the pre-read hook and search, so what one agent may hide
 /// is limited here, and again by the store inside the insert (`PgStore`'s `insert_record`), where two
 /// tasks superseding one record at once are told apart.
 ///
-/// Refused: a record of another repo (422); what `supersede_refusal` refuses (422); a record that is already
-/// superseded (409, naming the live record at the end of the chain when it is short enough to follow).
+/// Refused: a record of another repo (422); a question, but by a note of the agent that asked or
+/// of its task's owner (422); a person's answer to a question, which only `answer` corrects (422); what
+/// `supersede_refusal` refuses (422); a record that is already superseded (409, naming the live
+/// record at the end of the chain when it is short enough to follow).
 async fn superseded_by_task(
     st: &AppState,
     task: &Task,
     named: &str,
     by: RecordKind,
+    agent: &str,
 ) -> Result<Record> {
     let named = named.trim();
     let old = st
@@ -901,7 +928,8 @@ async fn superseded_by_task(
         .find_record(named.strip_prefix("rec:").unwrap_or(named))
         .await?;
     let shown = rec_handle(old.id);
-    if st.store.get_task(old.task_id).await?.repo != task.repo {
+    let home = st.store.get_task(old.task_id).await?;
+    if home.repo != task.repo {
         return Err(AvError::IllegalState(format!(
             "{shown} is not a record of repo {}",
             task.repo
@@ -910,6 +938,28 @@ async fn superseded_by_task(
     if st.plain_records && old.task_id != task.id {
         return Err(AvError::IllegalState(format!(
             "{shown} is another task's record: this daemon serves plain records (AV_PLAIN_RECORDS), where a task supersedes only its own"
+        )));
+    }
+    if old.kind == RecordKind::Question {
+        if by == RecordKind::Decision {
+            return Err(AvError::IllegalState(format!(
+                "{shown} is a question: a person answers it with `av answer {shown} <option>`; \
+                 withdraw it with a note that supersedes it"
+            )));
+        }
+        let profiles = st.store.list_profiles().await?;
+        let may = |name: &str| margincode_core::question::same_agent(&profiles, agent, name);
+        if !may(&old.author_agent) && !may(&home.owner_agent) {
+            return Err(AvError::IllegalState(format!(
+                "{shown} was asked by {} on a task {} owns: only one of them withdraws it",
+                old.author_agent, home.owner_agent
+            )));
+        }
+    }
+    if let Some(q) = crate::questions::answered_question(st, &old).await? {
+        let q = rec_handle(q.id);
+        return Err(AvError::IllegalState(format!(
+            "{shown} is a person's answer to {q}: change it with `av answer {q} <option> --correct`"
         )));
     }
     if let Some(why) = supersede_refusal(old.kind, by, old.task_id == task.id) {
@@ -944,8 +994,9 @@ async fn superseded_by_task(
 /// the old one's, so the correction is shown wherever the record it corrects was. The caller
 /// holds `AppState::lock_task` and has run `fence`.
 pub(crate) async fn write_record(st: &AppState, task: &Task, b: RecordBody) -> Result<Record> {
+    refuse_question(b.kind)?;
     let old = match b.supersedes.as_deref() {
-        Some(named) => Some(superseded_by_task(st, task, named, b.kind).await?),
+        Some(named) => Some(superseded_by_task(st, task, named, b.kind, &b.agent).await?),
         None => None,
     };
     let mut anchors = b.anchors.unwrap_or_default();
@@ -990,6 +1041,7 @@ async fn add_record(
     headers: HeaderMap,
     Json(b): Json<RecordBody>,
 ) -> ApiResult<Value> {
+    refuse_question(b.kind)?;
     let _guard = st.lock_task(task_id(id)).await;
     let task = st.store.get_task(task_id(id)).await?;
     fence(&st, &task, &headers).await?;
@@ -1000,8 +1052,8 @@ async fn add_record(
     }
     let receipt_arg = b.receipt.clone();
     if let Some(named) = b.supersedes.as_deref() {
-        let old = superseded_by_task(&st, &task, named, b.kind).await?;
-        guard_supersede(&st, &task, &old, &b.agent).await?;
+        let old = superseded_by_task(&st, &task, named, b.kind, &b.agent).await?;
+        guard_supersede(&st, &task, &old, &b.agent, false).await?;
     }
     let record = write_record(&st, &task, b).await?;
     let receipt = match &receipt_arg {

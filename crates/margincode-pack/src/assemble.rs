@@ -299,7 +299,7 @@ fn question_items(own: &[Record]) -> (Vec<Item>, HashSet<RecordId>) {
                         id,
                         Section::Task,
                         ANSWERED_SCORE,
-                        [handle.clone(), handle, full],
+                        [handle, full.clone(), full],
                     )
                     .because("answer")
                     .required_if(true)

@@ -3326,6 +3326,35 @@ async fn a_corrected_answer_is_shown_in_place_of_the_first() {
     assert_eq!(md.matches("→ Postgres").count(), 1, "{md}");
 }
 
+/// The comment does not fit the Task share, but what the later sections leave pays for it.
+#[tokio::test]
+async fn an_answers_comment_is_shown_when_later_sections_leave_room() {
+    let fx = fixture().await;
+    let asked = ask(
+        &fx,
+        fx.task.id,
+        "Which database should the cache use?",
+        question::Undo::Workspace,
+    )
+    .await;
+    let q: question::Asked = serde_json::from_str(&asked.body).unwrap();
+    let comment = "keep it on one disk, ".repeat(20);
+    let (summary, body) = question::answer_record(&q.question, "SQLite", &comment);
+    close(&fx, &asked, RecordKind::Decision, &summary, &body, "alice").await;
+    let md = fx
+        .packer
+        .build(req(&fx.task, 1000, "tight"))
+        .await
+        .unwrap()
+        .markdown;
+    let shown = questions_section(&md);
+    assert!(
+        shown.contains("It is not the recommended option (Postgres)."),
+        "{md}"
+    );
+    assert!(shown.contains("Comment: keep it on one disk"), "{md}");
+}
+
 #[tokio::test]
 async fn the_three_newest_answers_are_kept_and_older_ones_are_decisions_like_any() {
     let fx = fixture().await;

@@ -109,6 +109,10 @@ impl Question {
             .iter()
             .map(|o| text("an option", o, MAX_OPTION_CHARS))
             .collect::<Result<_>>()?;
+        // an answer's body starts `Chosen: <option>` and `chosen` reads that first line back
+        if let Some(o) = options.iter().find(|o| o.contains(['\n', '\r'])) {
+            return Err(AvError::Invalid(format!("an option is one line: {o:?}")));
+        }
         if !(2..=4).contains(&options.len()) {
             return Err(AvError::Invalid(format!(
                 "{} options given; give two to four",
@@ -308,6 +312,17 @@ mod tests {
         assert_eq!(c.option("3"), None);
         retries.recommended = "3".into();
         assert!(retries.checked().is_err());
+    }
+
+    #[test]
+    fn an_option_is_one_line() {
+        for broken in ["SQLite\nwith WAL", "SQLite\rin memory"] {
+            let mut two = q();
+            two.options = vec!["Postgres".into(), broken.into()];
+            let e = two.checked().unwrap_err();
+            assert!(matches!(e, AvError::Invalid(_)), "{e:?}");
+            assert!(e.to_string().contains("one line"), "{e}");
+        }
     }
 
     #[test]

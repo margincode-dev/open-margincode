@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::api::{guard_supersede, rec_handle, snapshot_and_index};
+use crate::api::{MAX_SUPERSEDE_CHAIN, guard_supersede, rec_handle, snapshot_and_index};
 use crate::error::ApiResult;
 use crate::flow::fence;
 
@@ -163,7 +163,8 @@ async fn open(State(st): State<AppState>, Query(q): Query<OpenQuery>) -> ApiResu
 /// The question a person's answer `rec` answers (through any corrections), when it is one.
 pub(crate) async fn answered_question(st: &AppState, rec: &Record) -> Result<Option<Record>> {
     let mut at = rec.clone();
-    for _ in 0..64 {
+    // the answer and its corrections: one step more than the corrections `answer` allows
+    for _ in 0..=MAX_SUPERSEDE_CHAIN {
         if at.kind != RecordKind::Decision {
             return Ok(None);
         }
@@ -244,11 +245,11 @@ async fn answer(
             ))
             .into());
         }
-        for _ in 0..64 {
-            match live.superseded_by {
-                Some(n) => live = st.store.get_record(n).await?,
-                None => break,
-            }
+        let mut corrections = 0;
+        while corrections < MAX_SUPERSEDE_CHAIN {
+            let Some(n) = live.superseded_by else { break };
+            live = st.store.get_record(n).await?;
+            corrections += 1;
         }
         if !b.correct {
             return Err(AvError::Conflict(format!(
@@ -257,6 +258,13 @@ async fn answer(
                 live.summary,
                 rec_handle(live.id),
                 live.author_agent
+            ))
+            .into());
+        }
+        if corrections >= MAX_SUPERSEDE_CHAIN {
+            return Err(AvError::IllegalState(format!(
+                "{shown}'s answer was corrected {MAX_SUPERSEDE_CHAIN} times, the most it may be; \
+                 record the decision on a new task"
             ))
             .into());
         }

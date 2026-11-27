@@ -896,7 +896,7 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
 # (question rec:3ace2ef6; 1 of 3 open on this task)
 ```
 
-- Two to four short options (60 characters each, no two the same), the recommended one among
+- Two to four short options (60 characters each, one line, no two the same), the recommended one among
   them with a one-line `why`, what `depends` on the answer, and `undo`: `workspace` when a wrong
   option costs only redoing this task's work, `outside` when it costs more (data, an interface
   others use, money). `done` and `remaining` say where the task stands. A malformed question is
@@ -924,7 +924,8 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   without `--correct`, is refused (`409`); a question of a merged or abandoned task is refused
   (`422`: the task is finished, record the decision on a new task).
 - A person changes an answer with `av answer rec:ID OPTION --correct` (`"correct": true`): the new
-  decision supersedes the live answer. Nothing else supersedes an answer (`422`, naming the
+  decision supersedes the live answer. An answer is corrected at most 64 times (`422` after
+  that: record the decision on a new task). Nothing else supersedes an answer (`422`, naming the
   route), so an agent's `record` cannot replace what a person chose.
 - Only the agent that asked, or the task's current owner (after a handoff), withdraws an open
   question, with a note that supersedes it

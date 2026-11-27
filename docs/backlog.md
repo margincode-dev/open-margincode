@@ -511,6 +511,11 @@ the suspected cause, marked as a guess; the status.
   `slots::wait_for`, which then found it free and printed nothing. The 1.5 s sleep is then an
   upper bound on the checkpoint's time, which `CONTRIBUTING.md` ("Timing") forbids. The test
   could wait for the "waiting" line on stderr instead of sleeping.
+- **Seen again, 2026-11-27.** Same assertion (now line 6247), in `cargo test --workspace` on the
+  questions change (PR #114, nothing under `validate` or `slots` touched), in a `rust:1.97.1`
+  container (the host's load was not recorded). The other 176 tests of the binary
+  passed. The same build's run before it passed, and five runs of the test alone passed (each
+  about 5.8 s).
 - **Status.** Open.
 
 ## 2026-11-21: the installer and the formula install on a glibc that is too old

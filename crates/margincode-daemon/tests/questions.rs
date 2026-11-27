@@ -807,22 +807,58 @@ async fn an_alias_profile_of_the_owner_sets_its_level() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_owner_a_task_was_handed_to_does_not_answer_its_question() {
+async fn the_tasks_owner_answers_a_question_another_agent_asked() {
     let e = env().await;
     let t = start_task(&e, "Cache greetings").await;
-    let (_, asked) = ask(&e, &t, question("workspace")).await;
-    let q = asked["id"].as_str().unwrap();
-    crate::common::edit_greeter(&e, &t);
-    crate::common::record_decision(&e, &t).await;
-    let (status, body) = crate::common::handoff(&e, &t, "claude").await;
+    let mut other = question("workspace");
+    other["agent"] = json!("grok");
+    let (_, asked) = ask(&e, &t, other).await;
+    let (status, body) = answer(
+        &e,
+        asked["id"].as_str().unwrap(),
+        json!({"option": "SQLite", "by": "claude"}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let (status, body) = crate::common::claim(&e, &t, "codex").await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let (status, own) = answer(&e, q, json!({"option": "SQLite", "by": "Codex"})).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{own}");
-    assert!(own.to_string().contains("owns"), "{own}");
-    let (status, body) = answer(&e, q, json!({"option": "SQLite", "by": "alice"})).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_alias_shared_by_two_profiles_takes_the_earlier_listed_ones_level() {
+    let e = env().await;
+    set_level(
+        &e,
+        "alpha",
+        json!({"cost_rank": 10, "aliases": ["CLAUDE"], "ask_level": "carry_on"}),
+    )
+    .await;
+    set_level(
+        &e,
+        "beta",
+        json!({"cost_rank": 1, "aliases": ["claude"], "ask_level": "ask_first"}),
+    )
+    .await;
+    let t = start_task(&e, "Cache greetings").await;
+    let (status, parked) = ask(&e, &t, question("outside")).await;
+    assert_eq!(status, StatusCode::OK, "{parked}");
+    assert_eq!(parked["level"], "ask_first", "{parked}");
+    assert_eq!(parked["instruction"], "park", "{parked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_agent_does_not_withdraw_a_question_on_a_task_with_a_blank_owner() {
+    let e = env().await;
+    let t = start_as(&e, "Cache greetings", " ").await;
+    let mut body = question("workspace");
+    body["agent"] = json!("grok");
+    let (_, asked) = ask(&e, &t, body).await;
+    let (status, body) = record(
+        &e,
+        &t,
+        json!({"kind": "note", "summary": "never mind", "agent": "",
+                "supersedes": asked["id"]}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

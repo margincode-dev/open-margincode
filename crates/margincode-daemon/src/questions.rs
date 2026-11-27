@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use margincode_core::question::{
     Asked, MAX_COMMENT_CHARS, MAX_OPEN_QUESTIONS, Question, QuestionState, Undo, answer_record,
-    same_agent,
+    profile_of, same_agent,
 };
 use margincode_core::*;
 use serde::Deserialize;
@@ -93,11 +93,11 @@ async fn ask(
     }
     // the anchored code is hashed as it is now, as `record` does
     snapshot_and_index(&st, &task).await?;
-    let level = st
-        .store
-        .ask_level(&task.owner_agent)
-        .await?
-        .unwrap_or(st.ask_level);
+    let level = match profile_of(&st.store.list_profiles().await?, &task.owner_agent) {
+        Some(owner) => st.store.ask_level(&owner.name).await?,
+        None => None,
+    }
+    .unwrap_or(st.ask_level);
     let asked = Asked {
         instruction: level.instruction(question.undo),
         question,
@@ -276,19 +276,10 @@ async fn answer(
     }
     let asked: Asked = serde_json::from_str(&q.body)
         .map_err(|e| AvError::Store(format!("{shown}'s body is not a question: {e}")))?;
-    let profiles = st.store.list_profiles().await?;
-    if same_agent(&profiles, &by, &q.author_agent) {
+    if same_agent(&st.store.list_profiles().await?, &by, &q.author_agent) {
         return Err(AvError::IllegalState(format!(
             "{by} asked {shown}: an agent does not answer its own question. A person answers it, \
              or the agent withdraws it with a note that supersedes it"
-        ))
-        .into());
-    }
-    if same_agent(&profiles, &by, &task.owner_agent) {
-        return Err(AvError::IllegalState(format!(
-            "{by} owns task {}: the owner does not answer a question on its own task. A person \
-             answers {shown}, or the owner withdraws it with a note that supersedes it",
-            task.slug
         ))
         .into());
     }

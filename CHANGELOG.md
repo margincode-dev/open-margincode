@@ -26,13 +26,14 @@
   record before.
 - **Questions take the owner's level.** `ask` looked the level up by the name in the request,
   so a session on a task whose owner is `ask_first` could name another agent (or first give a
-  fresh name a `carry_on` profile) and be told to carry on. The level is now the task owner's,
-  found by name or alias in any case (a profile's own name before another profile's alias), else
-  `AV_ASK_LEVEL`, also for a task with no owner. The question is still recorded under the name
-  that asked. The task's owner no longer answers a question on its own task (`422`, like the
-  asker); after a handoff it still withdraws one. `PUT /v1/agents/{name}` refuses (`409`) a name,
-  or an alias in the body, that is a name or alias of a profile an extension manages, in any
-  case.
+  fresh name a `carry_on` profile) and be told to carry on. The level is now the task owner's
+  profile's, else `AV_ASK_LEVEL`, also for a task with no owner. The question is still recorded
+  under the name that asked. Questions compare agent names one way (`question::profile_of`,
+  `same_agent`): trimmed, in any Unicode case, a profile's own name before another profile's
+  alias, then the earlier profile by cost rank and name; a blank name is no agent, so it no
+  longer withdraws a question on a task with a blank owner. `PUT /v1/agents/{name}` refuses
+  (`409`) a name, or a new alias, that is a name or alias of a profile an extension manages, in
+  any case; an alias the profile already has is kept.
 - **`margincode-agentrun` kills a process group with the system call.** At a deadline or a raised
   stop flag it started the `kill` program, which got the caller's whole environment (a runner's
   token among it) and could be seen in `/proc` by the processes it was killing. It now calls

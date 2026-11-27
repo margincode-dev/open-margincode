@@ -9,6 +9,7 @@ use axum::extract::{Path, Query, State};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::Utc;
+use margincode_core::question::fold_name;
 use margincode_core::routing::{
     self, AgentPosts, BacklogItem, BacklogState, NewBacklogItem, NewTarget, Profile, Target,
     TargetStatus,
@@ -85,16 +86,28 @@ async fn put_agent(
         .as_deref()
         .map(margincode_core::question::AskLevel::named)
         .transpose()?;
-    // a profile an extension manages is changed there, never by a put that knows nothing of it;
-    // nor is it shadowed by a profile under one of its names in another case, or by an alias
-    let given: Vec<&str> = std::iter::once(name.as_str())
-        .chain(b.aliases.iter().map(|a| a.trim()))
+    // a profile an extension manages is changed there, never by a put that knows nothing of it,
+    // nor shadowed by a name or a new alias that is one of its names in any case; an alias the
+    // profile already has stays, since a managed profile may have taken it later
+    let profiles = st.store.list_profiles().await?;
+    let kept: Vec<String> = profiles
+        .iter()
+        .find(|p| p.name == name)
+        .map(|p| p.aliases.iter().map(|a| fold_name(a)).collect())
+        .unwrap_or_default();
+    let given: Vec<String> = std::iter::once(fold_name(&name))
+        .chain(
+            b.aliases
+                .iter()
+                .map(|a| fold_name(a))
+                .filter(|a| !kept.contains(a)),
+        )
         .collect();
-    let managed = st.store.list_profiles().await?.into_iter().find(|p| {
+    let managed = profiles.into_iter().find(|p| {
         p.managed_by.is_some()
             && std::iter::once(&p.name)
                 .chain(&p.aliases)
-                .any(|n| given.iter().any(|g| n.eq_ignore_ascii_case(g)))
+                .any(|n| given.contains(&fold_name(n)))
     });
     if let Some(p) = managed {
         return Err(AvError::Conflict(format!(

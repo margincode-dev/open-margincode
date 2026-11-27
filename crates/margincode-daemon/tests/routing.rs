@@ -1632,6 +1632,52 @@ async fn a_put_under_another_case_or_an_alias_of_a_managed_profile_is_refused() 
 }
 
 #[tokio::test]
+async fn a_put_under_another_unicode_case_of_a_managed_profile_is_refused() {
+    let (e, st) = env_and_state().await;
+    st.put_profile(&managed("café", Some("ee"))).await.unwrap();
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/CAF%C3%89",
+        Some(json!({"ask_level": "carry_on"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn an_unmanaged_profile_keeps_an_alias_a_managed_profile_took_later() {
+    let (e, st) = env_and_state().await;
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/dev",
+        Some(json!({"aliases": ["shared"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut ee_dev = managed("ee-dev", Some("ee"));
+    ee_dev.aliases = vec!["shared".into()];
+    st.put_profile(&ee_dev).await.unwrap();
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/dev",
+        Some(json!({"aliases": ["shared"], "cost_rank": 3})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(
+        &e.app,
+        "PUT",
+        "/v1/agents/dev",
+        Some(json!({"aliases": ["shared", "EE-DEV"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
 async fn a_profile_put_through_the_api_is_not_managed_and_can_be_overwritten() {
     let e = env().await;
     put_agent(&e, "claude", &["code"], &[], 4).await;

@@ -1,6 +1,6 @@
 {
   "name": "margincode",
-  "description": "Margincode: shared memory and one backlog for your coding agents",
+  "description": "Margincode: one memory for all the coding agents you pay for, and it stays right as it grows",
   "owner": {
     "name": "VINH BUI",
     "url": "https://github.com/vinhqbui"
@@ -9,7 +9,7 @@
     {
       "name": "margincode",
       "source": "./integrations/claude-code/plugin",
-      "description": "Ask Claude to install Margincode, connect your agents to it and fix a broken setup"
+      "description": "One memory for all the coding agents you pay for. Ask Claude to install Margincode, connect your agents and fix a broken setup"
     }
   ]
 }

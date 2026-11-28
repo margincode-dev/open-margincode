@@ -25,6 +25,8 @@ Numbers on the page come from these result directories, and only these:
 | End-to-end agents, the later tracker run (2026-11-20) | the openevaluations report [`docs/results/2026-11-20-tracker-haiku.md`](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-20-tracker-haiku.md) |
 | End-to-end agents, the tracker run on release 0.0.4 (2026-11-21) | the openevaluations report [`docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md`](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md) |
 | Knowledge relay (E4) | `bench/results/2026-10-29-relay-lean/report.md`; the first run (MCP) `bench/results/2026-10-28-relay/report.md`; 500 notes `bench/results/2026-11-e4-scale/README.md` |
+| Hero figures | relay `bench/results/2026-10-29-relay-lean/report.md`; 500 notes `bench/results/2026-11-e4-scale/README.md`; wrong notes `bench/results/2026-11-14-m0/README.md` and `bench/results/2026-11-wrong-lesson-3/README.md`; one agent alone, the 2026-11-21 tracker report above |
+| How it compares | each project's own page, linked under the table, read 2026-11-28 |
 
 When a newer run replaces one, change this table, `index.html` and `llms.txt` in the same commit.
 A hero stat must be something av does that a plain file of notes does not.

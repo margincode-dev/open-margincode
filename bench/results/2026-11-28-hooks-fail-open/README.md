@@ -39,7 +39,8 @@ which Grok's hooks use too; **opencode** is `integrations/opencode/av.js` under 
 | slow (10 s) | opencode | 22.3 -> 15.3 | 10.3 -> 3.3 | 10.3 -> 5.3 | 20.3 -> 10.2 |
 
 The cli and claude rows were within 0.1 s of each other in every cell; the table shows the cli
-number. Every run, before and after, exited 0. stdout was empty in every failure run except
+number. The after column was run again on the branch's final head (the skip narrowed to read and
+edit hooks) and every cell agreed within 0.2 s. Every run, before and after, exited 0. stdout was empty in every failure run except
 **slow** session-start, which got the context answer (`{}`, an empty pack) and printed the line
 that asks for records before the final message, before and after: that is an answer, not a
 failure. stderr was one line (`av: hook NAME: …`). Under OpenCode every plugin hook returned
@@ -57,8 +58,9 @@ hang 623.9 s (see `docs/backlog.md`, 2026-11-28).
 ## A session against a hung daemon (`session.sh`)
 
 One `session-start`, then 30 times a `pre-read` and a `post-edit` 2 s apart, then a `stop`, in one
-`HOME` (about 75 s of session), after the change: 24.4 s in hooks in all (session-start 15.0 s,
-two `pre-read`s at 3.1 s when the 30 s skip ran out, the rest under 0.9 s each). Without the skip
+`HOME` (about 75 s of session), after the change on the final head: 28.7 s in hooks in all
+(session-start 15.2 s and stop 10.2 s, which never skip; one `pre-read` at 3.2 s when the 30 s
+skip ran out; the other 59 read and edit hooks 4 ms or less each). Without the skip
 the same session would pay every budget: 15 + 30 x 3 + 30 x 5 + 10 = 265 s; before the change
 614 + 30 x 300 + 30 x 300 + 612, about 19,200 s under Claude Code.
 

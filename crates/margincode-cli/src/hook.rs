@@ -27,8 +27,9 @@ const POST_EDIT_SECS: u64 = 5;
 /// `STOP_TIMEOUT_MARGIN` with the footprint scans (`AV_FOOTPRINT_SECS`, twice).
 const STOP_SECS: u64 = 10;
 
-/// After a hook gave up on a daemon it had waited for, the next hooks on this machine send it
-/// nothing for this long, so a hung daemon costs one budget per period, not one per tool call.
+/// After a hook gave up on a daemon it had waited for, the read and edit hooks on this machine
+/// send it nothing for this long, so a hung daemon costs one budget per period, not one per tool
+/// call. Session start and stop still ask: a pack skipped is not sent again.
 const SKIP_SECS: u64 = 30;
 /// A refused connection fails in milliseconds and leaves no mark.
 const WAITED: Duration = Duration::from_secs(1);
@@ -42,17 +43,24 @@ fn skipping(base: &str) -> bool {
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .is_some_and(|v| {
+            let now = now_ms() / 1000;
             v["url"] == base
                 && v["at"]
                     .as_u64()
-                    .is_some_and(|at| now_ms() / 1000 < at.saturating_add(SKIP_SECS))
+                    .is_some_and(|at| at <= now && now < at.saturating_add(SKIP_SECS))
         })
 }
 
-/// Runs a hook with its budget (`var`, else `default_secs`); see `SKIP_SECS`.
-fn budgeted(client: &Client, var: &str, default_secs: u64, hook: impl FnOnce(&Client)) {
+/// Runs a hook with its budget (`var`, else `default_secs`); see `SKIP_SECS` for `may_skip`.
+fn budgeted(
+    client: &Client,
+    var: &str,
+    default_secs: u64,
+    may_skip: bool,
+    hook: impl FnOnce(&Client),
+) {
     let client = client.with_budget(Duration::from_secs(env_number(var, default_secs)));
-    if skipping(client.base()) {
+    if may_skip && skipping(client.base()) {
         client.give_up();
     }
     hook(&client);
@@ -114,6 +122,7 @@ pub fn session_start(
         client,
         "AV_HOOK_SESSION_START_SECS",
         SESSION_START_SECS,
+        false,
         |c| session_start_in(c, agent, budget, code, map, max_code),
     );
 }
@@ -643,7 +652,13 @@ fn footprint_reason(added: &[(PathBuf, u64)], total: u64, task_dir: Option<&Path
 /// What other tasks recorded about the file about to be read or edited, as Claude Code
 /// `additionalContext`, each record once per session.
 pub fn pre_read(client: &Client) {
-    budgeted(client, "AV_HOOK_PRE_READ_SECS", PRE_READ_SECS, pre_read_in);
+    budgeted(
+        client,
+        "AV_HOOK_PRE_READ_SECS",
+        PRE_READ_SECS,
+        true,
+        pre_read_in,
+    );
 }
 
 fn pre_read_in(client: &Client) {
@@ -679,9 +694,13 @@ fn pre_read_in(client: &Client) {
 }
 
 pub fn post_edit(client: &Client, agent: &str) {
-    budgeted(client, "AV_HOOK_POST_EDIT_SECS", POST_EDIT_SECS, |c| {
-        post_edit_in(c, agent)
-    });
+    budgeted(
+        client,
+        "AV_HOOK_POST_EDIT_SECS",
+        POST_EDIT_SECS,
+        true,
+        |c| post_edit_in(c, agent),
+    );
 }
 
 fn post_edit_in(client: &Client, agent: &str) {
@@ -788,7 +807,7 @@ pub fn stop_timeout_secs() -> u64 {
 ///
 /// Any failure allows the stop, and a directory without a task is silent.
 pub fn stop(client: &Client, agent: &str) {
-    budgeted(client, "AV_HOOK_STOP_SECS", STOP_SECS, |c| {
+    budgeted(client, "AV_HOOK_STOP_SECS", STOP_SECS, false, |c| {
         stop_in(c, agent)
     });
 }

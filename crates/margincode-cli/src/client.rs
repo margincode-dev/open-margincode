@@ -150,7 +150,9 @@ impl Client {
                 detail,
             };
             if b.failed.get() {
-                return Err(unreachable("an earlier request of this hook failed".into()));
+                return Err(unreachable(
+                    "skipped: it did not answer a moment ago".into(),
+                ));
             }
             let started = b.started.get().unwrap_or_else(|| {
                 let now = Instant::now();

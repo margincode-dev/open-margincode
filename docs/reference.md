@@ -2086,8 +2086,9 @@ opens with a warning naming the culprit merge.
   Past the budget, or on a refused connection, an HTTP error or a wrong token, the hook exits 0 with
   nothing on stdout and one line on stderr, and the agent's tool call goes on. A hook that waited at
   least 1 s and then gave up writes `hooks-unreachable.json` (the daemon's URL and the time) into
-  av's home: for the next 30 s the hooks of every session on the machine send that daemon nothing,
-  so a hung daemon costs one budget per 30 s instead of one per tool call. The mark ends by itself;
+  av's home: for the next 30 s the `pre-read` and `post-edit` hooks of every session on the machine
+  send that daemon nothing, so a hung daemon costs one budget per 30 s instead of one per tool call.
+  `session-start` and `stop` always ask (a pack skipped is not sent again). The mark ends by itself;
   a daemon that is back is used again within 30 s. A refused connection fails in milliseconds and
   leaves no mark. The budgets count waiting on the daemon only: the footprint scans
   (`AV_FOOTPRINT_SECS`) and a remote checkout's local git steps come on top. The defaults are about

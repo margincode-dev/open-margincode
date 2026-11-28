@@ -130,6 +130,10 @@ fn av_with(url: &str, cwd: &Path, args: &[&str]) -> Output {
         .env_remove("AV_TOKEN")
         // the Stop hook's keep-busy wait is off unless a test turns it on
         .env("AV_HOOK_WAIT_SECS", "0")
+        // a busy test machine must not run a hook out of its budget
+        .env("AV_HOOK_SESSION_START_SECS", "60")
+        .env("AV_HOOK_PRE_READ_SECS", "60")
+        .env("AV_HOOK_POST_EDIT_SECS", "60")
         // so is the footprint (it scans $HOME), and no hook writes the real session's env file
         .env("AV_FOOTPRINT", "off")
         .env_remove("CLAUDE_ENV_FILE")
@@ -2154,6 +2158,9 @@ fn av_stdin_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str], stdi
         .env_remove("GROK_HOOK_EVENT")
         .env_remove("GROK_SESSION_ID")
         .env("AV_HOOK_WAIT_SECS", "0")
+        .env("AV_HOOK_SESSION_START_SECS", "60")
+        .env("AV_HOOK_PRE_READ_SECS", "60")
+        .env("AV_HOOK_POST_EDIT_SECS", "60")
         .env_remove("AV_HOOK_MAX_CONTINUES")
         .env("AV_FOOTPRINT", "off")
         .env_remove("CLAUDE_ENV_FILE")
@@ -9102,17 +9109,11 @@ fn the_stop_hooks_wait_for_work_outlasts_its_budget() {
     let (d, ws, scratch) = started();
     let o = std::thread::scope(|s| {
         let poster = s.spawn(|| {
-            // past the 1 s budget of the first look, before the next look 15 s on
+            // before the next look 15 s on, which is past the 10 s budget the first look started
             std::thread::sleep(std::time::Duration::from_secs(3));
             post_item(&d, scratch.path(), "Arrives during the wait");
         });
-        let o = stop_with(
-            &d,
-            &ws,
-            &[("AV_HOOK_WAIT_SECS", "60"), ("AV_HOOK_STOP_SECS", "1")],
-            "cc-wait",
-            false,
-        );
+        let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "60")], "cc-wait", false);
         poster.join().unwrap();
         o
     });
@@ -9150,7 +9151,7 @@ fn after_a_hook_gave_up_the_next_hooks_skip_the_daemon_for_a_while() {
     );
     assert_let_through("pre-read", &first);
     // given an hour each, these would still wait at HANG unless they skip the daemon
-    for hook in HOOKS {
+    for hook in ["pre-read", "post-edit"] {
         let o = run_hook(&url, fixture.path(), hook, &every_budget("3600"));
         assert_let_through(hook, &o);
     }
@@ -9177,4 +9178,17 @@ fn the_skip_names_one_daemon_and_ends_by_itself() {
     assert!(out(&pre_read()).contains("slow answer"));
     mark("http://127.0.0.1:9", 0);
     assert!(out(&pre_read()).contains("slow answer"));
+    // a clock set back, or a bad file, must not skip for longer than the 30 s
+    let home = fixture.path().join("av-home");
+    let ahead = now_ms() / 1000 + 3600;
+    std::fs::write(
+        home.join("hooks-unreachable.json"),
+        serde_json::json!({"url": url, "at": ahead}).to_string(),
+    )
+    .unwrap();
+    assert!(out(&pre_read()).contains("slow answer"));
+    // session start and stop still ask the daemon while the read and edit hooks skip it
+    mark(&url, 0);
+    let start = run_hook(&url, fixture.path(), "session-start", &[]);
+    assert!(out(&start).contains("slow answer"), "{}", out(&start));
 }

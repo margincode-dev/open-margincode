@@ -105,7 +105,7 @@ a daemon that does not answer,
 leaves the session as it was. The 60 s is a backstop: `av hook` itself gives up on a daemon that
 does not answer within its budget (3 s for `read`, 5 s for an edit, 15 s for the first prompt,
 10 s for idle; "When the daemon does not answer" in `docs/reference.md`), and for 30 s after that
-the other hooks skip the daemon at once. The first problem is written once to the server's standard error,
+the `read` and edit hooks skip the daemon at once. The first problem is written once to the server's standard error,
 as `av plugin: …`; `opencode serve --print-logs` shows it among its log lines.
 
 **Removing it.** Delete `plugins/av.js`; `av init --for opencode` writes it again.

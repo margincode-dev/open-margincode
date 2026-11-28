@@ -489,8 +489,8 @@ the suspected cause, marked as a guess; the status.
   have waited 300 s for a read or an edit, 614 s for a session start); with packets dropped, 5 s
   (the connect timeout) per request.
 - **Status.** Fixed on branch `hooks-fail-open`: `av hook` has a budget per hook (3 s for a read,
-  5 s for an edit, 15 s for the first prompt, 10 s for idle) and the hooks skip a daemon that made
-  one of them wait in vain for 30 s.
+  5 s for an edit, 15 s for the first prompt, 10 s for idle) and the read and edit hooks skip, for
+  30 s, a daemon that made a hook wait in vain.
 
 ## 2026-11-22: one `av plugin:` line in OpenCode's log, then silence
 

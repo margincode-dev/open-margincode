@@ -8731,7 +8731,10 @@ fn ask_prints_the_instruction_and_a_person_answers_by_number() {
         asked.starts_with("Finish what does not depend on this, checkpoint, then stop this task."),
         "{asked}"
     );
-    assert!(asked.contains("1 of 3 open on this task"), "{asked}");
+    assert!(
+        asked.contains("; 1 open on this task, 3 allowed)"),
+        "{asked}"
+    );
     let open = ok(av(&d, scratch.path(), &["answer"]));
     assert!(open.contains("May the cache outlive a restart?"), "{open}");
     assert!(open.contains("demo/improve-greeting (open)"), "{open}");

@@ -1024,10 +1024,11 @@ async fn run_tool(
                     generation,
                     |r| {
                         format!(
-                            "{}\n(question {}; {} of 3 open on this task)",
+                            "{}\n(question {}; {} open on this task, {} allowed)",
                             r["told"].as_str().unwrap_or_default(),
                             r["handle"].as_str().unwrap_or_default(),
-                            r["open"]
+                            r["open"],
+                            margincode_core::question::MAX_OPEN_QUESTIONS
                         )
                     },
                 ),

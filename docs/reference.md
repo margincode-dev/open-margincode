@@ -893,7 +893,7 @@ av ask "Which database should the cache use?" --option Postgres --option SQLite 
   --recommended Postgres --why "the daemon already runs one" --depends "the cache's schema" \
   --undo workspace --done "the cache API" --remaining "its store" --anchor app/cache.py
 # Carry on with Postgres. Record what you build on it.
-# (question rec:3ace2ef6; 1 of 3 open on this task)
+# (question rec:3ace2ef6; 1 open on this task, 3 allowed)
 ```
 
 - Two to four short options (60 characters each, one line, no two the same), the recommended one among

@@ -1296,6 +1296,7 @@ async fn the_ask_tool_answers_with_one_instruction_and_says_when_to_ask() {
         "{park}"
     );
     assert!(park.contains("rec:"), "names the question: {park}");
+    assert!(park.contains("; 2 open on this task, 3 allowed)"), "{park}");
     tool(&e, &s, "ask", question("outside")).await;
     let refused = tool(&e, &s, "ask", question("outside")).await;
     assert_eq!(refused["result"]["isError"], true, "{refused}");

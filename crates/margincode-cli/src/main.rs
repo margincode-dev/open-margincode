@@ -2217,10 +2217,11 @@ fn run(cli: Cli) -> Result<()> {
                 generation_for(&cli, &task)?,
             )?;
             println!(
-                "{}\n(question {}; {} of 3 open on this task)",
+                "{}\n(question {}; {} open on this task, {} allowed)",
                 s(&r["told"]),
                 s(&r["handle"]),
-                r["open"]
+                r["open"],
+                margincode_core::question::MAX_OPEN_QUESTIONS
             );
         }
         Cmd::Answer { id: None, repo, .. } => {

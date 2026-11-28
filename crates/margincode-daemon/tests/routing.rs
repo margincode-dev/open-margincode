@@ -2471,7 +2471,10 @@ async fn a_skipped_task_is_passed_over_and_left_as_it_was() {
 
     let (_, still) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
     assert_eq!(still["task"]["owner_agent"], "claude", "{still}");
-    assert_eq!(still["task"]["generation"], t["task"]["generation"], "{still}");
+    assert_eq!(
+        still["task"]["generation"], t["task"]["generation"],
+        "{still}"
+    );
     assert_eq!(lease_of(&e, &t).await, lease, "the lease is untouched");
 
     let (_, body) = next(&e, "grok").await;
@@ -2527,8 +2530,10 @@ async fn a_waiting_next_is_not_given_a_skipped_task_but_is_given_the_next() {
             &app,
             "POST",
             "/v1/backlog/next",
-            Some(json!({"agent": "grok", "session": "s-wait", "wait_secs": NO_TICK.as_secs(),
-                        "skip_tasks": [skip]})),
+            Some(
+                json!({"agent": "grok", "session": "s-wait", "wait_secs": NO_TICK.as_secs(),
+                        "skip_tasks": [skip]}),
+            ),
         )
         .await
     });
@@ -2549,9 +2554,8 @@ async fn a_waiting_next_is_not_given_a_skipped_task_but_is_given_the_next() {
 #[tokio::test]
 async fn a_skip_list_is_bounded_and_takes_only_ids() {
     let e = env().await;
-    let ids = |n: usize| -> Vec<String> {
-        (0..n).map(|_| uuid::Uuid::new_v4().to_string()).collect()
-    };
+    let ids =
+        |n: usize| -> Vec<String> { (0..n).map(|_| uuid::Uuid::new_v4().to_string()).collect() };
     let body = next_with(&e, "grok", json!({"skip_tasks": ids(64)})).await;
     assert_eq!(body, json!({"task": null, "queued": 0}));
     for dry_run in [false, true] {

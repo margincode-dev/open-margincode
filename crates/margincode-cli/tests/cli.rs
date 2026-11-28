@@ -130,6 +130,10 @@ fn av_with(url: &str, cwd: &Path, args: &[&str]) -> Output {
         .env_remove("AV_TOKEN")
         // the Stop hook's keep-busy wait is off unless a test turns it on
         .env("AV_HOOK_WAIT_SECS", "0")
+        // a busy test machine must not run a hook out of its budget
+        .env("AV_HOOK_SESSION_START_SECS", "60")
+        .env("AV_HOOK_PRE_READ_SECS", "60")
+        .env("AV_HOOK_POST_EDIT_SECS", "60")
         // so is the footprint (it scans $HOME), and no hook writes the real session's env file
         .env("AV_FOOTPRINT", "off")
         .env_remove("CLAUDE_ENV_FILE")
@@ -2154,6 +2158,9 @@ fn av_stdin_env(url: &str, cwd: &Path, env: &[(&str, &str)], args: &[&str], stdi
         .env_remove("GROK_HOOK_EVENT")
         .env_remove("GROK_SESSION_ID")
         .env("AV_HOOK_WAIT_SECS", "0")
+        .env("AV_HOOK_SESSION_START_SECS", "60")
+        .env("AV_HOOK_PRE_READ_SECS", "60")
+        .env("AV_HOOK_POST_EDIT_SECS", "60")
         .env_remove("AV_HOOK_MAX_CONTINUES")
         .env("AV_FOOTPRINT", "off")
         .env_remove("CLAUDE_ENV_FILE")
@@ -8860,4 +8867,328 @@ fn an_agents_ask_level_is_set_on_its_profile_and_decides_the_answer() {
         asked.starts_with("Carry on with Postgres. Record what you build on it."),
         "{asked}"
     );
+}
+
+/// What a stand-in daemon does with each connection, for the hooks' failure cases.
+#[derive(Clone)]
+enum Fake {
+    /// Accepts and never answers.
+    Hang,
+    /// Answers every request with this status and an `error`.
+    Status(u16),
+    /// Answers `body` with 200 after `delay`.
+    Slow(std::time::Duration, &'static str),
+    /// Answers the first `n` requests with `body`, then hangs.
+    AnswersThenHangs(usize, &'static str),
+}
+
+fn answer(conn: &mut std::net::TcpStream, status: u16, body: &str) {
+    use std::io::{Read as _, Write as _};
+    let mut buf = [0u8; 65536];
+    let _ = conn.read(&mut buf);
+    let _ = write!(
+        conn,
+        "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+}
+
+/// A listener on a free port acting as `fake`; it lives as long as the test process.
+fn fake_daemon(fake: Fake) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for (i, conn) in listener.incoming().enumerate() {
+            let Ok(mut conn) = conn else { continue };
+            match fake.clone() {
+                Fake::Hang => held.push(conn),
+                Fake::AnswersThenHangs(n, _) if i >= n => held.push(conn),
+                Fake::AnswersThenHangs(_, body) => answer(&mut conn, 200, body),
+                Fake::Status(status) => answer(&mut conn, status, r#"{"error":"stand-in"}"#),
+                Fake::Slow(delay, body) => {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(delay);
+                        answer(&mut conn, 200, body);
+                    });
+                }
+            }
+        }
+    });
+    url
+}
+
+/// An address where nothing listens.
+fn refused_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    format!("http://{}", listener.local_addr().unwrap())
+}
+
+const HOOKS: [&str; 4] = ["session-start", "pre-read", "post-edit", "stop"];
+
+/// A workspace with a `.av-task` for a task no daemon has, beside its own av home.
+fn hook_fixture() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("ws")).unwrap();
+    std::fs::write(
+        dir.path().join("ws/.av-task"),
+        r#"{"task":"t-1","session":"s-1"}"#,
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("ws/app.py"), "x = 1\n").unwrap();
+    dir
+}
+
+fn hook_payload(hook: &str, ws: &Path) -> String {
+    let file = ws.join("app.py");
+    match hook {
+        "session-start" => {
+            serde_json::json!({"session_id": "cc-1", "source": "startup", "cwd": ws})
+        }
+        "pre-read" => serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_input": {"file_path": file}, "cwd": ws,
+        }),
+        "post-edit" => serde_json::json!({
+            "hook_event_name": "PostToolUse", "tool_input": {"file_path": file}, "cwd": ws,
+        }),
+        _ => serde_json::json!({
+            "hook_event_name": "Stop", "session_id": "cc-1", "stop_hook_active": false, "cwd": ws,
+        }),
+    }
+    .to_string()
+}
+
+/// `av hook HOOK` in `fixture`'s workspace against `url`; fails the test when it still runs after
+/// `HANG` (and stops it). The Stop hook's wait for work is on (600 s) unless `env` says otherwise.
+fn run_hook(url: &str, fixture: &Path, hook: &str, env: &[(&str, &str)]) -> Output {
+    use std::io::Write as _;
+    let ws = fixture.join("ws");
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_av"));
+    cmd.current_dir(&ws)
+        .env("AV_URL", url)
+        .env("AV_HOME", fixture.join("av-home"))
+        .env("AV_HOOK_WAIT_SECS", "600")
+        .env("AV_FOOTPRINT", "off")
+        .env_remove("AV_TASK")
+        .env_remove("AV_SESSION")
+        .env_remove("AV_AGENT")
+        .env_remove("AV_TOKEN")
+        .env_remove("GROK_HOOK_EVENT")
+        .env_remove("GROK_SESSION_ID")
+        .env_remove("CLAUDE_ENV_FILE")
+        .env_remove("AV_HOOK_MAX_CONTINUES");
+    for var in [
+        "AV_HOOK_SESSION_START_SECS",
+        "AV_HOOK_PRE_READ_SECS",
+        "AV_HOOK_POST_EDIT_SECS",
+        "AV_HOOK_STOP_SECS",
+    ] {
+        cmd.env_remove(var);
+    }
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
+        .args(["hook", hook])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let _ = child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(hook_payload(hook, &ws).as_bytes());
+    let started = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if started.elapsed() > HANG {
+            let _ = child.kill();
+            let o = child.wait_with_output().unwrap();
+            panic!(
+                "av hook {hook} against {url} still ran after {HANG:?}; stderr: {}",
+                err(&o)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// Every hook kind at once, each in its own fixture, so a test waits for the longest one only.
+fn every_hook(url: &str, env: &[(&str, &str)]) -> Vec<(&'static str, Output)> {
+    std::thread::scope(|s| {
+        let runs: Vec<_> = HOOKS
+            .iter()
+            .map(|hook| {
+                s.spawn(move || {
+                    let fixture = hook_fixture();
+                    (*hook, run_hook(url, fixture.path(), hook, env))
+                })
+            })
+            .collect();
+        runs.into_iter().map(|r| r.join().unwrap()).collect()
+    })
+}
+
+/// Exit 0 and nothing on stdout, which a host would read as a block or as malformed JSON.
+fn assert_let_through(hook: &str, o: &Output) {
+    assert!(
+        o.status.success(),
+        "{hook}: exit {:?}: {}",
+        o.status.code(),
+        err(o)
+    );
+    assert_eq!(out(o), "", "{hook}: stdout; stderr: {}", err(o));
+}
+
+#[test]
+fn hooks_give_up_on_a_daemon_that_accepts_and_never_answers() {
+    let url = fake_daemon(Fake::Hang);
+    for (hook, o) in every_hook(&url, &[]) {
+        assert_let_through(hook, &o);
+    }
+}
+
+#[test]
+fn hooks_let_the_agent_on_when_nothing_listens_or_the_daemon_fails() {
+    for url in [
+        refused_url(),
+        fake_daemon(Fake::Status(500)),
+        fake_daemon(Fake::Status(401)),
+    ] {
+        for (hook, o) in every_hook(&url, &[]) {
+            assert_let_through(hook, &o);
+        }
+    }
+}
+
+/// A slow daemon's answer to every request: a pack, a record, a notice and an unrecorded
+/// change, so each hook prints something once it has the answer.
+const SLOW_ANSWER: &str = r#"{"markdown":"slow answer","notices":["slow notice"],"status":"open","unrecorded_symbols":["f"]}"#;
+
+#[test]
+fn hooks_give_up_on_a_slow_daemon_at_their_budget_and_wait_for_it_within_it() {
+    let slow = fake_daemon(Fake::Slow(std::time::Duration::from_secs(3), SLOW_ANSWER));
+    let budget = |secs| {
+        let mut env = every_budget(secs).to_vec();
+        env.push(("AV_HOOK_WAIT_SECS", "0"));
+        env
+    };
+    for (hook, o) in every_hook(&slow, &budget("1")) {
+        assert_let_through(hook, &o);
+    }
+    for (hook, o) in every_hook(&slow, &budget("60")) {
+        assert!(o.status.success(), "{hook}: {}", err(&o));
+        let want = match hook {
+            "post-edit" => "slow notice",
+            "stop" => "\"decision\":\"block\"",
+            _ => "slow answer",
+        };
+        assert!(out(&o).contains(want), "{hook}: {}", out(&o));
+    }
+}
+
+#[test]
+fn the_stop_hook_gives_up_when_the_daemon_hangs_during_the_wait_for_work() {
+    // the checkpoint, `unrecorded` and the first look at the backlog are answered (nothing
+    // waits); the next look, 15 s later, hangs
+    let url = fake_daemon(Fake::AnswersThenHangs(3, r#"{"would":null}"#));
+    let fixture = hook_fixture();
+    let o = run_hook(
+        &url,
+        fixture.path(),
+        "stop",
+        &[("AV_AGENT", "claude-code"), ("AV_HOOK_STOP_SECS", "2")],
+    );
+    assert_let_through("stop", &o);
+}
+
+#[test]
+fn the_stop_hooks_wait_for_work_outlasts_its_budget() {
+    let (d, ws, scratch) = started();
+    let o = std::thread::scope(|s| {
+        let poster = s.spawn(|| {
+            // before the next look 15 s on, which is past the 10 s budget the first look started
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            post_item(&d, scratch.path(), "Arrives during the wait");
+        });
+        let o = stop_with(&d, &ws, &[("AV_HOOK_WAIT_SECS", "60")], "cc-wait", false);
+        poster.join().unwrap();
+        o
+    });
+    assert!(o.status.success(), "{}", err(&o));
+    let v: serde_json::Value =
+        serde_json::from_str(&out(&o)).unwrap_or_else(|e| panic!("{e}: {} / {}", out(&o), err(&o)));
+    assert_eq!(v["decision"], "block", "{v}");
+    assert!(
+        v["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Arrives during the wait"),
+        "{v}"
+    );
+}
+
+fn every_budget(secs: &'static str) -> [(&'static str, &'static str); 4] {
+    [
+        ("AV_HOOK_SESSION_START_SECS", secs),
+        ("AV_HOOK_PRE_READ_SECS", secs),
+        ("AV_HOOK_POST_EDIT_SECS", secs),
+        ("AV_HOOK_STOP_SECS", secs),
+    ]
+}
+
+#[test]
+fn after_a_hook_gave_up_the_next_hooks_skip_the_daemon_for_a_while() {
+    let url = fake_daemon(Fake::Hang);
+    let fixture = hook_fixture();
+    let first = run_hook(
+        &url,
+        fixture.path(),
+        "pre-read",
+        &[("AV_HOOK_PRE_READ_SECS", "1")],
+    );
+    assert_let_through("pre-read", &first);
+    // given an hour each, these would still wait at HANG unless they skip the daemon
+    for hook in ["pre-read", "post-edit"] {
+        let o = run_hook(&url, fixture.path(), hook, &every_budget("3600"));
+        assert_let_through(hook, &o);
+    }
+}
+
+#[test]
+fn the_skip_names_one_daemon_and_ends_by_itself() {
+    let url = fake_daemon(Fake::Slow(std::time::Duration::ZERO, SLOW_ANSWER));
+    let fixture = hook_fixture();
+    let mark = |marked: &str, age_secs: u64| {
+        let home = fixture.path().join("av-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let at = now_ms() / 1000 - age_secs;
+        std::fs::write(
+            home.join("hooks-unreachable.json"),
+            serde_json::json!({"url": marked, "at": at}).to_string(),
+        )
+        .unwrap();
+    };
+    let pre_read = || run_hook(&url, fixture.path(), "pre-read", &[]);
+    mark(&url, 0);
+    assert_let_through("pre-read", &pre_read());
+    mark(&url, 31);
+    assert!(out(&pre_read()).contains("slow answer"));
+    mark("http://127.0.0.1:9", 0);
+    assert!(out(&pre_read()).contains("slow answer"));
+    // a clock set back, or a bad file, must not skip for longer than the 30 s
+    let home = fixture.path().join("av-home");
+    let ahead = now_ms() / 1000 + 3600;
+    std::fs::write(
+        home.join("hooks-unreachable.json"),
+        serde_json::json!({"url": url, "at": ahead}).to_string(),
+    )
+    .unwrap();
+    assert!(out(&pre_read()).contains("slow answer"));
+    // session start and stop still ask the daemon while the read and edit hooks skip it
+    mark(&url, 0);
+    let start = run_hook(&url, fixture.path(), "session-start", &[]);
+    assert!(out(&start).contains("slow answer"), "{}", out(&start));
 }

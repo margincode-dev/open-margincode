@@ -7,6 +7,21 @@ the pull request that fixed it. No secrets, keys or local paths: this repository
 Each entry: the date; where (command, test, commit); what was seen, exactly; what was ruled out;
 the suspected cause, marked as a guess; the status.
 
+## 2026-11-28: `av-wrap.sh` waits up to 300 s twice on a daemon that does not answer
+
+- **Where.** `integrations/generic/av-wrap.sh`, which runs `av context` before the agent command and
+  `av checkpoint` after it; in a container, against stand-in listeners.
+- **Seen.** With a listener that accepts and never answers, `av-wrap.sh true` took 623.9 s: the
+  agent command started only after `av context` gave up at 300 s (the CLI's overall timeout), and
+  `av checkpoint` waited as long again. With packets dropped it took 10.0 s (5 s connect timeout,
+  twice); with nothing listening, or with HTTP 500, 0.0 s. Exit status was the command's in all
+  four.
+- **Ruled out.** The hook budgets (`AV_HOOK_*_SECS`): the wrapper runs ordinary commands, which keep
+  their timeouts.
+- **Guess.** The wrapper could run `av context` under a limit of its own (a budget like the
+  session-start hook's), or the CLI could take an opt-in overall timeout from the environment.
+- **Status.** Open.
+
 ## 2026-11-25: the daemon's git ran a remote's hooks with the daemon's environment
 
 - **Where.** A security review of an embedding product, which runs the daemon with secrets in its
@@ -468,7 +483,14 @@ the suspected cause, marked as a guess; the status.
   same way before the tool's result reaches the model; only the first prompt was run.
 - **Guess.** A short cool-down after a hook that could not reach the daemon (skip the `av hook`
   calls of that server for a while) would bound the wait to one per cool-down.
-- **Status.** Open.
+- **Measured (2026-11-28).** In a container, through `av.js` and the plugin harness: with nothing
+  listening (a stopped daemon) each hook took 0.3 s, so there was no real wait. With a listener
+  that accepts and never answers, every hook took 60 s (the plugin's limit; `av hook` itself would
+  have waited 300 s for a read or an edit, 614 s for a session start); with packets dropped, 5 s
+  (the connect timeout) per request.
+- **Status.** Fixed on branch `hooks-fail-open`: `av hook` has a budget per hook (3 s for a read,
+  5 s for an edit, 15 s for the first prompt, 10 s for idle) and the read and edit hooks skip, for
+  30 s, a daemon that made a hook wait in vain.
 
 ## 2026-11-22: one `av plugin:` line in OpenCode's log, then silence
 

@@ -15,6 +15,65 @@ use crate::taskfile::{self, TaskFile};
 
 const DEBOUNCE_MS: u64 = 2_000;
 
+/// Defaults for how long each hook waits on the daemon, all its requests together, before it
+/// gives up and lets the agent go on: about twice the slowest answers at 100 agents at once in
+/// bench/results/2026-10-30-e2-overlay/tokio/report.md (context, the pack, 7467 ms; checkpoint
+/// 1926 ms; the slowest other call, record, 2133 ms). Healthy hook times alone are in
+/// bench/results/2026-11-28-hooks-fail-open/.
+const SESSION_START_SECS: u64 = 15;
+const PRE_READ_SECS: u64 = 3;
+const POST_EDIT_SECS: u64 = 5;
+/// Before the wait for work, and again for each later look at the backlog. Within
+/// `STOP_TIMEOUT_MARGIN` with the footprint scans (`AV_FOOTPRINT_SECS`, twice).
+const STOP_SECS: u64 = 10;
+
+/// After a hook gave up on a daemon it had waited for, the read and edit hooks on this machine
+/// send it nothing for this long, so a hung daemon costs one budget per period, not one per tool
+/// call. Session start and stop still ask: a pack skipped is not sent again.
+const SKIP_SECS: u64 = 30;
+/// A refused connection fails in milliseconds and leaves no mark.
+const WAITED: Duration = Duration::from_secs(1);
+
+fn skip_file() -> PathBuf {
+    crate::local::av_home().join("hooks-unreachable.json")
+}
+
+fn skipping(base: &str) -> bool {
+    std::fs::read_to_string(skip_file())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .is_some_and(|v| {
+            let now = now_ms() / 1000;
+            v["url"] == base
+                && v["at"]
+                    .as_u64()
+                    .is_some_and(|at| at <= now && now < at.saturating_add(SKIP_SECS))
+        })
+}
+
+/// Runs a hook with its budget (`var`, else `default_secs`); see `SKIP_SECS` for `may_skip`.
+fn budgeted(
+    client: &Client,
+    var: &str,
+    default_secs: u64,
+    may_skip: bool,
+    hook: impl FnOnce(&Client),
+) {
+    let client = client.with_budget(Duration::from_secs(env_number(var, default_secs)));
+    if may_skip && skipping(client.base()) {
+        client.give_up();
+    }
+    hook(&client);
+    if client.gave_up_after(WAITED) {
+        let mark = json!({"url": client.base(), "at": now_ms() / 1000});
+        let file = skip_file();
+        let _ = file
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&file, mark.to_string()));
+    }
+}
+
 fn hook_input() -> Value {
     let stdin = std::io::stdin();
     let mut text = String::new();
@@ -52,6 +111,23 @@ fn now_ms() -> u64 {
 /// docker labels that make the task's containers part of its footprint (`$AV_DOCKER_LABELS`)
 /// and, task or not, takes the footprint snapshot the Stop hook compares against (Plan 11).
 pub fn session_start(
+    client: &Client,
+    agent: &str,
+    budget: u32,
+    code: &str,
+    map: bool,
+    max_code: Option<usize>,
+) {
+    budgeted(
+        client,
+        "AV_HOOK_SESSION_START_SECS",
+        SESSION_START_SECS,
+        false,
+        |c| session_start_in(c, agent, budget, code, map, max_code),
+    );
+}
+
+fn session_start_in(
     client: &Client,
     agent: &str,
     budget: u32,
@@ -576,6 +652,16 @@ fn footprint_reason(added: &[(PathBuf, u64)], total: u64, task_dir: Option<&Path
 /// What other tasks recorded about the file about to be read or edited, as Claude Code
 /// `additionalContext`, each record once per session.
 pub fn pre_read(client: &Client) {
+    budgeted(
+        client,
+        "AV_HOOK_PRE_READ_SECS",
+        PRE_READ_SECS,
+        true,
+        pre_read_in,
+    );
+}
+
+fn pre_read_in(client: &Client) {
     let input = hook_input();
     let Some((dir, tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
         return;
@@ -608,6 +694,16 @@ pub fn pre_read(client: &Client) {
 }
 
 pub fn post_edit(client: &Client, agent: &str) {
+    budgeted(
+        client,
+        "AV_HOOK_POST_EDIT_SECS",
+        POST_EDIT_SECS,
+        true,
+        |c| post_edit_in(c, agent),
+    );
+}
+
+fn post_edit_in(client: &Client, agent: &str) {
     let input = hook_input();
     let Some((dir, mut tf)) = start_dir(&input).and_then(|d| taskfile::find(&d)) else {
         return;
@@ -711,6 +807,12 @@ pub fn stop_timeout_secs() -> u64 {
 ///
 /// Any failure allows the stop, and a directory without a task is silent.
 pub fn stop(client: &Client, agent: &str) {
+    budgeted(client, "AV_HOOK_STOP_SECS", STOP_SECS, false, |c| {
+        stop_in(c, agent)
+    });
+}
+
+fn stop_in(client: &Client, agent: &str) {
     let input = hook_input();
     let found = start_dir(&input).and_then(|d| taskfile::find(&d));
     let session = input["session_id"]
@@ -879,6 +981,7 @@ fn keep_busy(
             return;
         }
         std::thread::sleep(left.min(POLL));
+        client.restart_budget();
     };
     // counted on the file as it is now: the wait may have lasted minutes, and another Stop of this
     // session may have counted meanwhile. It blocks only on a continue it counted: one it could not

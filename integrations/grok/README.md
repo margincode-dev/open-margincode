@@ -46,7 +46,9 @@ The hook's own cap is `AV_HOOK_MAX_CONTINUES` (default 20 continues per session,
 `.av-task`). `Stop` waits up to `AV_HOOK_WAIT_SECS` (default 600; `0` turns the wait off; `av watch` sets `0` for a Grok it starts) for work
 to appear. That wait sends no model tokens. The hook's timeout is the wait plus 60 seconds: a hook
 Grok cancels at its timeout has its output discarded, and Grok's own default for `Stop` is 600
-seconds, the same as the default wait, not above it.
+seconds, the same as the default wait, not above it. When the daemon does not answer, both hooks
+give up within their budgets (15 s and 10 s; "When the daemon does not answer" in
+`docs/reference.md`) and let Grok go on.
 
 ### Folder trust
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Hooks give up on a daemon that does not answer.** A daemon that accepted a connection and
+  never answered held a Claude Code or Grok read or edit for 300 s, a session start for 614 s and a
+  stop for 612 s, and every OpenCode hook for 60 s (the plugin's limit). Each `av hook` now waits on
+  the daemon for at most its budget, all its requests together: `session-start` 15 s, `pre-read`
+  3 s, `post-edit` 5 s, `stop` 10 s before the wait for work and again for each later look
+  (`AV_HOOK_SESSION_START_SECS`, `AV_HOOK_PRE_READ_SECS`, `AV_HOOK_POST_EDIT_SECS`,
+  `AV_HOOK_STOP_SECS`), then exits 0 with nothing on stdout and the tool call goes on. A hook that
+  waited and gave up makes the read and edit hooks on the machine skip that daemon for 30 s
+  (`hooks-unreachable.json` in av's home), so a hung daemon costs one budget per 30 s, not one per
+  tool call; session start and stop still ask. A stopped daemon (connection refused) was and is a few milliseconds per hook. Other
+  commands keep their timeouts.
 - **Questions for a person.** An agent that would otherwise guess about something a person would
   want a say in asks, with the new MCP tool `ask` or `av ask`: two to four options, the one it
   recommends and why, what depends on it, and whether a wrong option costs only this task's work

@@ -546,6 +546,10 @@ enum Cmd {
         /// back, abandoned and conflicted tasks). Repeat or comma-separate; default everything.
         #[arg(long, value_delimiter = ',')]
         take: Vec<String>,
+        /// Pass over this task for this call (a task id); it is left as it is. Repeat or
+        /// comma-separate, at most 64.
+        #[arg(long, value_name = "TASK_ID", value_delimiter = ',')]
+        skip: Vec<uuid::Uuid>,
         /// Work in a checkout in DIR on this host instead of the daemon's workspace, as `task
         /// start --checkout` does. A review is printed as without it.
         #[arg(long, value_name = "DIR")]
@@ -3616,6 +3620,7 @@ fn run(cli: Cli) -> Result<()> {
             budget,
             wait,
             take,
+            skip,
             checkout,
         } => {
             if let Some(dir) = checkout {
@@ -3628,7 +3633,7 @@ fn run(cli: Cli) -> Result<()> {
             let r = client.post_naming_owner(
                 "/v1/backlog/next",
                 &json!({"repo": repo, "agent": cli.agent, "session": session, "budget": budget,
-                        "wait_secs": wait, "take": take}),
+                        "wait_secs": wait, "take": take, "skip_tasks": skip}),
             )?;
             if r["task"].is_null() && r["at_capacity"].is_object() {
                 let open = &r["at_capacity"]["open"];

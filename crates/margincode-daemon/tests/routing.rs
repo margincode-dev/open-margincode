@@ -2439,3 +2439,154 @@ async fn a_requeue_wakes_an_agent_waiting_for_work() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["task"]["title"], "draw it", "{body}");
 }
+
+async fn lease_of(e: &Env, task: &Value) -> String {
+    sqlx::query_scalar("SELECT lease_expires::text FROM tasks WHERE id = $1::uuid")
+        .bind(id(task))
+        .fetch_one(e.store.pool())
+        .await
+        .unwrap()
+}
+
+/// The Cloud runner holds back a task that waits on a person's answer: `skip_tasks` passes over it
+/// for that call only, so the agent gets its next work, and the task stays as it was.
+#[tokio::test]
+async fn a_skipped_task_is_passed_over_and_left_as_it_was() {
+    let e = env().await;
+    let t = abandoned(&e).await;
+    post_item(&e, "demo", "other", &[], 0).await;
+    let p = peek(&e, "grok").await;
+    assert_eq!(p["would"]["from"], "abandoned", "it ranks first: {p}");
+    assert_eq!(p["would"]["task_id"], t["task"]["id"]);
+    let lease = lease_of(&e, &t).await;
+
+    let skip = json!({"skip_tasks": [id(&t)]});
+    let mut peek_skip = skip.clone();
+    peek_skip["dry_run"] = json!(true);
+    let would = &next_with(&e, "grok", peek_skip).await["would"];
+    assert_eq!(would["from"], "backlog", "{would}");
+    let body = next_with(&e, "grok", skip).await;
+    assert_eq!(body["from"], "backlog", "{body}");
+    assert_eq!(body["task"]["title"], "other", "{body}");
+
+    let (_, still) = call(&e.app, "GET", &format!("/v1/tasks/{}", id(&t)), None).await;
+    assert_eq!(still["task"]["owner_agent"], "claude", "{still}");
+    assert_eq!(still["task"]["generation"], t["task"]["generation"], "{still}");
+    assert_eq!(lease_of(&e, &t).await, lease, "the lease is untouched");
+
+    let (_, body) = next(&e, "grok").await;
+    assert_eq!(body["from"], "abandoned", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}
+
+#[tokio::test]
+async fn skipping_every_candidate_answers_like_an_empty_queue() {
+    let e = env().await;
+    let t = abandoned(&e).await;
+    let skip = json!({"skip_tasks": [id(&t)]});
+    assert_eq!(
+        next_with(&e, "grok", skip.clone()).await,
+        json!({"task": null, "queued": 0})
+    );
+    let mut peek_skip = skip;
+    peek_skip["dry_run"] = json!(true);
+    assert_eq!(
+        next_with(&e, "grok", peek_skip).await,
+        json!({"would": null, "queued": 0})
+    );
+}
+
+/// A skipped review is not reserved for the caller, so another reviewer gets it at once.
+#[tokio::test]
+async fn a_skipped_review_is_not_reserved() {
+    let e = env().await;
+    three_agents(&e).await;
+    let t = take_and_submit(&e, "claude", "louder hello", &["code"]).await;
+    let body = next_with(&e, "grok", json!({"skip_tasks": [id(&t)]})).await;
+    assert_eq!(body["task"], Value::Null, "{body}");
+    let (_, body) = next(&e, "codex").await;
+    assert_eq!(body["from"], "review", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}
+
+/// The submit makes the skipped task a review the waiter would rank first; it answers only
+/// with the item posted after, which it would otherwise rank below the review.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_next_is_not_given_a_skipped_task_but_is_given_the_next() {
+    let e = env_no_tick().await;
+    three_agents(&e).await;
+    post_for(&e, "louder hello", &["code"], "claude").await;
+    let (_, t) = next(&e, "claude").await;
+    assert_eq!(t["from"], "backlog", "{t}");
+    edit_greeter(&e, &t);
+    record_decision(&e, &t).await;
+    let app = e.app.clone();
+    let skip = id(&t);
+    let waiting = tokio::spawn(async move {
+        call(
+            &app,
+            "POST",
+            "/v1/backlog/next",
+            Some(json!({"agent": "grok", "session": "s-wait", "wait_secs": NO_TICK.as_secs(),
+                        "skip_tasks": [skip]})),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{b}");
+    post_item(&e, "demo", "draw it", &["image"], 0).await;
+    let (status, body) = answer(waiting).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["from"], "backlog", "{body}");
+    assert_eq!(body["task"]["title"], "draw it", "{body}");
+
+    let (_, body) = next(&e, "codex").await;
+    assert_eq!(body["from"], "review", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}
+
+#[tokio::test]
+async fn a_skip_list_is_bounded_and_takes_only_ids() {
+    let e = env().await;
+    let ids = |n: usize| -> Vec<String> {
+        (0..n).map(|_| uuid::Uuid::new_v4().to_string()).collect()
+    };
+    let body = next_with(&e, "grok", json!({"skip_tasks": ids(64)})).await;
+    assert_eq!(body, json!({"task": null, "queued": 0}));
+    for dry_run in [false, true] {
+        let (status, body) = call(
+            &e.app,
+            "POST",
+            "/v1/backlog/next",
+            Some(json!({"agent": "grok", "session": "s", "dry_run": dry_run,
+                        "skip_tasks": ids(65)})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("at most 64"),
+            "{body}"
+        );
+    }
+    let (status, body) = call(
+        &e.app,
+        "POST",
+        "/v1/backlog/next",
+        Some(json!({"agent": "grok", "session": "s", "skip_tasks": ["not-an-id"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+#[tokio::test]
+async fn an_empty_skip_list_is_the_same_as_none() {
+    let e = env().await;
+    let t = abandoned(&e).await;
+    let without = peek(&e, "grok").await;
+    let with = next_with(&e, "grok", json!({"dry_run": true, "skip_tasks": []})).await;
+    assert_eq!(with, without);
+    let body = next_with(&e, "grok", json!({"skip_tasks": []})).await;
+    assert_eq!(body["from"], "abandoned", "{body}");
+    assert_eq!(body["task"]["id"], t["task"]["id"]);
+}

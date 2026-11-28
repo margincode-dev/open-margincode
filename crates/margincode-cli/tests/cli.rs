@@ -5764,6 +5764,9 @@ fn a_handoff_with_needs_is_taken_by_next_as_the_agent_that_fits() {
     ));
     assert!(handed.contains("handed_off"), "{handed}");
 
+    let task = task_id_of(&ws);
+    let skipped = ok(av_as(&d, scratch.path(), "grok", &["next", "--skip", &task]));
+    assert!(skipped.contains("No task is waiting for you"), "{skipped}");
     let got = ok(av_as(&d, scratch.path(), "grok-shell-av", &["next"]));
     assert!(got.contains("generation: 2"), "{got}");
     assert!(got.contains("Remaining: draw the logo"), "{got}");

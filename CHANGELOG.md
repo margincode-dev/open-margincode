@@ -173,6 +173,13 @@
   ASCII get the same slugs as before, existing tasks keep theirs, and targets' slugs do not
   change.
 
+- **`next` takes `skip_tasks`.** `POST /v1/backlog/next` with `skip_tasks: [task id, …]` (at
+  most 64; more is a `400`) passes over those tasks for that call: it does not offer, claim,
+  resume or reserve them, also in a `dry_run` and a wait, and leaves them as they were for every
+  other call. `av next --skip TASK_ID` (repeatable) sends it. For the Commercial runner, which
+  holds back a task that waits on a person's answer and was blocked on it. Without the list
+  nothing changes.
+
 ## 0.0.5 (2026-11-22)
 
 Two security fixes. A daemon without `AV_TOKEN` now refuses requests a web page on another site

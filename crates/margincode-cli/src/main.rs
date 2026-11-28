@@ -94,6 +94,20 @@ enum Cmd {
         #[arg(long, value_name = "PATH")]
         source: Option<String>,
     },
+    /// Take out what `av init` added to agent configs, entry by entry: hooks, the `av` MCP
+    /// server, the OpenCode plugin. Works with no daemon. Keeps av's data and the binaries.
+    Uninstall {
+        /// Agent CLI to unwire (repeatable), as for `init --for`. Default: every one, and
+        /// mcp-json when --path is given.
+        #[arg(long = "for", value_enum)]
+        agents: Vec<agents::Agent>,
+        /// JSON file for `--for mcp-json`.
+        #[arg(long, value_name = "FILE")]
+        path: Option<PathBuf>,
+        /// Print what would change, and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Register a git repository (path as seen by the daemon).
     Repo {
         #[command(subcommand)]
@@ -1923,6 +1937,29 @@ fn run(cli: Cli) -> Result<()> {
             if *mine_history > 0 {
                 mine_history_of(&client, &repo, *mine_history)?;
             }
+        }
+        Cmd::Uninstall {
+            agents,
+            path,
+            dry_run,
+        } => {
+            let mut agents = if agents.is_empty() {
+                <agents::Agent as clap::ValueEnum>::value_variants()
+                    .iter()
+                    .copied()
+                    .filter(|a| *a != agents::Agent::McpJson || path.is_some())
+                    .collect()
+            } else {
+                agents.clone()
+            };
+            agents.dedup();
+            if agents.contains(&agents::Agent::McpJson) && path.is_none() {
+                return Err(CliError::Local("--for mcp-json needs --path FILE".into()));
+            }
+            if path.is_some() && !agents.contains(&agents::Agent::McpJson) {
+                return Err(CliError::Local("--path is only for --for mcp-json".into()));
+            }
+            local::uninstall(&agents, path.as_deref(), *dry_run)?;
         }
         Cmd::Repo {
             cmd:

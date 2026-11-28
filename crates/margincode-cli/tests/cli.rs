@@ -3801,6 +3801,190 @@ fn init_adds_the_repo_and_wires_claude_code() {
 }
 
 #[test]
+fn uninstall_undoes_init_for_every_agent_and_leaves_the_repository_alone() {
+    let d = start_daemon();
+    let home = TempDir::new().unwrap();
+    let bin = TempDir::new().unwrap();
+    let added = home.path().join("claude-mcp-av");
+    write_script(
+        &bin.path().join("claude"),
+        &format!(
+            "#!/bin/sh\ncase \"$2\" in\n  get) [ -f {a} ] ;;\n  add) touch {a} ;;\n  remove) rm {a} ;;\nesac\n",
+            a = added.display()
+        ),
+    );
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let h = home.path();
+    let env = [
+        ("HOME", h.to_str().unwrap()),
+        ("PATH", path.as_str()),
+        ("CODEX_HOME", ""),
+        ("XDG_CONFIG_HOME", ""),
+    ];
+    let gemini = h.join(".gemini/settings.json");
+    std::fs::create_dir_all(gemini.parent().unwrap()).unwrap();
+    std::fs::write(
+        &gemini,
+        r#"{"theme":"dark","mcpServers":{"other":{"command":"x"}}}"#,
+    )
+    .unwrap();
+    let mcp_json = h.join("muse.json");
+    let mcp_json_arg = mcp_json.to_str().unwrap();
+    let status = |dir: &Path| {
+        let o = Command::new("git")
+            .args(["status", "--porcelain", "--ignored"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&o.stdout).into_owned()
+    };
+    let repo_before = status(&d.src);
+    ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &[
+            "init",
+            "--name",
+            "demo",
+            "--for",
+            "claude",
+            "--for",
+            "codex",
+            "--for",
+            "grok",
+            "--for",
+            "gemini",
+            "--for",
+            "cursor",
+            "--for",
+            "antigravity",
+            "--for",
+            "opencode",
+        ],
+    ));
+    ok(av_env(
+        &d.url,
+        &d.src,
+        &env,
+        &[
+            "--agent",
+            "muse",
+            "init",
+            "--name",
+            "demo",
+            "--for",
+            "mcp-json",
+            "--path",
+            mcp_json_arg,
+            "--no-claude",
+        ],
+    ));
+    assert!(added.exists());
+    let written = [
+        h.join(".claude/settings.json"),
+        h.join(".codex/config.toml"),
+        h.join(".grok/config.toml"),
+        h.join(".cursor/mcp.json"),
+        h.join(".gemini/config/mcp_config.json"),
+        h.join(".config/opencode/opencode.json"),
+        h.join(".config/opencode/plugins/av.js"),
+        mcp_json.clone(),
+    ];
+    for p in &written {
+        assert!(p.is_file(), "{}", p.display());
+    }
+
+    // no daemon needed, nor a git repository
+    let dead = "http://127.0.0.1:9";
+    let elsewhere = TempDir::new().unwrap();
+    let files = |dir: &Path| -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else {
+                    out.push((p.clone(), std::fs::read(&p).unwrap()));
+                }
+            }
+        }
+        out.sort();
+        out
+    };
+    let before = files(h);
+    let dry = ok(av_env(
+        dead,
+        elsewhere.path(),
+        &env,
+        &["uninstall", "--dry-run", "--path", mcp_json_arg],
+    ));
+    assert!(dry.contains("dry run: nothing changed"), "{dry}");
+    assert!(
+        dry.contains("would run: claude mcp remove --scope user av"),
+        "{dry}"
+    );
+    for p in &written {
+        assert!(
+            dry.contains(&p.display().to_string()),
+            "{}: {dry}",
+            p.display()
+        );
+    }
+    assert_eq!(files(h), before, "a dry run writes nothing");
+
+    let out = ok(av_env(
+        dead,
+        elsewhere.path(),
+        &env,
+        &["uninstall", "--path", mcp_json_arg],
+    ));
+    assert!(out.contains("removed Claude Code MCP server `av`"), "{out}");
+    assert!(out.contains("Left in place: av's data"), "{out}");
+    assert!(out.contains("docs/install.md#uninstall"), "{out}");
+    assert!(!added.exists());
+    for p in &written {
+        assert!(!p.exists(), "{} should be gone: {out}", p.display());
+    }
+    let g: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&gemini).unwrap()).unwrap();
+    assert_eq!(
+        g,
+        serde_json::json!({"theme":"dark","mcpServers":{"other":{"command":"x"}}})
+    );
+    assert_eq!(
+        status(&d.src),
+        repo_before,
+        "av init wrote into the repository"
+    );
+
+    let after = files(h);
+    let again = ok(av_env(
+        dead,
+        elsewhere.path(),
+        &env,
+        &["uninstall", "--path", mcp_json_arg],
+    ));
+    assert!(again.contains("nothing to remove"), "{again}");
+    assert_eq!(files(h), after);
+
+    let only = av_env(
+        dead,
+        elsewhere.path(),
+        &env,
+        &["uninstall", "--for", "mcp-json"],
+    );
+    assert!(!only.status.success());
+    assert!(err(&only).contains("--path FILE"), "{}", err(&only));
+}
+
+#[test]
 fn init_wires_codex_grok_and_gemini_through_mcp() {
     let d = start_daemon();
     let home = TempDir::new().unwrap();

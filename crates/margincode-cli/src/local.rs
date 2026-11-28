@@ -428,15 +428,17 @@ fn git_root() -> Result<PathBuf> {
     ))
 }
 
-/// Our hooks (`av hook …`), or ones `integrations/claude-code/install.sh` installed.
+/// Our hook command (`av hook …`), or one `integrations/claude-code/install.sh` installed.
+fn our_command(hook: &Value) -> bool {
+    hook["command"]
+        .as_str()
+        .is_some_and(|c| c.contains("av hook ") || c.contains("/av-hooks/"))
+}
+
 fn ours(entry: &Value) -> bool {
-    entry["hooks"].as_array().is_some_and(|hooks| {
-        hooks.iter().any(|h| {
-            h["command"]
-                .as_str()
-                .is_some_and(|c| c.contains("av hook ") || c.contains("/av-hooks/"))
-        })
-    })
+    entry["hooks"]
+        .as_array()
+        .is_some_and(|hooks| hooks.iter().any(our_command))
 }
 
 /// Hook commands never fail the agent and do nothing where `av` is not installed.
@@ -579,48 +581,289 @@ fn merge_hook_entries(path: &Path, add: &[(&str, Value)]) -> Result<()> {
     agents::write_with_backup(path, &text)
 }
 
-/// Deletes the file when nothing else is left; a missing or non-JSON file is left as it is.
+/// A missing or non-JSON file is left as it is.
 fn strip_our_hooks_file(path: &Path) -> Result<()> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(local(format!("cannot read {}: {e}", path.display()))),
+    match hooks_without_ours(path) {
+        Ok(undo) => agents::apply_undo(path, &undo),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Without our hook commands: an entry, event list or `hooks` object left empty by that goes
+/// too, and the file when nothing else is left. Another command in an entry of ours stays.
+fn hooks_without_ours(path: &Path) -> Result<agents::Undo> {
+    let mut settings = agents::read_json_object(path)?;
+    let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return Ok(agents::Undo::Unchanged);
     };
-    let mut settings: Value = match serde_json::from_str::<Value>(&text) {
-        Ok(v) if v.is_object() => v,
-        _ => return Ok(()),
-    };
-    let empty = {
-        let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
-            return Ok(());
+    let mut changed = false;
+    hooks.retain(|_, list| {
+        let Some(entries) = list.as_array_mut() else {
+            return true;
         };
-        let mut changed = false;
-        for list in hooks.values_mut() {
-            let Some(entries) = list.as_array_mut() else {
-                continue;
+        let before = entries.len();
+        entries.retain_mut(|entry| {
+            let Some(commands) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                return true;
             };
-            let before = entries.len();
-            entries.retain(|e| !ours(e));
-            changed |= entries.len() != before;
-        }
-        if !changed {
-            return Ok(());
-        }
-        hooks.retain(|_, list| list.as_array().is_none_or(|entries| !entries.is_empty()));
-        hooks.is_empty()
-    };
-    let only_hooks = settings
-        .as_object()
-        .is_some_and(|obj| obj.len() == 1 && obj.contains_key("hooks"));
-    if empty && only_hooks {
-        return std::fs::remove_file(path)
-            .map_err(|e| local(format!("cannot remove {}: {e}", path.display())));
+            let n = commands.len();
+            commands.retain(|h| !our_command(h));
+            if commands.len() == n {
+                return true;
+            }
+            changed = true;
+            !commands.is_empty()
+        });
+        before == entries.len() || !entries.is_empty()
+    });
+    if !changed {
+        return Ok(agents::Undo::Unchanged);
     }
-    if empty {
-        settings.as_object_mut().expect("object").remove("hooks");
+    if hooks.is_empty() {
+        settings
+            .as_object_mut()
+            .expect("an object")
+            .retain(|k, _| k != "hooks");
     }
-    let text = serde_json::to_string_pretty(&settings).expect("serializable") + "\n";
-    std::fs::write(path, text).map_err(|e| local(format!("cannot write {}: {e}", path.display())))
+    Ok(agents::json_undo(&settings))
+}
+
+/// The scripts `integrations/claude-code/install.sh` copies into `~/.claude/av-hooks/`.
+const INSTALL_SH_HOOKS: [&str; 4] = ["session-start.sh", "pre-read.sh", "post-edit.sh", "stop.sh"];
+
+/// One file `av uninstall` checks, and what it would do to it.
+pub struct Step {
+    pub path: PathBuf,
+    pub what: &'static str,
+    pub undo: Result<agents::Undo>,
+}
+
+/// What `av uninstall` would change for `agents`, under `home`; nothing is written. The order is
+/// the order to apply it in (a directory after the files in it).
+pub fn plan_uninstall(
+    home: &Path,
+    codex_home: Option<PathBuf>,
+    xdg_config_home: Option<PathBuf>,
+    agents: &[Agent],
+    mcp_json: Option<&Path>,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    let server = "MCP server `av`";
+    for &agent in agents {
+        let path = match agent {
+            Agent::McpJson => match mcp_json {
+                Some(p) => p.to_path_buf(),
+                None => continue,
+            },
+            other => other
+                .config_path(home, codex_home.clone(), xdg_config_home.clone())
+                .expect("every agent but mcp-json has a home config"),
+        };
+        match agent {
+            Agent::Claude => {
+                let undo = hooks_without_ours(&path);
+                steps.push(Step {
+                    path,
+                    what: "av's hooks",
+                    undo,
+                });
+                let dir = home.join(".claude/av-hooks");
+                for name in INSTALL_SH_HOOKS {
+                    let script = dir.join(name);
+                    if script.is_file() {
+                        steps.push(Step {
+                            path: script,
+                            what: "install.sh's hook",
+                            undo: Ok(agents::Undo::Delete),
+                        });
+                    }
+                }
+                let only_ours = std::fs::read_dir(&dir).is_ok_and(|entries| {
+                    entries.into_iter().all(|e| {
+                        e.is_ok_and(|e| INSTALL_SH_HOOKS.iter().any(|n| e.file_name() == *n))
+                    })
+                });
+                if only_ours {
+                    steps.push(Step {
+                        path: dir,
+                        what: "install.sh's hook directory",
+                        undo: Ok(agents::Undo::Delete),
+                    });
+                }
+            }
+            Agent::Codex | Agent::Grok => {
+                let undo = agents::toml_without_server(&path);
+                steps.push(Step {
+                    path,
+                    what: server,
+                    undo,
+                });
+                if agent == Agent::Grok {
+                    let path = home.join(".grok/hooks/av.json");
+                    let undo = hooks_without_ours(&path);
+                    steps.push(Step {
+                        path,
+                        what: "av's hooks",
+                        undo,
+                    });
+                }
+            }
+            Agent::Gemini | Agent::Cursor | Agent::Antigravity | Agent::McpJson => {
+                let undo = agents::json_without_server(&path, &["mcpServers"]);
+                steps.push(Step {
+                    path,
+                    what: server,
+                    undo,
+                });
+            }
+            Agent::Opencode => {
+                let dir = path.parent().expect("the config file is in a directory");
+                let (plugin, undo) = agents::opencode_plugin_undo(dir);
+                steps.push(Step {
+                    path: plugin,
+                    what: "av's OpenCode plugin",
+                    undo: Ok(undo),
+                });
+                let undo = agents::json_without_server(&path, &["mcp", "servers"]);
+                steps.push(Step {
+                    path,
+                    what: server,
+                    undo,
+                });
+            }
+        }
+    }
+    steps
+}
+
+/// `av uninstall`: takes out what `av init` added for `agents`, entry by entry, and says what it
+/// left in place. A file it cannot read is named and makes the command fail after the others.
+pub fn uninstall(agents: &[Agent], mcp_json: Option<&Path>, dry_run: bool) -> Result<()> {
+    let home = home();
+    let steps = plan_uninstall(
+        &home,
+        env_path("CODEX_HOME"),
+        env_path("XDG_CONFIG_HOME"),
+        agents,
+        mcp_json,
+    );
+    let mut changed = 0;
+    let mut failed = 0;
+    let mut backups = Vec::new();
+    for step in &steps {
+        let mut bak = step.path.as_os_str().to_owned();
+        bak.push(".bak");
+        let bak = PathBuf::from(bak);
+        if bak.is_file() && !backups.contains(&bak) {
+            backups.push(bak);
+        }
+        let undo = match &step.undo {
+            Ok(agents::Undo::Unchanged) => continue,
+            Ok(undo) => undo,
+            Err(e) => {
+                failed += 1;
+                eprintln!(
+                    "av: cannot check {}: {e}; remove its `av` entry by hand",
+                    step.path.display()
+                );
+                continue;
+            }
+        };
+        changed += 1;
+        let (verb, path) = (step.what, step.path.display());
+        match (undo, dry_run) {
+            (agents::Undo::Delete, true) => println!("would delete {path} ({verb})"),
+            (_, true) => println!("would remove {verb} from {path}"),
+            (agents::Undo::Delete, false) => {
+                agents::apply_undo(&step.path, undo)?;
+                println!("deleted {path} ({verb})");
+            }
+            (_, false) => {
+                agents::apply_undo(&step.path, undo)?;
+                println!("removed {verb} from {path}");
+            }
+        }
+    }
+    if agents.contains(&Agent::Claude) {
+        match claude_mcp_remove(dry_run) {
+            Ok(true) => changed += 1,
+            Ok(false) => {}
+            Err(e) => {
+                failed += 1;
+                eprintln!("av: {e}");
+            }
+        }
+    }
+    if changed == 0 {
+        println!("nothing to remove: no av entries in the agent configs checked");
+    } else if dry_run {
+        println!("dry run: nothing changed");
+    }
+    let ws = env_path("AV_WS_ROOT").unwrap_or_else(|| home.join("ws"));
+    println!(
+        "Left in place: av's data (records, repositories) in {}, task workspaces in {}{}.",
+        av_home().display(),
+        ws.display(),
+        if backups.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<String> = backups.iter().map(|b| b.display().to_string()).collect();
+            format!(", and the backups av init kept ({})", names.join(", "))
+        }
+    );
+    if av_home().join("daemon.pid").exists() {
+        println!("A daemon `av up` started may still be running: `av down` stops it.");
+    }
+    println!("To remove those and the binaries: {UNINSTALL_DOCS}");
+    if failed > 0 {
+        return Err(local(format!(
+            "{failed} config(s) could not be checked; see above"
+        )));
+    }
+    Ok(())
+}
+
+const UNINSTALL_DOCS: &str =
+    "https://github.com/margincode-dev/open-margincode/blob/main/docs/install.md#uninstall";
+
+/// Removes Claude Code's user-scope `av` MCP server through its CLI; true when there was one.
+fn claude_mcp_remove(dry_run: bool) -> Result<bool> {
+    let remove = ["mcp", "remove", "--scope", "user", "av"];
+    match claude_quiet(&["mcp", "get", "av"]) {
+        Err(_) => {
+            println!(
+                "Claude Code CLI not found; if it has an `av` MCP server: claude {}",
+                remove.join(" ")
+            );
+            Ok(false)
+        }
+        Ok(s) if !s.success() => Ok(false),
+        Ok(_) if dry_run => {
+            println!("would run: claude {}", remove.join(" "));
+            Ok(true)
+        }
+        Ok(_) => match claude_quiet(&remove) {
+            Ok(s) if s.success() => {
+                println!(
+                    "removed Claude Code MCP server `av` (claude {})",
+                    remove.join(" ")
+                );
+                Ok(true)
+            }
+            _ => Err(local(format!(
+                "`claude {}` failed; Claude Code may hold `av` in another scope: claude mcp get av",
+                remove.join(" ")
+            ))),
+        },
+    }
+}
+
+fn claude_quiet(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("claude")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
 }
 
 pub const DEFAULT_AGENT: &str = "agent";
@@ -646,14 +889,7 @@ fn claude_mcp(mcp_url: &str, token: Option<&str>, agent: Option<&str>) {
         args.push("--header".into());
         args.push(format!("X-Av-Agent: {a}"));
     }
-    let quiet = |a: &[&str]| {
-        Command::new("claude")
-            .args(a)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-    };
-    match quiet(&["mcp", "get", "av"]) {
+    match claude_quiet(&["mcp", "get", "av"]) {
         Err(_) => {
             let shown: Vec<String> = args
                 .iter()
@@ -679,7 +915,7 @@ fn claude_mcp(mcp_url: &str, token: Option<&str>, agent: Option<&str>) {
         },
         Ok(_) => {
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            match quiet(&refs) {
+            match claude_quiet(&refs) {
                 Ok(s) if s.success() => {
                     println!("Claude Code MCP server `av`: added (user scope, {mcp_url})")
                 }
@@ -861,6 +1097,301 @@ mod tests {
         let bare = tempfile::tempdir().unwrap();
         assert!(!install_grok_hooks(bare.path(), true).unwrap());
         assert!(!bare.path().join(".grok/hooks/av.json").exists());
+    }
+
+    const URL: &str = "http://127.0.0.1:7420/mcp";
+
+    const ALL: [Agent; 8] = [
+        Agent::Claude,
+        Agent::Codex,
+        Agent::Grok,
+        Agent::Gemini,
+        Agent::Cursor,
+        Agent::Antigravity,
+        Agent::Opencode,
+        Agent::McpJson,
+    ];
+
+    fn mcp_json(home: &Path) -> PathBuf {
+        home.join("clients/mcp.json")
+    }
+
+    fn config(home: &Path, agent: Agent) -> PathBuf {
+        agent
+            .config_path(home, None, None)
+            .unwrap_or_else(|| mcp_json(home))
+    }
+
+    /// What `av init --for agent` writes, with a token.
+    fn init_files(home: &Path, agent: Agent) {
+        let path = config(home, agent);
+        match agent {
+            Agent::Claude => install_claude_hooks(&path).unwrap(),
+            Agent::Codex => agents::install_codex(&path, URL, true).unwrap(),
+            Agent::Grok => {
+                agents::install_grok(&path, URL, true).unwrap();
+                // false, and no hooks file, when Claude's settings already load av's hooks
+                install_grok_hooks(home, false).unwrap();
+            }
+            Agent::Gemini => agents::install_gemini(&path, URL, true).unwrap(),
+            Agent::Cursor => agents::install_cursor(&path, URL, true).unwrap(),
+            Agent::Antigravity => agents::install_antigravity(&path, URL, Some("t0k3n")).unwrap(),
+            Agent::Opencode => {
+                agents::install_opencode_plugin(path.parent().unwrap(), Path::new("/opt/av"))
+                    .unwrap();
+                agents::install_opencode(&path, URL, Some("t0k3n")).unwrap();
+            }
+            Agent::McpJson => agents::install_mcp_json(&path, URL, "muse", true).unwrap(),
+        }
+    }
+
+    /// The files of `av uninstall` changed (would change, with `dry_run`).
+    fn uninstall_in(home: &Path, agents: &[Agent], dry_run: bool) -> usize {
+        let steps = plan_uninstall(home, None, None, agents, Some(&mcp_json(home)));
+        let mut changed = 0;
+        for step in steps {
+            let undo = step.undo.unwrap();
+            if undo != agents::Undo::Unchanged {
+                changed += 1;
+                if !dry_run {
+                    agents::apply_undo(&step.path, &undo).unwrap();
+                }
+            }
+        }
+        changed
+    }
+
+    fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = std::collections::BTreeMap::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else {
+                    files.insert(p.clone(), std::fs::read(&p).unwrap());
+                }
+            }
+        }
+        files
+    }
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    /// The person's own files for `agent`, before `av init`.
+    fn seed(home: &Path, agent: Agent) -> Vec<PathBuf> {
+        let path = config(home, agent);
+        match agent {
+            Agent::Claude => write(
+                &path,
+                r#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo mine"}]}]}}"#,
+            ),
+            Agent::Codex | Agent::Grok => write(
+                &path,
+                "model = \"gpt-5\" # mine\n\n[mcp_servers.other]\ncommand = \"x\"\n",
+            ),
+            Agent::Opencode => write(
+                &path,
+                r#"{"model":"x/y","mcp":{"servers":{"other":{"type":"local","command":["x"]}}}}"#,
+            ),
+            _ => write(
+                &path,
+                r#"{"theme":"dark","mcpServers":{"other":{"command":"x"}}}"#,
+            ),
+        }
+        let mut seeded = vec![path];
+        if agent == Agent::Grok {
+            let hooks = home.join(".grok/hooks/av.json");
+            write(
+                &hooks,
+                r#"{"hooks":{"Notification":[{"hooks":[{"type":"command","command":"say hi"}]}]}}"#,
+            );
+            seeded.push(hooks);
+        }
+        if agent == Agent::Opencode {
+            let mine = home.join(".config/opencode/plugins/mine.js");
+            write(&mine, "export default {}\n");
+            seeded.push(mine);
+        }
+        seeded
+    }
+
+    /// A new top-level setting, as the person adds it after `av init`; a plugin is left alone.
+    fn with_later_edit(path: &Path, text: &str) -> String {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("toml") => format!("later = true\n{text}"),
+            Some("json") => {
+                let mut v: Value = serde_json::from_str(text).unwrap();
+                v["later"] = json!(true);
+                v.to_string()
+            }
+            _ => text.to_owned(),
+        }
+    }
+
+    fn same_config(path: &Path, expected: &str) {
+        let now = std::fs::read_to_string(path).unwrap();
+        if path.extension().is_some_and(|e| e == "json") {
+            let a: Value = serde_json::from_str(&now).unwrap();
+            let b: Value = serde_json::from_str(expected).unwrap();
+            assert_eq!(a, b, "{}", path.display());
+        } else {
+            assert_eq!(now, expected, "{}", path.display());
+        }
+    }
+
+    #[test]
+    fn uninstall_takes_out_what_init_added_and_keeps_the_persons_entries_and_later_edits() {
+        for agent in ALL {
+            let home = tempfile::tempdir().unwrap();
+            let seeded = seed(home.path(), agent);
+            let originals: Vec<String> = seeded
+                .iter()
+                .map(|p| std::fs::read_to_string(p).unwrap())
+                .collect();
+            init_files(home.path(), agent);
+            for p in &seeded {
+                let now = std::fs::read_to_string(p).unwrap();
+                std::fs::write(p, with_later_edit(p, &now)).unwrap();
+            }
+            assert!(uninstall_in(home.path(), &ALL, false) > 0, "{agent:?}");
+            for (p, original) in seeded.iter().zip(&originals) {
+                same_config(p, &with_later_edit(p, original));
+                let text = std::fs::read_to_string(p).unwrap();
+                assert!(!text.contains("X-Av-Agent"), "{agent:?} {text}");
+                assert!(!text.contains("av hook"), "{agent:?} {text}");
+            }
+            let left: std::collections::BTreeSet<PathBuf> = snapshot(home.path())
+                .into_keys()
+                .filter(|p| !p.to_string_lossy().ends_with(".bak"))
+                .collect();
+            let seeded_set: std::collections::BTreeSet<PathBuf> = seeded.iter().cloned().collect();
+            assert_eq!(left, seeded_set, "{agent:?}");
+            let after = snapshot(home.path());
+            assert_eq!(
+                uninstall_in(home.path(), &ALL, false),
+                0,
+                "{agent:?}: a second run"
+            );
+            assert_eq!(snapshot(home.path()), after, "{agent:?}: a second run");
+        }
+    }
+
+    #[test]
+    fn uninstall_deletes_a_config_init_made_from_nothing_and_leaves_its_backups() {
+        for agent in ALL {
+            let home = tempfile::tempdir().unwrap();
+            init_files(home.path(), agent);
+            init_files(home.path(), agent);
+            let baks: Vec<(PathBuf, Vec<u8>)> = snapshot(home.path())
+                .into_iter()
+                .filter(|(p, _)| p.to_string_lossy().ends_with(".bak"))
+                .collect();
+            assert!(!baks.is_empty(), "{agent:?}");
+            assert!(uninstall_in(home.path(), &[agent], false) > 0, "{agent:?}");
+            let left: Vec<(PathBuf, Vec<u8>)> = snapshot(home.path()).into_iter().collect();
+            assert_eq!(left, baks, "{agent:?}: only the backups init kept");
+            assert_eq!(uninstall_in(home.path(), &ALL, false), 0, "{agent:?}");
+        }
+    }
+
+    #[test]
+    fn uninstall_dry_run_writes_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        for agent in ALL {
+            seed(home.path(), agent);
+            init_files(home.path(), agent);
+        }
+        let before = snapshot(home.path());
+        assert!(uninstall_in(home.path(), &ALL, true) >= ALL.len());
+        assert_eq!(snapshot(home.path()), before);
+    }
+
+    #[test]
+    fn uninstall_for_one_agent_leaves_the_others() {
+        let home = tempfile::tempdir().unwrap();
+        init_files(home.path(), Agent::Codex);
+        init_files(home.path(), Agent::Gemini);
+        assert_eq!(uninstall_in(home.path(), &[Agent::Codex], false), 1);
+        assert!(!config(home.path(), Agent::Codex).exists());
+        let gemini = std::fs::read_to_string(config(home.path(), Agent::Gemini)).unwrap();
+        assert!(gemini.contains("X-Av-Agent"), "{gemini}");
+    }
+
+    #[test]
+    fn uninstall_keeps_a_command_the_person_added_to_an_av_hook_entry() {
+        let home = tempfile::tempdir().unwrap();
+        let path = config(home.path(), Agent::Claude);
+        install_claude_hooks(&path).unwrap();
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        v["hooks"]["Stop"][0]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "type": "command", "command": "say bye" }));
+        std::fs::write(&path, v.to_string()).unwrap();
+        assert_eq!(uninstall_in(home.path(), &[Agent::Claude], false), 1);
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            json!({ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "say bye" }] }] } })
+        );
+    }
+
+    #[test]
+    fn uninstall_takes_out_install_sh_hooks_and_their_scripts() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(".claude/av-hooks");
+        for name in INSTALL_SH_HOOKS {
+            write(&dir.join(name), "#!/bin/sh\n");
+        }
+        let settings = config(home.path(), Agent::Claude);
+        let command = dir.join("stop.sh").display().to_string();
+        write(
+            &settings,
+            &json!({ "model": "x", "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": command }] }] } })
+                .to_string(),
+        );
+        assert_eq!(uninstall_in(home.path(), &[Agent::Claude], false), 6);
+        assert!(!dir.exists());
+        same_config(&settings, r#"{"model":"x"}"#);
+
+        write(&dir.join("stop.sh"), "#!/bin/sh\n");
+        write(&dir.join("mine.sh"), "#!/bin/sh\n");
+        assert_eq!(uninstall_in(home.path(), &[Agent::Claude], false), 1);
+        assert!(dir.join("mine.sh").is_file());
+        assert!(!dir.join("stop.sh").exists());
+    }
+
+    #[test]
+    fn uninstall_leaves_an_opencode_plugin_that_is_not_avs() {
+        let home = tempfile::tempdir().unwrap();
+        let plugin = home.path().join(".config/opencode/plugins/av.js");
+        write(&plugin, "export default {}\n");
+        assert_eq!(uninstall_in(home.path(), &ALL, false), 0);
+        assert!(plugin.is_file());
+    }
+
+    #[test]
+    fn uninstall_names_a_config_it_cannot_read_and_still_plans_the_others() {
+        let home = tempfile::tempdir().unwrap();
+        init_files(home.path(), Agent::Gemini);
+        let codex = config(home.path(), Agent::Codex);
+        write(&codex, "[[[ nope");
+        let steps = plan_uninstall(
+            home.path(),
+            None,
+            None,
+            &[Agent::Codex, Agent::Gemini],
+            None,
+        );
+        assert!(steps[0].undo.is_err());
+        assert_eq!(steps[0].path, codex);
+        assert_eq!(steps[1].undo.as_ref().unwrap(), &agents::Undo::Delete);
+        assert_eq!(std::fs::read_to_string(&codex).unwrap(), "[[[ nope");
     }
 
     #[test]

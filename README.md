@@ -8,7 +8,7 @@ whichever agent comes next a small brief built from them.
   Flash); a hand-kept `NOTES.md` did as well at ten notes ([run](bench/results/2026-10-29-relay-lean/)).
 - **It holds up as memory grows:** with 500 unrelated notes, 39.9 % cheaper per accepted task
   than a flat `NOTES.md`; both solved 30 of 30, so this shows cost ([run](bench/results/2026-11-e4-scale/)).
-- **Wrong notes get corrected:** 30 of 30 runs accepted with a wrong note, against 11 of 30 before
+- **Agents get past wrong notes:** 30 of 30 runs accepted with a wrong note, against 11 of 30 before
   (Haiku 5.5, [run](bench/results/2026-11-14-m0/)); on DeepSeek Flash the gain was smaller and a
   notes file still did better ([Does it help?](#does-it-help)).
 
@@ -82,7 +82,7 @@ It runs on your machine. No Docker and no account, and it never sees your model 
 | A wrong note is corrected or retired | yes: `av record --supersedes` | you or Claude edit or delete the files | not stated | `bd close`, `bd update`, a `supersedes` link | not stated | edit the file |
 | Brief cut to a token budget, no model call | yes: 800 tokens by default, deterministic | first 200 lines or 25 KB of `MEMORY.md`; Claude writes auto memory | a second agent writes observations and summaries; a count limit, no token budget stated | `bd prime`; no token budget stated | not stated | no: the agent reads the whole file |
 | Works with no daemon or server | **no**: a daemon with its own Postgres | yes: plain files, built in | no: a local HTTP worker and SQLite | yes: Dolt runs in-process (a server mode exists) | hooks and git; no daemon mentioned | yes |
-| Setup | install script, Homebrew, cargo-binstall or Docker, then `av init` per repo | none, built in | `npx claude-mem install` | `brew install beads`, then `bd init` | `brew install --cask entireio/tap/entire`, then `entire enable` | none |
+| Setup | install script, Homebrew or cargo-binstall, then `av init` per repo (or Docker for the daemon) | none, built in | `npx claude-mem install` | `brew install beads`, then `bd init` | `brew install --cask entireio/tap/entire`, then `entire enable` | none |
 | Changes how you use git | **yes**: each job is an av task in its own workspace, and a merge moves Margincode's `main`, not your checkout | `CLAUDE.md` is a file in the repo, shared through source control; auto memory lives outside it | not stated | `bd init` writes `AGENTS.md`; `--stealth` turns off its git hooks; syncs over `refs/dolt/data` on your remote | git hooks, a commit trailer, checkpoint refs pushed with your code; no commits on your branch | a file in the repo |
 | One agent alone costs less | **not shown**: 7 % more in the tracker run of 2026-11-21 ([Does it help?](#does-it-help)) | not measured here | not measured here | not measured here | not measured here | not measured here |
 
@@ -122,7 +122,8 @@ Measured so far, including where it didn't help:
   accepted on the build where agents can correct records** (`av record --supersedes`, and the pack
   says records are claims to check), against 11 of 30 on the build before. All of the difference
   is on two of the three tasks. The same note in a `NOTES.md` got 12 of 30, and no note at all 30
-  of 30. On Claude Sonnet 5.5 the two builds got 30 and 10 of 30
+  of 30. 15 of the 30 Haiku runs superseded the note, and all 30 were accepted. On Claude Sonnet
+  5.5 the two builds got 30 and 10 of 30
   ([results](bench/results/2026-11-14-m0/)). On DeepSeek Flash, on one task, the same change went
   from 2 of 30 to 12 of 30, still below a `NOTES.md`'s 28 of 30
   ([results](bench/results/2026-11-wrong-lesson-3/)).

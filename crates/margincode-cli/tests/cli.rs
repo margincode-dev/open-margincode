@@ -3840,7 +3840,19 @@ fn uninstall_undoes_init_for_every_agent_and_leaves_the_repository_alone() {
             .current_dir(dir)
             .output()
             .unwrap();
-        String::from_utf8_lossy(&o.stdout).into_owned()
+        let mut seen = String::from_utf8_lossy(&o.stdout).into_owned();
+        // what git status cannot show: the repository's own config, excludes and hooks
+        for f in [".git/config", ".git/info/exclude"] {
+            seen.push_str(&std::fs::read_to_string(dir.join(f)).unwrap_or_default());
+        }
+        let mut hooks: Vec<String> = std::fs::read_dir(dir.join(".git/hooks"))
+            .into_iter()
+            .flatten()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        hooks.sort();
+        seen.push_str(&hooks.join("\n"));
+        seen
     };
     let repo_before = status(&d.src);
     ok(av_env(

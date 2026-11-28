@@ -733,6 +733,9 @@ pub fn plan_uninstall(
             }
         }
     }
+    // an agent named twice, or a --path that is also a home config: plan each file once
+    let mut seen = std::collections::HashSet::new();
+    steps.retain(|s| seen.insert(s.path.clone()));
     steps
 }
 
@@ -1316,6 +1319,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         init_files(home.path(), Agent::Codex);
         init_files(home.path(), Agent::Gemini);
+        let twice = [Agent::Codex, Agent::Gemini, Agent::Codex];
+        let steps = plan_uninstall(home.path(), None, None, &twice, None);
+        assert_eq!(steps.len(), 2, "each file once");
         assert_eq!(uninstall_in(home.path(), &[Agent::Codex], false), 1);
         assert!(!config(home.path(), Agent::Codex).exists());
         let gemini = std::fs::read_to_string(config(home.path(), Agent::Gemini)).unwrap();

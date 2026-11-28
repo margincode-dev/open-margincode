@@ -500,7 +500,15 @@ struct NextBody {
     /// would otherwise be handed back a task it escalated, ahead of its other work.
     #[serde(default)]
     skip_returned: bool,
+    /// Tasks this call treats as not there: never offered, claimed, resumed or reserved by it,
+    /// nor waited for. For a runner that holds one back (it waits on a person's answer); the
+    /// tasks are left as they are for every other call. At most `MAX_SKIP_TASKS`.
+    #[serde(default)]
+    skip_tasks: Vec<Uuid>,
 }
+
+/// The most task ids one `next` call may skip.
+pub const MAX_SKIP_TASKS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -526,6 +534,18 @@ impl Choice {
             | Choice::Handoff(_)
             | Choice::Abandoned(_)
             | Choice::Backlog(_) => Take::Work,
+        }
+    }
+
+    /// The existing task this choice hands out; a backlog item has none yet.
+    fn task_id(&self) -> Option<Uuid> {
+        match self {
+            Choice::Review { task, .. } => Some(task.id.0),
+            Choice::Returned(i)
+            | Choice::Conflicted(i)
+            | Choice::Handoff(i)
+            | Choice::Abandoned(i) => Some(i.id),
+            Choice::Backlog(_) => None,
         }
     }
 }
@@ -931,6 +951,13 @@ async fn next(
     if agent.is_empty() {
         return Err(AvError::Invalid("agent must not be empty".into()).into());
     }
+    if b.skip_tasks.len() > MAX_SKIP_TASKS {
+        return Err(AvError::Invalid(format!(
+            "skip_tasks names {} tasks; at most {MAX_SKIP_TASKS}",
+            b.skip_tasks.len()
+        ))
+        .into());
+    }
     let profiles = st.store.list_profiles().await?;
     let agent = routing::resolve(&profiles, &agent)
         .map(|p| p.name.clone())
@@ -951,6 +978,9 @@ async fn next(
         }
         if b.skip_returned {
             choices.retain(|c| !matches!(c, Choice::Returned(_)));
+        }
+        if !b.skip_tasks.is_empty() {
+            choices.retain(|c| c.task_id().is_none_or(|t| !b.skip_tasks.contains(&t)));
         }
         let (choices, full) = within_limit(&st, &agent, &profiles, choices).await?;
         let nothing = |key: &str| {

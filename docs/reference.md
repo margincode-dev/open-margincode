@@ -1408,6 +1408,7 @@ av target done ship-v1 --repo pantry       # also: drop, reopen
 av next                                    # as an agent: the next job that fits it, or none
 av next --wait 50                          # ... waiting up to 50 s for one
 av next --take review,merge                # only reviews and merges (--take work: never reviews)
+av next --skip TASK_ID                     # pass over that task this time (repeatable, at most 64)
 av next --checkout ~/src/next-job          # work in a checkout there (a daemon on another host)
 av handoff --done … --remaining … --needs image   # hand off to an agent that has the tag
 av --agent grok watch -- grok -p "take your next av job"   # start grok only when work fits it
@@ -1447,7 +1448,11 @@ tasks (one without tags keeps its item's tags, with the same exception), open ta
 quiet for a whole lease (the owner may resume its own), and backlog items. A review offered to one
 agent is reserved for it for 10 minutes. `wait_secs` (MCP `wait`, CLI `--wait`, at most 50) holds
 the call until something fits; `dry_run` says what it would give without taking it, which is what
-`av watch` polls. The MCP task tools take a slug (`louder-hello` or `pantry/louder-hello`) as well as an
+`av watch` polls. `skip_tasks` (a list of task ids, at most 64, CLI `--skip`) makes that one call
+pass over those tasks: it does not offer, claim, resume or reserve them, and a waiting call does
+not answer with one. Nothing about them changes; the next call without the list may get them.
+More than 64 is a `400`, an entry that is not a task id a `422`, and an id that names no task is
+ignored. A backlog item has no task yet, so the list never skips one. The MCP task tools take a slug (`louder-hello` or `pantry/louder-hello`) as well as an
 id. A **target** (a release, a milestone) groups backlog items: an item counts toward at most one
 active target of its repo, and the target's progress is how many of its items merged (a dropped
 item stops counting). Targets are never deleted; they are done or dropped and can be reopened. They

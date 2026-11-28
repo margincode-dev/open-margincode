@@ -1,5 +1,6 @@
+use std::cell::Cell;
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -45,32 +46,131 @@ const MAX_PLAIN_ERROR: usize = 300;
 
 pub type Result<T> = std::result::Result<T, CliError>;
 
+const CONNECT: Duration = Duration::from_secs(5);
+const OVERALL: Duration = Duration::from_secs(300);
+
 pub struct Client {
     base: String,
     agent: ureq::Agent,
     token: Option<String>,
-    warned: std::cell::Cell<bool>,
+    warned: Cell<bool>,
+    budget: Option<Budget>,
+}
+
+/// How long a hook may wait on the daemon, all its requests together. The clock starts at the
+/// first request; after a transport error (refused, timed out) nothing more is sent.
+struct Budget {
+    total: Duration,
+    started: Cell<Option<Instant>>,
+    failed: Cell<bool>,
+    /// How long the request that failed had waited.
+    waited: Cell<Duration>,
+}
+
+impl Budget {
+    fn fail(&self) {
+        self.failed.set(true);
+        if let Some(t) = self.started.get() {
+            self.waited.set(t.elapsed());
+        }
+    }
+}
+
+fn agent(connect: Duration) -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(connect)
+        .timeout(OVERALL)
+        .build()
 }
 
 impl Client {
     pub fn new(base: &str, token: Option<String>) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(5))
-            .timeout(Duration::from_secs(300))
-            .build();
         Client {
             base: base.trim_end_matches('/').to_owned(),
-            agent,
+            agent: agent(CONNECT),
             token: token.filter(|t| !t.trim().is_empty()),
-            warned: std::cell::Cell::new(false),
+            warned: Cell::new(false),
+            budget: None,
         }
     }
 
-    fn authorized(&self, req: ureq::Request) -> ureq::Request {
-        match &self.token {
+    /// The same daemon for a hook that gives up after `total` of waiting on it. The connect
+    /// timeout is capped too: in ureq 2.12 an agent's `timeout_connect` replaces the request's
+    /// deadline while connecting (`stream.rs`, `connect_deadline`).
+    pub fn with_budget(&self, total: Duration) -> Client {
+        Client {
+            base: self.base.clone(),
+            agent: agent(CONNECT.min(total)),
+            token: self.token.clone(),
+            warned: Cell::new(false),
+            budget: Some(Budget {
+                total,
+                started: Cell::new(None),
+                failed: Cell::new(false),
+                waited: Cell::new(Duration::ZERO),
+            }),
+        }
+    }
+
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// Starts the budget over at the next request (a poll after a deliberate wait), unless a
+    /// request already failed.
+    pub fn restart_budget(&self) {
+        if let Some(b) = &self.budget {
+            b.started.set(None);
+        }
+    }
+
+    /// Sends nothing more, as after a failed request.
+    pub fn give_up(&self) {
+        if let Some(b) = &self.budget {
+            b.failed.set(true);
+        }
+    }
+
+    /// Whether this hook gave up on the daemon after waiting on it for at least `min` (a
+    /// refused connection fails at once, a hung daemon after the budget).
+    pub fn gave_up_after(&self, min: Duration) -> bool {
+        self.budget
+            .as_ref()
+            .is_some_and(|b| b.failed.get() && b.waited.get() >= min)
+    }
+
+    fn request(&self, method: &str, path: &str, cap: Duration) -> Result<ureq::Request> {
+        let mut req = self
+            .agent
+            .request(method, &format!("{}{path}", self.base))
+            .timeout(cap);
+        if let Some(b) = &self.budget {
+            let unreachable = |detail: String| CliError::Unreachable {
+                url: self.base.clone(),
+                detail,
+            };
+            if b.failed.get() {
+                return Err(unreachable("an earlier request of this hook failed".into()));
+            }
+            let started = b.started.get().unwrap_or_else(|| {
+                let now = Instant::now();
+                b.started.set(Some(now));
+                now
+            });
+            let left = b.total.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                b.fail();
+                return Err(unreachable(format!(
+                    "no answer within the hook's {} s",
+                    b.total.as_secs()
+                )));
+            }
+            req = req.timeout(cap.min(left));
+        }
+        Ok(match &self.token {
             Some(t) => req.set("Authorization", &format!("Bearer {}", t.trim())),
             None => req,
-        }
+        })
     }
 
     pub fn post(&self, path: &str, body: &Value) -> Result<Value> {
@@ -79,7 +179,7 @@ impl Client {
 
     /// The daemon refuses it once the task has been claimed again.
     pub fn post_as(&self, path: &str, body: &Value, generation: Option<i64>) -> Result<Value> {
-        let mut req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
+        let mut req = self.request("POST", path, OVERALL)?;
         if let Some(g) = generation {
             req = req.set("x-av-generation", &g.to_string());
         }
@@ -88,27 +188,27 @@ impl Client {
 
     /// Asks the daemon to name the owner in the `.av-task` it hands out (`X-Av-Name-Owner`).
     pub fn post_naming_owner(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
+        let req = self.request("POST", path, OVERALL)?;
         self.finish(path, req.set("x-av-name-owner", "1").send_json(body))
     }
 
     pub fn delete(&self, path: &str) -> Result<Value> {
-        let req = self.authorized(self.agent.delete(&format!("{}{path}", self.base)));
+        let req = self.request("DELETE", path, OVERALL)?;
         self.finish(path, req.call())
     }
 
     pub fn delete_with(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.authorized(self.agent.delete(&format!("{}{path}", self.base)));
+        let req = self.request("DELETE", path, OVERALL)?;
         self.finish(path, req.send_json(body))
     }
 
     pub fn put(&self, path: &str, body: &Value) -> Result<Value> {
-        let req = self.authorized(self.agent.put(&format!("{}{path}", self.base)));
+        let req = self.request("PUT", path, OVERALL)?;
         self.finish(path, req.send_json(body))
     }
 
     pub fn get(&self, path: &str, query: &[(&str, &str)]) -> Result<Value> {
-        let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
+        let mut req = self.request("GET", path, OVERALL)?;
         for (k, v) in query {
             req = req.query(k, v);
         }
@@ -117,9 +217,7 @@ impl Client {
 
     /// `get` of a plain-text body (e.g. `/healthz`), with a short timeout.
     pub fn get_text(&self, path: &str) -> Result<String> {
-        let req = self
-            .authorized(self.agent.get(&format!("{}{path}", self.base)))
-            .timeout(Duration::from_secs(2));
+        let req = self.request("GET", path, Duration::from_secs(2))?;
         match req.call() {
             Ok(resp) => resp
                 .into_string()
@@ -136,7 +234,7 @@ impl Client {
         body: &[u8],
         generation: Option<i64>,
     ) -> Result<Value> {
-        let mut req = self.authorized(self.agent.post(&format!("{}{path}", self.base)));
+        let mut req = self.request("POST", path, OVERALL)?;
         for (k, v) in query {
             req = req.query(k, v);
         }
@@ -153,7 +251,7 @@ impl Client {
         query: &[(&str, &str)],
         want: &[&str],
     ) -> Result<(Vec<u8>, Vec<Option<String>>)> {
-        let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
+        let mut req = self.request("GET", path, OVERALL)?;
         for (k, v) in query {
             req = req.query(k, v);
         }
@@ -174,7 +272,7 @@ impl Client {
     }
 
     pub fn get_bytes(&self, path: &str, query: &[(&str, &str)]) -> Result<Vec<u8>> {
-        let mut req = self.authorized(self.agent.get(&format!("{}{path}", self.base)));
+        let mut req = self.request("GET", path, OVERALL)?;
         for (k, v) in query {
             req = req.query(k, v);
         }
@@ -244,10 +342,15 @@ impl Client {
                     body,
                 })
             }
-            Err(ureq::Error::Transport(t)) => Err(CliError::Unreachable {
-                url: self.base.clone(),
-                detail: t.to_string(),
-            }),
+            Err(ureq::Error::Transport(t)) => {
+                if let Some(b) = &self.budget {
+                    b.fail();
+                }
+                Err(CliError::Unreachable {
+                    url: self.base.clone(),
+                    detail: t.to_string(),
+                })
+            }
         }
     }
 }

@@ -2075,8 +2075,24 @@ opens with a warning naming the culprit merge.
   such sessions a name (`AV_AGENT`). If nothing fits yet it keeps looking every 15 s for up to `AV_HOOK_WAIT_SECS`
   (default 600; `0` turns this off; `av watch` sets `0` for the agents it starts), which costs no model tokens, then lets the stop through. It continues one
   agent session at most `AV_HOOK_MAX_CONTINUES` times (default 20, counted in `.av-task`), and a daemon that
-  does not answer allows the stop at once. `install.sh` sets the hook's timeout to `AV_HOOK_WAIT_SECS` + 60 s,
+  cannot be reached allows the stop (below). `install.sh` sets the hook's timeout to `AV_HOOK_WAIT_SECS` + 60 s,
   so run it again after changing the wait: `AV_HOOK_WAIT_SECS=120 integrations/claude-code/install.sh`.
+
+  **When the daemon does not answer.** Each hook waits on the daemon for at most its budget, all its
+  requests together: `session-start` 15 s (`AV_HOOK_SESSION_START_SECS`), `pre-read` 3 s
+  (`AV_HOOK_PRE_READ_SECS`), `post-edit` 5 s (`AV_HOOK_POST_EDIT_SECS`) and `stop` 10 s
+  (`AV_HOOK_STOP_SECS`), whole seconds. The Stop hook's budget covers what it asks before the wait
+  for work, and starts over for each later look at the backlog, so the wait itself is not cut short.
+  Past the budget, or on a refused connection, an HTTP error or a wrong token, the hook exits 0 with
+  nothing on stdout and one line on stderr, and the agent's tool call goes on. A hook that waited at
+  least 1 s and then gave up writes `hooks-unreachable.json` (the daemon's URL and the time) into
+  av's home: for the next 30 s the hooks of every session on the machine send that daemon nothing,
+  so a hung daemon costs one budget per 30 s instead of one per tool call. The mark ends by itself;
+  a daemon that is back is used again within 30 s. A refused connection fails in milliseconds and
+  leaves no mark. The budgets count waiting on the daemon only: the footprint scans
+  (`AV_FOOTPRINT_SECS`) and a remote checkout's local git steps come on top. The defaults are about
+  twice the slowest answers with 100 agents at once (`bench/results/2026-10-30-e2-overlay/tokio/report.md`:
+  pack 7.5 s, checkpoint 1.9 s).
 - **Any `mcpServers` JSON client** (Muse, Windsurf, Cline, …): `av --agent NAME init --for mcp-json --path FILE`
   merges `mcpServers.av` into that file (`type` `http`, the `/mcp` URL, `X-Av-Agent` set to `NAME`) and
   keeps the rest. With `AV_TOKEN` set, the header is `Bearer ${AV_TOKEN}`, which the client expands.

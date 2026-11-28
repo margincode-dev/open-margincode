@@ -336,6 +336,111 @@ pub fn edit_json(path: &Path, change: impl FnOnce(&mut Value) -> Result<()>) -> 
     )
 }
 
+/// What `av uninstall` does to one file.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Undo {
+    /// No file, or nothing of av's in it.
+    Unchanged,
+    Rewrite(String),
+    /// Nothing but av's entries was in it (a directory: nothing but av's files).
+    Delete,
+}
+
+/// Applies `undo` to `path`. No `.bak` is made: the one `av init` kept may be the only copy of the
+/// file as it was before av.
+pub fn apply_undo(path: &Path, undo: &Undo) -> Result<()> {
+    let done = match undo {
+        Undo::Unchanged => Ok(()),
+        Undo::Rewrite(text) => std::fs::write(path, text),
+        Undo::Delete if path.is_dir() => std::fs::remove_dir(path),
+        Undo::Delete => std::fs::remove_file(path),
+    };
+    done.map_err(|e| local(format!("cannot change {}: {e}", path.display())))
+}
+
+/// Without `<keys…>.av`, in the JSON object of `path`; an object it leaves empty goes too.
+pub fn json_without_server(path: &Path, keys: &[&str]) -> Result<Undo> {
+    let mut v = read_json_object(path)?;
+    if !remove_server(&mut v, keys) {
+        return Ok(Undo::Unchanged);
+    }
+    Ok(json_undo(&v))
+}
+
+/// [`Undo::Delete`] for an empty object, else the object as `av init` writes it.
+pub fn json_undo(v: &Value) -> Undo {
+    if v.as_object().is_some_and(|o| o.is_empty()) {
+        Undo::Delete
+    } else {
+        Undo::Rewrite(serde_json::to_string_pretty(v).expect("serializable") + "\n")
+    }
+}
+
+// `retain`, not `remove`: with serde_json's `preserve_order`, `remove` moves the last key into
+// the removed one's place.
+fn remove_server(v: &mut Value, keys: &[&str]) -> bool {
+    let Some(obj) = v.as_object_mut() else {
+        return false;
+    };
+    let Some((first, rest)) = keys.split_first() else {
+        let had = obj.contains_key(SERVER);
+        obj.retain(|k, _| k != SERVER);
+        return had;
+    };
+    let Some(child) = obj.get_mut(*first) else {
+        return false;
+    };
+    if !remove_server(child, rest) {
+        return false;
+    }
+    if child.as_object().is_some_and(|o| o.is_empty()) {
+        obj.retain(|k, _| k != first);
+    }
+    true
+}
+
+/// Without `[mcp_servers.av]` (Codex, Grok); an `mcp_servers` it leaves empty goes too. The rest
+/// of the file keeps its bytes, but comments directly above `[mcp_servers.av]` belong to it.
+pub fn toml_without_server(path: &Path) -> Result<Undo> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Undo::Unchanged),
+        Err(e) => return Err(local(format!("cannot read {}: {e}", path.display()))),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| {
+        local(format!(
+            "{} is not valid TOML ({e}); nothing changed",
+            path.display()
+        ))
+    })?;
+    let Some(servers) = doc
+        .get_mut("mcp_servers")
+        .and_then(toml_edit::Item::as_table_like_mut)
+    else {
+        return Ok(Undo::Unchanged);
+    };
+    if servers.remove(SERVER).is_none() {
+        return Ok(Undo::Unchanged);
+    }
+    if servers.is_empty() {
+        doc.remove("mcp_servers");
+    }
+    let text = doc.to_string();
+    Ok(if text.trim().is_empty() {
+        Undo::Delete
+    } else {
+        Undo::Rewrite(text)
+    })
+}
+
+/// `<config_dir>/plugins/av.js`, when its first line is the one [`OPENCODE_PLUGIN`] starts with.
+pub fn opencode_plugin_undo(config_dir: &Path) -> (PathBuf, Undo) {
+    let path = config_dir.join("plugins/av.js");
+    let first = OPENCODE_PLUGIN.lines().next();
+    let ours = std::fs::read_to_string(&path).is_ok_and(|t| t.lines().next() == first);
+    (path, if ours { Undo::Delete } else { Undo::Unchanged })
+}
+
 /// Writes `text` to `path`, keeping the previous file as `<path>.bak`.
 pub fn write_with_backup(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
@@ -753,6 +858,35 @@ mod tests {
         assert!(install_opencode(&json, URL, None).is_err());
         assert!(install_mcp_json(&json, URL, "muse", false).is_err());
         assert_eq!(read(&json), "{ nope");
+    }
+
+    #[test]
+    fn toml_without_server_takes_out_an_inline_or_dotted_av_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for (text, want) in [
+            (
+                "model = \"x\"\nmcp_servers = { av = { url = \"u\" }, other = { command = \"x\" } }\n",
+                "model = \"x\"\nmcp_servers = { other = { command = \"x\" } }\n",
+            ),
+            (
+                "model = \"x\" # mine\nmcp_servers.av.url = \"u\"\n",
+                "model = \"x\" # mine\n",
+            ),
+        ] {
+            std::fs::write(&path, text).unwrap();
+            assert_eq!(
+                toml_without_server(&path).unwrap(),
+                Undo::Rewrite(want.to_owned()),
+                "{text}"
+            );
+        }
+        std::fs::write(&path, "[mcp_servers.other]\ncommand = \"x\"\n").unwrap();
+        assert_eq!(toml_without_server(&path).unwrap(), Undo::Unchanged);
+        assert_eq!(
+            toml_without_server(&dir.path().join("missing.toml")).unwrap(),
+            Undo::Unchanged
+        );
     }
 
     #[test]

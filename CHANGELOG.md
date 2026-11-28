@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **`av uninstall`.** Takes out what `av init --for AGENT` added to each agent's config, entry by
+  entry (av's hook entries, the `av` MCP server, the OpenCode plugin, `install.sh`'s hook
+  scripts), keeps everything else in those files, and deletes a file left empty (Antigravity's
+  config, which ships as a 0-byte file, is left as one). `--dry-run`,
+  `--for AGENT`, `--path FILE` for mcp-json. It needs no daemon and deletes no data;
+  `docs/install.md` has a new "Uninstall" section for the daemon, the binaries and the data.
+  Removing av's hooks (also when `av init --for claude` drops Grok's copy) now leaves another
+  command the person put in the same hook entry.
 - **Questions for a person.** An agent that would otherwise guess about something a person would
   want a say in asks, with the new MCP tool `ask` or `av ask`: two to four options, the one it
   recommends and why, what depends on it, and whether a wrong option costs only this task's work

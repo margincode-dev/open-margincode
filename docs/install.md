@@ -47,3 +47,27 @@ The image holds `margincode-daemon`, `margincode` and `av`. With no `AV_DATABASE
 its own Postgres under `/data/pg` (lite mode); keep `/data` on a volume. The dashboard is at
 `http://localhost:7420/ui`. To use Compose with a separate Postgres and Qdrant, see
 `deploy/docker-compose.yml`. Tags: the release version (e.g. `0.0.5`) and `latest`.
+
+## Uninstall
+
+1. `av uninstall` takes out what `av init` (and `integrations/claude-code/install.sh`) added to
+   each agent's config, entry by entry: av's hooks, the MCP server named `av`, the OpenCode
+   plugin `plugins/av.js`. Everything else in those files stays; a file left with nothing in it
+   is deleted. `--dry-run` shows what it would change, `--for AGENT` limits it to one agent, and
+   `--path FILE` adds a `--for mcp-json` file. It needs no daemon, and it deletes no data.
+2. `av down` stops a daemon `av up` (or `av init`) started. For the Docker image:
+   `docker rm -f margincode`; for Compose: `docker compose -f deploy/docker-compose.yml down`.
+3. Remove the binaries the way they were installed:
+   - the install script: delete `margincode`, `av` and `margincode-daemon` from
+     `~/.local/bin` (or `MARGINCODE_INSTALL_DIR`);
+   - Homebrew: `brew uninstall margincode`, then `brew untap margincode-dev/open-margincode`;
+   - cargo-binstall: `cargo uninstall margincode-cli margincode-daemon`;
+   - the Claude Code plugin: `claude plugin uninstall margincode@margincode`, then
+     `claude plugin marketplace remove margincode`.
+4. Optional, and it cannot be undone: delete the data. That is the records and repositories in
+   `~/.margincode` (`AV_HOME`; an older install may use `~/.scholion`), the task workspaces in
+   `~/ws` (`AV_WS_ROOT`), and, for Docker, the volume `margincode` (`docker volume rm margincode`)
+   or the Compose volumes (`docker compose -f deploy/docker-compose.yml down -v`). `av init` also
+   left `*.bak` copies beside each config it changed; `av uninstall` names them and keeps them.
+   The ones beside the Antigravity and OpenCode configs can hold the av token itself, so delete
+   or keep them on purpose.

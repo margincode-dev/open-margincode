@@ -1,13 +1,21 @@
 # Margincode
 
-**Your next Claude Code session starts knowing last session's dead ends.** Margincode pins one-line notes (decisions, and what didn't work) to the code they
-are about, and hands the next session a small brief built from them. One agent, one repo, no
-second subscription needed. On a small Python repo that meant 12.9 % fewer turns at the same cost
-in our October benchmark ([benchmark](bench/results/2026-10-27-haiku/)); a tracker run in November
-found release 0.0.2 costing more ([Does it help?](#does-it-help)).
+**One memory for all the coding agents you pay for, and it stays right as it grows.** Margincode
+pins one-line notes (decisions, and what didn't work) to the code they are about, and hands
+whichever agent comes next a small brief built from them.
 
-Use more than one agent and the same memory crosses vendors: Claude Code starts a job, Codex
-picks it up from the brief, Gemini reviews it, and the reviewer merges.
+- **Lessons reach the next agent:** 30 of 30 runs accepted against 18 of 30 without them (DeepSeek
+  Flash); a hand-kept `NOTES.md` did as well at ten notes ([run](bench/results/2026-10-29-relay-lean/)).
+- **It holds up as memory grows:** with 500 unrelated notes, 39.9 % cheaper per accepted task
+  than a flat `NOTES.md`; both solved 30 of 30, so this shows cost ([run](bench/results/2026-11-e4-scale/)).
+- **Agents get past wrong notes:** 30 of 30 runs accepted with a wrong note, against 11 of 30 before
+  (Haiku 5.5, [run](bench/results/2026-11-14-m0/)); on DeepSeek Flash the gain was smaller and a
+  notes file still did better ([Does it help?](#does-it-help)).
+
+For one agent alone, it is not shown to cost less ([Does it help?](#does-it-help)).
+
+The memory crosses vendors: Claude Code starts a job, Codex picks it up from the brief, Gemini
+reviews it, and the reviewer merges.
 
 *σχόλιον (margincode): a note written in the margin of a manuscript. Margincode keeps notes in the
 margins of your code, so your AI agents stop forgetting.*
@@ -65,6 +73,26 @@ Many developers now pay for more than one agent subscription, such as Claude Cod
 
 It runs on your machine. No Docker and no account, and it never sees your model keys.
 
+## How it compares
+
+| | Margincode | Claude Code memory | claude-mem | Beads | Entire | `NOTES.md` by hand |
+|---|---|---|---|---|---|---|
+| Agents from other vendors share it | yes: an MCP server for any client; hooks for Claude Code and Grok Build, a hooks plugin for OpenCode; MCP only for Codex, Gemini CLI, Cursor and Antigravity | `CLAUDE.md` can be an `AGENTS.md` other agents read; auto memory is Claude Code's and machine-local | yes: Claude Code, Codex, Cursor, OpenCode and more | yes: `bd setup` for Codex, Claude, Cursor and more | records Claude Code, Codex, Cursor and more; resuming in another agent not stated | yes, if each agent is told to read it |
+| Notes anchored to code | yes: a path or `path:Symbol`, marked when that code changes | rules scoped by path glob; auto memory not stated | not stated | not stated | to commits, by a trailer | no |
+| A wrong note is corrected or retired | yes: `av record --supersedes` | you or Claude edit or delete the files | not stated | `bd close`, `bd update`, a `supersedes` link | not stated | edit the file |
+| Brief cut to a token budget, no model call | yes: 800 tokens by default, deterministic | first 200 lines or 25 KB of `MEMORY.md`; Claude writes auto memory | a second agent writes observations and summaries; a count limit, no token budget stated | `bd prime`; no token budget stated | not stated | no: the agent reads the whole file |
+| Works with no daemon or server | **no**: a daemon with its own Postgres | yes: plain files, built in | no: a local HTTP worker and SQLite | yes: Dolt runs in-process (a server mode exists) | hooks and git; no daemon mentioned | yes |
+| Setup | install script, Homebrew or cargo-binstall, then `av init` per repo (or Docker for the daemon) | none, built in | `npx claude-mem install` | `brew install beads`, then `bd init` | `brew install --cask entireio/tap/entire`, then `entire enable` | none |
+| Changes how you use git | **yes**: each job is an av task in its own workspace, and a merge moves Margincode's `main`, not your checkout | `CLAUDE.md` is a file in the repo, shared through source control; auto memory lives outside it | not stated | `bd init` writes `AGENTS.md`; `--stealth` turns off its git hooks; syncs over `refs/dolt/data` on your remote | git hooks, a commit trailer, checkpoint refs pushed with your code; no commits on your branch | a file in the repo |
+| One agent alone costs less | **not shown**: 7 % more in the tracker run of 2026-11-21 ([Does it help?](#does-it-help)) | not measured here | not measured here | not measured here | not measured here | not measured here |
+
+From each project's own page, read on 2026-11-28:
+[Claude Code memory](https://code.claude.com/docs/en/memory),
+[claude-mem](https://github.com/thedotmack/claude-mem),
+[Beads](https://github.com/gastownhall/beads), [Entire](https://github.com/entireio/cli).
+"Not stated" means that page does not say; "not measured here" means this repository has no run
+of it.
+
 ## Does it help?
 
 Measured so far, including where it didn't help:
@@ -82,13 +110,23 @@ Measured so far, including where it didn't help:
   (95 % interval 1 % to 14 %), with 20 % more billed tokens and 10 % fewer turns, and no session
   was stopped. The two runs differ in day and in Claude Code version
   ([report](https://github.com/vinhqbui/openevaluations/blob/main/docs/results/2026-11-21-tracker-haiku-margincode-0.0.4.md)).
-- When one agent's lessons were passed on to the next, cost per solved task dropped by about
-  **42 %**, and 30 of 30 tasks were solved instead of 18. Margincode did as well as a hand-written
-  `NOTES.md`, without anyone having to write it.
+- When one agent's lessons were passed on to the next (Claude Code on DeepSeek Flash, 10 tasks ×
+  3 runs, lessons written for the benchmark), cost per accepted task dropped by **42.2 %**, and 30
+  of 30 runs were accepted instead of 18. A hand-written `NOTES.md` did as well (Margincode 1.8 %
+  cheaper), so this is the lessons, not Margincode ([results](bench/results/2026-10-29-relay-lean/)).
 - With 500 unrelated notes next to the ten that matter, cost per accepted task on DeepSeek Flash
   was **$0.0143 with Margincode against $0.0237 with a flat `NOTES.md`, 39.9 % less**. Without
-  the extra notes the two cost the same ($0.0125 and $0.0126). Both solved 30 of 30 tasks, so
+  the extra notes the two cost the same ($0.0125 and $0.0126). Both had 30 of 30 runs accepted, so
   this shows cost, not solve rate ([results](bench/results/2026-11-e4-scale/)).
+- With a wrong note in memory, on Claude Haiku 5.5 (3 tasks × 10 runs), **30 of 30 runs were
+  accepted on the build where agents can correct records** (`av record --supersedes`, and the pack
+  says records are claims to check), against 11 of 30 on the build before. All of the difference
+  is on two of the three tasks. The same note in a `NOTES.md` got 12 of 30, and no note at all 30
+  of 30. 15 of the 30 Haiku runs superseded the note, and all 30 were accepted. On Claude Sonnet
+  5.5 the two builds got 30 and 10 of 30
+  ([results](bench/results/2026-11-14-m0/)). On DeepSeek Flash, on one task, the same change went
+  from 2 of 30 to 12 of 30, still below a `NOTES.md`'s 28 of 30
+  ([results](bench/results/2026-11-wrong-lesson-3/)).
 - Not measured yet: large repositories.
 
 ## Try it

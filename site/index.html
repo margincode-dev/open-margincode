@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#f6f3ec" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://open.margincode.dev/">
-<meta property="og:title" content="Margincode: Your next Claude Code session starts knowing last session's dead ends.">
+<meta property="og:title" content="Margincode: one memory for all the coding agents you pay for, and it stays right as it grows.">
 <meta property="og:description" content="Open-source version control for coding agents: the right context, anchored to code, always within the token budget.">
 <meta property="og:image" content="https://open.margincode.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -618,8 +618,14 @@ h1 .why { position: relative; display: inline-block; }
 <header class="hero">
   <div class="wrap">
     <span class="eyebrow"><b>open source · MIT</b> Version control for the age of coding agents</span>
-    <h1>Your next Claude Code session starts knowing last session's <em class="why">dead ends<svg class="scribble" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 13 C 45 5, 90 4, 128 9 S 190 17, 217 6"/></svg></em>.</h1>
+    <h1>One memory for all the coding agents you pay for, and it <em class="why">stays right<svg class="scribble" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 13 C 45 5, 90 4, 128 9 S 190 17, 217 6"/></svg></em> as it grows.</h1>
     <p class="lede">Git remembers what changed. Margincode also remembers <strong>why, and what didn't work</strong>. Instead of re-reading the repo and retrying what already failed, each session starts from <strong>the context that matters</strong>: decisions and dead ends pinned to the code, its own isolated workspace, and a deterministic context pack that <strong>never outgrows the token budget</strong>.</p>
+    <div class="stats reveal" style="margin-top:32px">
+      <div class="stat"><b>−39.9%</b><span>cost per accepted task against a flat NOTES.md, with 500 unrelated notes (<a href="https://github.com/margincode-dev/open-margincode/tree/main/bench/results/2026-11-e4-scale">run</a>)</span></div>
+      <div class="stat"><b>30/30</b><span>runs accepted with a wrong note in memory, against 11/30 before; Haiku 5.5 (<a href="#evidence">evidence</a>)</span></div>
+      <div class="stat"><b>+7%</b><span>cost for one agent alone, in a run too small for a claim (<a href="#evidence">evidence</a>)</span></div>
+      <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
+    </div>
     <div class="cta">
       <a class="btn btn-primary btn-ring" href="https://github.com/margincode-dev/open-margincode" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>
@@ -651,12 +657,6 @@ h1 .why { position: relative; display: inline-block; }
       </aside>
     </div>
 
-    <div class="stats reveal">
-      <div class="stat"><b>0</b><span>LLM calls inside the packer. Same state, same pack.</span></div>
-      <div class="stat"><b>800</b><span>tokens in the default pack: signatures, not bodies the agent reads anyway</span></div>
-      <div class="stat"><b>1</b><span>isolated jj workspace per task, no shared checkout</span></div>
-      <div class="stat"><b>−13%</b><span>turns per task for Claude Code, at the same cost in October's benchmark (<a href="#evidence">benchmark and a later run</a>)</span></div>
-    </div>
 
     <figure class="shot reveal">
       <a href="/demo" aria-label="Watch the recorded run">
@@ -916,7 +916,7 @@ claude plugin install margincode@margincode</code></pre><button class="copy" ari
     <div class="ints">
       <div class="int reveal"><span class="pill">Claude Code · what the plugin sets up</span><h3>Hooks + CLI</h3><p><code>SessionStart</code> prints an 800-token pack; opening a file adds what other tasks recorded about it; edits are checkpointed; <code>Stop</code> asks once to record changes no record explains. Silent outside a task, never fails the agent.</p>
         <div class="copy-block"><pre><code>integrations/claude-code/install.sh</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
-      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP at <code>localhost:7420/mcp</code>. <code>av init --for</code> writes the config for Codex, Cursor, Grok and Gemini. Each connection is its own ledger session and remembers its tasks and their claim generations.</p>
+      <div class="int reveal"><span class="pill">any MCP client</span><h3>MCP server</h3><p>For clients without hooks: twenty-four tools over streamable HTTP at <code>localhost:7420/mcp</code>. <code>av init --for</code> writes the config for Codex, Gemini CLI, Cursor and Antigravity (MCP only), and for Grok Build and OpenCode, which also get hooks (OpenCode through a plugin). Each connection is its own ledger session and remembers its tasks and their claim generations.</p>
         <div class="copy-block"><pre><code>av init --for codex --for cursor \
   --for grok --for gemini</code></pre><button class="copy" aria-label="Copy command"></button></div></div>
       <div class="int reveal"><span class="pill">anything else</span><h3>Generic wrapper</h3><p>Writes the pack to <code>$AV_CONTEXT_FILE</code>, runs your agent command, checkpoints afterwards.</p>
@@ -1026,6 +1026,42 @@ av post --repo api --title "Add retry" --goal "…" --needs code
           </table>
         </div>
         <p style="font-size:13.5px"><b>Recorded knowledge</b> cuts cost per solved task by about 42%, however it is delivered. With ten notes, a plain NOTES.md delivers it just as well: av is only 1.8% cheaper. Our first run, with MCP and manual checkpoint calls, cost 24.5% more than notes; that is why av now runs on hooks and one-call close-out. With 500 unrelated notes next to the ten that matter, av's cost per accepted task was $0.0143 against NOTES.md's $0.0237 (39.9% less), and both still solved 30/30, so this shows cost, not solve rate. <code>bench/results/2026-10-29-relay-lean</code> · <code>bench/results/2026-11-e4-scale</code></p>
+      </div>
+      <div class="ev wide reveal">
+        <h3>Wrong notes (M0) <small>Claude Code · Haiku 5.5 · 3 tasks × 10 runs per arm</small></h3>
+        <p>An earlier note is confidently wrong, and nothing in the repository contradicts it. Does the next agent get past it? <code>cold</code> gets no note; <code>notes</code> gets it in a NOTES.md; <code>av-before</code> gets it as a record on the build before agents could correct records; <code>av-phase0</code> on the build where the pack says records are claims to check and <code>av record --supersedes</code> replaces a wrong one.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>arm</th><th class="num">accepted</th><th class="num">95% Wilson</th></tr></thead>
+            <tbody>
+              <tr><td>cold</td><td class="num">30/30</td><td class="num">0.886–1.000</td></tr>
+              <tr><td>notes</td><td class="num">12/30</td><td class="num">0.246–0.577</td></tr>
+              <tr><td>av-before</td><td class="num">11/30</td><td class="num">0.219–0.545</td></tr>
+              <tr class="us"><td>av-phase0</td><td class="num">30/30</td><td class="num">0.886–1.000</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:13.5px"><b>The build that lets agents correct records</b> got past the wrong note every time, as an agent with no note did. All of the difference is on two of the three tasks; on the third the note does not mislead and every arm solved it. On Sonnet 5.5, av-phase0 got 30 of 30 and av-before 10 of 30. Not every run corrected the note: 15 of the 30 Haiku runs did, and all 30 were accepted. On DeepSeek Flash, on one task, the same change went from 2 of 30 to 12 of 30, still below NOTES.md's 28 of 30. <code>bench/results/2026-11-14-m0</code> · <code>bench/results/2026-11-wrong-lesson-3</code></p>
+      </div>
+      <div class="ev wide reveal">
+        <h3>How it compares <small>from each project's own page, read 2026-11-28</small></h3>
+        <p>Plain capabilities you can check, including the rows where Margincode loses.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Margincode</th><th>Claude Code memory</th><th>claude-mem</th><th>Beads</th><th>Entire</th><th>NOTES.md by hand</th></tr></thead>
+            <tbody>
+              <tr><td>Agents from other vendors share it</td><td>yes: an MCP server for any client; hooks for Claude Code and Grok Build, a hooks plugin for OpenCode; MCP only for Codex, Gemini CLI, Cursor and Antigravity</td><td><code>CLAUDE.md</code> can be an <code>AGENTS.md</code> other agents read; auto memory is Claude Code's and machine-local</td><td>yes: Claude Code, Codex, Cursor, OpenCode and more</td><td>yes: <code>bd setup</code> for Codex, Claude, Cursor and more</td><td>records Claude Code, Codex, Cursor and more; resuming in another agent not stated</td><td>yes, if each agent is told to read it</td></tr>
+              <tr><td>Notes anchored to code</td><td>yes: a path or <code>path:Symbol</code>, marked when that code changes</td><td>rules scoped by path glob; auto memory not stated</td><td>not stated</td><td>not stated</td><td>to commits, by a trailer</td><td>no</td></tr>
+              <tr><td>A wrong note is corrected or retired</td><td>yes: <code>av record --supersedes</code></td><td>you or Claude edit or delete the files</td><td>not stated</td><td><code>bd close</code>, <code>bd update</code>, a <code>supersedes</code> link</td><td>not stated</td><td>edit the file</td></tr>
+              <tr><td>Brief cut to a token budget, no model call</td><td>yes: 800 tokens by default, deterministic</td><td>first 200 lines or 25 KB of <code>MEMORY.md</code>; Claude writes auto memory</td><td>a second agent writes observations and summaries; a count limit, no token budget stated</td><td><code>bd prime</code>; no token budget stated</td><td>not stated</td><td>no: the agent reads the whole file</td></tr>
+              <tr><td>Works with no daemon or server</td><td><b>no</b>: a daemon with its own Postgres</td><td>yes: plain files, built in</td><td>no: a local HTTP worker and SQLite</td><td>yes: Dolt runs in-process (a server mode exists)</td><td>hooks and git; no daemon mentioned</td><td>yes</td></tr>
+              <tr><td>Setup</td><td>install script, Homebrew or cargo-binstall, then <code>av init</code> per repo (or Docker for the daemon)</td><td>none, built in</td><td><code>npx claude-mem install</code></td><td><code>brew install beads</code>, then <code>bd init</code></td><td><code>brew install --cask entireio/tap/entire</code>, then <code>entire enable</code></td><td>none</td></tr>
+              <tr><td>Changes how you use git</td><td><b>yes</b>: each job is an av task in its own workspace, and a merge moves Margincode's <code>main</code>, not your checkout</td><td><code>CLAUDE.md</code> is a file in the repo, shared through source control; auto memory lives outside it</td><td>not stated</td><td><code>bd init</code> writes <code>AGENTS.md</code>; <code>--stealth</code> turns off its git hooks; syncs over <code>refs/dolt/data</code> on your remote</td><td>git hooks, a commit trailer, checkpoint refs pushed with your code; no commits on your branch</td><td>a file in the repo</td></tr>
+              <tr><td>One agent alone costs less</td><td><b>not shown</b>: 7% more in the tracker run of 2026-11-21 (End-to-end agents, above)</td><td>not measured here</td><td>not measured here</td><td>not measured here</td><td>not measured here</td><td>not measured here</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:13.5px">Sources: <a href="https://code.claude.com/docs/en/memory">Claude Code memory</a> · <a href="https://github.com/thedotmack/claude-mem">claude-mem</a> · <a href="https://github.com/gastownhall/beads">Beads</a> · <a href="https://github.com/entireio/cli">Entire</a>. "Not stated" means that page does not say; "not measured here" means this repository has no run of it.</p>
       </div>
     </div>
     <div class="honest reveal">

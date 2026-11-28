@@ -1,6 +1,6 @@
 {
   "name": "margincode",
-  "description": "Ask Claude to install Margincode, connect your agents to it and fix a broken setup",
+  "description": "One memory for all the coding agents you pay for. Ask Claude to install Margincode, connect your agents and fix a broken setup",
   "version": "0.1.0",
   "author": {
     "name": "VINH BUI",

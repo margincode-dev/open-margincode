@@ -69,3 +69,5 @@ its own Postgres under `/data/pg` (lite mode); keep `/data` on a volume. The das
    `~/ws` (`AV_WS_ROOT`), and, for Docker, the volume `margincode` (`docker volume rm margincode`)
    or the Compose volumes (`docker compose -f deploy/docker-compose.yml down -v`). `av init` also
    left `*.bak` copies beside each config it changed; `av uninstall` names them and keeps them.
+   The ones beside the Antigravity and OpenCode configs can hold the av token itself, so delete
+   or keep them on purpose.

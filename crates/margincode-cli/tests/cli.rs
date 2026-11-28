@@ -3961,8 +3961,14 @@ fn uninstall_undoes_init_for_every_agent_and_leaves_the_repository_alone() {
     assert!(out.contains("Left in place: av's data"), "{out}");
     assert!(out.contains("docs/install.md#uninstall"), "{out}");
     assert!(!added.exists());
+    let antigravity = h.join(".gemini/config/mcp_config.json");
     for p in &written {
-        assert!(!p.exists(), "{} should be gone: {out}", p.display());
+        if *p == antigravity {
+            // the CLI ships it as a 0-byte file: it is left as one
+            assert_eq!(std::fs::read(p).unwrap(), b"", "{out}");
+        } else {
+            assert!(!p.exists(), "{} should be gone: {out}", p.display());
+        }
     }
     let g: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&gemini).unwrap()).unwrap();

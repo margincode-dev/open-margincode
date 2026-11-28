@@ -505,13 +505,16 @@ mounts, so give it `/import/NAME`. A repo already added is left as it is. See
 whose command is av's (another command in the same entry stays), the MCP server named `av`
 (Claude Code's through `claude mcp remove --scope user av`), the OpenCode plugin `plugins/av.js`
 when its first line is av's, and the four scripts in `~/.claude/av-hooks/`. A JSON object, TOML
-table or file left empty by that goes too; everything else in a file stays. JSON files are written
+table or file left empty by that goes too, except Antigravity's `mcp_config.json`, which the CLI
+ships as a 0-byte file and which is written back that way (its mode kept); everything else in a
+file stays. JSON files are written
 back the way `av init` writes them (two-space indent; key order can change), TOML files keep
 their bytes, except comments directly above `[mcp_servers.av]`, which belong to it. A file with no
 av entry is not touched, so a second run changes nothing and says so. No `*.bak` is written, and
 the ones `av init` kept are listed, not removed. The default is every agent (`mcp-json` only with
-`--path`). A file it cannot parse is named, the others are still done, and the command then
-fails. It keeps the daemon's data, the workspaces and the binaries; `docs/install.md`,
+`--path`). A file it cannot parse or change is named, the others are still done, and the command
+then fails. The listed backups beside the Antigravity and OpenCode configs can hold the token
+itself. It keeps the daemon's data, the workspaces and the binaries; `docs/install.md`,
 "Uninstall", says how to remove those.
 
 ### Full stack (Docker)

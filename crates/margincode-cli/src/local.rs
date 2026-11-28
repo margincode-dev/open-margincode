@@ -709,7 +709,11 @@ pub fn plan_uninstall(
                 }
             }
             Agent::Gemini | Agent::Cursor | Agent::Antigravity | Agent::McpJson => {
-                let undo = agents::json_without_server(&path, &["mcpServers"]);
+                let mut undo = agents::json_without_server(&path, &["mcpServers"]);
+                // Antigravity ships this file empty, so it was there before av init
+                if agent == Agent::Antigravity && matches!(undo, Ok(agents::Undo::Delete)) {
+                    undo = Ok(agents::Undo::Rewrite(String::new()));
+                }
                 steps.push(Step {
                     path,
                     what: server,
@@ -750,43 +754,16 @@ pub fn uninstall(agents: &[Agent], mcp_json: Option<&Path>, dry_run: bool) -> Re
         agents,
         mcp_json,
     );
-    let mut changed = 0;
-    let mut failed = 0;
-    let mut backups = Vec::new();
-    for step in &steps {
-        let mut bak = step.path.as_os_str().to_owned();
-        bak.push(".bak");
-        let bak = PathBuf::from(bak);
-        if bak.is_file() && !backups.contains(&bak) {
-            backups.push(bak);
-        }
-        let undo = match &step.undo {
-            Ok(agents::Undo::Unchanged) => continue,
-            Ok(undo) => undo,
-            Err(e) => {
-                failed += 1;
-                eprintln!(
-                    "av: cannot check {}: {e}; remove its `av` entry by hand",
-                    step.path.display()
-                );
-                continue;
-            }
-        };
-        changed += 1;
-        let (verb, path) = (step.what, step.path.display());
-        match (undo, dry_run) {
-            (agents::Undo::Delete, true) => println!("would delete {path} ({verb})"),
-            (_, true) => println!("would remove {verb} from {path}"),
-            (agents::Undo::Delete, false) => {
-                agents::apply_undo(&step.path, undo)?;
-                println!("deleted {path} ({verb})");
-            }
-            (_, false) => {
-                agents::apply_undo(&step.path, undo)?;
-                println!("removed {verb} from {path}");
-            }
-        }
-    }
+    let (mut changed, mut failed) = apply_steps(&steps, dry_run);
+    let backups: Vec<PathBuf> = steps
+        .iter()
+        .map(|s| {
+            let mut bak = s.path.as_os_str().to_owned();
+            bak.push(".bak");
+            PathBuf::from(bak)
+        })
+        .filter(|b| b.is_file())
+        .collect();
     if agents.contains(&Agent::Claude) {
         match claude_mcp_remove(dry_run) {
             Ok(true) => changed += 1,
@@ -811,7 +788,10 @@ pub fn uninstall(agents: &[Agent], mcp_json: Option<&Path>, dry_run: bool) -> Re
             String::new()
         } else {
             let names: Vec<String> = backups.iter().map(|b| b.display().to_string()).collect();
-            format!(", and the backups av init kept ({})", names.join(", "))
+            format!(
+                ", and the backups av init kept ({}; Antigravity's and OpenCode's can hold the token)",
+                names.join(", ")
+            )
         }
     );
     if av_home().join("daemon.pid").exists() {
@@ -820,10 +800,50 @@ pub fn uninstall(agents: &[Agent], mcp_json: Option<&Path>, dry_run: bool) -> Re
     println!("To remove those and the binaries: {UNINSTALL_DOCS}");
     if failed > 0 {
         return Err(local(format!(
-            "{failed} config(s) could not be checked; see above"
+            "{failed} config(s) could not be checked or changed; see above"
         )));
     }
     Ok(())
+}
+
+/// Prints and (unless `dry_run`) applies each step. A step that cannot be read or applied is
+/// named on stderr and the others still run. Returns (changed, failed).
+fn apply_steps(steps: &[Step], dry_run: bool) -> (usize, usize) {
+    let (mut changed, mut failed) = (0, 0);
+    for step in steps {
+        let (verb, path) = (step.what, step.path.display());
+        let undo = match &step.undo {
+            Ok(agents::Undo::Unchanged) => continue,
+            Ok(undo) => undo,
+            Err(e) => {
+                failed += 1;
+                eprintln!("av: cannot check {path}: {e}; remove its `av` entry by hand");
+                continue;
+            }
+        };
+        let delete = *undo == agents::Undo::Delete;
+        if dry_run {
+            changed += 1;
+            if delete {
+                println!("would delete {path} ({verb})");
+            } else {
+                println!("would remove {verb} from {path}");
+            }
+            continue;
+        }
+        if let Err(e) = agents::apply_undo(&step.path, undo) {
+            failed += 1;
+            eprintln!("av: {e}; remove its `av` entry by hand");
+            continue;
+        }
+        changed += 1;
+        if delete {
+            println!("deleted {path} ({verb})");
+        } else {
+            println!("removed {verb} from {path}");
+        }
+    }
+    (changed, failed)
 }
 
 const UNINSTALL_DOCS: &str =
@@ -1296,10 +1316,72 @@ mod tests {
                 .collect();
             assert!(!baks.is_empty(), "{agent:?}");
             assert!(uninstall_in(home.path(), &[agent], false) > 0, "{agent:?}");
+            let mut want = baks.clone();
+            if agent == Agent::Antigravity {
+                want.push((config(home.path(), agent), Vec::new()));
+                want.sort();
+            }
             let left: Vec<(PathBuf, Vec<u8>)> = snapshot(home.path()).into_iter().collect();
-            assert_eq!(left, baks, "{agent:?}: only the backups init kept");
+            assert_eq!(left, want, "{agent:?}: only the backups init kept");
             assert_eq!(uninstall_in(home.path(), &ALL, false), 0, "{agent:?}");
         }
+    }
+
+    /// Antigravity ships `mcp_config.json` as a 0-byte file: uninstall puts that back.
+    #[test]
+    fn uninstall_leaves_antigravitys_shipped_empty_config_empty() {
+        let home = tempfile::tempdir().unwrap();
+        let path = config(home.path(), Agent::Antigravity);
+        write(&path, "");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        for _ in 0..2 {
+            agents::install_antigravity(&path, URL, None).unwrap();
+            assert!(
+                std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("X-Av-Agent")
+            );
+            assert_eq!(uninstall_in(home.path(), &ALL, false), 1);
+            assert_eq!(std::fs::read(&path).unwrap(), b"");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o640);
+            }
+            assert_eq!(uninstall_in(home.path(), &ALL, false), 0);
+        }
+    }
+
+    /// A directory cannot be written as a file, as root too.
+    #[test]
+    fn a_step_that_cannot_be_applied_is_counted_and_the_rest_still_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let stuck = dir.path().join("settings.json");
+        std::fs::create_dir(&stuck).unwrap();
+        let other = dir.path().join("mcp.json");
+        write(&other, "{}");
+        let steps = [
+            Step {
+                path: stuck.clone(),
+                what: "MCP server `av`",
+                undo: Ok(agents::Undo::Rewrite("{}\n".into())),
+            },
+            Step {
+                path: other.clone(),
+                what: "MCP server `av`",
+                undo: Ok(agents::Undo::Delete),
+            },
+        ];
+        assert_eq!(apply_steps(&steps, true), (2, 0));
+        assert!(other.exists(), "a dry run applies nothing");
+        assert_eq!(apply_steps(&steps, false), (1, 1));
+        assert!(!other.exists());
+        assert!(stuck.is_dir());
     }
 
     #[test]

@@ -2525,7 +2525,7 @@ async fn a_waiting_next_is_not_given_a_skipped_task_but_is_given_the_next() {
     record_decision(&e, &t).await;
     let app = e.app.clone();
     let skip = id(&t);
-    let waiting = tokio::spawn(async move {
+    let mut waiting = tokio::spawn(async move {
         call(
             &app,
             "POST",
@@ -2538,8 +2538,23 @@ async fn a_waiting_next_is_not_given_a_skipped_task_but_is_given_the_next() {
         .await
     });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let mut feed = e.state.subscribe_events().await.unwrap();
     let (status, b) = task_op(&e, &id(&t), "submit", json!({"agent": "claude"})).await;
     assert_eq!(status, StatusCode::OK, "{b}");
+    // The submit wakes the waiter through the feed's poll; an item posted wakes it at once, so
+    // posted without this the item is there on that look and the skipped review is never the
+    // only work. A look that finds nothing leaves no trace, hence the second's hold after it.
+    tokio::time::timeout(HANG, async {
+        while feed.recv().await.unwrap().kind != "submit" {}
+    })
+    .await
+    .expect("hung: the feed did not carry the submit");
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), &mut waiting)
+            .await
+            .is_err(),
+        "woken by the skipped task alone, the call answered"
+    );
     post_item(&e, "demo", "draw it", &["image"], 0).await;
     let (status, body) = answer(waiting).await;
     assert_eq!(status, StatusCode::OK, "{body}");
